@@ -56,8 +56,18 @@ async def init_db():
     from data.houses_data import HOUSES_DATA
     from data.map_data import TERRITORIES_DATA
 
+    from sqlalchemy import text
     async with engine.begin() as conn:
         await conn.run_sync(models.Base.metadata.create_all)
+        # Mavjud bazalar uchun xavfsiz ustun qo'shish (SQLite/PostgreSQL)
+        for alter_stmt in [
+            "ALTER TABLE battle_marches ADD COLUMN has_dragon BOOLEAN DEFAULT 0",
+            "ALTER TABLE battle_marches ADD COLUMN dragon_tactic VARCHAR(50) DEFAULT 'none'",
+        ]:
+            try:
+                await conn.execute(text(alter_stmt))
+            except Exception:
+                pass
         logger.info("✅ Barcha ma'lumotlar bazasi jadvallari yaratildi.")
 
     # 50 ta Xonadon va Hududlarni boshlang'ich holatda yuklash

@@ -10,16 +10,18 @@ def calculate_battle(
     defender_hero: Dict[str, Any] = None,
     castle_defense: int = 500,
     dragon_power: int = 0,
+    dragon_tactic: str = "none",
+    defender_dragon_power: int = 0,
 ) -> Dict[str, Any]:
     """
-    Tosh-Qaychi-Qog'oz (RPS) asosida jang natijasi va yo'qotishlarni hisoblash.
+    Tosh-Qaychi-Qog'oz (RPS) va Strategik Drakarys asosida jang natijasi va yo'qotishlarni hisoblash.
     
     Qoidalar:
     - Otliq > Kamonchi (+40%)
     - Nayzachi > Otliq (+40%)
     - Kamonchi > Piyoda (+30%)
     - Piyoda > Nayzachi (+30%)
-    - Ajdar olovli hujumi (Dracarys)
+    - Ajdarlar jangi va Drakarys Taktikalari (devorlar, kamonchilar, old qatorlar, yalpi zarba)
     """
     troop_types = ["infantry", "archers", "cavalry", "spearmen", "special_troops"]
 
@@ -30,25 +32,101 @@ def calculate_battle(
     total_att_count = sum(att_troops.values())
     total_def_count = sum(def_troops.values())
 
-    # Ajdar dastlabki olovli zarbasi (balanslangan: garnizonning 10-15% idan oshmaydi)
+    # ============================================================
+    # DRAKARYS VA AJDARLARNING STRATEGIK HUJUMI
+    # ============================================================
     dragon_details = ""
     def_losses = {t: 0 for t in troop_types}
-    if dragon_power > 0 and total_def_count > 0:
-        max_dragon_kills = max(5, min(int(total_def_count * 0.15), 60))
-        calculated_kills = int((dragon_power / 20) * random.uniform(0.8, 1.3))
-        fire_kills = min(max_dragon_kills, calculated_kills)
 
-        per_type_kill = max(1, fire_kills // len(troop_types))
+    # Havoda ajdarlar to'qnashuvi (agar har ikki tomonda ajdar bo'lsa)
+    eff_att_dragon = dragon_power
+    if dragon_power > 0 and defender_dragon_power > 0:
+        clash_diff = dragon_power - defender_dragon_power
+        if clash_diff > 0:
+            eff_att_dragon = int(dragon_power * 0.55)
+            dragon_details += (
+                f"🐉⚔️ **OSMONDA AJDARLAR JANGI!**\n"
+                f"Himoyachi ajdari hujumchiga qattiq qarshilik ko'rsatdi, biroq hujumchi ajdar osmon hukmronligini qo'lga kiritdi!\n"
+            )
+        else:
+            eff_att_dragon = int(dragon_power * 0.20)
+            dragon_details += (
+                f"🐉🛡️ **OSMONDA AJDARLAR JANGI!**\n"
+                f"Qal'a uzra uchayotgan himoyachi ajdar hujumchining olovli zarbasini jilovladi va qal'ani himoya qildi!\n"
+            )
+
+    if eff_att_dragon > 0 and total_def_count > 0:
         total_killed = 0
-        for t in troop_types:
-            killed = min(def_troops[t], per_type_kill)
-            def_losses[t] += killed
-            def_troops[t] -= killed
-            total_killed += killed
+        if dragon_tactic == "walls":
+            # 1. Devorlarni eritish taktikasi
+            melt_ratio = random.uniform(0.40, 0.55)
+            castle_defense = max(50, int(castle_defense * (1.0 - melt_ratio)))
+            max_kills = max(5, min(int(total_def_count * 0.10), 50))
+            fire_kills = min(max_kills, int((eff_att_dragon / 25) * random.uniform(0.8, 1.2)))
+            per_type = max(1, fire_kills // len(troop_types))
+            for t in troop_types:
+                k = min(def_troops[t], per_type)
+                def_losses[t] += k
+                def_troops[t] -= k
+                total_killed += k
+            dragon_details += (
+                f"🔥🏰 **DRACARYS! (Qal'a devorlarini yoqish)**\n"
+                f"Ajdar istehkomlarga olov yog'dirdi: Qal'a mudofaasi -{int(melt_ratio*100)}% ga eridi va devor ustidagi {total_killed} ta askar yondirildi!\n"
+            )
 
-        # Qal'a istehkomini 20% ga eritadi
-        castle_defense = max(100, int(castle_defense * 0.80))
-        dragon_details = f"🔥 **DRACARYS!** Ajdarning olovli zarbasi garnizondan {total_killed} askarni yoqdi va qal'a istehkomlarini eritdi!\n"
+        elif dragon_tactic == "ranged":
+            # 2. Kamonchi va nayzachilarni nishonga olish
+            target_types = ["archers", "spearmen"]
+            ranged_total = sum(def_troops[t] for t in target_types)
+            max_kills = max(5, min(int(ranged_total * 0.35), 75)) if ranged_total > 0 else 0
+            fire_kills = min(max_kills, int((eff_att_dragon / 18) * random.uniform(0.9, 1.3)))
+            if target_types and fire_kills > 0:
+                per_t = max(1, fire_kills // len(target_types))
+                for t in target_types:
+                    k = min(def_troops[t], per_t)
+                    def_losses[t] += k
+                    def_troops[t] -= k
+                    total_killed += k
+            castle_defense = max(100, int(castle_defense * 0.85))
+            dragon_details += (
+                f"🔥🏹 **DRACARYS! (Kamonchilar va Nayzachilarni yoqish)**\n"
+                f"Ajdar devor ustidagi merganlarni nishonga oldi: {total_killed} ta kamonchi va nayzachi kulga aylandi!\n"
+            )
+
+        elif dragon_tactic == "frontline":
+            # 3. Piyoda va otliq qismlarni yoqish
+            target_types = ["infantry", "cavalry"]
+            front_total = sum(def_troops[t] for t in target_types)
+            max_kills = max(5, min(int(front_total * 0.35), 75)) if front_total > 0 else 0
+            fire_kills = min(max_kills, int((eff_att_dragon / 18) * random.uniform(0.9, 1.3)))
+            if target_types and fire_kills > 0:
+                per_t = max(1, fire_kills // len(target_types))
+                for t in target_types:
+                    k = min(def_troops[t], per_t)
+                    def_losses[t] += k
+                    def_troops[t] -= k
+                    total_killed += k
+            castle_defense = max(100, int(castle_defense * 0.85))
+            dragon_details += (
+                f"🔥🐎 **DRACARYS! (Old qatorlar — Piyoda va Otliqlarga zarba)**\n"
+                f"Ajdar qanot yozib, old qatorlarni olov domiga soldi: {total_killed} ta og'ir askar safdan chiqarildi!\n"
+            )
+
+        else:
+            # 4. Balanced / Yalpi zarba
+            max_kills = max(5, min(int(total_def_count * 0.20), 80))
+            fire_kills = min(max_kills, int((eff_att_dragon / 20) * random.uniform(0.8, 1.2)))
+            per_type = max(1, fire_kills // len(troop_types))
+            for t in troop_types:
+                k = min(def_troops[t], per_type)
+                def_losses[t] += k
+                def_troops[t] -= k
+                total_killed += k
+            castle_defense = max(100, int(castle_defense * 0.75))
+            dragon_details += (
+                f"🔥⚡ **DRACARYS! (Yalpi Olovli Bo'ron)**\n"
+                f"Ajdar butun qal'a bo'ylab olov purkadi: {total_killed} ta dushman askari yoqildi va mudofaa zaiflashtirildi!\n"
+            )
 
     if total_att_count <= 0:
         return {

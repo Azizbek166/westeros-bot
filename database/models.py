@@ -213,6 +213,8 @@ class BattleMarch(Base):
     spearmen = Column(Integer, default=0)
     special_troops = Column(Integer, default=0)
     character_id = Column(Integer, nullable=True)
+    has_dragon = Column(Boolean, default=False)
+    dragon_tactic = Column(String(50), default="none")  # none, walls, ranged, frontline, balanced
 
     departure_time = Column(DateTime, default=datetime.utcnow)
     arrival_time = Column(DateTime, nullable=False, index=True)

@@ -80,8 +80,8 @@ UPKEEP_FOOD_PER_CAVALRY = 1.2
 UPKEEP_FOOD_PER_SPEARMAN = 0.5
 UPKEEP_FOOD_PER_SPECIAL = 1.5
 
-# Yurish tezligi (hududlar orasidagi bazaviy daqiqa)
-BASE_MARCH_MINUTES = 3
+# Yurish tezligi (hududlar orasidagi bazaviy daqiqa - mudofaa reaksiyasi uchun)
+BASE_MARCH_MINUTES = 5
 
 # ============================================================
 # LAVOZIMLAR VA ROLLARI

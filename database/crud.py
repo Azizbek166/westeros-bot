@@ -264,6 +264,8 @@ async def create_battle_march(
     special_troops: int,
     character_id: Optional[int],
     duration_minutes: int,
+    has_dragon: bool = False,
+    dragon_tactic: str = "none",
 ) -> models.BattleMarch:
     """Yangi harbiy yurishni ro'yxatga olish"""
     # O'yinchining armiyasidan yuborilgan qismini ayirish
@@ -288,6 +290,8 @@ async def create_battle_march(
         spearmen=spearmen,
         special_troops=special_troops,
         character_id=character_id,
+        has_dragon=has_dragon,
+        dragon_tactic=dragon_tactic,
         departure_time=datetime.utcnow(),
         arrival_time=arrival_time,
         status="marching",
@@ -524,11 +528,13 @@ async def send_castle_reinforcements(
 ) -> Tuple[bool, str]:
     """Ittifoqchi qal'aga mudofaa uchun qo'shin (garnizon) yordami yuborish"""
     user = await session.get(models.User, user_id)
+    if not user:
+        user = await get_user_by_telegram_id(session, user_id)
     territory = await session.get(models.Territory, target_territory_id)
     if not user or not territory:
         return False, "Foydalanuvchi yoki qal'a topilmadi."
 
-    army_res = await session.execute(select(models.Army).where(models.Army.user_id == user_id))
+    army_res = await session.execute(select(models.Army).where(models.Army.user_id == user.id))
     army = army_res.scalar_one_or_none()
     if not army:
         return False, "Armiya topilmadi."
