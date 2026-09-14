@@ -49,7 +49,8 @@ async def show_battle_hub(target, user_id: int, is_message: bool):
             for m in active_marches:
                 terr = await session.get(models.Territory, m.target_territory_id)
                 rem_sec = max(0, int((m.arrival_time - datetime.utcnow()).total_seconds()))
-                march_text += f"• 🎯 **{terr.name if terr else 'Qal\'a'}** sari yurish: {rem_sec // 60} daq {rem_sec % 60} soniya qoldi\n"
+                t_name = terr.name if terr else "Qal'a"
+                march_text += f"• 🎯 **{t_name}** sari yurish: {rem_sec // 60} daq {rem_sec % 60} soniya qoldi\n"
         else:
             march_text = "Hozirda faol harbiy yurishlar yo'q.\n"
 

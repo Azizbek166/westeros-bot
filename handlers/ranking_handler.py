@@ -41,11 +41,15 @@ async def show_ranking_hub(target, user_id: int, is_message: bool):
             h_name = w.house.name if w.house else "Mustaqil"
             wealth_text += f"{i}. **{escape_md(w.full_name)}** ({escape_md(h_name)}) — {w.gold:,} 🪙\n"
 
+        ht = houses_text or "Ma'lumot yo'q"
+        pt = players_text or "Hozircha lordlar yo'q"
+        wt = wealth_text or "Hozircha ma'lumot yo'q"
+
         text = (
             f"🏆 **1-MAVSUM: BESH QIROL URUSHI REYTINGI**\n\n"
-            f"🏰 **ENG NAFIS VA QUDRATLI XONADONLAR:**\n{houses_text or 'Ma\'lumot yo\'q'}\n"
-            f"👑 **ENG MASHHUR LORDLAR (PRESTIGE):**\n{players_text or 'Hozircha lordlar yo\'q'}\n"
-            f"💰 **ENG BOY XONADON EGALARI:**\n{wealth_text or 'Hozircha ma\'lumot yo\'q'}\n\n"
+            f"🏰 **ENG NAFIS VA QUDRATLI XONADONLAR:**\n{ht}\n"
+            f"👑 **ENG MASHHUR LORDLAR (PRESTIGE):**\n{pt}\n"
+            f"💰 **ENG BOY XONADON EGALARI:**\n{wt}\n\n"
             f"Mavsum yakunida Temir Taxt sohibi va peshqadamlar maxsus sovrinlar bilan taqdirlanadi!"
         )
 
