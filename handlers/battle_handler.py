@@ -92,7 +92,6 @@ async def show_battle_hub(target, user_id: int, is_message: bool):
 async def march_prep_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Hujumga tayyorgarlik va armiya ulushini tanlash"""
     query = update.callback_query
-    await query.answer()
 
     terr_id = int(query.data.split(":")[1])
     user_id = query.from_user.id
@@ -102,11 +101,17 @@ async def march_prep_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         terr = await crud.get_territory_by_id(session, terr_id)
 
         if not user or not terr:
+            await query.answer("Hudud topilmadi.", show_alert=True)
             return
 
         is_allowed, err_msg = can_attack_target(user, terr)
         if not is_allowed:
             await query.answer(err_msg, show_alert=True)
+            await query.edit_message_text(
+                f"{err_msg}\n\nO'z xonadoningiz qal'asiga hujum qilib bo'lmaydi. Xaritadan dushman xonadon qal'asini tanlang:",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🗺️ Xaritaga Qaytish", callback_data="menu_map")]])
+            )
             return
 
         total_army = (
@@ -118,8 +123,18 @@ async def march_prep_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
 
         if total_army < 50:
-            await query.answer("❌ Yurish uchun kamida 50 ta askar kerak! /army orqali yollang.", show_alert=True)
+            await query.answer("❌ Yurish uchun kamida 50 ta askar kerak!", show_alert=True)
+            await query.edit_message_text(
+                f"❌ **Yurish uchun kamida 50 ta askar kerak!**\n\nSizning armiyangiz: **{total_army}** ta askar.\nArmiya bo'limidan askar yollang:",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⚔️ Armiya (Askar Yollash)", callback_data="menu_army")],
+                    [InlineKeyboardButton("🔙 Xaritaga Qaytish", callback_data="menu_map")]
+                ])
+            )
             return
+
+        await query.answer()
 
         buttons = [
             [InlineKeyboardButton("⚔️ To'liq Armiya Bilan Yurish (100%)", callback_data=f"send_march:{terr.id}:100")],
@@ -142,7 +157,6 @@ async def march_prep_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def send_march_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Armiyani manzil sari jo'natish"""
     query = update.callback_query
-    await query.answer()
 
     parts = query.data.split(":")
     terr_id = int(parts[1])
@@ -154,6 +168,7 @@ async def send_march_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         terr = await crud.get_territory_by_id(session, terr_id)
 
         if not user or not terr:
+            await query.answer("Ma'lumot topilmadi.", show_alert=True)
             return
 
         ratio = percent / 100.0
@@ -165,8 +180,10 @@ async def send_march_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         total_sent = infantry + archers + cavalry + spearmen + special
         if total_sent <= 0:
-            await query.answer("Askarlar soni yetarli emas.", show_alert=True)
+            await query.answer("❌ Askarlar soni yetarli emas.", show_alert=True)
             return
+
+        await query.answer("🚩 Qo'shin yo'lga chiqdi!")
 
         # Qalqonni bekor qilish
         user.peace_shield_until = None

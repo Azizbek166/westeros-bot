@@ -279,9 +279,14 @@ async def house_donate_action_callback(update: Update, context: ContextTypes.DEF
         iron = 200
 
     async with AsyncSessionLocal() as session:
+        user = await crud.get_user_with_relations(session, user_id)
+        if not user or not user.house_id:
+            await query.answer("❌ Siz hali xonadonga a'zo emassiz.", show_alert=True)
+            return
+
         ok, msg = await crud.donate_to_house_treasury(
             session=session,
-            user_id=user_id,
+            user_id=user.id,
             gold=gold,
             food=food,
             iron=iron

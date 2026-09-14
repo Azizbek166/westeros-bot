@@ -572,6 +572,8 @@ async def donate_to_house_treasury(
 ) -> Tuple[bool, str]:
     """Xonadon umumiy g'aznasiga shaxsiy resurslarni ehson qilish"""
     user = await session.get(models.User, user_id)
+    if not user:
+        user = await get_user_by_telegram_id(session, user_id)
     if not user or not user.house_id:
         return False, "Siz hali xonadonga a'zo emassiz."
 
