@@ -55,7 +55,11 @@ class HealthHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-type", "text/plain; charset=utf-8")
         self.end_headers()
-        self.wfile.write(b"Westeros Bot is running 24/7!")
+        self.wfile.write(b"Westeros Bot v2.2 - Live and updated!")
+
+    def do_HEAD(self):
+        self.send_response(200)
+        self.end_headers()
 
     def log_message(self, format, *args):
         pass  # Render loglarini to'ldirmaslik uchun
