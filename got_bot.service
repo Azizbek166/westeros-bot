@@ -1,0 +1,15 @@
+[Unit]
+Description=Game of Thrones Telegram MMORPG Bot 24/7 Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/winter_is_coming
+ExecStart=/usr/bin/python3 bot.py
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

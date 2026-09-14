@@ -1,0 +1,3 @@
+from council_questions import COUNCIL_QUESTIONS
+
+COUNCIL_DILEMMAS = COUNCIL_QUESTIONS

@@ -1,0 +1,3 @@
+from quiz_questions import QUIZ_QUESTIONS
+
+CITADEL_QUIZ_QUESTIONS = QUIZ_QUESTIONS

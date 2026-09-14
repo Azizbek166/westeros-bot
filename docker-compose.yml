@@ -1,0 +1,11 @@
+version: "3.8"
+
+services:
+  got-bot:
+    build: .
+    container_name: got_game_bot
+    restart: always
+    volumes:
+      - .:/app
+    environment:
+      - PYTHONUNBUFFERED=1
