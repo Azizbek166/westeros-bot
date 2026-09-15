@@ -50,9 +50,21 @@ async def view_territory_callback(update: Update, context: ContextTypes.DEFAULT_
 
         owner_name = f"{terr.owner_house.emoji} {terr.owner_house.name}" if terr.owner_house else "Egaliksiz (Qaroqchilar)"
 
+        dragon_info_str = "Mavjud emas"
+        st_dragon = crud.get_stationed_dragon_info(terr)
+        if st_dragon:
+            dragon_info_str = f"🔥 **{st_dragon.get('dragon_name')}** (Kuch: {st_dragon.get('power')}, Egasi: {st_dragon.get('user_name')})"
+
         buttons = []
         if is_own:
-            buttons.append([InlineKeyboardButton("🛡️ Sizning Xonadoningiz Qal'asi", callback_data="terr_own_info")])
+            buttons.append([InlineKeyboardButton("🛡️ Askar Joylashtirish (Garnizon)", callback_data=f"def_rf_menu:{terr.id}")])
+            if st_dragon:
+                if st_dragon.get("user_id") == user.id or (user.house and user.house.lord_user_id == user.telegram_id):
+                    buttons.append([InlineKeyboardButton("🚫 Ajdarni Qal'adan Qaytarish", callback_data=f"def_recall_dragon:{terr.id}")])
+                else:
+                    buttons.append([InlineKeyboardButton("🐉 Ajdar Qo'riqlamoqda", callback_data="terr_dragon_info")])
+            else:
+                buttons.append([InlineKeyboardButton("🐉 Ajdarni Qal'aga Joylashtirish", callback_data=f"def_station_dragon:{terr.id}")])
         else:
             buttons.append([InlineKeyboardButton("⚔️ Ushbu Qal'aga Yurish Qilish", callback_data=f"march_prep:{terr.id}")])
         buttons.append([InlineKeyboardButton("🔙 Xaritaga Qaytish", callback_data="menu_map")])
@@ -65,6 +77,7 @@ async def view_territory_callback(update: Update, context: ContextTypes.DEFAULT_
             f"💰 **SOATLIK DAROMAD:**\n"
             f"🪙 +{terr.gold_income} oltin | 🌾 +{terr.food_income} oziq-ovqat | ⛓️ +{terr.iron_income} temir\n\n"
             f"🛡️ **QAL'A MUDOFAASI:** {terr.defense} ball\n"
+            f"🐉 **MUDOFAADAGI AJDAR:** {dragon_info_str}\n\n"
             f"⚔️ **GARNIZON KUCHLARI:**\n"
             f"• 🛡️ Piyoda: {terr.garrison_infantry:,}\n"
             f"• 🏹 Kamonchi: {terr.garrison_archers:,}\n"
@@ -81,9 +94,38 @@ async def terr_own_info_callback(update: Update, context: ContextTypes.DEFAULT_T
     query = update.callback_query
     await query.answer(
         "🛡️ Bu sizning o'z xonadoningiz qal'asi!\n\n"
-        "O'z qal'angizga hujum qilib bo'lmaydi. Xaritadan boshqa dushman qal'alariga (masalan: Casterly Rock, Dreadfort, King's Landing va h.k.) yurish qilishingiz mumkin.",
+        "O'z qal'angizga hujum qilib bo'lmaydi. Ushbu qal'aga askar yoki ajdaringizni mudofaaga joylashtirishingiz mumkin.",
         show_alert=True
     )
+
+
+async def def_station_dragon_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ajdarni qal'aga mudofaa uchun joylashtirish"""
+    query = update.callback_query
+    terr_id = int(query.data.split(":")[1])
+    user_id = query.from_user.id
+    async with AsyncSessionLocal() as session:
+        ok, msg = await crud.station_dragon_in_castle(session, user_id, terr_id)
+
+    await query.answer(msg, show_alert=True)
+    await view_territory_callback(update, context)
+
+
+async def def_recall_dragon_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ajdarni qal'a mudofaasidan qaytarib olish"""
+    query = update.callback_query
+    terr_id = int(query.data.split(":")[1])
+    user_id = query.from_user.id
+    async with AsyncSessionLocal() as session:
+        ok, msg = await crud.recall_dragon_from_castle(session, user_id, terr_id)
+
+    await query.answer(msg, show_alert=True)
+    await view_territory_callback(update, context)
+
+
+async def terr_dragon_info_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer("🐉 Qal'a osmonida ittifoqchi ajdar parvoz qilib, qal'ani dushman zarbalaridan himoya qilmoqda.", show_alert=True)
 
 
 def register_map_handlers(app):
@@ -92,3 +134,6 @@ def register_map_handlers(app):
     app.add_handler(CallbackQueryHandler(map_callback, pattern="^menu_map$"))
     app.add_handler(CallbackQueryHandler(view_territory_callback, pattern="^view_terr:"))
     app.add_handler(CallbackQueryHandler(terr_own_info_callback, pattern="^terr_own_info$"))
+    app.add_handler(CallbackQueryHandler(def_station_dragon_callback, pattern="^def_station_dragon:"))
+    app.add_handler(CallbackQueryHandler(def_recall_dragon_callback, pattern="^def_recall_dragon:"))
+    app.add_handler(CallbackQueryHandler(terr_dragon_info_callback, pattern="^terr_dragon_info$"))

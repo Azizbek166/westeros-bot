@@ -97,10 +97,27 @@ async def show_battle_hub(target, user_id: int, is_message: bool):
         else:
             reports_text = "Janglar tarixi bo'sh.\n"
 
-        buttons = [
-            [InlineKeyboardButton("🗺️ Qal'a Tanlash (Xaritaga o'tish)", callback_data="menu_map")],
-            [InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")],
-        ]
+        defense_buttons = []
+        if inc_marches:
+            for im in inc_marches:
+                terr = await session.get(models.Territory, im.target_territory_id)
+                rem_sec = max(0, int((im.arrival_time - datetime.utcnow()).total_seconds()))
+                t_name = terr.name if terr else "Qal'a"
+                defense_buttons.append([
+                    InlineKeyboardButton(f"🚨 {t_name} Himoyasiga O'tish! ({rem_sec // 60}d {rem_sec % 60}s)", callback_data=f"defend_siege:{im.id}")
+                ])
+
+        buttons = []
+        if defense_buttons:
+            buttons.extend(defense_buttons)
+
+        is_lord = user.house and ((user.house.lord_user_id == user.telegram_id) or user.rank == "king")
+        if is_lord:
+            buttons.append([InlineKeyboardButton("📢 Xonadonga Safarbarlik Chaqiruvi (SOS)", callback_data="call_to_arms_broadcast")])
+
+        buttons.append([InlineKeyboardButton("🗺️ Qal'a Tanlash (Xaritaga o'tish)", callback_data="menu_map")])
+        buttons.append([InlineKeyboardButton("🔄 Vaqtni Yangilash", callback_data="menu_battle")])
+        buttons.append([InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")])
 
         text = (
             f"🛡️ **HARBIY AMALIYOTLAR MARKAZI**\n\n"
@@ -265,9 +282,10 @@ async def send_march_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             if target_house and target_house.lord_user_id and target_house.lord_user_id != user.telegram_id:
                 dragon_text = " 🔥 va BAHAYBAT AJDAR 🐉" if has_dragon else ""
                 def_buttons = [
+                    [InlineKeyboardButton("⚔️ Harbiy Markaz (Himoyalanish)", callback_data="menu_battle")],
                     [InlineKeyboardButton("🛡️ Qal'aga Shoshilinch Askar Qo'shish", callback_data=f"def_rf_menu:{terr.id}")],
+                    [InlineKeyboardButton("🐉 Ajdarni Mudofaaga Joylashtirish", callback_data=f"def_station_dragon:{terr.id}")],
                     [InlineKeyboardButton("🤝 Ittifoqchilarni Chaqirish (SOS)", callback_data=f"def_sos:{terr.id}")],
-                    [InlineKeyboardButton("🏰 Qal'a Holatini Ko'rish", callback_data=f"view_terr:{terr.id}")],
                 ]
                 try:
                     await context.bot.send_message(
@@ -432,6 +450,61 @@ async def def_sos_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
 
 
+async def defend_siege_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Qal'aga bo'layotgan faol qamalni ko'rish va himoyalanish choralarini ko'rish"""
+    query = update.callback_query
+    await query.answer()
+    march_id = int(query.data.split(":")[1])
+    user_id = query.from_user.id
+
+    async with AsyncSessionLocal() as session:
+        march = await session.get(models.BattleMarch, march_id)
+        if not march or march.status != "marching":
+            await query.answer("Qamal yakunlangan yoki bekor qilingan.", show_alert=True)
+            await show_battle_hub(query, user_id, is_message=False)
+            return
+
+        terr = await session.get(models.Territory, march.target_territory_id)
+        attacker = await session.get(models.User, march.attacker_user_id)
+        att_house = await session.get(models.House, attacker.house_id) if (attacker and attacker.house_id) else None
+
+        rem_sec = max(0, int((march.arrival_time - datetime.utcnow()).total_seconds()))
+        att_name = attacker.characters[0].name if (attacker and attacker.characters) else (attacker.full_name if attacker else "Dushman")
+        att_house_name = f"{att_house.emoji} {att_house.name}" if att_house else "Noma'lum"
+
+        tot_enemy = march.infantry + march.archers + march.cavalry + march.spearmen + march.special_troops
+        enemy_dragon_str = "🔥 Bor (Drakarys xavfi!)" if march.has_dragon else "Yo'q"
+
+        # Qal'amiz garnizoni va mudofaasi
+        garr_total = terr.garrison_infantry + terr.garrison_archers + terr.garrison_cavalry + terr.garrison_spearmen
+        st_dragon = crud.get_stationed_dragon_info(terr)
+        def_dragon_str = f"🔥 {st_dragon['dragon_name']} (Kuch: {st_dragon['power']})" if st_dragon else "Yo'q"
+
+        buttons = [
+            [InlineKeyboardButton("🛡️ Shoshilinch Askar Joylashtirish", callback_data=f"def_rf_menu:{terr.id}")],
+            [InlineKeyboardButton("🐉 Ajdarni Mudofaaga Joylashtirish", callback_data=f"def_station_dragon:{terr.id}")],
+            [InlineKeyboardButton("🤝 Xonadonga SOS Chaqiruvi", callback_data=f"def_sos:{terr.id}")],
+            [InlineKeyboardButton("🔄 Qamal Holatini Yangilash", callback_data=f"defend_siege:{march.id}")],
+            [InlineKeyboardButton("🔙 Harbiy Markazga Qaytish", callback_data="menu_battle")],
+        ]
+
+        text = (
+            f"🚨 **FAOL QAMAL VA QAL'A HIMOYASI!**\n\n"
+            f"🏰 Qal'a: **{terr.name} ({terr.castle_name})**\n"
+            f"⏱️ Dushman yetib kelishiga: **{rem_sec // 60} daqiqa {rem_sec % 60} soniya** qoldi!\n\n"
+            f"⚔️ **DUSHMAN QO'SHINI:**\n"
+            f"• Qo'mondon: **{escape_md(att_name)}** ({escape_md(att_house_name)})\n"
+            f"• Hujumchilar: taxminan **{tot_enemy:,}** askar\n"
+            f"• Ajdar Hujumi: **{enemy_dragon_str}**\n\n"
+            f"🛡️ **QAL'AMIZ MUDOFAASI:**\n"
+            f"• Qal'a Devori: **{terr.defense}** ball\n"
+            f"• Garnizon: **{garr_total:,}** askar (🛡️{terr.garrison_infantry} | 🏹{terr.garrison_archers} | 🐎{terr.garrison_cavalry} | 🗡️{terr.garrison_spearmen})\n"
+            f"• Mudofaadagi Ajdar: **{def_dragon_str}**\n\n"
+            f"Qal'a dushmanga boy berilmasligi uchun zudlik bilan himoyani kuchaytiring!"
+        )
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
 def register_battle_handlers(app):
     app.add_handler(CommandHandler("battle", battle_command))
     app.add_handler(CommandHandler("war", battle_command))
@@ -441,3 +514,4 @@ def register_battle_handlers(app):
     app.add_handler(CallbackQueryHandler(def_rf_menu_callback, pattern="^def_rf_menu:"))
     app.add_handler(CallbackQueryHandler(def_send_rf_callback, pattern="^def_send_rf:"))
     app.add_handler(CallbackQueryHandler(def_sos_callback, pattern="^def_sos:"))
+    app.add_handler(CallbackQueryHandler(defend_siege_callback, pattern="^defend_siege:"))

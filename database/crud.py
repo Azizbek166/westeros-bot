@@ -1,3 +1,4 @@
+import json
 import random
 from datetime import datetime, timedelta
 from typing import Optional, List, Tuple, Dict, Any
@@ -52,6 +53,7 @@ async def check_and_reset_daily_limits(session: AsyncSession, user: models.User)
         user.daily_story_quest_count = 0
         user.daily_rank_quest_count = 0
         user.daily_ww_attack_count = 0
+        user.daily_bandit_count = 0
         user.daily_limit_date = today_str
         await session.commit()
 
@@ -448,6 +450,132 @@ async def cast_house_vote(session: AsyncSession, house_id: int, voter_user_id: i
     return outcome
 
 
+async def get_house_election_stats(session: AsyncSession, house_id: int, current_user_id: int) -> Dict[str, Any]:
+    """Xonadon saylovi tafsilotlari va ovozlar statistikasi"""
+    house = await session.get(models.House, house_id)
+    members = await get_house_members_with_characters(session, house_id)
+    total_members = len(members)
+    needed_votes = (total_members // 2) + 1 if total_members > 2 else 1
+
+    votes_res = await session.execute(
+        select(models.HouseVote).where(models.HouseVote.house_id == house_id)
+    )
+    all_votes = votes_res.scalars().all()
+
+    my_vote_cand_id = None
+    vote_counts = {m.id: 0 for m in members}
+    for v in all_votes:
+        if v.voter_user_id == current_user_id:
+            my_vote_cand_id = v.candidate_user_id
+        if v.candidate_user_id in vote_counts:
+            vote_counts[v.candidate_user_id] += 1
+
+    candidates = []
+    for m in members:
+        char_name = m.characters[0].name if m.characters else m.full_name
+        v_count = vote_counts.get(m.id, 0)
+        pct = int((v_count / total_members) * 100) if total_members > 0 else 0
+        is_lord = (house and house.lord_user_id == m.telegram_id) or m.rank == "king"
+        candidates.append({
+            "id": m.id,
+            "telegram_id": m.telegram_id,
+            "name": char_name,
+            "full_name": m.full_name,
+            "rank": m.rank,
+            "level": m.level,
+            "votes": v_count,
+            "pct": pct,
+            "is_lord": is_lord,
+        })
+
+    candidates.sort(key=lambda c: (c["votes"], c["level"]), reverse=True)
+
+    current_lord = None
+    if house and house.lord_user_id:
+        current_lord = await get_user_by_telegram_id(session, house.lord_user_id)
+
+    return {
+        "house": house,
+        "total_members": total_members,
+        "needed_votes": needed_votes,
+        "candidates": candidates,
+        "my_vote_cand_id": my_vote_cand_id,
+        "current_lord": current_lord,
+    }
+
+
+async def claim_vacant_house_lord(session: AsyncSession, user_id: int) -> Tuple[bool, str]:
+    """Bo'sh xonadon Lordligini egallash"""
+    user = await session.get(models.User, user_id)
+    if not user or not user.house_id:
+        return False, "Foydalanuvchi yoki xonadon topilmadi."
+
+    house = await session.get(models.House, user.house_id)
+    if not house:
+        return False, "Xonadon topilmadi."
+
+    if house.lord_user_id:
+        existing_lord = await get_user_by_telegram_id(session, house.lord_user_id)
+        if existing_lord and existing_lord.id != user.id:
+            return False, f"❌ Xonadonning allaqachon Lordi mavjud: {existing_lord.full_name}. Saylovda ovoz to'plang!"
+
+    house.lord_user_id = user.telegram_id
+    user.rank = "king"
+    user.prestige += 100
+    await session.commit()
+    return True, f"👑 Qasamyod qabul qilindi! Siz {house.name} xonadoni Lordi (King) etib tayinlandingiz! (+100 Prestige)"
+
+
+async def transfer_troops_to_lord(
+    session: AsyncSession,
+    sender_user_id: int,
+    lord_user_id: int,
+    infantry: int = 0,
+    archers: int = 0,
+    cavalry: int = 0,
+    spearmen: int = 0,
+) -> Tuple[bool, str]:
+    """A'zolarning xonadon Lordi armiyasiga safarbarlik doirasida askar jo'natishi"""
+    sender = await session.get(models.User, sender_user_id)
+    lord = await session.get(models.User, lord_user_id)
+    if not sender or not lord:
+        return False, "O'yinchi topilmadi."
+
+    if sender.house_id != lord.house_id:
+        return False, "Faqat o'z xonadoningiz Lordiga askar yuborishingiz mumkin!"
+
+    sender_army_res = await session.execute(select(models.Army).where(models.Army.user_id == sender.id))
+    sender_army = sender_army_res.scalar_one_or_none()
+    lord_army_res = await session.execute(select(models.Army).where(models.Army.user_id == lord.id))
+    lord_army = lord_army_res.scalar_one_or_none()
+
+    if not sender_army or not lord_army:
+        return False, "Armiya ma'lumotlari topilmadi."
+
+    if (sender_army.infantry < infantry or sender_army.archers < archers or 
+        sender_army.cavalry < cavalry or sender_army.spearmen < spearmen):
+        return False, "Yetarli askar mavjud emas!"
+
+    tot = infantry + archers + cavalry + spearmen
+    if tot <= 0:
+        return False, "Kamida bitta askar yuborishingiz kerak."
+
+    sender_army.infantry -= infantry
+    sender_army.archers -= archers
+    sender_army.cavalry -= cavalry
+    sender_army.spearmen -= spearmen
+
+    lord_army.infantry += infantry
+    lord_army.archers += archers
+    lord_army.cavalry += cavalry
+    lord_army.spearmen += spearmen
+
+    prestige_gain = max(10, tot // 4)
+    sender.prestige += prestige_gain
+    await session.commit()
+    return True, f"✅ Lord armiyasiga +{tot} askar safarbar qilindi! (+{prestige_gain} Prestige)"
+
+
 # ============================================================
 # ALLIANCE CRUD
 # ============================================================
@@ -567,6 +695,89 @@ async def send_castle_reinforcements(
     user.prestige += 30
     await session.commit()
     return True, f"✅ Qal'a mudofaasiga +{total_sent} askar safarbar qilindi! (+30 Prestige)"
+
+
+async def station_dragon_in_castle(session: AsyncSession, user_id: int, territory_id: int) -> Tuple[bool, str]:
+    """Ajdarni qal'a mudofaasiga joylashtirish"""
+    user = await session.get(models.User, user_id)
+    territory = await session.get(models.Territory, territory_id)
+    if not user or not territory:
+        return False, "Foydalanuvchi yoki qal'a topilmadi."
+
+    if territory.owner_house_id != user.house_id:
+        return False, "❌ Faqat o'z xonadoningiz nazoratidagi qal'aga ajdar joylashtira olasiz!"
+
+    dragon = await get_user_dragon(session, user.id)
+    if not dragon or dragon.stage not in ["baby", "adult"]:
+        return False, "❌ Qal'ani himoya qilish uchun ulg'aygan ajdaringiz bo'lishi kerak!"
+
+    reinf_data = {}
+    if territory.reinforcements_json:
+        try:
+            reinf_data = json.loads(territory.reinforcements_json)
+        except Exception:
+            reinf_data = {}
+
+    current_stationed = reinf_data.get("stationed_dragon")
+    if current_stationed and current_stationed.get("dragon_id") == dragon.id:
+        return False, f"⚠️ Ajdaringiz ({dragon.name}) allaqachon ushbu qal'a osmonida qo'riqchilik qilmoqda!"
+
+    char_res = await session.execute(select(models.Character.name).where(models.Character.user_id == user.id).limit(1))
+    char_name = char_res.scalar_one_or_none() or user.full_name
+    reinf_data["stationed_dragon"] = {
+        "user_id": user.id,
+        "user_name": char_name,
+        "dragon_id": dragon.id,
+        "dragon_name": dragon.name,
+        "power": dragon.power,
+        "stationed_at": datetime.utcnow().isoformat(),
+    }
+    territory.reinforcements_json = json.dumps(reinf_data)
+    user.prestige += 50
+    await session.commit()
+    return True, f"🐉🔥 Ulug'vor {dragon.name} (Kuch: {dragon.power}) {territory.name} qal'asi mudofaasiga joylashtirildi! (+50 Prestige)"
+
+
+async def recall_dragon_from_castle(session: AsyncSession, user_id: int, territory_id: int) -> Tuple[bool, str]:
+    """Ajdarni qal'a mudofaasidan o'z uyasiga qaytarish"""
+    user = await session.get(models.User, user_id)
+    territory = await session.get(models.Territory, territory_id)
+    if not user or not territory:
+        return False, "Foydalanuvchi yoki qal'a topilmadi."
+
+    if not territory.reinforcements_json:
+        return False, "Qal'ada joylashtirilgan ajdar yo'q."
+
+    try:
+        reinf_data = json.loads(territory.reinforcements_json)
+    except Exception:
+        reinf_data = {}
+
+    stationed = reinf_data.get("stationed_dragon")
+    if not stationed:
+        return False, "Qal'ada joylashtirilgan ajdar topilmadi."
+
+    house = await session.get(models.House, user.house_id) if user.house_id else None
+    is_lord = house and house.lord_user_id == user.telegram_id
+    if stationed.get("user_id") != user.id and not is_lord:
+        return False, "❌ Bu ajdar sizga tegishli emas!"
+
+    dragon_name = stationed.get("dragon_name", "Ajdar")
+    del reinf_data["stationed_dragon"]
+    territory.reinforcements_json = json.dumps(reinf_data)
+    await session.commit()
+    return True, f"🐉 {dragon_name} qal'a mudofaasidan o'z uyasiga eson-omon qaytarildi."
+
+
+def get_stationed_dragon_info(territory: models.Territory) -> Optional[Dict[str, Any]]:
+    """Qal'ada joylashtirilgan ajdar haqida ma'lumot"""
+    if not territory or not territory.reinforcements_json:
+        return None
+    try:
+        data = json.loads(territory.reinforcements_json)
+        return data.get("stationed_dragon")
+    except Exception:
+        return None
 
 
 # ============================================================

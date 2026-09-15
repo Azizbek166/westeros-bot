@@ -270,9 +270,16 @@ async def event_bandits_callback(update: Update, context: ContextTypes.DEFAULT_T
     """Qaroqchilar hodisasi menyusi"""
     query = update.callback_query
     await query.answer()
+    user_id = query.from_user.id
+
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_by_telegram_id(session, user_id)
+        if user:
+            await crud.check_and_reset_daily_limits(session, user)
+        b_count = getattr(user, "daily_bandit_count", 0) if user else 0
 
     buttons = [
-        [InlineKeyboardButton("⚔️ Qaroqchilarga Hujum Qilish (-5 askar)", callback_data="bandits_fight")],
+        [InlineKeyboardButton(f"⚔️ Qaroqchilarga Hujum Qilish ({b_count}/3)", callback_data="bandits_fight")],
         [InlineKeyboardButton("💰 O'lpon To'lab Qutulish (-200🪙 oltin)", callback_data="bandits_pay")],
         [InlineKeyboardButton("🔙 Voqealarga Qaytish", callback_data="menu_throne")],
     ]
@@ -281,7 +288,8 @@ async def event_bandits_callback(update: Update, context: ContextTypes.DEFAULT_T
         f"🥷 **QAROQCHILAR VA ISYONCHILAR PISTIRMASI!**\n\n"
         f"Savdo yo'llaringizga tog' qaroqchilari hujum qildi va karvonlaringizni to'smoqda!\n\n"
         f"1. **Hujum qilish:** Qaroqchilar bazasini tor-mor qilish (taxminan 5 ta askar yo'qotib, ularning xazinasidan +800🪙 oltin va +300🌾 oziq-ovqat olasiz).\n"
-        f"2. **O'lpon to'lash:** 200 tanga berib xavfdan qutulish."
+        f"2. **O'lpon to'lash:** 200 tanga berib xavfdan qutulish.\n\n"
+        f"Bugungi hujumlaringiz: **{b_count}/3** ta"
     )
     await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
 
@@ -299,7 +307,14 @@ async def bandits_action_callback(update: Update, context: ContextTypes.DEFAULT_
         if not user:
             return
 
+        await crud.check_and_reset_daily_limits(session, user)
+
         if action == "bandits_fight":
+            b_cnt = getattr(user, "daily_bandit_count", 0) or 0
+            if b_cnt >= 3:
+                await query.answer("❌ Bugungi 3 ta qaroqchilar pistirmasiga hujum limitingiz tugagan! Ertaga yana urinib ko'rishingiz mumkin.", show_alert=True)
+                return
+
             army_res = await session.execute(select(models.Army).where(models.Army.user_id == user.id))
             army = army_res.scalar_one_or_none()
             if not army or (army.infantry + army.archers + army.cavalry + army.spearmen) < 10:
@@ -314,8 +329,9 @@ async def bandits_action_callback(update: Update, context: ContextTypes.DEFAULT_
             user.food += 300
             user.prestige += 35
             user.xp += 120
+            user.daily_bandit_count = b_cnt + 1
             await session.commit()
-            msg = "🏆 G'alaba! Qaroqchilar tor-mor etildi: +800🪙 oltin, +300🌾 oziq-ovqat, +35 Prestige!"
+            msg = f"🏆 G'alaba! Qaroqchilar tor-mor etildi: +800🪙 oltin, +300🌾 oziq-ovqat, +35 Prestige! ({user.daily_bandit_count}/3)"
         else:
             user.gold = max(0, user.gold - 200)
             await session.commit()

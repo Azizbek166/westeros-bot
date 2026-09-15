@@ -50,8 +50,12 @@ async def show_house(target, user_id: int, is_message: bool):
              InlineKeyboardButton("🏆 Eng Saxiylar", callback_data="house_top_donors")],
             [InlineKeyboardButton("🗳️ Lord Saylovi (Ovoz berish)", callback_data="house_election")],
         ]
-        if user.rank == "king":
+        is_lord = (house.lord_user_id == user.telegram_id) or user.rank == "king"
+        if is_lord:
+            buttons.append([InlineKeyboardButton("📢 Harbiy Safarbarlik (Askar So'rash)", callback_data="call_to_arms_broadcast")])
             buttons.append([InlineKeyboardButton("🎖️ Lavozim Tayinlash (Lord)", callback_data="house_rank_assign_menu")])
+        elif house.lord_user_id:
+            buttons.append([InlineKeyboardButton("🛡️ Lordga Askar Berish (Safarbarlik)", callback_data="troop_donation_menu")])
 
         buttons.append([InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")])
 
@@ -175,7 +179,7 @@ async def house_set_rank_callback(update: Update, context: ContextTypes.DEFAULT_
 
 
 async def house_election_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Lord Saylovi: nomzodlar ro'yxati va ovoz berish"""
+    """Lord Saylovi: nomzodlar ro'yxati, ovozlar statistikasi va ovoz berish"""
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
@@ -185,40 +189,214 @@ async def house_election_callback(update: Update, context: ContextTypes.DEFAULT_
         if not user or not user.house:
             return
 
-        members = await crud.get_house_members_with_characters(session, user.house.id)
-        buttons = []
-        for m in members:
-            char_name = m.characters[0].name if m.characters else m.full_name
-            buttons.append([InlineKeyboardButton(f"🗳️ {char_name} ({m.rank})", callback_data=f"hvote:{m.id}")])
+        stats = await crud.get_house_election_stats(session, user.house.id, user.id)
+        house = stats["house"]
+        total_m = stats["total_members"]
+        needed = stats["needed_votes"]
+        candidates = stats["candidates"]
+        my_vote_id = stats["my_vote_cand_id"]
+        current_lord = stats["current_lord"]
 
-        buttons.append([InlineKeyboardButton("🔙 Xonadonga Qaytish", callback_data="menu_house")])
+    lord_name = f"👑 **{current_lord.full_name}**" if current_lord else "❌ *Xonadonda hozircha Lord yo'q*"
 
-        text = (
-            f"🗳️ **XONADON LORDI SAYLOVI**\n\n"
-            f"Xonadonning barcha a'zolari o'z ovozlarini Lordlikka munosib nomzodga berishi mumkin.\n"
-            f"Agar nomzod xonadon a'zolarining **50% dan ko'p** ovozini to'plasa, u darhol yangi Lord (King) deb e'lon qilinadi!\n\n"
-            f"O'z ovozingizni bering:"
+    cand_lines = []
+    for c in candidates:
+        star = "👑 " if c["is_lord"] else "👤 "
+        voted_tag = " 👈 [Sizning ovozingiz]" if c["id"] == my_vote_id else ""
+        prog_bar = "█" * c["votes"] + "░" * max(0, needed - c["votes"])
+        cand_lines.append(
+            f"{star}**{escape_md(c['name'])}** ({escape_md(c['full_name'])})\n"
+            f"   └ Ovozlar: `[{prog_bar}]` **{c['votes']}** ta ({c['pct']}%) {voted_tag}"
         )
-        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+    cand_text = "\n\n".join(cand_lines) if cand_lines else "Nomzodlar ro'yxati bo'sh."
+
+    buttons = []
+    if not current_lord:
+        buttons.append([InlineKeyboardButton("👑 Xonadon Lordligini Da'vo Qilish", callback_data="claim_house_lord")])
+
+    for c in candidates:
+        btn_label = f"🗳️ {c['name'][:18]} ga ovoz" if c["id"] != my_vote_id else f"✅ {c['name'][:18]} (Ovozingiz)"
+        buttons.append([InlineKeyboardButton(btn_label, callback_data=f"hvote:{c['id']}")])
+
+    buttons.append([InlineKeyboardButton("🔄 Yangilash", callback_data="house_election")])
+    buttons.append([InlineKeyboardButton("🔙 Xonadonga Qaytish", callback_data="menu_house")])
+
+    text = (
+        f"🗳️ **{house.emoji} {house.name.upper()} — XONADON LORDI SAYLOVI**\n\n"
+        f"Hozirgi Lord: {lord_name}\n"
+        f"Xonadon A'zolari: **{total_m}** ta\n"
+        f"G'alaba uchun zarur: **{needed}** ta ovoz (50%+)\n\n"
+        f"📊 **NOMZODLAR VA OVOZLAR NATIJASI:**\n\n"
+        f"{cand_text}\n\n"
+        f"O'z ovozingizni bering yoki o'zgartiring. 50% dan ortiq ovoz to'plagan nomzod darhol xonadon Lordi (King) etib tayinlanadi!"
+    )
+    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def claim_house_lord_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Bo'sh xonadon Lordligini qabul qilish"""
+    query = update.callback_query
+    user_id = query.from_user.id
+
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_by_telegram_id(session, user_id)
+        if not user or not user.house_id:
+            await query.answer("❌ Xonadon topilmadi.", show_alert=True)
+            return
+        ok, msg = await crud.claim_vacant_house_lord(session, user.id)
+
+    await query.answer(msg, show_alert=True)
+    await house_election_callback(update, context)
 
 
 async def house_vote_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Ovoz berish amali"""
     query = update.callback_query
-    await query.answer()
-
     candidate_user_id = int(query.data.split(":")[1])
     user_id = query.from_user.id
 
     async with AsyncSessionLocal() as session:
         user = await crud.get_user_with_relations(session, user_id)
         if not user or not user.house:
+            await query.answer("❌ Xonadon a'zosi emassiz.", show_alert=True)
             return
 
         outcome = await crud.cast_house_vote(session, user.house.id, user.id, candidate_user_id)
 
     await query.answer(outcome, show_alert=True)
-    await show_house(query, user_id, is_message=False)
+    await house_election_callback(update, context)
+
+
+async def call_to_arms_broadcast_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Lord tomonidan barcha xonadon a'zolariga harbiy safarbarlik qarg'asi uchirish"""
+    query = update.callback_query
+    await query.answer("📢 Barcha xonadon a'zolariga safarbarlik qarg'alari uchirildi!", show_alert=True)
+    user_id = query.from_user.id
+
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_with_relations(session, user_id)
+        if not user or not user.house:
+            return
+
+        is_lord = (user.house.lord_user_id == user.telegram_id) or user.rank == "king"
+        if not is_lord:
+            await query.answer("❌ Faqat Xonadon Lordi umumiy harbiy safarbarlik e'lon qila oladi!", show_alert=True)
+            return
+
+        members_res = await session.execute(
+            select(models.User).where(
+                models.User.house_id == user.house.id,
+                models.User.telegram_id != user.telegram_id,
+            ).limit(20)
+        )
+        members = members_res.scalars().all()
+
+        lord_title = user.characters[0].name if user.characters else user.full_name
+        broadcast_text = (
+            f"📢⚔️ **LORD CHAQRUVI! UMUMIY HARBIY SAFARBARLIK!**\n\n"
+            f"🏰 **{user.house.emoji} {user.house.name}** Lordi **{escape_md(lord_title)}** barcha xonadon ritsarlari va a'zolarini qurol ko'tarishga chaqirmoqda!\n\n"
+            f"Buyuk jang va zafarlar uchun Lord armiyasiga askarlar safarbar qiling! "
+            f"Har bir askar yordami sizga **Prestige (Nufuz)** va xonadon ichida yuksak mavqe olib keladi!"
+        )
+        markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🛡️ Lordga Askar Safarbar Qilish", callback_data="troop_donation_menu")],
+            [InlineKeyboardButton("🏰 Xonadonga O'tish", callback_data="menu_house")],
+        ])
+
+        for m in members:
+            try:
+                await context.bot.send_message(
+                    chat_id=m.telegram_id,
+                    text=broadcast_text,
+                    parse_mode="Markdown",
+                    reply_markup=markup,
+                )
+            except Exception:
+                pass
+
+
+async def troop_donation_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Lord armiyasiga askar yuborish menyusi"""
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_with_relations(session, user_id)
+        if not user or not user.house or not user.house.lord_user_id:
+            await query.answer("❌ Xonadonda saylangan Lord yo'q.", show_alert=True)
+            return
+
+        lord = await crud.get_user_by_telegram_id(session, user.house.lord_user_id)
+        if not lord:
+            await query.answer("❌ Lord topilmadi.", show_alert=True)
+            return
+
+        if user.id == lord.id:
+            await query.answer("⚠️ Siz o'zingiz xonadon Lordisiz! A'zolardan askar so'rash uchun Safarbarlik tugmasini bosing.", show_alert=True)
+            return
+
+        total_army = (user.army.infantry + user.army.archers + user.army.cavalry + user.army.spearmen) if user.army else 0
+
+        lord_name = lord.characters[0].name if lord.characters else lord.full_name
+        buttons = [
+            [InlineKeyboardButton("🛡️ 20 ta Piyoda", callback_data="donate_troop:infantry:20"),
+             InlineKeyboardButton("🏹 20 ta Kamonchi", callback_data="donate_troop:archers:20")],
+            [InlineKeyboardButton("🐎 10 ta Otliq", callback_data="donate_troop:cavalry:10"),
+             InlineKeyboardButton("🗡️ 10 ta Nayzachi", callback_data="donate_troop:spearmen:10")],
+            [InlineKeyboardButton("⚔️ Aralash Qo'shin (50 ta askar)", callback_data="donate_troop:mixed:50")],
+            [InlineKeyboardButton("🔙 Xonadonga Qaytish", callback_data="menu_house")],
+        ]
+
+        text = (
+            f"🛡️ **LORD ARMISIGA ASKAR SAFARBAR QILISH**\n\n"
+            f"👑 Xonadon Lordi: **{escape_md(lord_name)}**\n"
+            f"👥 Sizning shaxsiy armiyangiz: **{total_army:,}** askar\n"
+            f"• 🛡️ Piyoda: {user.army.infantry} | 🏹 Kamonchi: {user.army.archers}\n"
+            f"• 🐎 Otliq: {user.army.cavalry} | 🗡️ Nayzachi: {user.army.spearmen}\n\n"
+            f"Lordning harbiy yurishlarida ishtirok etish uchun uning qo'shiniga askarlaringizni yuboring. "
+            f"Har bir yordam uchun sizga **Prestige** beriladi!"
+        )
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def troop_donation_action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Lordga askar o'tkazish amali"""
+    query = update.callback_query
+    parts = query.data.split(":")
+    ttype = parts[1]
+    count = int(parts[2])
+    user_id = query.from_user.id
+
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_with_relations(session, user_id)
+        if not user or not user.house or not user.house.lord_user_id:
+            await query.answer("❌ Xonadonda Lord yo'q.", show_alert=True)
+            return
+
+        lord = await crud.get_user_by_telegram_id(session, user.house.lord_user_id)
+        if not lord:
+            await query.answer("❌ Lord topilmadi.", show_alert=True)
+            return
+
+        inf = count if ttype == "infantry" else (15 if ttype == "mixed" else 0)
+        arc = count if ttype == "archers" else (15 if ttype == "mixed" else 0)
+        cav = count if ttype == "cavalry" else (10 if ttype == "mixed" else 0)
+        spm = count if ttype == "spearmen" else (10 if ttype == "mixed" else 0)
+
+        ok, msg = await crud.transfer_troops_to_lord(
+            session=session,
+            sender_user_id=user.id,
+            lord_user_id=lord.id,
+            infantry=inf,
+            archers=arc,
+            cavalry=cav,
+            spearmen=spm,
+        )
+
+    await query.answer(msg, show_alert=True)
+    if ok:
+        await troop_donation_menu_callback(update, context)
 
 
 async def house_donate_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -335,7 +513,11 @@ def register_house_handlers(app):
     app.add_handler(CallbackQueryHandler(house_pick_target_rank_callback, pattern="^hrank_pick:"))
     app.add_handler(CallbackQueryHandler(house_set_rank_callback, pattern="^hset_rank:"))
     app.add_handler(CallbackQueryHandler(house_election_callback, pattern="^house_election$"))
+    app.add_handler(CallbackQueryHandler(claim_house_lord_callback, pattern="^claim_house_lord$"))
     app.add_handler(CallbackQueryHandler(house_vote_callback, pattern="^hvote:"))
+    app.add_handler(CallbackQueryHandler(call_to_arms_broadcast_callback, pattern="^call_to_arms_broadcast$"))
+    app.add_handler(CallbackQueryHandler(troop_donation_menu_callback, pattern="^troop_donation_menu$"))
+    app.add_handler(CallbackQueryHandler(troop_donation_action_callback, pattern="^donate_troop:"))
     app.add_handler(CallbackQueryHandler(house_donate_menu_callback, pattern="^house_donate_menu$"))
     app.add_handler(CallbackQueryHandler(house_donate_action_callback, pattern="^hdonate:"))
     app.add_handler(CallbackQueryHandler(house_top_donors_callback, pattern="^house_top_donors$"))

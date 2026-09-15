@@ -88,6 +88,11 @@ async def process_due_marches(bot_app=None):
                                 from data.artifacts_data import ARTIFACTS_DATA
                                 def_art_bonuses = ARTIFACTS_DATA.get(def_art.code, {})
 
+                # Qal'ada qo'riqchilik qilayotgan xonadon ajdari
+                st_dr = crud.get_stationed_dragon_info(territory)
+                if st_dr and st_dr.get("power", 0) > def_dragon_pwr:
+                    def_dragon_pwr = st_dr["power"]
+
                 # Hujumchining artefakti
                 att_art_bonuses = {}
                 att_art = await crud.get_equipped_artifact(session, attacker.id)
@@ -131,6 +136,17 @@ async def process_due_marches(bot_app=None):
 
                 if battle_res["winner"] == "attacker":
                     territory.owner_house_id = attacker.house_id
+                    # Qal'a egasi o'zgarganda mudofaadagi ajdar uyasiga qaytadi
+                    if territory.reinforcements_json:
+                        try:
+                            import json
+                            r_json = json.loads(territory.reinforcements_json)
+                            if "stationed_dragon" in r_json:
+                                del r_json["stationed_dragon"]
+                                territory.reinforcements_json = json.dumps(r_json)
+                        except Exception:
+                            pass
+
                     tot_gold = battle_res["loot"]["gold"]
                     tot_food = battle_res["loot"]["food"]
                     tot_iron = battle_res["loot"]["iron"]

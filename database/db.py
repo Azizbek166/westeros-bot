@@ -70,6 +70,7 @@ async def init_db():
             "ALTER TABLE users ADD COLUMN equipped_artifact_id INTEGER",
             "ALTER TABLE dragons ADD COLUMN has_laid_egg BOOLEAN DEFAULT 0",
             "ALTER TABLE users ADD COLUMN iron_mine_level INTEGER DEFAULT 1",
+            "ALTER TABLE users ADD COLUMN daily_bandit_count INTEGER DEFAULT 0",
         ]:
             try:
                 await conn.execute(text(alter_stmt))
