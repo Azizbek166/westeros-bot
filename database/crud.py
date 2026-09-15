@@ -576,6 +576,64 @@ async def transfer_troops_to_lord(
     return True, f"✅ Lord armiyasiga +{tot} askar safarbar qilindi! (+{prestige_gain} Prestige)"
 
 
+async def admin_appoint_house_lord(session: AsyncSession, house_id: int, target_user_id: int) -> Tuple[bool, str]:
+    """Admin tomonidan xonadonga Lord tayinlash"""
+    house = await session.get(models.House, house_id)
+    if not house:
+        return False, "❌ Xonadon topilmadi."
+
+    target_user = await session.get(models.User, target_user_id)
+    if not target_user:
+        return False, "❌ Foydalanuvchi topilmadi."
+
+    # Agar xonadonning amaldagi boshqa Lordi bo'lsa, uni ritsarga tushiramiz
+    if house.lord_user_id and house.lord_user_id != target_user.telegram_id:
+        old_lord = await get_user_by_telegram_id(session, house.lord_user_id)
+        if old_lord and old_lord.rank == "king":
+            old_lord.rank = "knight"
+
+    # Yangi lordni tayinlaymiz
+    target_user.house_id = house.id
+    target_user.rank = "king"
+    target_user.prestige = (target_user.prestige or 0) + 150
+    house.lord_user_id = target_user.telegram_id
+
+    await session.commit()
+    name = target_user.full_name or target_user.username or f"User {target_user.id}"
+    return True, f"👑 {name} muvaffaqiyatli {house.emoji} {house.name} xonadoni Lordi (King) etib tayinlandi!"
+
+
+async def admin_dismiss_house_lord(session: AsyncSession, house_id: int) -> Tuple[bool, str]:
+    """Admin tomonidan xonadon Lordini lavozimidan ozod etish (Vakant qilish)"""
+    house = await session.get(models.House, house_id)
+    if not house:
+        return False, "❌ Xonadon topilmadi."
+
+    if not house.lord_user_id:
+        return False, f"❌ {house.name} xonadonida allaqachon Lord yo'q (Vakant)."
+
+    old_lord = await get_user_by_telegram_id(session, house.lord_user_id)
+    if old_lord and old_lord.rank == "king":
+        old_lord.rank = "knight"
+
+    house.lord_user_id = None
+    await session.commit()
+    return True, f"🚫 {house.emoji} {house.name} xonadonining Lord lavozimi bo'shatildi (Vakant)!"
+
+
+async def admin_reset_house_election_votes(session: AsyncSession, house_id: int) -> Tuple[bool, str]:
+    """Xonadon saylov ovozlarini tozalash"""
+    house = await session.get(models.House, house_id)
+    if not house:
+        return False, "❌ Xonadon topilmadi."
+
+    await session.execute(
+        delete(models.HouseVote).where(models.HouseVote.house_id == house_id)
+    )
+    await session.commit()
+    return True, f"🗳️ {house.emoji} {house.name} xonadoni saylov ovozlari muvaffaqiyatli tozalandi (0 ga tushirildi)!"
+
+
 # ============================================================
 # ALLIANCE CRUD
 # ============================================================

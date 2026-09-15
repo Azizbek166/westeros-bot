@@ -72,6 +72,7 @@ async def show_admin_dashboard(target, is_message: bool):
 
         buttons = [
             [InlineKeyboardButton("👥 O'yinchilarni Boshqarish (User Manager)", callback_data="admin_users_list:0")],
+            [InlineKeyboardButton("👑 Xonadon Lordlarini Tayinlash", callback_data="admin_lords_menu")],
             [InlineKeyboardButton("🏰 Xonadonlar va G'aznalar", callback_data="admin_houses_list")],
             [InlineKeyboardButton("❄️ Global Hodisalar & Tun Qiroli", callback_data="admin_events_menu")],
             [InlineKeyboardButton("🎁 Barchaga Ommaviy Sovg'a (+2000🪙)", callback_data="admin_mass_gift")],
@@ -223,6 +224,18 @@ async def admin_user_action_callback(update: Update, context: ContextTypes.DEFAU
             msg = f"Temir o'zgartirildi: {user.iron:,}⛓️"
         elif action == "rank":
             user.rank = val
+            if val == "king" and user.house_id:
+                h = await session.get(models.House, user.house_id)
+                if h:
+                    if h.lord_user_id and h.lord_user_id != user.telegram_id:
+                        old_l = await crud.get_user_by_telegram_id(session, h.lord_user_id)
+                        if old_l and old_l.rank == "king":
+                            old_l.rank = "knight"
+                    h.lord_user_id = user.telegram_id
+            elif val != "king" and user.house_id:
+                h = await session.get(models.House, user.house_id)
+                if h and h.lord_user_id == user.telegram_id:
+                    h.lord_user_id = None
             msg = f"Lavozim {val.upper()} ga o'zgartirildi!"
         elif action == "reset":
             user.daily_quiz_count = 0
@@ -289,14 +302,22 @@ async def admin_house_detail_callback(update: Update, context: ContextTypes.DEFA
         if not house:
             return
 
+        lord_text = "❌ Vakant (Lord yo'q)"
+        if house.lord_user_id:
+            lord_user = await crud.get_user_by_telegram_id(session, house.lord_user_id)
+            if lord_user:
+                lord_text = f"👑 {escape_md(lord_user.full_name)} (ID: `{lord_user.telegram_id}`)"
+
         text = (
             f"🏰 **XONADON: {house.emoji} {house.name}**\n\n"
+            f"👑 Xonadon Lordi: **{lord_text}**\n"
             f"📍 Mintaqa: {house.region}\n"
             f"🏆 Prestige: **{house.prestige:,}**\n"
             f"🏛️ G'azna: **{house.gold:,}**🪙 oltin, **{house.food:,}**🌾 oziq, **{house.iron:,}**⛓️ temir\n"
         )
 
         buttons = [
+            [InlineKeyboardButton("👑 Lordni Boshqarish / Yangi Lord Tayinlash", callback_data=f"adm_lord_h:{house.id}")],
             [InlineKeyboardButton("💰 G'aznaga +10,000 Oltin", callback_data=f"adm_h_act:{house.id}:gold:10000")],
             [InlineKeyboardButton("🌾 G'aznaga +20,000 Oziq", callback_data=f"adm_h_act:{house.id}:food:20000")],
             [InlineKeyboardButton("🏆 +500 Xonadon Prestige", callback_data=f"adm_h_act:{house.id}:prestige:500")],
@@ -326,6 +347,258 @@ async def admin_house_action_callback(update: Update, context: ContextTypes.DEFA
 
     await query.answer(f"✅ Xonadon yangilandi!", show_alert=True)
     await admin_house_detail_callback(update, context)
+
+
+# ============================================================
+# LORD MANAGEMENT (XONADON LORDLARINI TAYINLASH VA BOSHQARISH)
+# ============================================================
+
+async def admin_lords_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Barcha xonadonlar va ularning Lordlari ro'yxati"""
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+
+    async with AsyncSessionLocal() as session:
+        res = await session.execute(select(models.House).order_by(models.House.id))
+        houses = res.scalars().all()
+
+        text = (
+            "👑 **WESTEROS XONADON LORDLARI BOSHQARUVI**\n\n"
+            "Bu yerda har bir xonadonning amaldagi Lordini ko'rishingiz, yangi Lord tayinlashingiz "
+            "yoki saylov ovozlarini boshqarishingiz mumkin.\n\n"
+            "Xonadonni tanlang:\n\n"
+        )
+
+        buttons = []
+        for h in houses:
+            lord_label = "❌ Vakant"
+            if h.lord_user_id:
+                lord_u = await crud.get_user_by_telegram_id(session, h.lord_user_id)
+                if lord_u:
+                    lord_label = f"👑 {lord_u.full_name[:14]}"
+
+            text += f"• {h.emoji} **{h.name}**: {lord_label}\n"
+            buttons.append([InlineKeyboardButton(f"{h.emoji} {h.name} — {lord_label}", callback_data=f"adm_lord_h:{h.id}")])
+
+        buttons.append([InlineKeyboardButton("🔙 Admin Panel", callback_data="admin_panel")])
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def admin_lord_house_detail_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Tanlangan xonadon Lordi boshqaruv menyusi"""
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+
+    house_id = int(query.data.split(":")[1])
+
+    async with AsyncSessionLocal() as session:
+        house = await session.get(models.House, house_id)
+        if not house:
+            await query.answer("Xonadon topilmadi!", show_alert=True)
+            return
+
+        members = await crud.get_house_members_with_characters(session, house.id)
+        lord_user = None
+        if house.lord_user_id:
+            lord_user = await crud.get_user_by_telegram_id(session, house.lord_user_id)
+
+        # Saylov ovozlari
+        votes_res = await session.execute(
+            select(func.count(models.HouseVote.id)).where(models.HouseVote.house_id == house.id)
+        )
+        total_votes = votes_res.scalar() or 0
+
+        if lord_user:
+            lord_info = (
+                f"👑 **{escape_md(lord_user.full_name)}**\n"
+                f"• Username: @{lord_user.username or 'yoq'}\n"
+                f"• Telegram ID: `{lord_user.telegram_id}`\n"
+                f"• Daraja: **{lord_user.level}** | Lavozim: **{lord_user.rank}**\n"
+                f"• Prestige: **{lord_user.prestige:,}**"
+            )
+        else:
+            lord_info = "❌ **Vakant (Lord belgilanmagan - xonadon boshqaruvsiz!)**"
+
+        text = (
+            f"🏰 **XONADON: {house.emoji} {house.name}**\n"
+            f"📍 Mintaqa: **{house.region}** | 🏆 Prestige: **{house.prestige:,}**\n"
+            f"👥 Jami A'zolar: **{len(members)}** nafar\n"
+            f"🗳️ Faol Ovozlar: **{total_votes}** ta\n\n"
+            f"👑 **AMALDAGI LORD:**\n"
+            f"{lord_info}\n\n"
+            f"Boshqaruv amalini tanlang:"
+        )
+
+        buttons = [
+            [InlineKeyboardButton("👑 A'zolardan Yangi Lord Tayinlash", callback_data=f"adm_pick_lord:{house.id}:0")],
+        ]
+        if house.lord_user_id:
+            buttons.append([InlineKeyboardButton("🚫 Lordni Bo'shatish (Vakant Qilish)", callback_data=f"adm_dismiss_lord:{house.id}")])
+
+        if total_votes > 0:
+            buttons.append([InlineKeyboardButton("🗳️ Saylov Ovozlarini Tozalash (0)", callback_data=f"adm_reset_votes:{house.id}")])
+
+        buttons.append([InlineKeyboardButton("🏰 Xonadon G'aznasi & Resurslar", callback_data=f"adm_h_detail:{house.id}")])
+        buttons.append([InlineKeyboardButton("🔙 Xonadonlar Ro'yxati", callback_data="admin_lords_menu")])
+
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def admin_pick_lord_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Xonadon a'zolaridan Lord tanlash (sahifalangan)"""
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+
+    parts = query.data.split(":")
+    house_id = int(parts[1])
+    offset = int(parts[2]) if len(parts) > 2 else 0
+
+    async with AsyncSessionLocal() as session:
+        house = await session.get(models.House, house_id)
+        if not house:
+            return
+
+        members = await crud.get_house_members_with_characters(session, house.id)
+        page_size = 6
+        page_members = members[offset:offset + page_size]
+
+        text = (
+            f"👑 **{house.emoji} {house.name} XONADONIGA LORD TAYINLASH**\n\n"
+            f"Quyidagi xonadon a'zolaridan birini tanlang. U darhol **Lord (King)** etib tayinlanadi:\n\n"
+        )
+
+        buttons = []
+        for m in page_members:
+            char_name = m.characters[0].name if m.characters else (m.full_name or f"User {m.id}")
+            is_current = (house.lord_user_id == m.telegram_id) or (m.rank == "king")
+            badge = "👑 (Lord)" if is_current else "👉"
+            buttons.append([InlineKeyboardButton(
+                f"{badge} {char_name} (Lvl {m.level}, {m.rank})",
+                callback_data=f"adm_conf_lord:{house.id}:{m.id}"
+            )])
+
+        nav_row = []
+        if offset >= page_size:
+            nav_row.append(InlineKeyboardButton("⬅️ Oldingi", callback_data=f"adm_pick_lord:{house.id}:{offset - page_size}"))
+        if offset + page_size < len(members):
+            nav_row.append(InlineKeyboardButton("Keyingi ➡️", callback_data=f"adm_pick_lord:{house.id}:{offset + page_size}"))
+        if nav_row:
+            buttons.append(nav_row)
+
+        buttons.append([InlineKeyboardButton("🔙 Orqaga", callback_data=f"adm_lord_h:{house.id}")])
+
+        if not page_members:
+            text += "❌ Bu xonadonda hozircha birorta ham a'zo mavjud emas!\n"
+
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def admin_conf_lord_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Lord etib tayinlashni tasdiqlash sahifasi"""
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+
+    parts = query.data.split(":")
+    house_id = int(parts[1])
+    target_user_id = int(parts[2])
+
+    async with AsyncSessionLocal() as session:
+        house = await session.get(models.House, house_id)
+        user = await session.get(models.User, target_user_id)
+        if not house or not user:
+            await query.answer("Ma'lumot topilmadi!", show_alert=True)
+            return
+
+        char_name = user.characters[0].name if user.characters else user.full_name
+
+        text = (
+            f"👑 **LORD TAYINLASHNI TASDIQLASH**\n\n"
+            f"🏰 Xonadon: **{house.emoji} {house.name}**\n"
+            f"👤 Nomzod: **{char_name}** ({escape_md(user.full_name)})\n"
+            f"🆔 Telegram ID: `{user.telegram_id}`\n"
+            f"⚔️ Daraja: **{user.level}** | Hozirgi unvon: **{user.rank}**\n\n"
+            f"⚠️ Haqiqatan ham ushbu o'yinchini {house.name} xonadoni Lordi (King) etib tayinlaysizmi?\n"
+            f"(Oldingi Lord mavjud bo'lsa, u avtomatik ravishda oddiy ritsarga tushiriladi)"
+        )
+
+        buttons = [
+            [InlineKeyboardButton("✅ HA, LORD ETIB TAYINLASH", callback_data=f"adm_do_lord:{house.id}:{user.id}")],
+            [InlineKeyboardButton("❌ Bekor qilish", callback_data=f"adm_pick_lord:{house.id}:0")],
+        ]
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def admin_do_lord_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Lord tayinlash ijrosi"""
+    query = update.callback_query
+    if not is_admin(query.from_user.id):
+        return
+
+    parts = query.data.split(":")
+    house_id = int(parts[1])
+    target_user_id = int(parts[2])
+
+    async with AsyncSessionLocal() as session:
+        ok, msg = await crud.admin_appoint_house_lord(session, house_id, target_user_id)
+        if ok:
+            user = await session.get(models.User, target_user_id)
+            house = await session.get(models.House, house_id)
+            if user and house:
+                try:
+                    await context.bot.send_message(
+                        chat_id=user.telegram_id,
+                        text=(
+                            f"👑 **BUYUK XABAR!**\n\n"
+                            f"Oliy Administrator tomonidan siz **{house.emoji} {house.name}** xonadonining rasmiy "
+                            f"**Lordi (King)** etib tayinlandingiz!\n\n"
+                            f"Endi xonadon harbiy yurishlari, urushlari va barcha boshqaruv vakolatlari sizning qo'lingizda!"
+                        ),
+                        parse_mode="Markdown",
+                    )
+                except Exception:
+                    pass
+
+    await query.answer(msg, show_alert=True)
+    query.data = f"adm_lord_h:{house_id}"
+    await admin_lord_house_detail_callback(update, context)
+
+
+async def admin_dismiss_lord_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Lordni lavozimidan ozod etish (bo'shatish)"""
+    query = update.callback_query
+    if not is_admin(query.from_user.id):
+        return
+
+    house_id = int(query.data.split(":")[1])
+    async with AsyncSessionLocal() as session:
+        ok, msg = await crud.admin_dismiss_house_lord(session, house_id)
+
+    await query.answer(msg, show_alert=True)
+    query.data = f"adm_lord_h:{house_id}"
+    await admin_lord_house_detail_callback(update, context)
+
+
+async def admin_reset_votes_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Saylov ovozlarini tozalash"""
+    query = update.callback_query
+    if not is_admin(query.from_user.id):
+        return
+
+    house_id = int(query.data.split(":")[1])
+    async with AsyncSessionLocal() as session:
+        ok, msg = await crud.admin_reset_house_election_votes(session, house_id)
+
+    await query.answer(msg, show_alert=True)
+    query.data = f"adm_lord_h:{house_id}"
+    await admin_lord_house_detail_callback(update, context)
 
 
 # ============================================================
@@ -562,13 +835,89 @@ async def del_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"✅ Telegram ID `{target_id}` adminlikdan olindi!", parse_mode="Markdown")
 
 
+async def set_lord_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/setlord <xonadon_id/nomi> <telegram_id/username> buyrug'i"""
+    user_id = update.effective_user.id
+    if not is_admin(user_id):
+        return
+
+    args = context.args
+    if not args or len(args) < 2:
+        text = (
+            "👑 **XONADONGA LORD TAYINLASH BUYRUG'I**\n\n"
+            "Foydalanish:\n"
+            "`/setlord <xonadon_id_yoki_nomi> <telegram_id_yoki_username>`\n\n"
+            "Misollar:\n"
+            "• `/setlord 1 123456789` (1-xonadonga tayinlash)\n"
+            "• `/setlord stark 123456789` (Stark xonadoniga tayinlash)\n"
+            "• `/setlord lannister @john_snow` (Username orqali)\n\n"
+            "Yoki `/admin` panelidagi **👑 Xonadon Lordlarini Tayinlash** menyusidan 1 bosishda tayinlashingiz mumkin!"
+        )
+        await update.message.reply_text(text, parse_mode="Markdown")
+        return
+
+    house_arg = args[0].strip().lower()
+    user_arg = args[1].strip()
+
+    async with AsyncSessionLocal() as session:
+        house = None
+        if house_arg.isdigit():
+            house = await session.get(models.House, int(house_arg))
+        if not house:
+            res = await session.execute(select(models.House).where(models.House.name.ilike(f"%{house_arg}%")))
+            house = res.scalars().first()
+
+        if not house:
+            await update.message.reply_text(f"❌ '{house_arg}' nomli xonadon topilmadi!")
+            return
+
+        target_user = None
+        if user_arg.isdigit():
+            target_user = await crud.get_user_by_telegram_id(session, int(user_arg))
+            if not target_user:
+                target_user = await session.get(models.User, int(user_arg))
+        if not target_user:
+            clean_username = user_arg.lstrip("@")
+            res = await session.execute(select(models.User).where(models.User.username.ilike(clean_username)))
+            target_user = res.scalars().first()
+
+        if not target_user:
+            await update.message.reply_text(f"❌ Foydalanuvchi topilmadi (`{user_arg}`)!")
+            return
+
+        ok, msg = await crud.admin_appoint_house_lord(session, house.id, target_user.id)
+        if ok:
+            try:
+                await context.bot.send_message(
+                    chat_id=target_user.telegram_id,
+                    text=(
+                        f"👑 **BUYUK XABAR!**\n\n"
+                        f"Oliy Administrator tomonidan siz **{house.emoji} {house.name}** xonadonining rasmiy "
+                        f"**Lordi (King)** etib tayinlandingiz!\n\n"
+                        f"Endi xonadon harbiy yurishlari, urushlari va barcha boshqaruv vakolatlari sizning qo'lingizda!"
+                    ),
+                    parse_mode="Markdown",
+                )
+            except Exception:
+                pass
+        await update.message.reply_text(msg, parse_mode="Markdown")
+
+
 def register_admin_handlers(app):
     app.add_handler(CommandHandler("admin", admin_command))
     app.add_handler(CommandHandler("addadmin", add_admin_command))
     app.add_handler(CommandHandler("deladmin", del_admin_command))
+    app.add_handler(CommandHandler("setlord", set_lord_command))
     app.add_handler(CommandHandler(["givegold", "givefood", "giveiron"], handle_give_resource_command))
     app.add_handler(CallbackQueryHandler(admin_callback, pattern="^admin_panel$"))
     app.add_handler(CallbackQueryHandler(admin_admins_list_callback, pattern="^admin_admins_list$"))
+    app.add_handler(CallbackQueryHandler(admin_lords_menu_callback, pattern="^admin_lords_menu$"))
+    app.add_handler(CallbackQueryHandler(admin_lord_house_detail_callback, pattern="^adm_lord_h:"))
+    app.add_handler(CallbackQueryHandler(admin_pick_lord_callback, pattern="^adm_pick_lord:"))
+    app.add_handler(CallbackQueryHandler(admin_conf_lord_callback, pattern="^adm_conf_lord:"))
+    app.add_handler(CallbackQueryHandler(admin_do_lord_callback, pattern="^adm_do_lord:"))
+    app.add_handler(CallbackQueryHandler(admin_dismiss_lord_callback, pattern="^adm_dismiss_lord:"))
+    app.add_handler(CallbackQueryHandler(admin_reset_votes_callback, pattern="^adm_reset_votes:"))
     app.add_handler(CallbackQueryHandler(admin_users_list_callback, pattern="^admin_users_list:"))
     app.add_handler(CallbackQueryHandler(admin_user_detail_callback, pattern="^admin_u_detail:"))
     app.add_handler(CallbackQueryHandler(admin_user_action_callback, pattern="^adm_act:"))
