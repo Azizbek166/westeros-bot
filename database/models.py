@@ -44,6 +44,11 @@ class User(Base):
     daily_quiz_count = Column(Integer, default=0)
     daily_council_count = Column(Integer, default=0)
     daily_secret_quest_count = Column(Integer, default=0)
+    daily_donation_count = Column(Integer, default=0)      # Kunlik ehson (max 2)
+    daily_story_quest_count = Column(Integer, default=0)   # Kunlik ssenariy (max 3)
+    daily_rank_quest_count = Column(Integer, default=0)    # Kunlik lavozim (max 2)
+    daily_ww_attack_count = Column(Integer, default=0)     # Oq yuruvchilarga hujum (max 3)
+    equipped_artifact_id = Column(Integer, nullable=True)
     daily_limit_date = Column(String(10), default="")  # YYYY-MM-DD
 
     # Kunlik bonus va taklif (Referral)
@@ -57,7 +62,8 @@ class User(Base):
     house = relationship("House", back_populates="members")
     army = relationship("Army", back_populates="user", uselist=False, cascade="all, delete-orphan")
     characters = relationship("Character", back_populates="user", cascade="all, delete-orphan")
-    dragon = relationship("Dragon", back_populates="user", uselist=False, cascade="all, delete-orphan")
+    dragons = relationship("Dragon", back_populates="user", cascade="all, delete-orphan")
+    artifacts = relationship("Artifact", back_populates="user", cascade="all, delete-orphan")
     quest_progress = relationship("QuestProgress", back_populates="user", cascade="all, delete-orphan")
 
 
@@ -340,17 +346,18 @@ class Dragon(Base):
     __tablename__ = "dragons"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     name = Column(String(100), nullable=False)
     grade = Column(String(10), default="C")  # A (Qora), B (Yashil), C (Oltin)
     stage = Column(String(30), default="egg")  # egg, baby, adult
     level = Column(Integer, default=1)
     hunger = Column(Integer, default=50)  # 0 to 100 (100 is full)
     power = Column(Integer, default=100)
+    has_laid_egg = Column(Boolean, default=False)
     last_fed = Column(DateTime, default=datetime.utcnow)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    user = relationship("User", back_populates="dragon")
+    user = relationship("User", back_populates="dragons")
 
 
 # ============================================================
@@ -384,5 +391,35 @@ class RavenMessage(Base):
     gold_attached = Column(Integer, default=0)
     is_read = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# ============================================================
+# 19. ARTIFACT (AFSONAVIY VALYRIA QUROLLARI VA RELIKLARI)
+# ============================================================
+class Artifact(Base):
+    __tablename__ = "artifacts"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    code = Column(String(50), nullable=False)
+    name = Column(String(100), nullable=False)
+    type = Column(String(30), default="weapon")
+    is_equipped = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", back_populates="artifacts")
+
+
+# ============================================================
+# 20. NIGHT KING RAID CONTRIBUTION (ZIYON REYTINGI)
+# ============================================================
+class NightKingContribution(Base):
+    __tablename__ = "night_king_contributions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False, index=True)
+    damage_dealt = Column(BigInteger, default=0)
+    attacks_count = Column(Integer, default=0)
+    last_attack = Column(DateTime, default=datetime.utcnow)
 
 

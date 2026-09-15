@@ -3,3 +3,6 @@ __pycache__/
 *.log
 .env
 .git/
+*.db
+*.db-wal
+*.db-shm

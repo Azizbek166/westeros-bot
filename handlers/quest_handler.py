@@ -31,20 +31,76 @@ async def quest_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def quest_main_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Asosiy hikoyaviy questlar ro'yxati"""
+    """Asosiy hikoyaviy va qahramon questlari ro'yxati (Kunlik max 3 ta)"""
     query = update.callback_query
     await query.answer()
+    user_id = query.from_user.id
 
-    text = "📜 **ASOSIY HIKOYA QUESTLARI:**\n\n"
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_by_telegram_id(session, user_id)
+        if user:
+            await crud.check_and_reset_daily_limits(session, user)
+        cnt = user.daily_story_quest_count if user else 0
+
+    text = (
+        f"📜 **ASOSIY HIKOYA VA QAHRAMON TOPSHIRIQLARI**\n\n"
+        f"📊 Bugungi imkoniyat: **{max(0, 3 - cnt)}/3** ta vazifa\n\n"
+        f"Vesteros taqdirini hal qiluvchi buyuk ssenariy topshiriqlarini bajaring:\n\n"
+    )
+
+    buttons = []
     for q in MAIN_QUESTS:
         text += (
             f"**{q['title']}**\n"
             f"_{q['description']}_\n"
-            f"🎁 Mukofot: +{q['reward_gold']}🪙, +{q['reward_food']}🌾, +{q['reward_iron']}⛓️, +{q['reward_xp']} XP\n\n"
+            f"🎁 Mukofot: +{q['reward_gold']:,}🪙, +{q['reward_food']:,}🌾, +{q['reward_iron']:,}⛓️, +{q['reward_xp']} XP\n\n"
+        )
+        buttons.append([InlineKeyboardButton(f"⚡ {q['title'][:25]} (Bajarish)", callback_data=f"qmain_do:{q['code']}")])
+
+    buttons.append([InlineKeyboardButton("🔙 Questlarga Qaytish", callback_data="menu_quests")])
+    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def quest_main_do_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Asosiy/qahramon hikoyaviy questni bajarish (Kunlik max 3 ta)"""
+    query = update.callback_query
+    code = query.data.split(":")[1]
+    user_id = query.from_user.id
+
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_with_relations(session, user_id)
+        if not user:
+            return
+
+        await crud.check_and_reset_daily_limits(session, user)
+        if user.daily_story_quest_count >= 3:
+            await query.answer("❌ Bugungi 3 ta ssenariy/qahramon topshirig'i limitingiz tugagan! Ertaga yangi vazifalar ochiladi.", show_alert=True)
+            return
+
+        target_quest = next((q for q in MAIN_QUESTS if q["code"] == code), None)
+        if not target_quest:
+            await query.answer("❌ Topshiriq topilmadi!", show_alert=True)
+            return
+
+        user.daily_story_quest_count += 1
+        user.gold += target_quest["reward_gold"]
+        user.food += target_quest["reward_food"]
+        user.iron += target_quest["reward_iron"]
+        user.xp += target_quest["reward_xp"]
+        user.prestige += 30
+
+        from core.leveling import check_user_level_up
+        lvl_up, new_lvl, lvl_msg = check_user_level_up(user)
+
+        await session.commit()
+
+        extra = f"\n{lvl_msg}" if lvl_up else ""
+        await query.answer(
+            f"✅ {target_quest['title']} muvaffaqiyatli yakunlandi!\n+{target_quest['reward_gold']}🪙, +{target_quest['reward_xp']} XP ({user.daily_story_quest_count}/3){extra}",
+            show_alert=True
         )
 
-    buttons = [[InlineKeyboardButton("🔙 Questlarga Qaytish", callback_data="menu_quests")]]
-    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+    await quest_main_callback(update, context)
 
 
 async def quest_daily_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -447,12 +503,16 @@ async def quest_rank_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             await query.answer("❌ Avval xonadonga qo'shiling!", show_alert=True)
             return
 
+        await crud.check_and_reset_daily_limits(session, user)
+        cnt = user.daily_rank_quest_count
+
         rank_key = user.rank if user.rank in RANK_DUTIES else "member"
         rank_data = RANK_DUTIES[rank_key]
         rank_title = RANKS.get(user.rank, {}).get("name", user.rank.title())
 
         text = (
             f"🎖️ **LAVOZIM TOPSHIRIQLARI: {escape_md(rank_title)}**\n\n"
+            f"📊 Bugungi imkoniyat: **{max(0, 2 - cnt)}/2** ta vazifa\n\n"
             f"Sizning lavozimingiz xonadon oldida maxsus mas'uliyat yuklaydi. "
             f"Quyidagi vazifalarni bajarib, shaxsiy va xonadon boyligini oshiring!\n\n"
         )
@@ -472,7 +532,7 @@ async def quest_rank_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def quest_rank_do_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Lavozim topshirig'ini bajarish"""
+    """Lavozim topshirig'ini bajarish (Kunlik max 2 ta)"""
     query = update.callback_query
     user_id = query.from_user.id
     task_id = query.data.split(":")[1]
@@ -491,6 +551,11 @@ async def quest_rank_do_callback(update: Update, context: ContextTypes.DEFAULT_T
         if not user:
             return
 
+        await crud.check_and_reset_daily_limits(session, user)
+        if user.daily_rank_quest_count >= 2:
+            await query.answer("❌ Bugungi 2 ta lavozim topshirig'i limitingiz tugadi! Ertaga yangi vazifalar ochiladi.", show_alert=True)
+            return
+
         rank_key = user.rank if user.rank in RANK_DUTIES else "member"
         rank_data = RANK_DUTIES[rank_key]
 
@@ -504,6 +569,7 @@ async def quest_rank_do_callback(update: Update, context: ContextTypes.DEFAULT_T
             await query.answer("❌ Topshiriq topilmadi!", show_alert=True)
             return
 
+        user.daily_rank_quest_count += 1
         user.gold += target_task["gold"]
         user.food += target_task["food"]
         user.iron += target_task["iron"]
@@ -513,11 +579,15 @@ async def quest_rank_do_callback(update: Update, context: ContextTypes.DEFAULT_T
         if user.house:
             user.house.prestige += (target_task["prestige"] // 2)
 
+        from core.leveling import check_user_level_up
+        lvl_up, new_lvl, lvl_msg = check_user_level_up(user)
+
         context.user_data["last_rank_duty_time"] = now
         await session.commit()
 
+        extra = f"\n{lvl_msg}" if lvl_up else ""
         await query.answer(
-            f"✅ Topshiriq muvaffaqiyatli bajarildi!\n+{target_task['gold']}🪙, +{target_task['food']}🌾, +{target_task['iron']}⛓️, +{target_task['prestige']}🏆 Prestige",
+            f"✅ Topshiriq bajarildi ({user.daily_rank_quest_count}/2)!\n+{target_task['gold']}🪙, +{target_task['food']}🌾, +{target_task['iron']}⛓️, +{target_task['prestige']}🏆 Prestige{extra}",
             show_alert=True
         )
         await quest_rank_callback(update, context)
@@ -527,6 +597,7 @@ def register_quest_handlers(app):
     app.add_handler(CommandHandler("quests", quest_command))
     app.add_handler(CallbackQueryHandler(quest_menu_callback, pattern="^menu_quests$"))
     app.add_handler(CallbackQueryHandler(quest_main_callback, pattern="^quest_main$"))
+    app.add_handler(CallbackQueryHandler(quest_main_do_callback, pattern="^qmain_do:"))
     app.add_handler(CallbackQueryHandler(quest_daily_callback, pattern="^quest_daily$"))
     app.add_handler(CallbackQueryHandler(quest_secret_callback, pattern="^quest_secret$"))
     app.add_handler(CallbackQueryHandler(secret_choice_callback, pattern="^secret_choice:"))

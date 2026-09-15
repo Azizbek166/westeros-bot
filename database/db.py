@@ -63,6 +63,12 @@ async def init_db():
         for alter_stmt in [
             "ALTER TABLE battle_marches ADD COLUMN has_dragon BOOLEAN DEFAULT 0",
             "ALTER TABLE battle_marches ADD COLUMN dragon_tactic VARCHAR(50) DEFAULT 'none'",
+            "ALTER TABLE users ADD COLUMN daily_donation_count INTEGER DEFAULT 0",
+            "ALTER TABLE users ADD COLUMN daily_story_quest_count INTEGER DEFAULT 0",
+            "ALTER TABLE users ADD COLUMN daily_rank_quest_count INTEGER DEFAULT 0",
+            "ALTER TABLE users ADD COLUMN daily_ww_attack_count INTEGER DEFAULT 0",
+            "ALTER TABLE users ADD COLUMN equipped_artifact_id INTEGER",
+            "ALTER TABLE dragons ADD COLUMN has_laid_egg BOOLEAN DEFAULT 0",
         ]:
             try:
                 await conn.execute(text(alter_stmt))

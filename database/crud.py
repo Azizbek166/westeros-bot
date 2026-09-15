@@ -48,6 +48,10 @@ async def check_and_reset_daily_limits(session: AsyncSession, user: models.User)
         user.daily_quiz_count = 0
         user.daily_council_count = 0
         user.daily_secret_quest_count = 0
+        user.daily_donation_count = 0
+        user.daily_story_quest_count = 0
+        user.daily_rank_quest_count = 0
+        user.daily_ww_attack_count = 0
         user.daily_limit_date = today_str
         await session.commit()
 
@@ -583,6 +587,10 @@ async def donate_to_house_treasury(
     if not user or not user.house_id:
         return False, "Siz hali xonadonga a'zo emassiz."
 
+    await check_and_reset_daily_limits(session, user)
+    if user.daily_donation_count >= 2:
+        return False, "❌ Siz bugungi 2 ta ehson limitingizdan foydalanib bo'ldingiz! Ertaga yana xazinaga ehson qilishingiz mumkin."
+
     if user.gold < gold or user.food < food or user.iron < iron:
         return False, "Xazinaga topshirish uchun resurslaringiz yetarli emas!"
 
@@ -594,6 +602,7 @@ async def donate_to_house_treasury(
     user.gold -= gold
     user.food -= food
     user.iron -= iron
+    user.daily_donation_count += 1
 
     # Xonadon xazinasiga qo'shish
     house.gold += gold
@@ -619,7 +628,7 @@ async def donate_to_house_treasury(
         hm.contribution_iron += iron
 
     await session.commit()
-    return True, f"✅ Xonadon g'aznasiga ehson qabul qilindi! (+{prestige_gain}🏆 Prestige berildi)"
+    return True, f"✅ Xonadon g'aznasiga ehson qabul qilindi ({user.daily_donation_count}/2)! (+{prestige_gain}🏆 Prestige berildi)"
 
 
 async def get_top_house_contributors(session: AsyncSession, house_id: int, limit: int = 5) -> List[Tuple[str, str, int]]:
@@ -639,24 +648,37 @@ async def get_top_house_contributors(session: AsyncSession, house_id: int, limit
 
 
 # ============================================================
-# DRAGONS CRUD
+# DRAGONS CRUD (MAX 2 DRAGONS, 20-LEVEL CAP, EGG LAYING)
 # ============================================================
 
-async def get_user_dragon(session: AsyncSession, user_id: int) -> Optional[models.Dragon]:
-    """Foydalanuvchining ajdarini olish"""
-    res = await session.execute(select(models.Dragon).where(models.Dragon.user_id == user_id))
-    return res.scalar_one_or_none()
+async def get_user_dragons(session: AsyncSession, user_id: int) -> List[models.Dragon]:
+    """Foydalanuvchining barcha ajdarlarini olish (maksimal 2 ta)"""
+    res = await session.execute(
+        select(models.Dragon).where(models.Dragon.user_id == user_id).order_by(models.Dragon.id)
+    )
+    return res.scalars().all()
+
+
+async def get_user_dragon(session: AsyncSession, user_id: int, dragon_id: Optional[int] = None) -> Optional[models.Dragon]:
+    """Foydalanuvchining asosiy yoki tanlangan ajdarini olish"""
+    if dragon_id:
+        res = await session.execute(
+            select(models.Dragon).where(models.Dragon.id == dragon_id, models.Dragon.user_id == user_id)
+        )
+        return res.scalar_one_or_none()
+    dragons = await get_user_dragons(session, user_id)
+    return dragons[0] if dragons else None
 
 
 async def claim_dragon_egg(session: AsyncSession, user_id: int, name: str, grade: str = "B") -> Tuple[bool, str, Optional[models.Dragon]]:
-    """Yangi ajdar tuxumini xarid qilish (A: 3000🪙 1500⛓️, B: 2000🪙 1000⛓️, C: 1200🪙 600⛓️)"""
+    """Yangi ajdar tuxumini xarid qilish (Maksimal 2 ta ajdar)"""
     user = await session.get(models.User, user_id)
     if not user:
         return False, "Foydalanuvchi topilmadi.", None
 
-    existing = await get_user_dragon(session, user_id)
-    if existing:
-        return False, "Sizda allaqachon ajdar mavjud!", None
+    existing = await get_user_dragons(session, user_id)
+    if len(existing) >= 2:
+        return False, "Sizda allaqachon maksimal 2 ta ajdar mavjud!", None
 
     costs = {
         "A": {"gold": 3000, "iron": 1500},
@@ -681,18 +703,18 @@ async def claim_dragon_egg(session: AsyncSession, user_id: int, name: str, grade
     )
     session.add(dragon)
     await session.commit()
-    return True, f"🎉 Siz {name} ({grade} Toifa) ajdari tuxumini {cost['gold']:,}🪙 oltin va {cost['iron']:,}⛓️ temirga xarid qildingiz!", dragon
+    return True, f"🎉 Siz {name} ({grade} Toifa) ajdari tuxumini xarid qildingiz!", dragon
 
 
-async def hatch_dragon(session: AsyncSession, user_id: int) -> Tuple[bool, str]:
-    """Ajdar tuxumini ochirish (1,500 oziq-ovqat, 800 temir, 500 oltin talab etiladi)"""
+async def hatch_dragon(session: AsyncSession, user_id: int, dragon_id: Optional[int] = None) -> Tuple[bool, str]:
+    """Ajdar tuxumini ochirish"""
     user = await session.get(models.User, user_id)
-    dragon = await get_user_dragon(session, user_id)
+    dragon = await get_user_dragon(session, user_id, dragon_id)
     if not user or not dragon:
         return False, "Ajdar topilmadi."
 
     if dragon.stage != "egg":
-        return False, "Sizning ajdaringiz allaqachon tuxumdan chiqqan!"
+        return False, "Ushbu ajdar allaqachon tuxumdan chiqqan!"
 
     if user.food < 1500 or user.iron < 800 or user.gold < 500:
         return False, (
@@ -711,13 +733,13 @@ async def hatch_dragon(session: AsyncSession, user_id: int) -> Tuple[bool, str]:
     user.xp += 300
 
     await session.commit()
-    return True, f"🔥 AJOYIB MO'JIZA! {dragon.name} buyuk marosimdan so'ng olov bag'rida tuxumdan chiqdi! (+100 Prestige)"
+    return True, f"🔥 AJOYIB MO'JIZA! {dragon.name} olov bag'rida tuxumdan chiqdi! (+100 Prestige)"
 
 
-async def feed_dragon(session: AsyncSession, user_id: int) -> Tuple[bool, str]:
+async def feed_dragon(session: AsyncSession, user_id: int, dragon_id: Optional[int] = None) -> Tuple[bool, str]:
     """Ajdarni boqish (350 oziq-ovqat talab etiladi)"""
     user = await session.get(models.User, user_id)
-    dragon = await get_user_dragon(session, user_id)
+    dragon = await get_user_dragon(session, user_id, dragon_id)
     if not user or not dragon:
         return False, "Ajdar topilmadi."
 
@@ -735,15 +757,18 @@ async def feed_dragon(session: AsyncSession, user_id: int) -> Tuple[bool, str]:
     return True, f"🍗 {dragon.name} to'yib ovqatlandi! Quvvat: {dragon.power} (To'qlik: {dragon.hunger}%)"
 
 
-async def train_dragon(session: AsyncSession, user_id: int) -> Tuple[bool, str]:
-    """Ajdarni parvoz va olovga mashq qildirish (300 temir, 200 oltin)"""
+async def train_dragon(session: AsyncSession, user_id: int, dragon_id: Optional[int] = None) -> Tuple[bool, str]:
+    """Ajdarni parvoz va olovga mashq qildirish (Maksimal 20-daraja)"""
     user = await session.get(models.User, user_id)
-    dragon = await get_user_dragon(session, user_id)
+    dragon = await get_user_dragon(session, user_id, dragon_id)
     if not user or not dragon:
         return False, "Ajdar topilmadi."
 
     if dragon.stage == "egg":
         return False, "Tuxumni mashq qildirib bo'lmaydi!"
+
+    if dragon.level >= 20:
+        return False, f"❌ {dragon.name} maksimal 20-darajaga yetgan! U o'zining cho'qqisida turibdi."
 
     if user.iron < 300 or user.gold < 200:
         return False, "Mashg'ulotlar uchun 300⛓️ temir va 200🪙 oltin kerak!"
@@ -751,14 +776,187 @@ async def train_dragon(session: AsyncSession, user_id: int) -> Tuple[bool, str]:
     user.iron -= 300
     user.gold -= 200
     dragon.level += 1
-    dragon.power += 25
+    dragon.power += 30
+    user.xp += 100
+
     if dragon.level >= 5 and dragon.stage == "baby":
         dragon.stage = "adult"
         await session.commit()
         return True, f"🦅 TABRIKLAYMIZ! {dragon.name} balog'atga yetib, bahaybat jangovar ajdarga aylandi! (Daraja: {dragon.level})"
 
     await session.commit()
-    return True, f"🔥 Dracarys! {dragon.name} olov purkashni o'rgandi: Daraja {dragon.level}, Kuch: {dragon.power}"
+    return True, f"🔥 Dracarys! {dragon.name} mashq qildi: Daraja {dragon.level}/20, Jang Quvvati: {dragon.power}"
+
+
+async def dragon_lay_egg(session: AsyncSession, user_id: int, dragon_id: int) -> Tuple[bool, str]:
+    """Ulg'aygan ajdarning tuxum qo'yishi va ikkinchi ajdarga ega bo'lish"""
+    user = await session.get(models.User, user_id)
+    dragon = await session.get(models.Dragon, dragon_id)
+    if not user or not dragon or dragon.user_id != user.id:
+        return False, "Ajdar topilmadi."
+
+    dragons = await get_user_dragons(session, user_id)
+    if len(dragons) >= 2:
+        return False, "❌ Sizda allaqachon maksimal 2 ta ajdar mavjud!"
+
+    if dragon.stage != "adult" or dragon.level < 10:
+        return False, "❌ Faqat ulg'aygan (Adult) va kamida 10-darajaga yetgan ajdar tuxum qo'ya oladi!"
+
+    if dragon.has_laid_egg:
+        return False, "❌ Ushbu ajdar allaqachon nasl qoldirgan."
+
+    if user.gold < 1000 or user.food < 1000:
+        return False, "Tuxumni parvarishlash uchun 1,000🪙 oltin va 1,000🌾 g'alla kerak!"
+
+    user.gold -= 1000
+    user.food -= 1000
+    dragon.has_laid_egg = True
+
+    new_name = f"{dragon.name} Nasli"
+    new_egg = models.Dragon(
+        user_id=user.id,
+        name=new_name,
+        grade=dragon.grade,
+        stage="egg",
+        level=1,
+        hunger=60,
+        power=80,
+        last_fed=datetime.utcnow(),
+    )
+    session.add(new_egg)
+    user.prestige += 150
+    user.xp += 500
+    await session.commit()
+    return True, f"🥚 AJOYIB VOQEA! {dragon.name} yangi ajdar tuxumini qo'ydi! Endi sizda 2 ta ajdar bor! (+150 Prestige)"
+
+
+# ============================================================
+# ARTIFACTS CRUD
+# ============================================================
+
+async def get_user_artifacts(session: AsyncSession, user_id: int) -> List[models.Artifact]:
+    """Foydalanuvchining artefaktlari ro'yxati"""
+    res = await session.execute(
+        select(models.Artifact).where(models.Artifact.user_id == user_id)
+    )
+    return res.scalars().all()
+
+
+async def get_equipped_artifact(session: AsyncSession, user_id: int) -> Optional[models.Artifact]:
+    """Hozir taqilgan artefakt"""
+    res = await session.execute(
+        select(models.Artifact).where(models.Artifact.user_id == user_id, models.Artifact.is_equipped == True)
+    )
+    return res.scalar_one_or_none()
+
+
+async def equip_artifact(session: AsyncSession, user_id: int, artifact_id: int) -> Tuple[bool, str]:
+    """Artefaktni taqish"""
+    arts = await get_user_artifacts(session, user_id)
+    target_art = None
+    for a in arts:
+        if a.id == artifact_id:
+            target_art = a
+        a.is_equipped = False
+
+    if not target_art:
+        return False, "Artefakt topilmadi."
+
+    target_art.is_equipped = True
+    user = await session.get(models.User, user_id)
+    if user:
+        user.equipped_artifact_id = target_art.id
+    await session.commit()
+    return True, f"⚔️ {target_art.name} muvaffaqiyatli taqildi!"
+
+
+async def buy_artifact(session: AsyncSession, user_id: int, code: str) -> Tuple[bool, str]:
+    """Artefaktni xarid qilish"""
+    from data.artifacts_data import ARTIFACTS_DATA
+    if code not in ARTIFACTS_DATA:
+        return False, "Noto'g'ri artefakt."
+
+    art_info = ARTIFACTS_DATA[code]
+    user = await session.get(models.User, user_id)
+    if not user:
+        return False, "Foydalanuvchi topilmadi."
+
+    existing = await session.execute(
+        select(models.Artifact).where(models.Artifact.user_id == user_id, models.Artifact.code == code)
+    )
+    if existing.scalar_one_or_none():
+        return False, "Sizda ushbu afsonaviy artefakt allaqachon mavjud!"
+
+    if user.gold < art_info["price_gold"] or user.iron < art_info["price_iron"]:
+        return False, f"Yetarli resurs yo'q! Kerak: {art_info['price_gold']:,}🪙 oltin, {art_info['price_iron']:,}⛓️ temir."
+
+    user.gold -= art_info["price_gold"]
+    user.iron -= art_info["price_iron"]
+
+    new_art = models.Artifact(
+        user_id=user.id,
+        code=code,
+        name=art_info["name"],
+        type=art_info["type"],
+        is_equipped=True,
+    )
+    # Boshqa artefaktlarni yechish
+    other_arts = await get_user_artifacts(session, user_id)
+    for a in other_arts:
+        a.is_equipped = False
+
+    session.add(new_art)
+    user.equipped_artifact_id = new_art.id
+    user.prestige += 100
+    user.xp += 300
+    await session.commit()
+    return True, f"🏆 TABRIKLAYMIZ! Siz {art_info['name']} sohibigalandingiz! (+100 Prestige)"
+
+
+# ============================================================
+# NIGHT KING RAID CONTRIBUTION CRUD
+# ============================================================
+
+async def record_night_king_damage(session: AsyncSession, user_id: int, damage: int) -> models.NightKingContribution:
+    """Tun Qiroliga yetkazilgan ziyonni hisoblash"""
+    res = await session.execute(
+        select(models.NightKingContribution).where(models.NightKingContribution.user_id == user_id)
+    )
+    contrib = res.scalar_one_or_none()
+    if not contrib:
+        contrib = models.NightKingContribution(
+            user_id=user_id,
+            damage_dealt=damage,
+            attacks_count=1,
+            last_attack=datetime.utcnow(),
+        )
+        session.add(contrib)
+    else:
+        contrib.damage_dealt += damage
+        contrib.attacks_count += 1
+        contrib.last_attack = datetime.utcnow()
+    await session.commit()
+    return contrib
+
+
+async def get_night_king_leaderboard(session: AsyncSession, limit: int = 10) -> List[Tuple[str, str, int, int]]:
+    """Tun Qiroliga eng ko'p ziyon yetkazgan o'yinchilar ro'yxati"""
+    res = await session.execute(
+        select(models.NightKingContribution)
+        .order_by(models.NightKingContribution.damage_dealt.desc())
+        .limit(limit)
+    )
+    contribs = res.scalars().all()
+    results = []
+    for c in contribs:
+        u = await session.get(models.User, c.user_id)
+        if u:
+            char_res = await session.execute(select(models.Character.name).where(models.Character.user_id == u.id))
+            char_name = char_res.scalar_one_or_none() or u.full_name
+            h = await session.get(models.House, u.house_id) if u.house_id else None
+            h_name = f"{h.emoji} {h.name}" if h else "Vesteros"
+            results.append((char_name, h_name, c.damage_dealt, c.attacks_count))
+    return results
 
 
 # ============================================================
@@ -807,7 +1005,13 @@ async def fight_ai_champion(
     elif tactics_win.get(champ_tactic) == player_tactic:
         tactic_bonus = 0.75
 
-    player_score = (hero_atk * 1.2 + hero_def * 0.8) * tactic_bonus * random.uniform(0.85, 1.25)
+    art_bonus = 0.0
+    equipped = await get_equipped_artifact(session, user.id)
+    if equipped:
+        from data.artifacts_data import ARTIFACTS_DATA
+        art_bonus = ARTIFACTS_DATA.get(equipped.code, {}).get("duel_bonus", 0.0)
+
+    player_score = (hero_atk * 1.2 + hero_def * 0.8) * tactic_bonus * (1.0 + art_bonus) * random.uniform(0.85, 1.25)
     champ_score = (champ["atk"] * 1.2 + champ["def"] * 0.8) * random.uniform(0.85, 1.25)
 
     won = player_score >= champ_score
@@ -830,6 +1034,9 @@ async def fight_ai_champion(
         else:
             outcome = f"💀 **MAG'LUBIYAT!** Mashg'ulot jangida {champion_name} tajribasi ustun keldi. Oltin yo'qotilmadi!"
             user.xp += 25
+
+    from core.leveling import check_user_level_up
+    check_user_level_up(user)
 
     await session.commit()
     return {
@@ -957,8 +1164,20 @@ async def resolve_pvp_duel(
     elif tactics_win.get(opponent_tactic) == duel.challenger_tactic:
         o_bonus = 1.35
 
-    c_score = (c_atk * 1.2 + c_def * 0.8) * c_bonus * random.uniform(0.85, 1.25)
-    o_score = (o_atk * 1.2 + o_def * 0.8) * o_bonus * random.uniform(0.85, 1.25)
+    c_art_bonus = 0.0
+    c_equipped = await get_equipped_artifact(session, challenger.id)
+    if c_equipped:
+        from data.artifacts_data import ARTIFACTS_DATA
+        c_art_bonus = ARTIFACTS_DATA.get(c_equipped.code, {}).get("duel_bonus", 0.0)
+
+    o_art_bonus = 0.0
+    o_equipped = await get_equipped_artifact(session, opponent.id)
+    if o_equipped:
+        from data.artifacts_data import ARTIFACTS_DATA
+        o_art_bonus = ARTIFACTS_DATA.get(o_equipped.code, {}).get("duel_bonus", 0.0)
+
+    c_score = (c_atk * 1.2 + c_def * 0.8) * c_bonus * (1.0 + c_art_bonus) * random.uniform(0.85, 1.25)
+    o_score = (o_atk * 1.2 + o_def * 0.8) * o_bonus * (1.0 + o_art_bonus) * random.uniform(0.85, 1.25)
 
     challenger_won = c_score >= o_score
     duel.opponent_tactic = opponent_tactic
@@ -987,6 +1206,10 @@ async def resolve_pvp_duel(
     winner.xp += 150
     loser.prestige = max(0, loser.prestige - 5)
     loser.xp += 50
+
+    from core.leveling import check_user_level_up
+    check_user_level_up(winner)
+    check_user_level_up(loser)
 
     tactic_names = {"heavy": "🗡️ Og'ir Zarba", "parry": "🛡️ Qalqonli Mudofaa", "agile": "⚡ Epchil Hamla"}
     outcome = (

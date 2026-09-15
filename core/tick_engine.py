@@ -67,9 +67,10 @@ async def process_due_marches(bot_app=None):
                     else:
                         logger.info(f"{dragon.name} och bo'lgani uchun jangda qatnasha olmadi.")
 
-                # Himoyachining ajdari (agar qal'a egasi lordining ajdari bo'lsa)
+                # Himoyachining ajdari va artefakti (agar qal'a egasi lordining ajdari bo'lsa)
                 def_dragon_pwr = 0
                 def_lord_id = None
+                def_art_bonuses = {}
                 old_owner_house_id = territory.owner_house_id
                 if old_owner_house_id:
                     def_house = await session.get(models.House, old_owner_house_id)
@@ -81,6 +82,18 @@ async def process_due_marches(bot_app=None):
                             if def_dragon and def_dragon.stage in ["baby", "adult"] and def_dragon.hunger >= 20:
                                 def_dragon_pwr = def_dragon.power
                                 def_dragon.hunger = max(0, def_dragon.hunger - 20)
+                            
+                            def_art = await crud.get_equipped_artifact(session, def_lord_user.id)
+                            if def_art:
+                                from data.artifacts_data import ARTIFACTS_DATA
+                                def_art_bonuses = ARTIFACTS_DATA.get(def_art.code, {})
+
+                # Hujumchining artefakti
+                att_art_bonuses = {}
+                att_art = await crud.get_equipped_artifact(session, attacker.id)
+                if att_art:
+                    from data.artifacts_data import ARTIFACTS_DATA
+                    att_art_bonuses = ARTIFACTS_DATA.get(att_art.code, {})
 
                 # Jang hisoblash
                 battle_res = calculate_battle(
@@ -90,6 +103,8 @@ async def process_due_marches(bot_app=None):
                     dragon_power=dragon_pwr,
                     dragon_tactic=dragon_tactic,
                     defender_dragon_power=def_dragon_pwr,
+                    attacker_artifact_bonuses=att_art_bonuses,
+                    defender_artifact_bonuses=def_art_bonuses,
                 )
 
                 # Tirik qolgan hujumchilarni qaytarish
@@ -124,6 +139,10 @@ async def process_due_marches(bot_app=None):
                     attacker.food += int(tot_food * 0.7)
                     attacker.iron += int(tot_iron * 0.7)
                     attacker.prestige += 50
+                    attacker.xp += 250
+                    from core.leveling import check_user_level_up
+                    check_user_level_up(attacker)
+
                     if dragon and dragon_pwr > 0:
                         dragon.power += 10  # G'alaba bonusi
 

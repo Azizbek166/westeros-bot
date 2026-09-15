@@ -12,6 +12,8 @@ def calculate_battle(
     dragon_power: int = 0,
     dragon_tactic: str = "none",
     defender_dragon_power: int = 0,
+    attacker_artifact_bonuses: Dict[str, float] = None,
+    defender_artifact_bonuses: Dict[str, float] = None,
 ) -> Dict[str, Any]:
     """
     Tosh-Qaychi-Qog'oz (RPS) va Strategik Drakarys asosida jang natijasi va yo'qotishlarni hisoblash.
@@ -22,6 +24,7 @@ def calculate_battle(
     - Kamonchi > Piyoda (+30%)
     - Piyoda > Nayzachi (+30%)
     - Ajdarlar jangi va Drakarys Taktikalari (devorlar, kamonchilar, old qatorlar, yalpi zarba)
+    - Afsonaviy artefaktlar bonusi (qurol, qalqon, reliklar)
     """
     troop_types = ["infantry", "archers", "cavalry", "spearmen", "special_troops"]
 
@@ -32,6 +35,10 @@ def calculate_battle(
     total_att_count = sum(att_troops.values())
     total_def_count = sum(def_troops.values())
 
+    # Artefakt bonuslari
+    att_art = attacker_artifact_bonuses or {}
+    def_art = defender_artifact_bonuses or {}
+
     # ============================================================
     # DRAKARYS VA AJDARLARNING STRATEGIK HUJUMI
     # ============================================================
@@ -40,6 +47,8 @@ def calculate_battle(
 
     # Havoda ajdarlar to'qnashuvi (agar har ikki tomonda ajdar bo'lsa)
     eff_att_dragon = dragon_power
+    if att_art.get("dragon_bonus", 0.0) > 0:
+        eff_att_dragon = int(eff_att_dragon * (1.0 + att_art["dragon_bonus"]))
     if dragon_power > 0 and defender_dragon_power > 0:
         clash_diff = dragon_power - defender_dragon_power
         if clash_diff > 0:
@@ -158,6 +167,8 @@ def calculate_battle(
 
     # Qal'a mudofaa bonusi (masalan: 850 defense = +35% mudofaa)
     castle_mult = 1.0 + (min(castle_defense, 1500) / 2500.0)
+    if def_art.get("defense_bonus", 0.0) > 0:
+        castle_mult *= (1.0 + def_art["defense_bonus"])
 
     # 3. Jang raundlari (maksimal 3 raund)
     att_losses = {t: 0 for t in troop_types}
@@ -190,6 +201,8 @@ def calculate_battle(
             att_power += a_count * unit_atk * mult
 
         att_power *= att_lead_bonus
+        if att_art.get("attack_bonus", 0.0) > 0:
+            att_power *= (1.0 + att_art["attack_bonus"])
 
         # Himoyachi kuchini hisoblash
         def_power = 0.0
