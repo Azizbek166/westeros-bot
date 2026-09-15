@@ -1,5 +1,5 @@
 from datetime import datetime
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CommandHandler, CallbackQueryHandler, ContextTypes
 from database import AsyncSessionLocal, crud
 from core.economy_engine import calculate_army_upkeep, calculate_hourly_income
@@ -34,11 +34,14 @@ async def show_profile(target, user_id: int, is_message: bool):
             return
 
         from core.leveling import get_level_info, check_user_level_up
-        await check_user_level_up(session, user)
+        leveled_up, new_lvl, lvl_msg = check_user_level_up(user)
+        if leveled_up:
+            await session.commit()
+
         lvl, title, curr_req, next_req, progress = get_level_info(user.xp or 0)
         prog_bar = "█" * int(progress // 10) + "░" * (10 - int(progress // 10))
 
-        upkeep = calculate_army_upkeep(user.army)
+        upkeep = calculate_army_upkeep(user.army) if user.army else 0
         income = await calculate_hourly_income(session, user)
         hero = user.characters[0] if user.characters else None
 
@@ -53,10 +56,17 @@ async def show_profile(target, user_id: int, is_message: bool):
             hours = int(diff.total_seconds() // 3600)
             shield_str = f"🛡️ Faol ({hours} soat qoldi)"
 
+        house_str = f"{user.house.emoji} {user.house.name} ({user.house.region})" if user.house else "Tanlanmagan"
+        inf_cnt = user.army.infantry if user.army else 0
+        arc_cnt = user.army.archers if user.army else 0
+        cav_cnt = user.army.cavalry if user.army else 0
+        spm_cnt = user.army.spearmen if user.army else 0
+        spc_cnt = user.army.special_troops if user.army else 0
+
         text = (
             f"👤 **LORD PROFILI**\n\n"
             f"👑 Ism: **{escape_md(hero.name if hero else user.full_name)}**\n"
-            f"🏰 Xonadon: **{user.house.emoji} {user.house.name}** ({user.house.region})\n"
+            f"🏰 Xonadon: **{house_str}**\n"
             f"🎖️ Lavozim: **{user.rank.title()}**\n"
             f"⭐ Daraja: **{lvl} / 30** — **{title}**\n"
             f"📈 Tajriba: `[{prog_bar}]` **{user.xp:,} / {next_req:,} XP** ({int(progress)}%)\n"
@@ -67,11 +77,11 @@ async def show_profile(target, user_id: int, is_message: bool):
             f"🌾 Oziq-ovqat: **{user.food:,}** (+{income['food']}/soat, Upkeep: -{int(upkeep)}/soat)\n"
             f"⛓️ Temir: **{user.iron:,}** (+{income['iron']}/soat)\n\n"
             f"⚔️ **ARMIYA TARKIBI:**\n"
-            f"🛡️ Piyodalar: **{user.army.infantry:,}**\n"
-            f"🏹 Kamonchilar: **{user.army.archers:,}**\n"
-            f"🐎 Otliqlar: **{user.army.cavalry:,}**\n"
-            f"🗡️ Nayzachilar: **{user.army.spearmen:,}**\n"
-            f"🔥 Maxsus Qo'shin: **{user.army.special_troops:,}**\n\n"
+            f"🛡️ Piyodalar: **{inf_cnt:,}**\n"
+            f"🏹 Kamonchilar: **{arc_cnt:,}**\n"
+            f"🐎 Otliqlar: **{cav_cnt:,}**\n"
+            f"🗡️ Nayzachilar: **{spm_cnt:,}**\n"
+            f"🔥 Maxsus Qo'shin: **{spc_cnt:,}**\n\n"
             f"🔰 **TINCHLIK QALQONI:** {shield_str}"
         )
 

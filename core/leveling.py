@@ -70,10 +70,10 @@ def get_level_info(xp: int) -> Tuple[int, str, int, int, float]:
     return level, title, curr_req, next_req, progress
 
 
-async def check_user_level_up(session, user, bot_app=None) -> Optional[str]:
+def check_user_level_up(user) -> Tuple[bool, int, str]:
     """
     O'yinchi XP sini tekshirib, agar darajasi ko'tarilgan bo'lsa darajasini yangilash va bonuslar berish.
-    Level ko'tarilsa tabrik xabarini qaytaradi.
+    Qaytaradi: (leveled_up: bool, new_level: int, congratulation_message: str)
     """
     old_level = user.level or 1
     new_level, title, _, _, _ = get_level_info(user.xp or 0)
@@ -100,17 +100,6 @@ async def check_user_level_up(session, user, bot_app=None) -> Optional[str]:
             f"🏆 +{bonus_prestige} Prestige\n\n"
             f"O'z kuchingizni /profile bo'limida ko'ring!"
         )
+        return True, new_level, msg
 
-        if bot_app and user.telegram_id:
-            try:
-                await bot_app.bot.send_message(
-                    chat_id=user.telegram_id,
-                    text=msg,
-                    parse_mode="Markdown"
-                )
-            except Exception:
-                pass
-
-        return msg
-
-    return None
+    return False, old_level, ""
