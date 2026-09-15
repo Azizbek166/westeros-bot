@@ -128,10 +128,224 @@ async def terr_dragon_info_callback(update: Update, context: ContextTypes.DEFAUL
     await query.answer("🐉 Qal'a osmonida ittifoqchi ajdar parvoz qilib, qal'ani dushman zarbalaridan himoya qilmoqda.", show_alert=True)
 
 
+async def my_castles_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/castles buyrug'i"""
+    user_id = update.effective_user.id
+    await show_my_castles(update, user_id, is_message=True)
+
+
+async def my_castles_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """menu_castles callback"""
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    await show_my_castles(query, user_id, is_message=False)
+
+
+async def show_my_castles(target, user_id: int, is_message: bool):
+    """Xonadonga qarashli barcha qal'alar va daromadlar boshqaruvi"""
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_with_relations(session, user_id)
+        if not user or not user.house_id:
+            msg = "Siz hali birorta ham xonadonga a'zo emassiz!"
+            if is_message:
+                await target.message.reply_text(msg)
+            else:
+                await target.edit_message_text(msg)
+            return
+
+        castles = await crud.get_house_territories(session, user.house_id)
+
+        if not castles:
+            text = (
+                f"🏰 **QAL'ALARIM — {user.house.emoji} {user.house.name.upper()}**\n\n"
+                f"Hozirda xonadoningiz birorta ham strategik qal'aga egalik qilmaydi.\n"
+                f"🗺️ **Xarita** bo'limiga o'ting va dushman qal'alariga yurish qilib, ularni zabt eting!\n"
+                f"Qal'alarni bosib olgach, ulardan soatlik o'lpon yig'ishingiz mumkin."
+            )
+            buttons = [
+                [InlineKeyboardButton("🗺️ Westeros Xaritasi", callback_data="menu_map")],
+                [InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")],
+            ]
+            if is_message:
+                await target.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+            else:
+                await target.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+            return
+
+        from datetime import datetime, timedelta
+        now = datetime.utcnow()
+
+        text = (
+            f"🏰 **QAL'ALARIM VA G'AZNALAR — {user.house.emoji} {user.house.name.upper()}**\n\n"
+            f"Xonadoningiz tasarrufidagi barcha qal'alar va ularning g'aznalari:\n\n"
+        )
+
+        buttons = []
+        for c in castles:
+            tot_gar = c.garrison_infantry + c.garrison_archers + c.garrison_cavalry + c.garrison_spearmen
+            last_tax = c.last_tax_collected_at or (now - timedelta(hours=4))
+            hours = min(4, int(max(0, (now - last_tax).total_seconds()) // 3600))
+            tax_tag = f"💰 {hours}/4 soat o'lpon tayyor" if hours >= 1 else "⏳ O'lpon yig'ilmoqda"
+
+            text += (
+                f"• 🏰 **{c.castle_name}** ({c.name})\n"
+                f"  └ 🛡️ Garnizon: **{tot_gar:,}** askar | Mudofaa: **{c.defense}**\n"
+                f"  └ 💰 Daromad: +{c.gold_income}🪙, +{c.food_income}🌾, +{c.iron_income}⛓️/soat\n"
+                f"  └ ✨ Holat: _{tax_tag}_\n\n"
+            )
+            buttons.append([InlineKeyboardButton(f"🏰 {c.castle_name} ({hours}s o'lpon)", callback_data=f"my_c_detail:{c.id}")])
+
+        buttons.append([InlineKeyboardButton("🗺️ Butun Xarita", callback_data="menu_map")])
+        buttons.append([InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")])
+
+        if is_message:
+            await target.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        else:
+            await target.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def my_castle_detail_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Qal'a boshqaruvi va o'lpon yig'ish sahifasi"""
+    query = update.callback_query
+    await query.answer()
+    terr_id = int(query.data.split(":")[1])
+    user_id = query.from_user.id
+
+    from datetime import datetime, timedelta
+    now = datetime.utcnow()
+
+    async with AsyncSessionLocal() as session:
+        terr = await crud.get_territory_by_id(session, terr_id)
+        user = await crud.get_user_with_relations(session, user_id)
+        if not terr or not user:
+            return
+
+        last_tax = terr.last_tax_collected_at or (now - timedelta(hours=4))
+        elapsed_sec = max(0, (now - last_tax).total_seconds())
+        hours = min(4, int(elapsed_sec // 3600))
+        rem_min = max(1, int((3600 - elapsed_sec) // 60)) if hours < 1 else 0
+
+        acc_gold = terr.gold_income * hours
+        acc_food = terr.food_income * hours
+        acc_iron = terr.iron_income * hours
+
+        st_dragon = crud.get_stationed_dragon_info(terr)
+        drg_str = f"🔥 {st_dragon.get('dragon_name')} ({st_dragon.get('user_name')})" if st_dragon else "Mavjud emas"
+
+        text = (
+            f"🏰 **QAL'A BOSHQARUVI: {terr.castle_name.upper()}**\n\n"
+            f"📍 Hudud: **{terr.name}** ({terr.region})\n"
+            f"🛡️ Mudofaa Devori: **{terr.defense}** ball\n"
+            f"🐉 Mudofaadagi Ajdar: **{drg_str}**\n\n"
+            f"⚔️ **GARNIZON KUCHLARI:**\n"
+            f"• 🛡️ Piyoda: **{terr.garrison_infantry:,}**\n"
+            f"• 🏹 Kamonchi: **{terr.garrison_archers:,}**\n"
+            f"• 🐎 Otliq: **{terr.garrison_cavalry:,}**\n"
+            f"• 🗡️ Nayzachi: **{terr.garrison_spearmen:,}**\n\n"
+            f"💰 **TO'PLANGAN O'LPON ({hours}/4 soat):**\n"
+            f"• 🪙 Oltin: **+{acc_gold:,}**\n"
+            f"• 🌾 Oziq: **+{acc_food:,}**\n"
+            f"• ⛓️ Temir: **+{acc_iron:,}**\n"
+            f"{f'⏳ Keyingi o\'lpon tayyor bo\'lishiga: {rem_min} daqiqa' if hours < 1 else '✅ O\'lponni yig\'ib olishga tayyor!'}\n"
+        )
+
+        buttons = []
+        if hours >= 1:
+            buttons.append([InlineKeyboardButton(f"💰 O'lpon Olish ({hours} soatlik: +{acc_gold:,}🪙)", callback_data=f"collect_tax:{terr.id}")])
+
+        buttons.append([InlineKeyboardButton("🛡️ Garnizonga Askar Joylashtirish", callback_data=f"def_rf_menu:{terr.id}")])
+        buttons.append([InlineKeyboardButton("↩️ Garnizondan Askarlarni Qaytarish", callback_data=f"def_withdraw_rf:{terr.id}")])
+
+        if st_dragon:
+            buttons.append([InlineKeyboardButton("🚫 Ajdarni Qaytarib Olish", callback_data=f"def_recall_dragon:{terr.id}")])
+        else:
+            buttons.append([InlineKeyboardButton("🐉 Ajdarni Qal'aga Joylashtirish", callback_data=f"def_station_dragon:{terr.id}")])
+
+        buttons.append([InlineKeyboardButton("🏰 Devorni Kuchaytirish (-1,500🪙, -2,000⛓️)", callback_data=f"upgrade_walls:{terr.id}")])
+        buttons.append([InlineKeyboardButton("🔙 Qalalarim Ro'yxati", callback_data="menu_castles")])
+        buttons.append([InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")])
+
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def collect_tax_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """O'lpon yig'ib olish"""
+    query = update.callback_query
+    terr_id = int(query.data.split(":")[1])
+    user_id = query.from_user.id
+
+    async with AsyncSessionLocal() as session:
+        ok, msg, res = await crud.collect_castle_tax(session, user_id, terr_id)
+
+    await query.answer(msg if not ok else "✅ O'lpon muvaffaqiyatli qabul qilindi!", show_alert=True)
+    query.data = f"my_c_detail:{terr_id}"
+    await my_castle_detail_callback(update, context)
+
+
+async def upgrade_walls_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Qal'a devorlarini kuchaytirish"""
+    query = update.callback_query
+    terr_id = int(query.data.split(":")[1])
+    user_id = query.from_user.id
+
+    async with AsyncSessionLocal() as session:
+        user = await session.get(models.User, user_id)
+        terr = await session.get(models.Territory, terr_id)
+        if not user or not terr:
+            return
+
+        if user.gold < 1500 or user.iron < 2000:
+            await query.answer("❌ Devorni kuchaytirish uchun 1,500 oltin va 2,000 temir kerak!", show_alert=True)
+            return
+
+        user.gold -= 1500
+        user.iron -= 2000
+        terr.defense += 150
+        user.prestige += 50
+        await session.commit()
+
+    await query.answer("🏰 Qal'a devorlari mustahkamlandi! (+150 Mudofaa, +50 Prestige)", show_alert=True)
+    query.data = f"my_c_detail:{terr_id}"
+    await my_castle_detail_callback(update, context)
+
+
+async def def_withdraw_rf_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Qal'a garnizonidan askarlarni shaxsiy armiyaga qaytarish"""
+    query = update.callback_query
+    terr_id = int(query.data.split(":")[1])
+    user_id = query.from_user.id
+
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_with_relations(session, user_id)
+        terr = await session.get(models.Territory, terr_id)
+        if not user or not terr:
+            return
+
+        if terr.garrison_infantry < 50 and terr.garrison_archers < 25:
+            await query.answer("❌ Qal'ada qaytarib olish uchun yetarli garnizon askarlari yo'q!", show_alert=True)
+            return
+
+        withdrawn = min(100, terr.garrison_infantry)
+        terr.garrison_infantry -= withdrawn
+        user.army.infantry += withdrawn
+        await session.commit()
+
+    await query.answer(f"✅ Qal'adan +{withdrawn} ta piyoda askar shaxsiy armiyangizga qaytarildi!", show_alert=True)
+    query.data = f"my_c_detail:{terr_id}"
+    await my_castle_detail_callback(update, context)
+
+
 def register_map_handlers(app):
     app.add_handler(CommandHandler("map", map_command))
     app.add_handler(CommandHandler("territory", map_command))
+    app.add_handler(CommandHandler(["castles", "mycastles"], my_castles_command))
     app.add_handler(CallbackQueryHandler(map_callback, pattern="^menu_map$"))
+    app.add_handler(CallbackQueryHandler(my_castles_callback, pattern="^menu_castles$"))
+    app.add_handler(CallbackQueryHandler(my_castle_detail_callback, pattern="^my_c_detail:"))
+    app.add_handler(CallbackQueryHandler(collect_tax_callback, pattern="^collect_tax:"))
+    app.add_handler(CallbackQueryHandler(upgrade_walls_callback, pattern="^upgrade_walls:"))
+    app.add_handler(CallbackQueryHandler(def_withdraw_rf_callback, pattern="^def_withdraw_rf:"))
     app.add_handler(CallbackQueryHandler(view_territory_callback, pattern="^view_terr:"))
     app.add_handler(CallbackQueryHandler(terr_own_info_callback, pattern="^terr_own_info$"))
     app.add_handler(CallbackQueryHandler(def_station_dragon_callback, pattern="^def_station_dragon:"))

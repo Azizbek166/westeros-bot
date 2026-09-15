@@ -8,7 +8,7 @@ import logging
 from telegram.ext import Application, ContextTypes
 from config import BOT_TOKEN
 from database import init_db, AsyncSessionLocal
-from core.tick_engine import process_due_marches
+from core.tick_engine import process_due_marches, process_npc_growth_and_raids
 from core.economy_engine import process_hourly_tick
 from handlers import register_all_handlers
 
@@ -40,6 +40,15 @@ async def hourly_economy_job(context: ContextTypes.DEFAULT_TYPE):
         logger.info("💰 Soatlik iqtisodiyot va oziq-ovqat iste'moli hisoblandi.")
     except Exception as e:
         logger.error(f"Economy tick xatosi: {e}")
+
+
+async def npc_tick_job(context: ContextTypes.DEFAULT_TYPE):
+    """Har 15 daqiqada 5 ta tirik NPC xonadonlar garnizoni o'sishi va davriy bosqinlar"""
+    try:
+        await process_npc_growth_and_raids(bot_app=context.application)
+    except Exception as e:
+        logger.error(f"NPC tick xatosi: {e}")
+
 
 
 # ============================================================
@@ -114,6 +123,13 @@ def main():
         hourly_economy_job,
         interval=3600,
         first=3600,
+    )
+
+    # Har 15 daqiqada (900 soniya) 5 ta NPC xonadon harakati va bosqinlari
+    app.job_queue.run_repeating(
+        npc_tick_job,
+        interval=900,
+        first=60,
     )
 
     print("==================================================")

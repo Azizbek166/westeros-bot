@@ -89,4 +89,43 @@ ARTIFACTS_DATA: Dict[str, Dict[str, Any]] = {
         "dragon_bonus": 0.10,
         "description": "Qadimgi Qish Qirollari toji. Egasiga +50 Prestige va barcha sohalarda +10% doimiy ustunlik beradi.",
     },
+    "dragon_armor": {
+        "code": "dragon_armor",
+        "name": "🐉 Valyria Ajdar Sovuti",
+        "type": "dragon_artifact",
+        "price_gold": 8000,
+        "price_iron": 4000,
+        "duel_bonus": 0.0,
+        "attack_bonus": 0.0,
+        "defense_bonus": 0.20,
+        "dragon_bonus": 0.40,
+        "description": "Valyria po'latidan zarb qilingan ajdar zirhi. Ajdarning jangdagi bardoshliligi va umumiy quvvatini +40% ga oshiradi.",
+    },
+    "fire_ruby": {
+        "code": "fire_ruby",
+        "name": "🔥 Valyria Olov Yoquti",
+        "type": "dragon_artifact",
+        "price_gold": 10000,
+        "price_iron": 5000,
+        "duel_bonus": 0.0,
+        "attack_bonus": 0.0,
+        "defense_bonus": 0.0,
+        "dragon_bonus": 0.50,
+        "description": "Ajdar ko'kragiga o'rnatiluvchi afsonaviy sehrli yoqut. Drakarys olov nafasi kuchini +50% ga kuchaytiradi.",
+    },
+    "ancient_saddle": {
+        "code": "ancient_saddle",
+        "name": "🪑 Qadimgi Valyria Egari",
+        "type": "dragon_artifact",
+        "price_gold": 6000,
+        "price_iron": 2500,
+        "duel_bonus": 0.0,
+        "attack_bonus": 0.0,
+        "defense_bonus": 0.10,
+        "dragon_bonus": 0.30,
+        "description": "Aegondanning ajdar minish egari. Ajdarning parvoz chaqqonligi va boshqaruvini +30% ga yaxshilaydi.",
+    },
 }
+
+DRAGON_ARTIFACTS = ["dragon_armor", "fire_ruby", "ancient_saddle", "dragonbinder"]
+

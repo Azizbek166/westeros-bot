@@ -209,28 +209,41 @@ async def night_king_leaderboard_callback(update: Update, context: ContextTypes.
 
 
 async def event_plague_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Vabo hodisasi menyusi"""
+    """Vabo hodisasi menyusi (Kunlik limit 2 marta)"""
     query = update.callback_query
     await query.answer()
+    user_id = query.from_user.id
 
-    buttons = [
-        [InlineKeyboardButton("🧪 Dorilar Tayyorlash (-300🪙, -100⛓️)", callback_data="plague_cure")],
-        [InlineKeyboardButton("🚪 Shaharni Karantin Qilish (0 resurs)", callback_data="plague_quarantine")],
-        [InlineKeyboardButton("🔙 Voqealarga Qaytish", callback_data="menu_throne")],
-    ]
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_with_relations(session, user_id)
+        if not user:
+            return
 
-    text = (
-        f"☣️ **MINTAQADA OG'IR VABO EPIDEMIYASI TARQALDI!**\n\n"
-        f"Xalqingiz va askarlaringiz orasida sirli kasallik tarqalmoqda. "
-        f"Maesterlar shoshilinch qaror qabul qilishingizni kutmoqda:\n\n"
-        f"1. **Dorilar Tayyorlash:** 300 oltin va 100 temir sarflab epidemiyani yengasiz va xalq hurmatiga (+40 Prestige) sazovor bo'lasiz.\n"
-        f"2. **Karantin:** Hech narsa sarflamaysiz, ammo 10 ta askar kasallikdan nobud bo'ladi."
-    )
-    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        plague_count = getattr(user, "daily_plague_count", 0)
+
+        buttons = []
+        if plague_count >= 2:
+            status_str = f"⚠️ **Bugungi limit tugagan: {plague_count}/2 ta.**\nErtangi kunga qadar yangi chora ko'rish imkoni yo'q."
+        else:
+            status_str = f"📊 Bugungi harakatlaringiz: **{plague_count}/2 ta**"
+            buttons.append([InlineKeyboardButton("🧪 Dorilar Tayyorlash (-300🪙, -100⛓️)", callback_data="plague_cure")])
+            buttons.append([InlineKeyboardButton("🚪 Shaharni Karantin Qilish (0 resurs)", callback_data="plague_quarantine")])
+
+        buttons.append([InlineKeyboardButton("🔙 Voqealarga Qaytish", callback_data="menu_throne")])
+
+        text = (
+            f"☣️ **MINTAQADA OG'IR VABO EPIDEMIYASI TARQALDI!**\n\n"
+            f"Xalqingiz va askarlaringiz orasida sirli kasallik tarqalmoqda. "
+            f"Maesterlar shoshilinch qaror qabul qilishingizni kutmoqda:\n\n"
+            f"{status_str}\n\n"
+            f"1. **Dorilar Tayyorlash:** 300 oltin va 100 temir sarflab epidemiyani yengasiz va xalq hurmatiga (+40 Prestige) sazovor bo'lasiz.\n"
+            f"2. **Karantin:** Hech narsa sarflamaysiz, ammo 10 ta askar kasallikdan nobud bo'ladi."
+        )
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
 
 
 async def plague_action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Vabo harakati natijasi"""
+    """Vabo harakati natijasi (Maksimal 2 marta)"""
     query = update.callback_query
     await query.answer()
 
@@ -242,6 +255,11 @@ async def plague_action_callback(update: Update, context: ContextTypes.DEFAULT_T
         if not user:
             return
 
+        if getattr(user, "daily_plague_count", 0) >= 2:
+            await query.answer("❌ Bugungi vabo harakati limiti (2/2) tugagan! Ertaga qayta urinib ko'ring.", show_alert=True)
+            await show_events_hub(query, user_id, is_message=False)
+            return
+
         if action == "plague_cure":
             if user.gold < 300 or user.iron < 100:
                 await query.answer("❌ Dorilar tayyorlash uchun 300 oltin va 100 temir kerak!", show_alert=True)
@@ -250,8 +268,9 @@ async def plague_action_callback(update: Update, context: ContextTypes.DEFAULT_T
             user.iron -= 100
             user.prestige += 40
             user.xp += 100
+            user.daily_plague_count = getattr(user, "daily_plague_count", 0) + 1
             await session.commit()
-            msg = "✅ Maesterlar dorilar tayyorladi! Vabo bartaraf etildi. (+40 Prestige)"
+            msg = f"✅ Maesterlar dorilar tayyorladi! Vabo bartaraf etildi. (+40 Prestige, Bugungi limit: {user.daily_plague_count}/2)"
         else:
             army_res = await session.execute(select(models.Army).where(models.Army.user_id == user.id))
             army = army_res.scalar_one_or_none()
@@ -259,8 +278,9 @@ async def plague_action_callback(update: Update, context: ContextTypes.DEFAULT_T
                 army.infantry -= 10
             elif army:
                 army.archers = max(0, army.archers - 10)
+            user.daily_plague_count = getattr(user, "daily_plague_count", 0) + 1
             await session.commit()
-            msg = "🚪 Qattiq karantin joriy qilindi. 10 ta askar nobud bo'ldi, biroq qolganlar saqlab qolindi."
+            msg = f"🚪 Qattiq karantin joriy qilindi. 10 ta askar nobud bo'ldi. (Bugungi limit: {user.daily_plague_count}/2)"
 
     await query.answer(msg, show_alert=True)
     await show_events_hub(query, user_id, is_message=False)

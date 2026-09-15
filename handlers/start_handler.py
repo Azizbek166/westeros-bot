@@ -1,9 +1,15 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.ext import CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 from database import AsyncSessionLocal, crud
 from data.houses_data import HOUSES_DATA
 from data.characters_data import HOUSE_CHARACTERS
-from keyboards.menus import main_menu_keyboard, regions_keyboard, houses_in_region_keyboard, back_to_main_keyboard
+from keyboards.menus import (
+    main_menu_keyboard,
+    regions_keyboard,
+    houses_in_region_keyboard,
+    back_to_main_keyboard,
+    persistent_reply_keyboard,
+)
 from config import escape_md
 
 
@@ -28,6 +34,11 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"🪙 Oltin: **{user.gold:,}** | 🌾 Oziq-ovqat: **{user.food:,}** | ⛓️ Temir: **{user.iron:,}**\n"
                 f"🛡️ Armiya: **{(user.army.infantry + user.army.archers + user.army.cavalry + user.army.spearmen + user.army.special_troops):,}** askar\n\n"
                 f"Westerosda yangi kun boshlandi. Buyruqni tanlang:"
+            )
+            # Doimiy pastki menyu (emoji bar yonida)
+            await update.message.reply_text(
+                "⚔️ Westeros dunyosiga xush kelibsiz!",
+                reply_markup=persistent_reply_keyboard()
             )
             await update.message.reply_text(text, parse_mode="Markdown", reply_markup=main_menu_keyboard(user_id))
             return
@@ -145,6 +156,14 @@ async def hero_selected_callback(update: Update, context: ContextTypes.DEFAULT_T
         f"Boshqaruv menyusidan foydalanishingiz mumkin:"
     )
     await query.edit_message_text(text, parse_mode="Markdown", reply_markup=main_menu_keyboard(user_id))
+    try:
+        await context.bot.send_message(
+            chat_id=user_id,
+            text="⚔️ Buyruqlar paneli faollashtirildi.",
+            reply_markup=persistent_reply_keyboard(),
+        )
+    except Exception:
+        pass
 
 
 async def main_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -171,11 +190,46 @@ async def main_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await query.edit_message_text(text, parse_mode="Markdown", reply_markup=main_menu_keyboard(user_id))
 
 
+async def bottom_menu_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Pastki doimiy menyu tugmalari bosilganda (🏠 Bosh Menyu, 🏰 Qalalarim)"""
+    if not update.message or not update.message.text:
+        return
+    text = update.message.text.strip()
+    user_id = update.effective_user.id
+
+    if text == "🏠 Bosh Menyu":
+        async with AsyncSessionLocal() as session:
+            user = await crud.get_user_with_relations(session, user_id)
+            if not user:
+                await update.message.reply_text("Iltimos, avval /start ni bosing.")
+                return
+
+            hero_name = user.characters[0].name if user.characters else "Lord"
+            msg = (
+                f"👑 **THE IRON THRONE — ASOSIY DASHBOARD**\n\n"
+                f"👤 Hukmdor: **{escape_md(hero_name)}**\n"
+                f"🏰 Xonadon: **{user.house.emoji} {user.house.name}**\n\n"
+                f"🪙 Oltin: **{user.gold:,}** | 🌾 Oziq-ovqat: **{user.food:,}** | ⛓️ Temir: **{user.iron:,}**\n"
+                f"🛡️ Armiya: **{(user.army.infantry + user.army.archers + user.army.cavalry + user.army.spearmen + user.army.special_troops):,}** askar\n\n"
+                f"Kerakli bo'limni tanlang:"
+            )
+            await update.message.reply_text(
+                msg,
+                parse_mode="Markdown",
+                reply_markup=main_menu_keyboard(user_id)
+            )
+    elif text == "🏰 Qalalarim":
+        from handlers.map_handler import my_castles_command
+        await my_castles_command(update, context)
+
+
 def register_start_handlers(app):
     app.add_handler(CommandHandler("start", start_command))
+    app.add_handler(MessageHandler(filters.Regex("^(🏠 Bosh Menyu|🏰 Qalalarim)$"), bottom_menu_text_handler))
     app.add_handler(CallbackQueryHandler(region_selected_callback, pattern="^sel_reg:"))
     app.add_handler(CallbackQueryHandler(house_selected_callback, pattern="^sel_house:"))
     app.add_handler(CallbackQueryHandler(hero_selected_callback, pattern="^sel_hero:"))
     app.add_handler(CallbackQueryHandler(hero_taken_callback, pattern="^hero_taken$"))
     app.add_handler(CallbackQueryHandler(main_menu_callback, pattern="^menu_main$"))
     app.add_handler(CallbackQueryHandler(lambda u, c: u.callback_query.edit_message_text("Mintaqangizni tanlang:", reply_markup=regions_keyboard()), pattern="^back_to_regions$"))
+

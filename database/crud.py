@@ -985,24 +985,24 @@ async def hatch_dragon(session: AsyncSession, user_id: int, dragon_id: Optional[
     if dragon.stage != "egg":
         return False, "Ushbu ajdar allaqachon tuxumdan chiqqan!"
 
-    if user.food < 1500 or user.iron < 800 or user.gold < 500:
+    if user.food < 2500 or user.iron < 1500 or user.gold < 1000:
         return False, (
             f"Tuxumni isitib ochirish marosimi uchun quyidagi resurslar kerak:\n"
-            f"• 🌾 Oziq-ovqat: 1,500 (sizda: {user.food:,})\n"
-            f"• ⛓️ Temir: 800 (sizda: {user.iron:,})\n"
-            f"• 🪙 Oltin: 500 (sizda: {user.gold:,})"
+            f"• 🌾 Oziq-ovqat: 2,500 (sizda: {user.food:,})\n"
+            f"• ⛓️ Temir: 1,500 (sizda: {user.iron:,})\n"
+            f"• 🪙 Oltin: 1,000 (sizda: {user.gold:,})"
         )
 
-    user.food -= 1500
-    user.iron -= 800
-    user.gold -= 500
+    user.food -= 2500
+    user.iron -= 1500
+    user.gold -= 1000
     dragon.stage = "baby"
-    dragon.power += 50
-    user.prestige += 100
-    user.xp += 300
+    dragon.power += 80
+    user.prestige += 150
+    user.xp += 400
 
     await session.commit()
-    return True, f"🔥 AJOYIB MO'JIZA! {dragon.name} olov bag'rida tuxumdan chiqdi! (+100 Prestige)"
+    return True, f"🔥 AJOYIB MO'JIZA! {dragon.name} olov bag'rida tuxumdan chiqdi! (+150 Prestige)"
 
 
 async def feed_dragon(session: AsyncSession, user_id: int, dragon_id: Optional[int] = None) -> Tuple[bool, str]:
@@ -1018,47 +1018,76 @@ async def feed_dragon(session: AsyncSession, user_id: int, dragon_id: Optional[i
     if user.food < 350:
         return False, "Ajdarni to'ydirish uchun kamida 350🌾 oziq-ovqat kerak!"
 
-    user.food -= 350
-    dragon.hunger = min(100, dragon.hunger + 25)
-    dragon.power += 10
+    feed_cost = 250 + (dragon.level * 40)
+    if user.food < feed_cost:
+        return False, f"❌ Ajdarni to'ydirish uchun kamida {feed_cost:,}🌾 oziq-ovqat kerak!"
+
+    user.food -= feed_cost
+    dragon.hunger = min(100, dragon.hunger + 30)
+    dragon.power += 15
     dragon.last_fed = datetime.utcnow()
     await session.commit()
     return True, f"🍗 {dragon.name} to'yib ovqatlandi! Quvvat: {dragon.power} (To'qlik: {dragon.hunger}%)"
 
 
+def get_dragon_upgrade_cost(dragon: models.Dragon) -> Dict[str, int]:
+    """Ajdar darajasini ko'tarish uchun kerakli resurslar (qimmat va qiyin balans)"""
+    lvl = dragon.level
+    return {
+        "food": 500 + (lvl * 450),
+        "iron": 300 + (lvl * 350),
+        "gold": 200 + (lvl * 300),
+        "min_hunger": 30,
+    }
+
+
 async def train_dragon(session: AsyncSession, user_id: int, dragon_id: Optional[int] = None) -> Tuple[bool, str]:
-    """Ajdarni parvoz va olovga mashq qildirish (Maksimal 20-daraja)"""
+    """Ajdarni parvoz va olovga mashq qildirish (Maksimal 20-daraja, qiyin va qimmat)"""
     user = await session.get(models.User, user_id)
     dragon = await get_user_dragon(session, user_id, dragon_id)
     if not user or not dragon:
         return False, "Ajdar topilmadi."
 
     if dragon.stage == "egg":
-        return False, "Tuxumni mashq qildirib bo'lmaydi!"
+        return False, "Tuxumni mashq qildirib bo'lmaydi! Avval uni ochiring."
 
     if dragon.level >= 20:
         return False, f"❌ {dragon.name} maksimal 20-darajaga yetgan! U o'zining cho'qqisida turibdi."
 
-    if user.iron < 300 or user.gold < 200:
-        return False, "Mashg'ulotlar uchun 300⛓️ temir va 200🪙 oltin kerak!"
+    costs = get_dragon_upgrade_cost(dragon)
+    if dragon.hunger < costs["min_hunger"]:
+        return False, f"❌ {dragon.name} och (to'qlik: {dragon.hunger}%). Uni avval boqing (kamida {costs['min_hunger']}% kerak)!"
 
-    user.iron -= 300
-    user.gold -= 200
+    if user.food < costs["food"] or user.iron < costs["iron"] or user.gold < costs["gold"]:
+        return False, (
+            f"❌ Ajdarni {dragon.level+1}-darajaga ko'tarish uchun resurslar yetarli emas!\n\n"
+            f"Kerak:\n"
+            f"• 🌾 Oziq: {costs['food']:,} (sizda: {user.food:,})\n"
+            f"• ⛓️ Temir: {costs['iron']:,} (sizda: {user.iron:,})\n"
+            f"• 🪙 Oltin: {costs['gold']:,} (sizda: {user.gold:,})\n"
+            f"• 🍗 To'qlik: {costs['min_hunger']}%+"
+        )
+
+    user.food -= costs["food"]
+    user.iron -= costs["iron"]
+    user.gold -= costs["gold"]
+    dragon.hunger = max(0, dragon.hunger - 20)
     dragon.level += 1
-    dragon.power += 30
-    user.xp += 100
+    pwr_gain = 35 + (dragon.level * 5)
+    dragon.power += pwr_gain
+    user.xp += 150 + (dragon.level * 10)
 
     if dragon.level >= 5 and dragon.stage == "baby":
         dragon.stage = "adult"
         await session.commit()
-        return True, f"🦅 TABRIKLAYMIZ! {dragon.name} balog'atga yetib, bahaybat jangovar ajdarga aylandi! (Daraja: {dragon.level})"
+        return True, f"🦅 TABRIKLAYMIZ! {dragon.name} balog'atga yetib, bahaybat jangovar ajdarga aylandi! (Daraja: {dragon.level}, Quvvat: {dragon.power})"
 
     await session.commit()
-    return True, f"🔥 Dracarys! {dragon.name} mashq qildi: Daraja {dragon.level}/20, Jang Quvvati: {dragon.power}"
+    return True, f"🔥 Dracarys! {dragon.name} kuchaytirildi: Daraja {dragon.level}/20, Jang Quvvati: +{pwr_gain} ({dragon.power})!"
 
 
 async def dragon_lay_egg(session: AsyncSession, user_id: int, dragon_id: int) -> Tuple[bool, str]:
-    """Ulg'aygan ajdarning tuxum qo'yishi va ikkinchi ajdarga ega bo'lish"""
+    """Ulg'aygan 10-darajali ajdarning tuxum qo'yishi va ikkinchi ajdarga ega bo'lish"""
     user = await session.get(models.User, user_id)
     dragon = await session.get(models.Dragon, dragon_id)
     if not user or not dragon or dragon.user_id != user.id:
@@ -1074,11 +1103,17 @@ async def dragon_lay_egg(session: AsyncSession, user_id: int, dragon_id: int) ->
     if dragon.has_laid_egg:
         return False, "❌ Ushbu ajdar allaqachon nasl qoldirgan."
 
-    if user.gold < 1000 or user.food < 1000:
-        return False, "Tuxumni parvarishlash uchun 1,000🪙 oltin va 1,000🌾 g'alla kerak!"
+    if user.gold < 3000 or user.food < 4000 or user.iron < 2000:
+        return False, (
+            f"Tuxumni parvarishlash va nasl qoldirish marosimi uchun quyidagi resurslar kerak:\n"
+            f"• 🪙 Oltin: 3,000 (sizda: {user.gold:,})\n"
+            f"• 🌾 Oziq: 4,000 (sizda: {user.food:,})\n"
+            f"• ⛓️ Temir: 2,000 (sizda: {user.iron:,})"
+        )
 
-    user.gold -= 1000
-    user.food -= 1000
+    user.gold -= 3000
+    user.food -= 4000
+    user.iron -= 2000
     dragon.has_laid_egg = True
 
     new_name = f"{dragon.name} Nasli"
@@ -1089,14 +1124,82 @@ async def dragon_lay_egg(session: AsyncSession, user_id: int, dragon_id: int) ->
         stage="egg",
         level=1,
         hunger=60,
-        power=80,
+        power=100,
         last_fed=datetime.utcnow(),
     )
     session.add(new_egg)
-    user.prestige += 150
-    user.xp += 500
+    user.prestige += 200
+    user.xp += 600
     await session.commit()
-    return True, f"🥚 AJOYIB VOQEA! {dragon.name} yangi ajdar tuxumini qo'ydi! Endi sizda 2 ta ajdar bor! (+150 Prestige)"
+    return True, f"🥚 AJOYIB MO'JIZA! {dragon.name} yangi ajdar tuxumini qo'ydi! Endi sizda 2 ta ajdar bo'ladi! (+200 Prestige)"
+
+
+async def equip_dragon_artifact(session: AsyncSession, user_id: int, dragon_id: int, artifact_code: str) -> Tuple[bool, str]:
+    """Ajdarga maxsus artefakt sotib olib taqish"""
+    user = await session.get(models.User, user_id)
+    dragon = await session.get(models.Dragon, dragon_id)
+    if not user or not dragon or dragon.user_id != user.id:
+        return False, "Ajdar topilmadi."
+
+    from data.artifacts_data import ARTIFACTS_DATA
+    if artifact_code not in ARTIFACTS_DATA:
+        return False, "Artefakt topilmadi."
+
+    art_info = ARTIFACTS_DATA[artifact_code]
+    p_gold = art_info.get("price_gold", 6000)
+    p_iron = art_info.get("price_iron", 3000)
+
+    if user.gold < p_gold or user.iron < p_iron:
+        return False, f"❌ {art_info['name']} uchun {p_gold:,}🪙 oltin va {p_iron:,}⛓️ temir kerak! (Sizda: {user.gold:,}🪙, {user.iron:,}⛓️)"
+
+    user.gold -= p_gold
+    user.iron -= p_iron
+    dragon.artifact_code = artifact_code
+    pwr_bonus = int(dragon.power * art_info.get("dragon_bonus", 0.35))
+    dragon.power += pwr_bonus
+    user.prestige += 120
+
+    await session.commit()
+    return True, f"✨ {dragon.name} ga {art_info['name']} taqildi! Ajdarning quvvati +{pwr_bonus} ga oshdi! (+120 Prestige)"
+
+
+async def collect_castle_tax(session: AsyncSession, user_id: int, territory_id: int) -> Tuple[bool, str, Dict[str, int]]:
+    """Qal'adan 4 soatlik to'plangan o'lponni yig'ib olish"""
+    user = await session.get(models.User, user_id)
+    terr = await session.get(models.Territory, territory_id)
+    if not user or not terr:
+        return False, "Ma'lumot topilmadi.", {}
+
+    if not user.house_id or terr.owner_house_id != user.house_id:
+        return False, "Bu qal'a sizning xonadoningizga tegishli emas!", {}
+
+    now = datetime.utcnow()
+    last_tax = terr.last_tax_collected_at or (now - timedelta(hours=4))
+    elapsed_seconds = max(0, (now - last_tax).total_seconds())
+    hours = int(elapsed_seconds // 3600)
+    if hours < 1:
+        remaining_mins = max(1, int((3600 - elapsed_seconds) // 60))
+        return False, f"⏳ O'lpon yig'ishga hali erta! Kamida 1 soat o'tishi kerak ({remaining_mins} daqiqa qoldi).", {}
+
+    hours = min(4, hours)  # Ko'pi bilan 4 soatlik jamlanadi
+    g_inc = terr.gold_income * hours
+    f_inc = terr.food_income * hours
+    i_inc = terr.iron_income * hours
+
+    user.gold += g_inc
+    user.food += f_inc
+    user.iron += i_inc
+    terr.last_tax_collected_at = now
+    await session.commit()
+
+    return True, (
+        f"💰 **{terr.name.upper()} QAL'ASIDAN O'LPON OLINDI!**\n\n"
+        f"⏱️ To'plangan vaqt: **{hours} soatlik** o'lpon\n"
+        f"• 🪙 Oltin: **+{g_inc:,}**\n"
+        f"• 🌾 Oziq-ovqat: **+{f_inc:,}**\n"
+        f"• ⛓️ Temir: **+{i_inc:,}**\n\n"
+        f"Resurslar sizning shaxsiy xazinangizga qo'shildi!"
+    ), {"gold": g_inc, "food": f_inc, "iron": i_inc, "hours": hours}
 
 
 # ============================================================

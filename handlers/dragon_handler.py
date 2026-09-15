@@ -104,19 +104,35 @@ async def show_dragon_hub(target, user_id: int, is_message: bool):
                 f"⭐ Daraja: **{dragon.level} / 20**\n"
                 f"⚔️ Jang Quvvati: **{dragon.power:,}**\n"
                 f"🍗 To'qlik: `[{hunger_bar}]` **{dragon.hunger}%**\n"
-                f"{egg_info}\n"
             )
 
+            if dragon.artifact_code:
+                from data.artifacts_data import ARTIFACTS_DATA
+                art_item = ARTIFACTS_DATA.get(dragon.artifact_code, {})
+                text += f"🏺 Taqilgan Artefakt: **{art_item.get('name', dragon.artifact_code)}** (+{int(art_item.get('dragon_bonus', 0)*100)}% quvvat)\n"
+
+            text += f"{egg_info}"
+
             if dragon.stage == "egg":
-                buttons.append([InlineKeyboardButton(f"✨ {dragon.name} Tuxumini Ochirish (1,500🌾 800⛓️ 500🪙)", callback_data=f"dragon_hatch_{dragon.id}")])
+                buttons.append([InlineKeyboardButton(f"✨ {dragon.name} Tuxumini Ochirish (2,500🌾 1,500⛓️ 1,000🪙)", callback_data=f"dragon_hatch_{dragon.id}")])
             else:
-                row = []
-                row.append(InlineKeyboardButton(f"🍗 Boqish: {dragon.name}", callback_data=f"dragon_feed_{dragon.id}"))
+                costs = crud.get_dragon_upgrade_cost(dragon)
+                feed_cost = 250 + (dragon.level * 40)
                 if dragon.level < 20:
-                    row.append(InlineKeyboardButton(f"🔥 Mashq ({dragon.level}/20)", callback_data=f"dragon_train_{dragon.id}"))
+                    text += f"📈 **Keyingi {dragon.level+1}-daraja uchun:** 🌾{costs['food']:,} | ⛓️{costs['iron']:,} | 🪙{costs['gold']:,}\n\n"
                 else:
-                    row.append(InlineKeyboardButton(f"⭐ MAX (Lv.20)", callback_data=f"dragon_max_{dragon.id}"))
-                buttons.append(row)
+                    text += f"⭐ **Ajdar maksimal cho'qqisiga yetgan!**\n\n"
+
+                row1 = [
+                    InlineKeyboardButton(f"🍗 Boqish (-{feed_cost}🌾)", callback_data=f"dragon_feed_{dragon.id}"),
+                ]
+                if dragon.level < 20:
+                    row1.append(InlineKeyboardButton(f"🔥 Kuchaytirish ({dragon.level}->{dragon.level+1})", callback_data=f"dragon_train_{dragon.id}"))
+                else:
+                    row1.append(InlineKeyboardButton("⭐ MAX", callback_data=f"dragon_max_{dragon.id}"))
+                buttons.append(row1)
+
+                buttons.append([InlineKeyboardButton(f"🏺 {dragon.name} Artefaktlari", callback_data=f"dragon_art_shop_{dragon.id}")])
 
                 if dragon.stage == "adult" and dragon.level >= 10 and len(dragons) < 2 and not dragon.has_laid_egg:
                     buttons.append([InlineKeyboardButton(f"🥚 {dragon.name}: Yangi Tuxum Qo'yish (Nasl)", callback_data=f"dragon_lay_egg_{dragon.id}")])
@@ -226,6 +242,62 @@ async def dragon_lay_egg_callback(update: Update, context: ContextTypes.DEFAULT_
     await show_dragon_hub(query, user_id, is_message=False)
 
 
+async def dragon_art_shop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ajdar artefaktlari do'koni va jihozlash menyusi"""
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    dragon_id = int(query.data.split("_")[-1])
+
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_with_relations(session, user_id)
+        dragon = await session.get(models.Dragon, dragon_id)
+        if not user or not dragon:
+            return
+
+        from data.artifacts_data import ARTIFACTS_DATA, DRAGON_ARTIFACTS
+
+        curr_art_str = "Mavjud emas"
+        if dragon.artifact_code:
+            curr_art_str = ARTIFACTS_DATA.get(dragon.artifact_code, {}).get("name", dragon.artifact_code)
+
+        text = (
+            f"🏺 **{dragon.name.upper()} UCHUN VALYRIA ARTEFAKTLARI**\n\n"
+            f"Hozirgi quvvat: **{dragon.power:,}** | Daraja: **{dragon.level}**\n"
+            f"Taqilgan artefakt: **{curr_art_str}**\n\n"
+            f"🎒 Hamyoningiz: **{user.gold:,}**🪙 oltin, **{user.iron:,}**⛓️ temir\n\n"
+            f"Ajdar uchun afsonaviy relikni tanlang va jihozlang:"
+        )
+
+        buttons = []
+        for code in DRAGON_ARTIFACTS:
+            item = ARTIFACTS_DATA.get(code, {})
+            is_equipped = (dragon.artifact_code == code)
+            btn_txt = f"{'✅ ' if is_equipped else '⚡ '}{item.get('name')} ({item.get('price_gold', 0):,}🪙, {item.get('price_iron', 0):,}⛓️)"
+            if is_equipped:
+                btn_txt += " [Taqilgan]"
+            buttons.append([InlineKeyboardButton(btn_txt, callback_data=f"dragon_buy_art:{dragon.id}:{code}")])
+
+        buttons.append([InlineKeyboardButton("🔙 Ajdarlarga Qaytish", callback_data="menu_dragons")])
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def dragon_buy_art_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ajdar artefaktini sotib olish va taqish"""
+    query = update.callback_query
+    parts = query.data.split(":")
+    dragon_id = int(parts[1])
+    art_code = parts[2]
+    user_id = query.from_user.id
+
+    async with AsyncSessionLocal() as session:
+        ok, msg = await crud.equip_dragon_artifact(session, user_id, dragon_id, art_code)
+
+    await query.answer(msg, show_alert=True)
+    query.data = f"dragon_art_shop_{dragon_id}"
+    await dragon_art_shop_callback(update, context)
+
+
 async def dragon_max_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer("⭐ Ushbu ajdar maksimal 20-darajaga yetgan! U o'zining eng qudratli cho'qqisida.", show_alert=True)
@@ -240,5 +312,7 @@ def register_dragon_handlers(app):
     app.add_handler(CallbackQueryHandler(dragon_feed_callback, pattern="^dragon_feed"))
     app.add_handler(CallbackQueryHandler(dragon_train_callback, pattern="^dragon_train"))
     app.add_handler(CallbackQueryHandler(dragon_lay_egg_callback, pattern="^dragon_lay_egg_"))
+    app.add_handler(CallbackQueryHandler(dragon_art_shop_callback, pattern="^dragon_art_shop_"))
+    app.add_handler(CallbackQueryHandler(dragon_buy_art_callback, pattern="^dragon_buy_art:"))
     app.add_handler(CallbackQueryHandler(dragon_max_callback, pattern="^dragon_max_"))
 

@@ -74,6 +74,8 @@ async def show_admin_dashboard(target, is_message: bool):
             [InlineKeyboardButton("👥 O'yinchilarni Boshqarish (User Manager)", callback_data="admin_users_list:0")],
             [InlineKeyboardButton("👑 Xonadon Lordlarini Tayinlash", callback_data="admin_lords_menu")],
             [InlineKeyboardButton("🏰 Xonadonlar va G'aznalar", callback_data="admin_houses_list")],
+            [InlineKeyboardButton("🏯 Qalalar va Mintaqalar (Castles)", callback_data="admin_castles_list:0")],
+            [InlineKeyboardButton("🐉 Barcha Ajdarlar (Dragon Manager)", callback_data="admin_dragons_list:0")],
             [InlineKeyboardButton("❄️ Global Hodisalar & Tun Qiroli", callback_data="admin_events_menu")],
             [InlineKeyboardButton("🎁 Barchaga Ommaviy Sovg'a (+2000🪙)", callback_data="admin_mass_gift")],
             [InlineKeyboardButton("🔄 Barcha Kunlik Limitlarni Yangilash", callback_data="admin_reset_all_limits")],
@@ -389,7 +391,10 @@ async def admin_lords_menu_callback(update: Update, context: ContextTypes.DEFAUL
 async def admin_lord_house_detail_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Tanlangan xonadon Lordi boshqaruv menyusi"""
     query = update.callback_query
-    await query.answer()
+    try:
+        await query.answer()
+    except Exception:
+        pass
     if not is_admin(query.from_user.id):
         return
 
@@ -398,7 +403,10 @@ async def admin_lord_house_detail_callback(update: Update, context: ContextTypes
     async with AsyncSessionLocal() as session:
         house = await session.get(models.House, house_id)
         if not house:
-            await query.answer("Xonadon topilmadi!", show_alert=True)
+            try:
+                await query.answer("Xonadon topilmadi!", show_alert=True)
+            except Exception:
+                pass
             return
 
         members = await crud.get_house_members_with_characters(session, house.id)
@@ -434,7 +442,8 @@ async def admin_lord_house_detail_callback(update: Update, context: ContextTypes
         )
 
         buttons = [
-            [InlineKeyboardButton("👑 A'zolardan Yangi Lord Tayinlash", callback_data=f"adm_pick_lord:{house.id}:0")],
+            [InlineKeyboardButton("👑 Xonadon A'zolaridan Tayinlash", callback_data=f"adm_pick_lord:{house.id}:0")],
+            [InlineKeyboardButton("🌐 Barcha O'yinchilardan Tanlash", callback_data=f"adm_pick_all_lord:{house.id}:0")],
         ]
         if house.lord_user_id:
             buttons.append([InlineKeyboardButton("🚫 Lordni Bo'shatish (Vakant Qilish)", callback_data=f"adm_dismiss_lord:{house.id}")])
@@ -451,7 +460,10 @@ async def admin_lord_house_detail_callback(update: Update, context: ContextTypes
 async def admin_pick_lord_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Xonadon a'zolaridan Lord tanlash (sahifalangan)"""
     query = update.callback_query
-    await query.answer()
+    try:
+        await query.answer()
+    except Exception:
+        pass
     if not is_admin(query.from_user.id):
         return
 
@@ -469,7 +481,8 @@ async def admin_pick_lord_callback(update: Update, context: ContextTypes.DEFAULT
         page_members = members[offset:offset + page_size]
 
         text = (
-            f"👑 **{house.emoji} {house.name} XONADONIGA LORD TAYINLASH**\n\n"
+            f"👑 **{house.emoji} {house.name} XONADONIGA LORD TAYINLASH**\n"
+            f"*(Ushbu xonadon a'zolari ro'yxati)*\n\n"
             f"Quyidagi xonadon a'zolaridan birini tanlang. U darhol **Lord (King)** etib tayinlanadi:\n\n"
         )
 
@@ -491,18 +504,78 @@ async def admin_pick_lord_callback(update: Update, context: ContextTypes.DEFAULT
         if nav_row:
             buttons.append(nav_row)
 
+        buttons.append([InlineKeyboardButton("🌐 Barcha O'yinchilardan Tanlash", callback_data=f"adm_pick_all_lord:{house.id}:0")])
         buttons.append([InlineKeyboardButton("🔙 Orqaga", callback_data=f"adm_lord_h:{house.id}")])
 
         if not page_members:
-            text += "❌ Bu xonadonda hozircha birorta ham a'zo mavjud emas!\n"
+            text += "❌ Bu xonadonda hozircha birorta ham a'zo mavjud emas!\n*(Quyidagi 'Barcha O'yinchilardan Tanlash' tugmasi orqali xohlagan o'yinchini tayinlashingiz mumkin)*\n"
 
         await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def admin_pick_all_lord_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Barcha o'yinchilardan Lord tanlash (sahifalangan)"""
+    query = update.callback_query
+    try:
+        await query.answer()
+    except Exception:
+        pass
+    if not is_admin(query.from_user.id):
+        return
+
+    parts = query.data.split(":")
+    house_id = int(parts[1])
+    offset = int(parts[2]) if len(parts) > 2 else 0
+
+    async with AsyncSessionLocal() as session:
+        house = await session.get(models.House, house_id)
+        if not house:
+            return
+
+        res = await session.execute(
+            select(models.User).order_by(models.User.id).offset(offset).limit(6)
+        )
+        users = res.scalars().all()
+
+        count_res = await session.execute(select(func.count(models.User.id)))
+        total_users = count_res.scalar() or 0
+
+        text = (
+            f"👑 **{house.emoji} {house.name} XONADONIGA LORD TAYINLASH**\n"
+            f"*(Barcha o'yinchilar ro'yxati)*\n\n"
+            f"O'yinchini tanlang. U avtomatik ushbu xonadonga o'tkazilib, **Lord (King)** etib tayinlanadi:\n\n"
+        )
+
+        buttons = []
+        for u in users:
+            char_name = u.characters[0].name if u.characters else (u.full_name or f"User {u.id}")
+            is_current = (house.lord_user_id == u.telegram_id) or (u.house_id == house.id and u.rank == "king")
+            badge = "👑 (Lord)" if is_current else "👉"
+            buttons.append([InlineKeyboardButton(
+                f"{badge} {char_name} ({escape_md(u.full_name)[:12]}, Lvl {u.level})",
+                callback_data=f"adm_conf_lord:{house.id}:{u.id}"
+            )])
+
+        nav_row = []
+        if offset >= 6:
+            nav_row.append(InlineKeyboardButton("⬅️ Oldingi", callback_data=f"adm_pick_all_lord:{house.id}:{offset - 6}"))
+        if offset + 6 < total_users:
+            nav_row.append(InlineKeyboardButton("Keyingi ➡️", callback_data=f"adm_pick_all_lord:{house.id}:{offset + 6}"))
+        if nav_row:
+            buttons.append(nav_row)
+
+        buttons.append([InlineKeyboardButton("🔙 Orqaga", callback_data=f"adm_lord_h:{house.id}")])
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
 
 
 async def admin_conf_lord_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Lord etib tayinlashni tasdiqlash sahifasi"""
     query = update.callback_query
-    await query.answer()
+    try:
+        await query.answer()
+    except Exception:
+        pass
     if not is_admin(query.from_user.id):
         return
 
@@ -514,7 +587,10 @@ async def admin_conf_lord_callback(update: Update, context: ContextTypes.DEFAULT
         house = await session.get(models.House, house_id)
         user = await session.get(models.User, target_user_id)
         if not house or not user:
-            await query.answer("Ma'lumot topilmadi!", show_alert=True)
+            try:
+                await query.answer("Ma'lumot topilmadi!", show_alert=True)
+            except Exception:
+                pass
             return
 
         char_name = user.characters[0].name if user.characters else user.full_name
@@ -526,7 +602,7 @@ async def admin_conf_lord_callback(update: Update, context: ContextTypes.DEFAULT
             f"🆔 Telegram ID: `{user.telegram_id}`\n"
             f"⚔️ Daraja: **{user.level}** | Hozirgi unvon: **{user.rank}**\n\n"
             f"⚠️ Haqiqatan ham ushbu o'yinchini {house.name} xonadoni Lordi (King) etib tayinlaysizmi?\n"
-            f"(Oldingi Lord mavjud bo'lsa, u avtomatik ravishda oddiy ritsarga tushiriladi)"
+            f"(Oldingi Lord mavjud bo'lsa, u avtomatik ravishda oddiy a'zolikka o'tkaziladi)"
         )
 
         buttons = [
@@ -566,7 +642,10 @@ async def admin_do_lord_callback(update: Update, context: ContextTypes.DEFAULT_T
                 except Exception:
                     pass
 
-    await query.answer(msg, show_alert=True)
+    try:
+        await query.answer(msg, show_alert=True)
+    except Exception:
+        pass
     query.data = f"adm_lord_h:{house_id}"
     await admin_lord_house_detail_callback(update, context)
 
@@ -581,7 +660,10 @@ async def admin_dismiss_lord_callback(update: Update, context: ContextTypes.DEFA
     async with AsyncSessionLocal() as session:
         ok, msg = await crud.admin_dismiss_house_lord(session, house_id)
 
-    await query.answer(msg, show_alert=True)
+    try:
+        await query.answer(msg, show_alert=True)
+    except Exception:
+        pass
     query.data = f"adm_lord_h:{house_id}"
     await admin_lord_house_detail_callback(update, context)
 
@@ -596,7 +678,10 @@ async def admin_reset_votes_callback(update: Update, context: ContextTypes.DEFAU
     async with AsyncSessionLocal() as session:
         ok, msg = await crud.admin_reset_house_election_votes(session, house_id)
 
-    await query.answer(msg, show_alert=True)
+    try:
+        await query.answer(msg, show_alert=True)
+    except Exception:
+        pass
     query.data = f"adm_lord_h:{house_id}"
     await admin_lord_house_detail_callback(update, context)
 
@@ -648,11 +733,38 @@ async def admin_event_action_callback(update: Update, context: ContextTypes.DEFA
                 await session.commit()
             msg = "❄️ Tun Qiroli armiyasi 5,000 HP ga tushirildi!"
         elif act == "plague":
-            msg = "☣️ Vabo epidemiyasi boshlandi!"
+            msg = "☣️ Vabo epidemiyasi boshlandi va barcha lordlarga xabar yuborildi!"
+            users_res = await session.execute(select(models.User.telegram_id))
+            all_ids = users_res.scalars().all()
+            bcast_text = (
+                "☣️ **OGOHLANTIRISH: WESTEROS BO'YLAB VABO EPIDEMIYASI BOSHLANDI!**\n\n"
+                "Qalalar, qishloqlar va bozorlarda qora o'lat tarqaldi!\n"
+                "Barcha Lordlar va jangchilar ehtiyot choralarini ko'rsin. Har bir o'yinchi kuniga 2 martagacha tabiblar yordamida o'z xalqini davolashi mumkin!"
+            )
+            for tg_id in all_ids:
+                try:
+                    await context.bot.send_message(chat_id=tg_id, text=bcast_text, parse_mode="Markdown")
+                except Exception:
+                    pass
         elif act == "bandits":
-            msg = "🥷 Qaroqchilar hujumi boshlandi!"
+            msg = "🥷 Qaroqchilar hujumi boshlandi va barcha lordlarga xabar yuborildi!"
+            users_res = await session.execute(select(models.User.telegram_id))
+            all_ids = users_res.scalars().all()
+            bcast_text = (
+                "🥷 **OGOHLANTIRISH: QAROQCHILAR VA ISYONCHILAR BOSQINI!**\n\n"
+                "Westerosning barcha savdo karvonlari va qal'alari xavf ostida!\n"
+                "Qal'angiz garnizonini mustahkamlang va qaroqchilarga qarshi pistirma uyushtiring!"
+            )
+            for tg_id in all_ids:
+                try:
+                    await context.bot.send_message(chat_id=tg_id, text=bcast_text, parse_mode="Markdown")
+                except Exception:
+                    pass
 
-    await query.answer(f"✅ {msg}", show_alert=True)
+    try:
+        await query.answer(f"✅ {msg}", show_alert=True)
+    except Exception:
+        pass
     await show_admin_dashboard(query, is_message=False)
 
 
@@ -903,6 +1015,494 @@ async def set_lord_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(msg, parse_mode="Markdown")
 
 
+# ============================================================
+# CASTLES & TERRITORIES MANAGEMENT
+# ============================================================
+
+async def admin_castles_list_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Qalalar va mintaqalar ro'yxati (sahifalangan)"""
+    query = update.callback_query
+    try:
+        await query.answer()
+    except Exception:
+        pass
+    if not is_admin(query.from_user.id):
+        return
+
+    offset = int(query.data.split(":")[1]) if ":" in query.data else 0
+
+    async with AsyncSessionLocal() as session:
+        res = await session.execute(
+            select(models.Territory).order_by(models.Territory.id).offset(offset).limit(6)
+        )
+        territories = res.scalars().all()
+
+        count_res = await session.execute(select(func.count(models.Territory.id)))
+        total_terrs = count_res.scalar() or 0
+
+        buttons = []
+        for t in territories:
+            h = await session.get(models.House, t.owner_house_id) if t.owner_house_id else None
+            h_str = f"{h.emoji} {h.name[:10]}" if h else "Xo'jasiz"
+            tot_garr = t.garrison_infantry + t.garrison_archers + t.garrison_cavalry + t.garrison_spearmen
+            buttons.append([InlineKeyboardButton(
+                f"🏯 {t.name} ({t.castle_name or 'Qal\'a'}) — {h_str} ({tot_garr:,})",
+                callback_data=f"adm_c_detail:{t.id}"
+            )])
+
+        nav_row = []
+        if offset >= 6:
+            nav_row.append(InlineKeyboardButton("⬅️ Oldingi", callback_data=f"admin_castles_list:{offset - 6}"))
+        if offset + 6 < total_terrs:
+            nav_row.append(InlineKeyboardButton("Keyingi ➡️", callback_data=f"admin_castles_list:{offset + 6}"))
+        if nav_row:
+            buttons.append(nav_row)
+
+        buttons.append([InlineKeyboardButton("🔙 Admin Panel", callback_data="admin_panel")])
+
+        text = (
+            f"🏯 **WESTEROS QALALARI VA MINTAQALARI BOSHQARUVI**\n\n"
+            f"Jami qalalar: **{total_terrs}** ta\n"
+            f"Qal'ani tanlab, uning garnizoni, egasi, devorlari va holatini to'liq boshqarishingiz mumkin:"
+        )
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def admin_castle_detail_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Qal'a to'liq boshqaruvi"""
+    query = update.callback_query
+    try:
+        await query.answer()
+    except Exception:
+        pass
+    if not is_admin(query.from_user.id):
+        return
+
+    terr_id = int(query.data.split(":")[1])
+
+    async with AsyncSessionLocal() as session:
+        terr = await session.get(models.Territory, terr_id)
+        if not terr:
+            try:
+                await query.answer("Qal'a topilmadi!", show_alert=True)
+            except Exception:
+                pass
+            return
+
+        house = await session.get(models.House, terr.owner_house_id) if terr.owner_house_id else None
+        h_str = f"{house.emoji} **{house.name}**" if house else "❌ **Egasi yo'q**"
+
+        st_dr = crud.get_stationed_dragon_info(terr)
+        drg_str = f"🐉 {st_dr['name']} (Kuch: {st_dr.get('power', 0):,})" if st_dr else "Yo'q"
+
+        tot_garrison = terr.garrison_infantry + terr.garrison_archers + terr.garrison_cavalry + terr.garrison_spearmen
+
+        text = (
+            f"🏯 **QAL'A: {terr.name.upper()} ({terr.castle_name or 'Qal\'a'})**\n\n"
+            f"📍 Mintaqa: **{terr.region}** | Turi: **{terr.type.title()}**\n"
+            f"🏰 Hukmron Xonadon: {h_str}\n"
+            f"🛡️ Qal'a Mudofaasi: **{terr.defense}** / 100\n"
+            f"🧱 Devor Darajasi: **{terr.wall_level}**-daraja\n\n"
+            f"👥 **GARNIZON (Jami: {tot_garrison:,} askar):**\n"
+            f"• 🛡️ Piyoda: **{terr.garrison_infantry:,}**\n"
+            f"• 🏹 Kamonchi: **{terr.garrison_archers:,}**\n"
+            f"• 🐎 Otliq: **{terr.garrison_cavalry:,}**\n"
+            f"• 🗡️ Nayzachi: **{terr.garrison_spearmen:,}**\n\n"
+            f"🐉 **Qo'riqchi Ajdar:** {drg_str}\n\n"
+            f"Boshqaruv amalini tanlang:"
+        )
+
+        buttons = [
+            [
+                InlineKeyboardButton("🛡️ Garnizonga +500 Har Biridan", callback_data=f"adm_c_act:{terr.id}:add_garrison:500"),
+                InlineKeyboardButton("🧱 Devor 100% & Lvl 5", callback_data=f"adm_c_act:{terr.id}:repair_walls:5"),
+            ],
+            [
+                InlineKeyboardButton("🏰 Hukmron Xonadonni O'zgartirish", callback_data=f"adm_c_pick_h:{terr.id}:0"),
+                InlineKeyboardButton("🗑️ Garnizonni Tozalash (0)", callback_data=f"adm_c_act:{terr.id}:clear_garrison:0"),
+            ],
+            [InlineKeyboardButton("🔙 Qalalar Ro'yxati", callback_data="admin_castles_list:0")],
+        ]
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def admin_castle_action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Qal'a ustida amallar bajarish"""
+    query = update.callback_query
+    if not is_admin(query.from_user.id):
+        return
+
+    parts = query.data.split(":")
+    terr_id = int(parts[1])
+    action = parts[2]
+    val = int(parts[3])
+
+    async with AsyncSessionLocal() as session:
+        terr = await session.get(models.Territory, terr_id)
+        if not terr:
+            return
+
+        if action == "add_garrison":
+            terr.garrison_infantry += val
+            terr.garrison_archers += val
+            terr.garrison_cavalry += val
+            terr.garrison_spearmen += val
+            msg = f"Garnizonga har turdan +{val} askar qo'shildi!"
+        elif action == "repair_walls":
+            terr.defense = 100
+            terr.wall_level = 5
+            msg = "Devorlar 5-darajaga ko'tarildi va mudofaa 100% qilindi!"
+        elif action == "clear_garrison":
+            terr.garrison_infantry = 0
+            terr.garrison_archers = 0
+            terr.garrison_cavalry = 0
+            terr.garrison_spearmen = 0
+            msg = "Garnizon to'liq tozalandi (0)!"
+
+        await session.commit()
+
+    try:
+        await query.answer(f"✅ {msg}", show_alert=True)
+    except Exception:
+        pass
+    query.data = f"adm_c_detail:{terr_id}"
+    await admin_castle_detail_callback(update, context)
+
+
+async def admin_castle_pick_house_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Qal'aga yangi hukmron xonadon tanlash"""
+    query = update.callback_query
+    try:
+        await query.answer()
+    except Exception:
+        pass
+    if not is_admin(query.from_user.id):
+        return
+
+    parts = query.data.split(":")
+    terr_id = int(parts[1])
+    offset = int(parts[2]) if len(parts) > 2 else 0
+
+    async with AsyncSessionLocal() as session:
+        terr = await session.get(models.Territory, terr_id)
+        if not terr:
+            return
+
+        res = await session.execute(
+            select(models.House).order_by(models.House.id).offset(offset).limit(6)
+        )
+        houses = res.scalars().all()
+
+        count_res = await session.execute(select(func.count(models.House.id)))
+        total_houses = count_res.scalar() or 0
+
+        text = (
+            f"🏰 **{terr.name.upper()} QAL'ASINI BIRIKTIRISH**\n\n"
+            f"Ushbu qal'aga qaysi xonadon hukmron bo'lishini tanlang:\n"
+        )
+
+        buttons = []
+        for h in houses:
+            is_curr = (terr.owner_house_id == h.id)
+            badge = "👑 " if is_curr else ""
+            buttons.append([InlineKeyboardButton(
+                f"{badge}{h.emoji} {h.name}",
+                callback_data=f"adm_c_set_h:{terr.id}:{h.id}"
+            )])
+
+        nav_row = []
+        if offset >= 6:
+            nav_row.append(InlineKeyboardButton("⬅️ Oldingi", callback_data=f"adm_c_pick_h:{terr.id}:{offset - 6}"))
+        if offset + 6 < total_houses:
+            nav_row.append(InlineKeyboardButton("Keyingi ➡️", callback_data=f"adm_c_pick_h:{terr.id}:{offset + 6}"))
+        if nav_row:
+            buttons.append(nav_row)
+
+        buttons.append([InlineKeyboardButton("🔙 Orqaga", callback_data=f"adm_c_detail:{terr.id}")])
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def admin_castle_set_house_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Qal'a egasini belgilash ijrosi"""
+    query = update.callback_query
+    if not is_admin(query.from_user.id):
+        return
+
+    parts = query.data.split(":")
+    terr_id = int(parts[1])
+    house_id = int(parts[2])
+
+    async with AsyncSessionLocal() as session:
+        terr = await session.get(models.Territory, terr_id)
+        house = await session.get(models.House, house_id)
+        if terr and house:
+            terr.owner_house_id = house.id
+            await session.commit()
+            msg = f"{terr.name} qal'asi {house.name} xonadoniga topshirildi!"
+
+    try:
+        await query.answer(f"✅ {msg}", show_alert=True)
+    except Exception:
+        pass
+    query.data = f"adm_c_detail:{terr_id}"
+    await admin_castle_detail_callback(update, context)
+
+
+# ============================================================
+# DRAGON MANAGEMENT
+# ============================================================
+
+async def admin_dragons_list_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Barcha ajdarlar ro'yxati (sahifalangan)"""
+    query = update.callback_query
+    try:
+        await query.answer()
+    except Exception:
+        pass
+    if not is_admin(query.from_user.id):
+        return
+
+    offset = int(query.data.split(":")[1]) if ":" in query.data else 0
+
+    async with AsyncSessionLocal() as session:
+        res = await session.execute(
+            select(models.Dragon).order_by(desc(models.Dragon.power)).offset(offset).limit(6)
+        )
+        dragons = res.scalars().all()
+
+        count_res = await session.execute(select(func.count(models.Dragon.id)))
+        total_dragons = count_res.scalar() or 0
+
+        buttons = []
+        for d in dragons:
+            u = await session.get(models.User, d.user_id) if d.user_id else None
+            u_name = u.full_name[:12] if u else "Egasi yo'q"
+            stage_icon = "🥚" if d.stage == "egg" else "🐉"
+            buttons.append([InlineKeyboardButton(
+                f"{stage_icon} {d.name} (Lvl {d.level}, {d.stage.title()}) — {u_name}",
+                callback_data=f"adm_d_detail:{d.id}"
+            )])
+
+        nav_row = []
+        if offset >= 6:
+            nav_row.append(InlineKeyboardButton("⬅️ Oldingi", callback_data=f"admin_dragons_list:{offset - 6}"))
+        if offset + 6 < total_dragons:
+            nav_row.append(InlineKeyboardButton("Keyingi ➡️", callback_data=f"admin_dragons_list:{offset + 6}"))
+        if nav_row:
+            buttons.append(nav_row)
+
+        buttons.append([InlineKeyboardButton("🔙 Admin Panel", callback_data="admin_panel")])
+
+        text = (
+            f"🐉 **WESTEROS AJDARLARI BOSHQARUVI**\n\n"
+            f"Jami ajdarlar: **{total_dragons}** ta\n"
+            f"Ajdar ustiga bosib uning darajasi, bosqichi, kuchi, ochligi va artefaktini boshqarishingiz mumkin:"
+        )
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def admin_dragon_detail_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ajdar to'liq boshqaruvi"""
+    query = update.callback_query
+    try:
+        await query.answer()
+    except Exception:
+        pass
+    if not is_admin(query.from_user.id):
+        return
+
+    drg_id = int(query.data.split(":")[1])
+
+    async with AsyncSessionLocal() as session:
+        dragon = await session.get(models.Dragon, drg_id)
+        if not dragon:
+            try:
+                await query.answer("Ajdar topilmadi!", show_alert=True)
+            except Exception:
+                pass
+            return
+
+        user = await session.get(models.User, dragon.user_id) if dragon.user_id else None
+        u_name = f"{user.full_name} (ID: `{user.telegram_id}`)" if user else "❌ Mavjud emas"
+
+        from data.artifacts_data import ARTIFACTS_DATA
+        art_info = ARTIFACTS_DATA.get(dragon.artifact_code, {}) if dragon.artifact_code else {}
+        art_str = f"{art_info.get('emoji', '💎')} {art_info.get('name', dragon.artifact_code)}" if art_info else "Yo'q"
+
+        stage_uz = {
+            "egg": "🥚 Tuxum",
+            "baby": "🐣 Ajdar Bolasi",
+            "young": "🦎 Yosh Ajdar",
+            "adult": "🐉 Katta Ajdar (Drakarys)",
+            "ancient": "👑 Qadimiy Ajdar (Balerion)"
+        }.get(dragon.stage, dragon.stage)
+
+        text = (
+            f"🐉 **AJDAR: {dragon.name.upper()}**\n\n"
+            f"👤 Egasi: **{u_name}**\n"
+            f"🧬 Holati / Bosqichi: **{stage_uz}**\n"
+            f"⭐ Darajasi: **{dragon.level}** / 20\n"
+            f"⚡ Jangovar Kuch: **{dragon.power:,}**\n"
+            f"🍖 Qorin To'qligi: **{dragon.hunger}%**\n"
+            f"💎 Maxsus Ajdar Artefakti: **{art_str}**\n\n"
+            f"Boshqaruv amalini tanlang:"
+        )
+
+        buttons = [
+            [
+                InlineKeyboardButton("⭐ +1 Daraja", callback_data=f"adm_d_act:{dragon.id}:lvl:1"),
+                InlineKeyboardButton("⚡ +5 Daraja", callback_data=f"adm_d_act:{dragon.id}:lvl:5"),
+                InlineKeyboardButton("🍖 Qorin 100%", callback_data=f"adm_d_act:{dragon.id}:feed:100"),
+            ],
+            [
+                InlineKeyboardButton("🧬 Bosqichni O'zgartirish", callback_data=f"adm_d_stages:{dragon.id}"),
+                InlineKeyboardButton("💎 Artefakt Berish", callback_data=f"adm_d_arts:{dragon.id}"),
+            ],
+            [
+                InlineKeyboardButton("💥 Kuchga +100 Qo'shish", callback_data=f"adm_d_act:{dragon.id}:power:100"),
+            ],
+            [InlineKeyboardButton("🔙 Ajdarlar Ro'yxati", callback_data="admin_dragons_list:0")],
+        ]
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def admin_dragon_action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ajdar xususiyatlarini o'zgartirish"""
+    query = update.callback_query
+    if not is_admin(query.from_user.id):
+        return
+
+    parts = query.data.split(":")
+    drg_id = int(parts[1])
+    action = parts[2]
+    val = int(parts[3])
+
+    async with AsyncSessionLocal() as session:
+        dragon = await session.get(models.Dragon, drg_id)
+        if not dragon:
+            return
+
+        if action == "lvl":
+            dragon.level = min(20, dragon.level + val)
+            dragon.power += val * 35
+            if dragon.level >= 10 and dragon.stage in ["egg", "baby", "young"]:
+                dragon.stage = "adult"
+            msg = f"Daraja {dragon.level} ga ko'tarildi! Kuch: {dragon.power:,}"
+        elif action == "feed":
+            dragon.hunger = 100
+            msg = "Ajdarning qorni to'liq to'ydirildi (100%)!"
+        elif action == "power":
+            dragon.power += val
+            msg = f"Ajdar kuchiga +{val} qo'shildi (Jami: {dragon.power:,})!"
+
+        await session.commit()
+
+    try:
+        await query.answer(f"✅ {msg}", show_alert=True)
+    except Exception:
+        pass
+    query.data = f"adm_d_detail:{drg_id}"
+    await admin_dragon_detail_callback(update, context)
+
+
+async def admin_dragon_stages_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ajdarga bosqich tanlash menyusi"""
+    query = update.callback_query
+    try:
+        await query.answer()
+    except Exception:
+        pass
+    if not is_admin(query.from_user.id):
+        return
+
+    drg_id = int(query.data.split(":")[1])
+
+    text = "🧬 **AJDARNING YOSHI VA BOSQICHINI TANLANG:**"
+    buttons = [
+        [InlineKeyboardButton("🥚 Tuxum (Egg)", callback_data=f"adm_d_set_stg:{drg_id}:egg")],
+        [InlineKeyboardButton("🐣 Bola (Baby)", callback_data=f"adm_d_set_stg:{drg_id}:baby")],
+        [InlineKeyboardButton("🦎 Yosh (Young)", callback_data=f"adm_d_set_stg:{drg_id}:young")],
+        [InlineKeyboardButton("🐉 Katta (Adult)", callback_data=f"adm_d_set_stg:{drg_id}:adult")],
+        [InlineKeyboardButton("👑 Qadimiy (Ancient)", callback_data=f"adm_d_set_stg:{drg_id}:ancient")],
+        [InlineKeyboardButton("🔙 Orqaga", callback_data=f"adm_d_detail:{drg_id}")],
+    ]
+    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def admin_dragon_set_stage_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ajdar bosqichini o'rnatish"""
+    query = update.callback_query
+    if not is_admin(query.from_user.id):
+        return
+
+    parts = query.data.split(":")
+    drg_id = int(parts[1])
+    stage = parts[2]
+
+    async with AsyncSessionLocal() as session:
+        dragon = await session.get(models.Dragon, drg_id)
+        if dragon:
+            dragon.stage = stage
+            await session.commit()
+            msg = f"Ajdar bosqichi {stage.upper()} ga o'zgartirildi!"
+
+    try:
+        await query.answer(f"✅ {msg}", show_alert=True)
+    except Exception:
+        pass
+    query.data = f"adm_d_detail:{drg_id}"
+    await admin_dragon_detail_callback(update, context)
+
+
+async def admin_dragon_arts_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ajdarga artefakt berish menyusi"""
+    query = update.callback_query
+    try:
+        await query.answer()
+    except Exception:
+        pass
+    if not is_admin(query.from_user.id):
+        return
+
+    drg_id = int(query.data.split(":")[1])
+
+    text = "💎 **AJDARGA MAXSUS ARTEFAKT TANLANG:**"
+    buttons = [
+        [InlineKeyboardButton("🛡️ Dragon Armor (+40% Kuch/Himoya)", callback_data=f"adm_d_set_art:{drg_id}:dragon_armor")],
+        [InlineKeyboardButton("🔥 Fire Ruby (+50% Olov/Drakarys)", callback_data=f"adm_d_set_art:{drg_id}:fire_ruby")],
+        [InlineKeyboardButton("🏇 Ancient Saddle (+30% Tezlik/Taktika)", callback_data=f"adm_d_set_art:{drg_id}:ancient_saddle")],
+        [InlineKeyboardButton("📯 Dragonbinder (+100% Jangovar Kuch)", callback_data=f"adm_d_set_art:{drg_id}:dragonbinder")],
+        [InlineKeyboardButton("❌ Artefaktni Olib Tashlash", callback_data=f"adm_d_set_art:{drg_id}:none")],
+        [InlineKeyboardButton("🔙 Orqaga", callback_data=f"adm_d_detail:{drg_id}")],
+    ]
+    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def admin_dragon_set_art_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ajdarga artefakt o'rnatish"""
+    query = update.callback_query
+    if not is_admin(query.from_user.id):
+        return
+
+    parts = query.data.split(":")
+    drg_id = int(parts[1])
+    code = parts[2]
+
+    async with AsyncSessionLocal() as session:
+        dragon = await session.get(models.Dragon, drg_id)
+        if dragon:
+            dragon.artifact_code = None if code == "none" else code
+            await session.commit()
+            msg = "Artefakt olib tashlandi!" if code == "none" else f"Artefakt {code} o'rnatildi!"
+
+    try:
+        await query.answer(f"✅ {msg}", show_alert=True)
+    except Exception:
+        pass
+    query.data = f"adm_d_detail:{drg_id}"
+    await admin_dragon_detail_callback(update, context)
+
+
 def register_admin_handlers(app):
     app.add_handler(CommandHandler("admin", admin_command))
     app.add_handler(CommandHandler("addadmin", add_admin_command))
@@ -914,6 +1514,7 @@ def register_admin_handlers(app):
     app.add_handler(CallbackQueryHandler(admin_lords_menu_callback, pattern="^admin_lords_menu$"))
     app.add_handler(CallbackQueryHandler(admin_lord_house_detail_callback, pattern="^adm_lord_h:"))
     app.add_handler(CallbackQueryHandler(admin_pick_lord_callback, pattern="^adm_pick_lord:"))
+    app.add_handler(CallbackQueryHandler(admin_pick_all_lord_callback, pattern="^adm_pick_all_lord:"))
     app.add_handler(CallbackQueryHandler(admin_conf_lord_callback, pattern="^adm_conf_lord:"))
     app.add_handler(CallbackQueryHandler(admin_do_lord_callback, pattern="^adm_do_lord:"))
     app.add_handler(CallbackQueryHandler(admin_dismiss_lord_callback, pattern="^adm_dismiss_lord:"))
@@ -924,8 +1525,21 @@ def register_admin_handlers(app):
     app.add_handler(CallbackQueryHandler(admin_houses_list_callback, pattern="^admin_houses_list$"))
     app.add_handler(CallbackQueryHandler(admin_house_detail_callback, pattern="^adm_h_detail:"))
     app.add_handler(CallbackQueryHandler(admin_house_action_callback, pattern="^adm_h_act:"))
+    app.add_handler(CallbackQueryHandler(admin_castles_list_callback, pattern="^admin_castles_list:"))
+    app.add_handler(CallbackQueryHandler(admin_castle_detail_callback, pattern="^adm_c_detail:"))
+    app.add_handler(CallbackQueryHandler(admin_castle_action_callback, pattern="^adm_c_act:"))
+    app.add_handler(CallbackQueryHandler(admin_castle_pick_house_callback, pattern="^adm_c_pick_h:"))
+    app.add_handler(CallbackQueryHandler(admin_castle_set_house_callback, pattern="^adm_c_set_h:"))
+    app.add_handler(CallbackQueryHandler(admin_dragons_list_callback, pattern="^admin_dragons_list:"))
+    app.add_handler(CallbackQueryHandler(admin_dragon_detail_callback, pattern="^adm_d_detail:"))
+    app.add_handler(CallbackQueryHandler(admin_dragon_action_callback, pattern="^adm_d_act:"))
+    app.add_handler(CallbackQueryHandler(admin_dragon_stages_callback, pattern="^adm_d_stages:"))
+    app.add_handler(CallbackQueryHandler(admin_dragon_set_stage_callback, pattern="^adm_d_set_stg:"))
+    app.add_handler(CallbackQueryHandler(admin_dragon_arts_callback, pattern="^adm_d_arts:"))
+    app.add_handler(CallbackQueryHandler(admin_dragon_set_art_callback, pattern="^adm_d_set_art:"))
     app.add_handler(CallbackQueryHandler(admin_events_menu_callback, pattern="^admin_events_menu$"))
     app.add_handler(CallbackQueryHandler(admin_event_action_callback, pattern="^adm_ev_act:"))
     app.add_handler(CallbackQueryHandler(admin_mass_gift_callback, pattern="^admin_mass_gift$"))
     app.add_handler(CallbackQueryHandler(admin_reset_all_limits_callback, pattern="^admin_reset_all_limits$"))
     app.add_handler(CallbackQueryHandler(admin_broadcast_info_callback, pattern="^admin_broadcast_info$"))
+

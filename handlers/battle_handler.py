@@ -1,7 +1,7 @@
 import json
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.ext import CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 from database import AsyncSessionLocal, crud, models
 from sqlalchemy import select, desc
 from core.anti_cheat import can_attack_target
@@ -197,17 +197,26 @@ async def march_prep_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
                 f"• Jangovar Kuch: **{dragon.power}**⚡ | Qorin: **{dragon.hunger}%**🍗\n\n"
                 f"🔥 **DRAKARYS BUYRUG'INI TANLANG:**\n"
             )
-            buttons.append([InlineKeyboardButton(f"🔥🏰 Drakarys: Devorlarni Eritish (-50% mudofaa)", callback_data=f"send_march:{terr.id}:100:walls")])
-            buttons.append([InlineKeyboardButton(f"🔥🏹 Drakarys: Merganlarni Yoqish (Kamonchilarga)", callback_data=f"send_march:{terr.id}:100:ranged")])
-            buttons.append([InlineKeyboardButton(f"🔥🐎 Drakarys: Old Qatorlarni Yoqish (Piyoda/Otliq)", callback_data=f"send_march:{terr.id}:100:frontline")])
-            buttons.append([InlineKeyboardButton(f"🔥⚡ Drakarys: Yalpi Olovli Bo'ron (Umumiy)", callback_data=f"send_march:{terr.id}:100:balanced")])
-            buttons.append([InlineKeyboardButton("⚔️ Ajdarsiz To'liq Armiya (100%)", callback_data=f"send_march:{terr.id}:100:none")])
-            buttons.append([InlineKeyboardButton("🛡️ Ajdarsiz Yarim Armiya (50%)", callback_data=f"send_march:{terr.id}:50:none")])
+            buttons.append([InlineKeyboardButton(f"🔥🏰 Drakarys: Devorlarni Eritish (100%)", callback_data=f"send_march:{terr.id}:100:walls")])
+            buttons.append([InlineKeyboardButton(f"🔥🏹 Drakarys: Merganlarni Yoqish (100%)", callback_data=f"send_march:{terr.id}:100:ranged")])
+            buttons.append([InlineKeyboardButton(f"🔥⚡ Drakarys: Yalpi Olovli Bo'ron (100%)", callback_data=f"send_march:{terr.id}:100:balanced")])
+            buttons.append([InlineKeyboardButton(f"🔥⚡ Drakarys Bilan (50% Armiya)", callback_data=f"send_march:{terr.id}:50:balanced")])
+            buttons.append([
+                InlineKeyboardButton("⚔️ 75%", callback_data=f"send_march:{terr.id}:75:none"),
+                InlineKeyboardButton("🛡️ 50%", callback_data=f"send_march:{terr.id}:50:none"),
+                InlineKeyboardButton("🏹 25%", callback_data=f"send_march:{terr.id}:25:none"),
+            ])
+            buttons.append([InlineKeyboardButton("✍️ Askar Sonini Qo'lda Kiritish", callback_data=f"march_custom_req:{terr.id}:balanced")])
         else:
             if dragon:
                 dragon_info = f"⚠️ *Eslatma:* Ajdaringiz ({dragon.name}) och yoki hali tuxumda bo'lgani uchun jangga qo'shila olmaydi. Uni /dragons da ovqatlantiring.\n\n"
-            buttons.append([InlineKeyboardButton("⚔️ To'liq Armiya Bilan Yurish (100%)", callback_data=f"send_march:{terr.id}:100:none")])
-            buttons.append([InlineKeyboardButton("🛡️ Armiyaning Yarmi Bilan (50%)", callback_data=f"send_march:{terr.id}:50:none")])
+            buttons.append([InlineKeyboardButton("⚔️ To'liq Armiya (100%)", callback_data=f"send_march:{terr.id}:100:none")])
+            buttons.append([
+                InlineKeyboardButton("🛡️ 75%", callback_data=f"send_march:{terr.id}:75:none"),
+                InlineKeyboardButton("🛡️ 50%", callback_data=f"send_march:{terr.id}:50:none"),
+                InlineKeyboardButton("🛡️ 25%", callback_data=f"send_march:{terr.id}:25:none"),
+            ])
+            buttons.append([InlineKeyboardButton("✍️ Askar Sonini Qo'lda Kiritish", callback_data=f"march_custom_req:{terr.id}:none")])
 
         buttons.append([InlineKeyboardButton("🔙 Bekor Qilish", callback_data=f"view_terr:{terr.id}")])
 
@@ -218,7 +227,7 @@ async def march_prep_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"👥 Sizning armiyangiz: **{total_army:,}** askar\n\n"
             f"{dragon_info}"
             f"⚠️ Hujum boshlangach, 3 kunlik Tinchlik Qalqoningiz bekor qilinadi!\n\n"
-            f"Hujum taktikasini tanlang:"
+            f"Hujum taktikasini yoki askar sonini tanlang:"
         )
 
         await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
@@ -341,6 +350,7 @@ async def def_rf_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             [InlineKeyboardButton("🛡️ 100 ta Askar Yuborish", callback_data=f"def_send_rf:{terr.id}:100")],
             [InlineKeyboardButton("🛡️ 250 ta Askar Yuborish", callback_data=f"def_send_rf:{terr.id}:250")],
             [InlineKeyboardButton("🛡️ Barcha Askarlarni Safarbar Qilish", callback_data=f"def_send_rf:{terr.id}:all")],
+            [InlineKeyboardButton("✍️ Askar Sonini Qo'lda Kiritish", callback_data=f"def_custom_rf:{terr.id}")],
             [InlineKeyboardButton("🔙 Qal'aga Qaytish", callback_data=f"view_terr:{terr.id}")],
         ]
 
@@ -505,13 +515,180 @@ async def defend_siege_callback(update: Update, context: ContextTypes.DEFAULT_TY
         await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
 
 
+async def march_custom_req_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Qo'lda kiritish uchun so'rov chiqarish"""
+    query = update.callback_query
+    await query.answer()
+    parts = query.data.split(":")
+    terr_id = int(parts[1])
+    tactic = parts[2] if len(parts) > 2 else "none"
+
+    context.user_data["awaiting_march_input"] = {"terr_id": terr_id, "tactic": tactic}
+
+    buttons = [
+        [InlineKeyboardButton("🔙 Bekor Qilish", callback_data=f"march_prep:{terr_id}")],
+    ]
+    text = (
+        "✍️ **QO'SHIN SONINI QO'LDA KIRITISH**\n\n"
+        "Ushbu qal'aga qancha askar yubormoqchisiz?\n"
+        "Iltimos, yubormoqchi bo'lgan askarlaringiz sonini pastdagi xabarlar qatoriga yozib yuboring:\n\n"
+        "*(Masalan: `250` yoki `1000`)*"
+    )
+    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def def_custom_rf_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Garnizonga qo'lda askar kiritish so'rovi"""
+    query = update.callback_query
+    await query.answer()
+    terr_id = int(query.data.split(":")[1])
+    context.user_data["awaiting_rf_input"] = {"terr_id": terr_id}
+
+    buttons = [
+        [InlineKeyboardButton("🔙 Bekor Qilish", callback_data=f"def_rf_menu:{terr_id}")],
+    ]
+    text = (
+        "✍️ **GARNIZONGA QO'SHILADIGAN ASKARLAR SONI**\n\n"
+        "Qal'a mudofaasiga qancha askaringizni joylashtirmoqchisiz?\n"
+        "Iltimos, sonni xabar sifatida yozib yuboring:\n\n"
+        "*(Masalan: `150` yoki `500`)*"
+    )
+    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def handle_battle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Yurish yoki garnizon uchun kiritilgan raqamli xabarni qabul qilish"""
+    if not update.message or not update.message.text:
+        return
+
+    text = update.message.text.strip()
+    user_id = update.effective_user.id
+
+    # 1. Harbiy yurish uchun askar kiritish
+    if "awaiting_march_input" in context.user_data and text.isdigit():
+        data = context.user_data.pop("awaiting_march_input")
+        terr_id = data["terr_id"]
+        tactic = data["tactic"]
+        count = int(text)
+
+        async with AsyncSessionLocal() as session:
+            user = await crud.get_user_with_relations(session, user_id)
+            terr = await crud.get_territory_by_id(session, terr_id)
+            if not user or not terr:
+                await update.message.reply_text("❌ Ma'lumot topilmadi.")
+                return
+
+            total_army = (
+                user.army.infantry + user.army.archers + user.army.cavalry + user.army.spearmen
+            )
+            if count <= 0:
+                await update.message.reply_text("❌ Askar soni musbat bo'lishi kerak!")
+                return
+            if count > total_army:
+                await update.message.reply_text(f"❌ Sizda buncha askar yo'q! Jami armiyangiz: {total_army:,} ta.")
+                return
+
+            ratio = count / total_army if total_army > 0 else 0
+            infantry = min(user.army.infantry, int(user.army.infantry * ratio))
+            archers = min(user.army.archers, int(user.army.archers * ratio))
+            cavalry = min(user.army.cavalry, int(user.army.cavalry * ratio))
+            spearmen = min(user.army.spearmen, int(user.army.spearmen * ratio))
+
+            rem = count - (infantry + archers + cavalry + spearmen)
+            if rem > 0 and user.army.infantry >= infantry + rem:
+                infantry += rem
+
+            user.peace_shield_until = None
+            march = await crud.create_battle_march(
+                session=session,
+                attacker_user_id=user.id,
+                source_territory_id=terr.id,
+                target_territory_id=terr.id,
+                infantry=infantry,
+                archers=archers,
+                cavalry=cavalry,
+                spearmen=spearmen,
+                special_troops=0,
+                has_dragon=(tactic != "none"),
+                dragon_tactic=tactic,
+            )
+
+            tot_sent = infantry + archers + cavalry + spearmen
+            user.army.infantry -= infantry
+            user.army.archers -= archers
+            user.army.cavalry -= cavalry
+            user.army.spearmen -= spearmen
+            await session.commit()
+
+            msg = (
+                f"🚩 **YURISH BOSHLANDI!**\n\n"
+                f"Nishon: **{terr.name} ({terr.castle_name})**\n"
+                f"Yuborilgan qo'shin: **{tot_sent:,}** askar (🛡️{infantry} | 🏹{archers} | 🐎{cavalry} | 🗡️{spearmen})\n"
+                f"⏱️ Yetib borish vaqti: **{BASE_MARCH_MINUTES} daqiqa**"
+            )
+            await update.message.reply_text(msg, parse_mode="Markdown")
+            return
+
+    # 2. Garnizonga askar kiritish
+    if "awaiting_rf_input" in context.user_data and text.isdigit():
+        data = context.user_data.pop("awaiting_rf_input")
+        terr_id = data["terr_id"]
+        count = int(text)
+
+        async with AsyncSessionLocal() as session:
+            user = await crud.get_user_with_relations(session, user_id)
+            terr = await crud.get_territory_by_id(session, terr_id)
+            if not user or not terr:
+                return
+
+            total_army = (
+                user.army.infantry + user.army.archers + user.army.cavalry + user.army.spearmen
+            )
+            if count <= 0 or count > total_army:
+                await update.message.reply_text(f"❌ Noto'g'ri miqdor! Sizda jami {total_army:,} ta askar mavjud.")
+                return
+
+            ratio = count / total_army if total_army > 0 else 0
+            infantry = min(user.army.infantry, int(user.army.infantry * ratio))
+            archers = min(user.army.archers, int(user.army.archers * ratio))
+            cavalry = min(user.army.cavalry, int(user.army.cavalry * ratio))
+            spearmen = min(user.army.spearmen, int(user.army.spearmen * ratio))
+
+            rem = count - (infantry + archers + cavalry + spearmen)
+            if rem > 0 and user.army.infantry >= infantry + rem:
+                infantry += rem
+
+            tot_sent = infantry + archers + cavalry + spearmen
+            user.army.infantry -= infantry
+            user.army.archers -= archers
+            user.army.cavalry -= cavalry
+            user.army.spearmen -= spearmen
+
+            terr.garrison_infantry += infantry
+            terr.garrison_archers += archers
+            terr.garrison_cavalry += cavalry
+            terr.garrison_spearmen += spearmen
+            user.prestige += max(10, tot_sent // 5)
+            await session.commit()
+
+            await update.message.reply_text(
+                f"✅ **GARNIZON KUCHAYTIRILDI!**\n\n"
+                f"🏰 **{terr.name}** qal'asi mudofaasiga +{tot_sent:,} askar qo'shildi!\n"
+                f"Qal'a jami garnizoni: {terr.garrison_infantry + terr.garrison_archers + terr.garrison_cavalry + terr.garrison_spearmen:,} askar."
+            )
+            return
+
+
 def register_battle_handlers(app):
     app.add_handler(CommandHandler("battle", battle_command))
     app.add_handler(CommandHandler("war", battle_command))
     app.add_handler(CallbackQueryHandler(battle_callback, pattern="^menu_battle$"))
     app.add_handler(CallbackQueryHandler(march_prep_callback, pattern="^march_prep:"))
+    app.add_handler(CallbackQueryHandler(march_custom_req_callback, pattern="^march_custom_req:"))
     app.add_handler(CallbackQueryHandler(send_march_callback, pattern="^send_march:"))
     app.add_handler(CallbackQueryHandler(def_rf_menu_callback, pattern="^def_rf_menu:"))
+    app.add_handler(CallbackQueryHandler(def_custom_rf_callback, pattern="^def_custom_rf:"))
     app.add_handler(CallbackQueryHandler(def_send_rf_callback, pattern="^def_send_rf:"))
     app.add_handler(CallbackQueryHandler(def_sos_callback, pattern="^def_sos:"))
     app.add_handler(CallbackQueryHandler(defend_siege_callback, pattern="^defend_siege:"))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_battle_text_input))

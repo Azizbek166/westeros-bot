@@ -1,6 +1,18 @@
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from data.houses_data import HOUSES_DATA
 from data.map_data import REGIONS_DATA, TERRITORIES_DATA
+
+
+def persistent_reply_keyboard() -> ReplyKeyboardMarkup:
+    """Doimiy pastki klaviatura (emoji bar yonida turuvchi)"""
+    return ReplyKeyboardMarkup(
+        [
+            [KeyboardButton("🏠 Bosh Menyu"), KeyboardButton("🏰 Qalalarim")]
+        ],
+        resize_keyboard=True,
+        is_persistent=True
+    )
+
 
 
 def main_menu_keyboard(user_id: int = None) -> InlineKeyboardMarkup:

@@ -49,6 +49,7 @@ class User(Base):
     daily_rank_quest_count = Column(Integer, default=0)    # Kunlik lavozim (max 2)
     daily_ww_attack_count = Column(Integer, default=0)     # Oq yuruvchilarga hujum (max 3)
     daily_bandit_count = Column(Integer, default=0)        # Qaroqchilar pistirmasiga hujum (max 3)
+    daily_plague_count = Column(Integer, default=0)        # Kunlik vabo chorasi (max 2)
     equipped_artifact_id = Column(Integer, nullable=True)
     iron_mine_level = Column(Integer, default=1)           # Temir koni darajasi (1-10)
     daily_limit_date = Column(String(10), default="")  # YYYY-MM-DD
@@ -183,6 +184,7 @@ class Territory(Base):
     garrison_spearmen = Column(Integer, default=50)
 
     is_capital = Column(Boolean, default=False)  # King's Landing, Winterfell va h.k.
+    last_tax_collected_at = Column(DateTime, default=datetime.utcnow)  # Oxirgi o'lpon yig'ilgan vaqt
     reinforcements_json = Column(Text, default="{}")  # Ittifoqchilar mudofaasi: {house_name: {infantry: N, ...}}
 
     owner_house = relationship("House", back_populates="territories")
@@ -355,6 +357,7 @@ class Dragon(Base):
     level = Column(Integer, default=1)
     hunger = Column(Integer, default=50)  # 0 to 100 (100 is full)
     power = Column(Integer, default=100)
+    artifact_code = Column(String(50), nullable=True)  # Ajdarga taqilgan artefakt
     has_laid_egg = Column(Boolean, default=False)
     last_fed = Column(DateTime, default=datetime.utcnow)
     created_at = Column(DateTime, default=datetime.utcnow)
