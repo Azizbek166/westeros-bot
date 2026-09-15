@@ -444,6 +444,7 @@ async def cast_house_vote(session: AsyncSession, house_id: int, voter_user_id: i
 
             cand.rank = "king"
             house.lord_user_id = cand.telegram_id
+            house.lord_elected_at = datetime.utcnow()
             outcome = f"🎉 Tabriklaymiz! {cand.full_name} ko'pchilik ovoz bilan xonadon Lordi (King) deb e'lon qilindi!"
 
     await session.commit()
@@ -494,6 +495,14 @@ async def get_house_election_stats(session: AsyncSession, house_id: int, current
     if house and house.lord_user_id:
         current_lord = await get_user_by_telegram_id(session, house.lord_user_id)
 
+    # 10 kunlik muddat hisobi
+    remaining_days = 10
+    if house and house.lord_user_id and house.lord_elected_at:
+        elapsed = max(0, (datetime.utcnow() - house.lord_elected_at).total_seconds())
+        remaining_days = max(0, int(10 - (elapsed // 86400)))
+    elif not house or not house.lord_user_id:
+        remaining_days = 0
+
     return {
         "house": house,
         "total_members": total_members,
@@ -501,6 +510,8 @@ async def get_house_election_stats(session: AsyncSession, house_id: int, current
         "candidates": candidates,
         "my_vote_cand_id": my_vote_cand_id,
         "current_lord": current_lord,
+        "remaining_days": remaining_days,
+        "term_expired": (remaining_days == 0 and house and house.lord_user_id is not None),
     }
 
 
@@ -520,10 +531,41 @@ async def claim_vacant_house_lord(session: AsyncSession, user_id: int) -> Tuple[
             return False, f"❌ Xonadonning allaqachon Lordi mavjud: {existing_lord.full_name}. Saylovda ovoz to'plang!"
 
     house.lord_user_id = user.telegram_id
+    house.lord_elected_at = datetime.utcnow()
     user.rank = "king"
     user.prestige += 100
     await session.commit()
     return True, f"👑 Qasamyod qabul qilindi! Siz {house.name} xonadoni Lordi (King) etib tayinlandingiz! (+100 Prestige)"
+
+
+async def abdicate_house_lord(session: AsyncSession, user_id: int) -> Tuple[bool, str]:
+    """Xonadon Lordi o'z xohishi bilan iste'foga chiqishi (voz kechishi)"""
+    user = await session.get(models.User, user_id)
+    if not user or not user.house_id:
+        return False, "❌ Foydalanuvchi yoki xonadon topilmadi."
+
+    house = await session.get(models.House, user.house_id)
+    if not house:
+        return False, "❌ Xonadon topilmadi."
+
+    is_lord = (house.lord_user_id == user.telegram_id) or (user.rank == "king")
+    if not is_lord:
+        return False, "❌ Siz xonadon Lordi emassiz!"
+
+    # 1. Lord unvonini oddiy a'zoga tushiramiz
+    user.rank = "member"
+
+    # 2. Xonadon Lordligini vakant qilamiz
+    house.lord_user_id = None
+    house.lord_elected_at = datetime.utcnow()
+
+    # 3. Saylov ovozlarini tozalaymiz
+    await session.execute(
+        delete(models.HouseVote).where(models.HouseVote.house_id == house.id)
+    )
+
+    await session.commit()
+    return True, f"👑 Siz muvaffaqiyatli {house.name} xonadoni Lordligidan voz kechdingiz. Lavozim endi vakant!"
 
 
 async def transfer_troops_to_lord(
@@ -597,6 +639,7 @@ async def admin_appoint_house_lord(session: AsyncSession, house_id: int, target_
     target_user.rank = "king"
     target_user.prestige = (target_user.prestige or 0) + 150
     house.lord_user_id = target_user.telegram_id
+    house.lord_elected_at = datetime.utcnow()
 
     await session.commit()
     name = target_user.full_name or target_user.username or f"User {target_user.id}"
@@ -617,6 +660,7 @@ async def admin_dismiss_house_lord(session: AsyncSession, house_id: int) -> Tupl
         old_lord.rank = "knight"
 
     house.lord_user_id = None
+    house.lord_elected_at = datetime.utcnow()
     await session.commit()
     return True, f"🚫 {house.emoji} {house.name} xonadonining Lord lavozimi bo'shatildi (Vakant)!"
 

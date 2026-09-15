@@ -84,6 +84,7 @@ class House(Base):
     description = Column(Text, default="")
 
     lord_user_id = Column(BigInteger, nullable=True)  # Xonadon yetakchisi
+    lord_elected_at = Column(DateTime, nullable=True)  # Lord saylangan vaqt (har 10 kunda saylov yangilanadi)
     gold = Column(BigInteger, default=5000)
     food = Column(BigInteger, default=10000)
     iron = Column(BigInteger, default=2000)

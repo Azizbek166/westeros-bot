@@ -8,7 +8,7 @@ import logging
 from telegram.ext import Application, ContextTypes
 from config import BOT_TOKEN
 from database import init_db, AsyncSessionLocal
-from core.tick_engine import process_due_marches, process_npc_growth_and_raids
+from core.tick_engine import process_due_marches, process_npc_growth_and_raids, check_house_election_expiration
 from core.economy_engine import process_hourly_tick
 from handlers import register_all_handlers
 
@@ -33,13 +33,14 @@ async def march_resolution_job(context: ContextTypes.DEFAULT_TYPE):
 
 
 async def hourly_economy_job(context: ContextTypes.DEFAULT_TYPE):
-    """Har 1 soatda resurslar va oziq-ovqat iste'molini hisoblash"""
+    """Har 1 soatda resurslar, oziq-ovqat iste'moli va 10 kunlik Lordlik muddatini tekshirish"""
     try:
         async with AsyncSessionLocal() as session:
             await process_hourly_tick(session)
         logger.info("💰 Soatlik iqtisodiyot va oziq-ovqat iste'moli hisoblandi.")
+        await check_house_election_expiration(bot_app=context.application)
     except Exception as e:
-        logger.error(f"Economy tick xatosi: {e}")
+        logger.error(f"Economy / election tick xatosi: {e}")
 
 
 async def npc_tick_job(context: ContextTypes.DEFAULT_TYPE):
@@ -118,11 +119,11 @@ def main():
         first=10,
     )
 
-    # Har 1 soatda (3600 soniya) iqtisodiy tick
+    # Har 1 soatda (3600 soniya) iqtisodiy tick va saylov tekshiruvi
     app.job_queue.run_repeating(
         hourly_economy_job,
         interval=3600,
-        first=3600,
+        first=60,
     )
 
     # Har 15 daqiqada (900 soniya) 5 ta NPC xonadon harakati va bosqinlari

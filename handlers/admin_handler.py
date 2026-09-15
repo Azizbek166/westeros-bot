@@ -1096,13 +1096,16 @@ async def admin_castle_detail_callback(update: Update, context: ContextTypes.DEF
         drg_str = f"🐉 {st_dr['name']} (Kuch: {st_dr.get('power', 0):,})" if st_dr else "Yo'q"
 
         tot_garrison = terr.garrison_infantry + terr.garrison_archers + terr.garrison_cavalry + terr.garrison_spearmen
+        castle_type = "👑 Poytaxt Qal'a" if terr.is_capital else "🏯 Strategik Qal'a"
+        wall_status = "🛡️ Mustahkam (100%)" if terr.defense >= 800 else f"🛡️ {terr.defense} ball"
 
         text = (
             f"🏯 **QAL'A: {terr.name.upper()} ({terr.castle_name or 'Qal\'a'})**\n\n"
-            f"📍 Mintaqa: **{terr.region}** | Turi: **{terr.type.title()}**\n"
+            f"📍 Mintaqa: **{terr.region}** | Turi: **{castle_type}**\n"
             f"🏰 Hukmron Xonadon: {h_str}\n"
-            f"🛡️ Qal'a Mudofaasi: **{terr.defense}** / 100\n"
-            f"🧱 Devor Darajasi: **{terr.wall_level}**-daraja\n\n"
+            f"🛡️ Qal'a Mudofaasi: **{terr.defense}** / 1,000\n"
+            f"🧱 Devor Holati: **{wall_status}**\n"
+            f"💰 Soatlik Daromad: +{terr.gold_income}🪙, +{terr.food_income}🌾, +{terr.iron_income}⛓️\n\n"
             f"👥 **GARNIZON (Jami: {tot_garrison:,} askar):**\n"
             f"• 🛡️ Piyoda: **{terr.garrison_infantry:,}**\n"
             f"• 🏹 Kamonchi: **{terr.garrison_archers:,}**\n"
@@ -1115,7 +1118,7 @@ async def admin_castle_detail_callback(update: Update, context: ContextTypes.DEF
         buttons = [
             [
                 InlineKeyboardButton("🛡️ Garnizonga +500 Har Biridan", callback_data=f"adm_c_act:{terr.id}:add_garrison:500"),
-                InlineKeyboardButton("🧱 Devor 100% & Lvl 5", callback_data=f"adm_c_act:{terr.id}:repair_walls:5"),
+                InlineKeyboardButton("🧱 Devorni 1,000 ga Tiklash", callback_data=f"adm_c_act:{terr.id}:repair_walls:1000"),
             ],
             [
                 InlineKeyboardButton("🏰 Hukmron Xonadonni O'zgartirish", callback_data=f"adm_c_pick_h:{terr.id}:0"),
@@ -1149,9 +1152,8 @@ async def admin_castle_action_callback(update: Update, context: ContextTypes.DEF
             terr.garrison_spearmen += val
             msg = f"Garnizonga har turdan +{val} askar qo'shildi!"
         elif action == "repair_walls":
-            terr.defense = 100
-            terr.wall_level = 5
-            msg = "Devorlar 5-darajaga ko'tarildi va mudofaa 100% qilindi!"
+            terr.defense = val
+            msg = f"Qal'a devorlari va mudofaasi {val} ballga tiklandi!"
         elif action == "clear_garrison":
             terr.garrison_infantry = 0
             terr.garrison_archers = 0

@@ -187,7 +187,11 @@ async def main_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             f"🛡️ Armiya: **{(user.army.infantry + user.army.archers + user.army.cavalry + user.army.spearmen + user.army.special_troops):,}** askar\n\n"
             f"Kerakli bo'limni tanlang:"
         )
-        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=main_menu_keyboard(user_id))
+        if query.message.photo:
+            await query.message.delete()
+            await query.message.chat.send_message(text, parse_mode="Markdown", reply_markup=main_menu_keyboard(user_id))
+        else:
+            await query.edit_message_text(text, parse_mode="Markdown", reply_markup=main_menu_keyboard(user_id))
 
 
 async def bottom_menu_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):

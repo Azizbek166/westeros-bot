@@ -1,3 +1,4 @@
+import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CommandHandler, CallbackQueryHandler, ContextTypes
 from database import AsyncSessionLocal, crud
@@ -23,13 +24,31 @@ async def show_map(target, user_id: int, is_message: bool):
     """Westeros xaritasi hududlarini ko'rsatish"""
     text = (
         "🗺️ **WESTEROS XARITASI VA QAL'ALAR**\n\n"
-        "Westerosdagi barcha strategik qal'alar va shahar-portlar.\n"
-        "Qal'a haqida ma'lumot olish yoki unga yurish qilish uchun tanlang:"
+        "Westerosdagi barcha strategik qal'alar va shahar-portlar joylashuvi.\n"
+        "Qal'a haqida batafsil ma'lumot olish, garnizon joylashtirish yoki unga yurish qilish uchun quyidan tanlang:"
     )
+    map_img_path = os.path.join("assets", "westeros_map.jpg")
+    has_photo = os.path.exists(map_img_path)
+
     if is_message:
-        await target.message.reply_text(text, parse_mode="Markdown", reply_markup=territories_keyboard())
+        if has_photo:
+            with open(map_img_path, "rb") as f:
+                await target.message.reply_photo(photo=f, caption=text, parse_mode="Markdown", reply_markup=territories_keyboard())
+        else:
+            await target.message.reply_text(text, parse_mode="Markdown", reply_markup=territories_keyboard())
     else:
-        await target.edit_message_text(text, parse_mode="Markdown", reply_markup=territories_keyboard())
+        if has_photo:
+            try:
+                if target.message.photo:
+                    await target.edit_message_caption(caption=text, parse_mode="Markdown", reply_markup=territories_keyboard())
+                else:
+                    await target.message.delete()
+                    with open(map_img_path, "rb") as f:
+                        await target.message.chat.send_photo(photo=f, caption=text, parse_mode="Markdown", reply_markup=territories_keyboard())
+            except Exception:
+                await target.edit_message_text(text, parse_mode="Markdown", reply_markup=territories_keyboard())
+        else:
+            await target.edit_message_text(text, parse_mode="Markdown", reply_markup=territories_keyboard())
 
 
 async def view_territory_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -86,7 +105,11 @@ async def view_territory_callback(update: Update, context: ContextTypes.DEFAULT_
             f"Ushbu hududni egallash xonadoningizga doimiy daromad va shon-sharaf keltiradi!"
         )
 
-        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        if query.message.photo:
+            await query.message.delete()
+            await query.message.chat.send_message(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        else:
+            await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
 
 
 async def terr_own_info_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):

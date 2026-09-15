@@ -74,6 +74,7 @@ async def init_db():
             "ALTER TABLE users ADD COLUMN daily_plague_count INTEGER DEFAULT 0",
             "ALTER TABLE territories ADD COLUMN last_tax_collected_at DATETIME",
             "ALTER TABLE dragons ADD COLUMN artifact_code VARCHAR(50)",
+            "ALTER TABLE houses ADD COLUMN lord_elected_at DATETIME",
         ]:
             try:
                 await conn.execute(text(alter_stmt))

@@ -54,6 +54,7 @@ async def show_house(target, user_id: int, is_message: bool):
         if is_lord:
             buttons.append([InlineKeyboardButton("📢 Harbiy Safarbarlik (Askar So'rash)", callback_data="call_to_arms_broadcast")])
             buttons.append([InlineKeyboardButton("🎖️ Lavozim Tayinlash (Lord)", callback_data="house_rank_assign_menu")])
+            buttons.append([InlineKeyboardButton("🚫 Lordlikdan Voz Kechish (Iste'fo)", callback_data="house_abdicate_prompt")])
         elif house.lord_user_id:
             buttons.append([InlineKeyboardButton("🛡️ Lordga Askar Berish (Safarbarlik)", callback_data="troop_donation_menu")])
 
@@ -196,8 +197,14 @@ async def house_election_callback(update: Update, context: ContextTypes.DEFAULT_
         candidates = stats["candidates"]
         my_vote_id = stats["my_vote_cand_id"]
         current_lord = stats["current_lord"]
+        remaining_days = stats.get("remaining_days", 10)
+        term_expired = stats.get("term_expired", False)
 
-    lord_name = f"👑 **{current_lord.full_name}**" if current_lord else "❌ *Xonadonda hozircha Lord yo'q*"
+    if current_lord:
+        term_status = "⌛ *10 kunlik vakolat tugagan! Yangi Lord saylanishi kerak.*" if term_expired else f"⏳ Vakolat muddati: **{remaining_days} kun** qoldi (har 10 kunda yangi saylov)"
+        lord_name = f"👑 **{escape_md(current_lord.full_name)}**\n   └ {term_status}"
+    else:
+        lord_name = "❌ *Xonadonda hozircha Lord yo'q (Vakant)*"
 
     cand_lines = []
     for c in candidates:
@@ -223,12 +230,13 @@ async def house_election_callback(update: Update, context: ContextTypes.DEFAULT_
 
     text = (
         f"🗳️ **{house.emoji} {house.name.upper()} — XONADON LORDI SAYLOVI**\n\n"
-        f"Hozirgi Lord: {lord_name}\n"
+        f"Hozirgi Lord:\n{lord_name}\n\n"
         f"Xonadon A'zolari: **{total_m}** ta\n"
         f"G'alaba uchun zarur: **{needed}** ta ovoz (50%+)\n\n"
         f"📊 **NOMZODLAR VA OVOZLAR NATIJASI:**\n\n"
         f"{cand_text}\n\n"
-        f"O'z ovozingizni bering yoki o'zgartiring. 50% dan ortiq ovoz to'plagan nomzod darhol xonadon Lordi (King) etib tayinlanadi!"
+        f"ℹ️ *Eslatma: Har bir Lordning vakolati 10 kun. 10 kundan so'ng yangi saylov avtomatik boshlanadi. "
+        f"50% dan ortiq ovoz to'plagan nomzod darhol xonadon Lordi etib tayinlanadi!*"
     )
     await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
 
@@ -247,6 +255,41 @@ async def claim_house_lord_callback(update: Update, context: ContextTypes.DEFAUL
 
     await query.answer(msg, show_alert=True)
     await house_election_callback(update, context)
+
+
+async def house_abdicate_prompt_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Lordlikdan voz kechish tasdig'ini so'rash"""
+    query = update.callback_query
+    await query.answer()
+
+    buttons = [
+        [InlineKeyboardButton("✅ Ha, Lordlikdan Voz Kechaman", callback_data="house_abdicate_confirm")],
+        [InlineKeyboardButton("❌ Bekor Qilish", callback_data="menu_house")],
+    ]
+    text = (
+        "⚠️ **OGOHLANTIRISH!**\n\n"
+        "Rostdan ham xonadon Lordligidan voz kechmoqchimisiz?\n\n"
+        "• Lordlik lavozimingiz bekor qilinadi va oddiy a'zo (Member) maqomiga o'tasiz.\n"
+        "• Xonadonda yangi Lord saylovi boshlanadi.\n"
+        "• Ushbu amalni ortga qaytarib bo'lmaydi!"
+    )
+    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def house_abdicate_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Lordlikdan voz kechishni amalga oshirish"""
+    query = update.callback_query
+    user_id = query.from_user.id
+
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_by_telegram_id(session, user_id)
+        if not user:
+            await query.answer("❌ Foydalanuvchi topilmadi.", show_alert=True)
+            return
+        ok, msg = await crud.abdicate_house_lord(session, user.id)
+
+    await query.answer(msg, show_alert=True)
+    await show_house(query, user_id, is_message=False)
 
 
 async def house_vote_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -514,6 +557,8 @@ def register_house_handlers(app):
     app.add_handler(CallbackQueryHandler(house_set_rank_callback, pattern="^hset_rank:"))
     app.add_handler(CallbackQueryHandler(house_election_callback, pattern="^house_election$"))
     app.add_handler(CallbackQueryHandler(claim_house_lord_callback, pattern="^claim_house_lord$"))
+    app.add_handler(CallbackQueryHandler(house_abdicate_prompt_callback, pattern="^house_abdicate_prompt$"))
+    app.add_handler(CallbackQueryHandler(house_abdicate_confirm_callback, pattern="^house_abdicate_confirm$"))
     app.add_handler(CallbackQueryHandler(house_vote_callback, pattern="^hvote:"))
     app.add_handler(CallbackQueryHandler(call_to_arms_broadcast_callback, pattern="^call_to_arms_broadcast$"))
     app.add_handler(CallbackQueryHandler(troop_donation_menu_callback, pattern="^troop_donation_menu$"))
