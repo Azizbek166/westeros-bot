@@ -75,10 +75,10 @@ async def show_dragon_hub(target, user_id: int, is_message: bool):
         }
         grade_names = {"A": "🔥 A Toifa", "B": "💚 B Toifa", "C": "💛 C Toifa"}
 
-        count_str = f"({len(dragons)}/2)"
+        count_str = f"({len(dragons)}/3)"
         desc_header = ""
-        if len(dragons) >= 2:
-            desc_header = "👑 **Siz Vesteros osmonida 2 ta qudratli ajdarga ega afsonaviy hukmdorsiz!**\n\n"
+        if len(dragons) >= 3:
+            desc_header = "👑 **Siz Vesteros osmonida 3 ta qudratli ajdarga ega afsonaviy hukmdorsiz!**\n\n"
 
         text = (
             f"🐉 **SIZNING AFSONAVIY AJDARLARINGIZ {count_str}**\n\n"
@@ -95,7 +95,7 @@ async def show_dragon_hub(target, user_id: int, is_message: bool):
             if dragon.stage == "adult" and dragon.level >= 10:
                 if dragon.has_laid_egg:
                     egg_info = "🐣 Nasl: Tuxum qo'ygan\n"
-                elif len(dragons) < 2:
+                elif len(dragons) < 3:
                     egg_info = "✨ **Tuxum qo'yishga tayyor!** (Nasl qoldirish mumkin)\n"
 
             text += (
@@ -134,7 +134,7 @@ async def show_dragon_hub(target, user_id: int, is_message: bool):
 
                 buttons.append([InlineKeyboardButton(f"🏺 {dragon.name} Artefaktlari", callback_data=f"dragon_art_shop_{dragon.id}")])
 
-                if dragon.stage == "adult" and dragon.level >= 10 and len(dragons) < 2 and not dragon.has_laid_egg:
+                if dragon.stage == "adult" and dragon.level >= 10 and len(dragons) < 3 and not dragon.has_laid_egg:
                     buttons.append([InlineKeyboardButton(f"🥚 {dragon.name}: Yangi Tuxum Qo'yish (Nasl)", callback_data=f"dragon_lay_egg_{dragon.id}")])
 
         buttons.append([InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")])
@@ -148,7 +148,6 @@ async def show_dragon_hub(target, user_id: int, is_message: bool):
 async def dragon_claim_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Ajdar tuxumini tanlash va sotib olish"""
     query = update.callback_query
-    await query.answer()
 
     parts = query.data.split(":")
     name = parts[1]
@@ -169,7 +168,6 @@ async def dragon_claim_callback(update: Update, context: ContextTypes.DEFAULT_TY
 async def dragon_hatch_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Tuxumni ochirish"""
     query = update.callback_query
-    await query.answer()
     user_id = query.from_user.id
     
     dragon_id = None
@@ -189,7 +187,6 @@ async def dragon_hatch_callback(update: Update, context: ContextTypes.DEFAULT_TY
 async def dragon_feed_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Ajdarni boqish"""
     query = update.callback_query
-    await query.answer()
     user_id = query.from_user.id
 
     dragon_id = None
@@ -209,7 +206,6 @@ async def dragon_feed_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 async def dragon_train_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Ajdarni mashq qildirish"""
     query = update.callback_query
-    await query.answer()
     user_id = query.from_user.id
 
     dragon_id = None

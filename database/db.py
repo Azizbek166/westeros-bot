@@ -80,6 +80,43 @@ async def init_db():
                 await conn.execute(text(alter_stmt))
             except Exception:
                 pass
+
+        # Check if dragons table in SQLite has obsolete UNIQUE constraint on user_id
+        try:
+            res = await conn.execute(text("SELECT sql FROM sqlite_master WHERE name='dragons' AND type='table'"))
+            table_sql = res.scalar()
+            if table_sql and "user_id INTEGER UNIQUE" in table_sql:
+                logger.info("Migrating dragons table to remove UNIQUE on user_id...")
+                await conn.execute(text("PRAGMA foreign_keys=OFF"))
+                await conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS dragons_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER NOT NULL,
+                        name TEXT NOT NULL,
+                        grade TEXT DEFAULT 'C',
+                        stage TEXT DEFAULT 'egg',
+                        level INTEGER DEFAULT 1,
+                        hunger INTEGER DEFAULT 50,
+                        power INTEGER DEFAULT 100,
+                        artifact_code VARCHAR(50),
+                        has_laid_egg BOOLEAN DEFAULT 0,
+                        last_fed TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY(user_id) REFERENCES users(id)
+                    )
+                """))
+                await conn.execute(text("""
+                    INSERT INTO dragons_new (id, user_id, name, grade, stage, level, hunger, power, artifact_code, has_laid_egg, last_fed, created_at)
+                    SELECT id, user_id, name, grade, stage, level, hunger, power, artifact_code, has_laid_egg, last_fed, created_at FROM dragons
+                """))
+                await conn.execute(text("DROP TABLE dragons"))
+                await conn.execute(text("ALTER TABLE dragons_new RENAME TO dragons"))
+                await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_dragons_user_id ON dragons(user_id)"))
+                await conn.execute(text("PRAGMA foreign_keys=ON"))
+                logger.info("Dragons table migrated successfully.")
+        except Exception as e:
+            logger.warning(f"Dragons table migration check: {e}")
+
         logger.info("✅ Barcha ma'lumotlar bazasi jadvallari yaratildi.")
 
     # 50 ta Xonadon va Hududlarni boshlang'ich holatda yuklash

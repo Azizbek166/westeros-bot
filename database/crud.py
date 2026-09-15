@@ -1124,8 +1124,8 @@ async def claim_dragon_egg(session: AsyncSession, user_id: int, name: str, grade
         return False, "Foydalanuvchi topilmadi.", None
 
     existing = await get_user_dragons(session, user_id)
-    if len(existing) >= 2:
-        return False, "Sizda allaqachon maksimal 2 ta ajdar mavjud!", None
+    if len(existing) >= 3:
+        return False, "Sizda allaqachon maksimal 3 ta ajdar mavjud!", None
 
     costs = {
         "A": {"gold": 3000, "iron": 1500},
@@ -1272,8 +1272,8 @@ async def dragon_lay_egg(session: AsyncSession, user_id: int, dragon_id: int) ->
         return False, "Ajdar topilmadi."
 
     dragons = await get_user_dragons(session, user_id)
-    if len(dragons) >= 2:
-        return False, "❌ Sizda allaqachon maksimal 2 ta ajdar mavjud!"
+    if len(dragons) >= 3:
+        return False, "❌ Sizda allaqachon maksimal 3 ta ajdar mavjud!"
 
     if dragon.stage != "adult" or dragon.level < 10:
         return False, "❌ Faqat ulg'aygan (Adult) va kamida 10-darajaga yetgan ajdar tuxum qo'ya oladi!"
