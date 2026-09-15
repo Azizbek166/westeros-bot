@@ -61,9 +61,12 @@ async def check_and_reset_daily_limits(session: AsyncSession, user: models.User)
 async def get_taken_character_names(session: AsyncSession, house_id: int) -> set:
     """Xonadonda allaqachon tirik o'yinchilar tomonidan tanlangan qahramonlar"""
     res = await session.execute(
-        select(models.Character.name).where(
+        select(models.Character.name).join(
+            models.User, models.Character.user_id == models.User.id
+        ).where(
             models.Character.house_id == house_id,
             models.Character.is_alive == True,
+            models.User.house_id == house_id,
         )
     )
     return set(res.scalars().all())
@@ -112,6 +115,7 @@ async def create_user(
 
     if is_first_lord and house:
         house.lord_user_id = telegram_id
+        house.lord_elected_at = datetime.utcnow()
 
     # Boshlang'ich armiyani biriktirish
     army = models.Army(
@@ -150,6 +154,136 @@ async def create_user(
     await session.commit()
     await session.refresh(user, ["house", "army", "characters"])
     return user
+
+
+async def join_house(
+    session: AsyncSession,
+    user: models.User,
+    house_id: int,
+    character_name: str,
+    username: Optional[str] = None,
+    full_name: Optional[str] = None,
+) -> models.User:
+    """Mavjud o'yinchini xonadonga a'zo qilish va qasamyod qildirish"""
+    house = await session.get(models.House, house_id)
+    if not house:
+        raise ValueError(f"House with id {house_id} not found")
+
+    is_first_lord = (house.lord_user_id is None or house.lord_user_id == 0)
+    user_rank = "king" if is_first_lord else "member"
+
+    user.house_id = house_id
+    user.rank = user_rank
+    if username:
+        user.username = username
+    if full_name:
+        user.full_name = full_name
+
+    now = datetime.utcnow()
+    if not user.peace_shield_until or user.peace_shield_until < now:
+        user.peace_shield_until = now + timedelta(hours=PEACE_SHIELD_HOURS)
+
+    if is_first_lord:
+        house.lord_user_id = user.telegram_id
+        house.lord_elected_at = now
+
+    # Armiya mavjudligini tekshirish
+    army_res = await session.execute(
+        select(models.Army).where(models.Army.user_id == user.id)
+    )
+    army = army_res.scalar_one_or_none()
+    if not army:
+        army = models.Army(
+            user_id=user.id,
+            infantry=STARTING_INFANTRY,
+            archers=STARTING_ARCHERS,
+            cavalry=STARTING_CAVALRY,
+            spearmen=STARTING_SPEARMEN,
+            special_troops=0,
+        )
+        session.add(army)
+
+    # Qahramonni yangilash yoki yaratish
+    char_res = await session.execute(
+        select(models.Character).where(
+            models.Character.user_id == user.id,
+            models.Character.is_alive == True,
+        )
+    )
+    char = char_res.scalar_one_or_none()
+    if char:
+        char.house_id = house_id
+        char.name = character_name
+    else:
+        char = models.Character(
+            user_id=user.id,
+            house_id=house_id,
+            name=character_name,
+            level=1,
+            attack=50,
+            defense=50,
+            leadership=50,
+            special_ability="Jasorat",
+            loyalty=100,
+            is_alive=True,
+        )
+        session.add(char)
+
+    # Xonadon a'zoligi
+    hm_res = await session.execute(
+        select(models.HouseMember).where(models.HouseMember.user_id == user.id)
+    )
+    hm = hm_res.scalar_one_or_none()
+    if hm:
+        hm.house_id = house_id
+        hm.rank = user_rank
+    else:
+        hm = models.HouseMember(
+            house_id=house_id,
+            user_id=user.id,
+            rank=user_rank,
+        )
+        session.add(hm)
+
+    await session.commit()
+    await session.refresh(user, ["house", "army", "characters"])
+    return user
+
+
+async def leave_house(session: AsyncSession, user_id: int) -> Tuple[bool, str]:
+    """O'yinchi xonadondan chiqishi"""
+    user = await session.get(models.User, user_id)
+    if not user or not user.house_id:
+        return False, "❌ Siz biron xonadonga a'zo emassiz."
+
+    house = await session.get(models.House, user.house_id)
+    if house and house.lord_user_id == user.telegram_id:
+        house.lord_user_id = None
+        house.lord_elected_at = datetime.utcnow()
+
+    # Ovozlarini tozalash
+    await session.execute(
+        delete(models.HouseVote).where(
+            (models.HouseVote.voter_user_id == user.id) | (models.HouseVote.candidate_user_id == user.id)
+        )
+    )
+
+    # HouseMember dan o'chirish
+    await session.execute(
+        delete(models.HouseMember).where(models.HouseMember.user_id == user.id)
+    )
+
+    # Foydalanuvchini xonadondan ozod qilish
+    user.house_id = None
+    user.rank = "member"
+
+    # Eski personajni tozalash (yangi xonadonga kirganda yangi qahramon tanlanadi)
+    await session.execute(
+        delete(models.Character).where(models.Character.user_id == user.id)
+    )
+
+    await session.commit()
+    return True, "✅ Siz xonadondan chiqdingiz. Endi yangi xonadon tanlashingiz mumkin!"
 
 
 # ============================================================

@@ -58,6 +58,7 @@ async def show_house(target, user_id: int, is_message: bool):
         elif house.lord_user_id:
             buttons.append([InlineKeyboardButton("🛡️ Lordga Askar Berish (Safarbarlik)", callback_data="troop_donation_menu")])
 
+        buttons.append([InlineKeyboardButton("🚪 Xonadondan Chiqish", callback_data="house_leave_prompt")])
         buttons.append([InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")])
 
         text = (
@@ -290,6 +291,49 @@ async def house_abdicate_confirm_callback(update: Update, context: ContextTypes.
 
     await query.answer(msg, show_alert=True)
     await show_house(query, user_id, is_message=False)
+
+
+async def house_leave_prompt_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Xonadondan chiqish tasdig'ini so'rash"""
+    query = update.callback_query
+    await query.answer()
+
+    buttons = [
+        [InlineKeyboardButton("✅ Ha, Xonadondan Chiqaman", callback_data="house_leave_confirm")],
+        [InlineKeyboardButton("❌ Bekor Qilish", callback_data="menu_house")],
+    ]
+    text = (
+        "🚪 **XONADONDAN CHIQISH**\n\n"
+        "Haqiqatan ham ushbu xonadondan chiqmoqchimisiz?\n\n"
+        "• Xonadondagi barcha lavozimingiz bekor qilinadi.\n"
+        "• Agar Lord bo'lsangiz, Lordlik o'rni boshqa a'zolar uchun bo'shaydi.\n"
+        "• Shundan so'ng /start orqali istalgan boshqa xonadonga qaytadan a'zo bo'lishingiz mumkin!"
+    )
+    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def house_leave_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Xonadondan chiqishni bajarish"""
+    query = update.callback_query
+    user_id = query.from_user.id
+
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_by_telegram_id(session, user_id)
+        if not user:
+            await query.answer("❌ Foydalanuvchi topilmadi.", show_alert=True)
+            return
+        ok, msg = await crud.leave_house(session, user.id)
+
+    await query.answer(msg, show_alert=True)
+    if ok:
+        text = (
+            "🚪 **SIZ XONADONDAN CHIQDINGIZ!**\n\n"
+            "Yangi xonadon va qahramon tanlash uchun quyidagi mintaqalardan birini tanlang:"
+        )
+        from keyboards.menus import regions_keyboard
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=regions_keyboard())
+    else:
+        await show_house(query, user_id, is_message=False)
 
 
 async def house_vote_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -559,6 +603,8 @@ def register_house_handlers(app):
     app.add_handler(CallbackQueryHandler(claim_house_lord_callback, pattern="^claim_house_lord$"))
     app.add_handler(CallbackQueryHandler(house_abdicate_prompt_callback, pattern="^house_abdicate_prompt$"))
     app.add_handler(CallbackQueryHandler(house_abdicate_confirm_callback, pattern="^house_abdicate_confirm$"))
+    app.add_handler(CallbackQueryHandler(house_leave_prompt_callback, pattern="^house_leave_prompt$"))
+    app.add_handler(CallbackQueryHandler(house_leave_confirm_callback, pattern="^house_leave_confirm$"))
     app.add_handler(CallbackQueryHandler(house_vote_callback, pattern="^hvote:"))
     app.add_handler(CallbackQueryHandler(call_to_arms_broadcast_callback, pattern="^call_to_arms_broadcast$"))
     app.add_handler(CallbackQueryHandler(troop_donation_menu_callback, pattern="^troop_donation_menu$"))

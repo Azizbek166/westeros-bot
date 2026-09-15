@@ -125,9 +125,9 @@ async def hero_selected_callback(update: Update, context: ContextTypes.DEFAULT_T
     full_name = query.from_user.full_name
 
     async with AsyncSessionLocal() as session:
-        # Tekshiramiz: agar avval ro'yxatdan o'tgan bo'lsa
+        # Tekshiramiz: agar avval ro'yxatdan o'tgan bo'lsa VA xonadoni mavjud bo'lsa
         existing = await crud.get_user_by_telegram_id(session, user_id)
-        if existing:
+        if existing and existing.house_id:
             await query.edit_message_text("❌ Siz allaqachon xonadon tanlagansiz!", reply_markup=main_menu_keyboard(user_id))
             return
 
@@ -137,14 +137,24 @@ async def hero_selected_callback(update: Update, context: ContextTypes.DEFAULT_T
             await query.answer("❌ Kechirasiz! Bu qahramon hozirgina boshqa lord tomonidan tanlandi. Iltimos, boshqasini tanlang.", show_alert=True)
             return
 
-        user = await crud.create_user(
-            session=session,
-            telegram_id=user_id,
-            username=username,
-            full_name=full_name,
-            house_id=house_info["id"],
-            character_name=hero_name,
-        )
+        if existing:
+            user = await crud.join_house(
+                session=session,
+                user=existing,
+                house_id=house_info["id"],
+                character_name=hero_name,
+                username=username,
+                full_name=full_name,
+            )
+        else:
+            user = await crud.create_user(
+                session=session,
+                telegram_id=user_id,
+                username=username,
+                full_name=full_name,
+                house_id=house_info["id"],
+                character_name=hero_name,
+            )
 
     text = (
         f"🎉 **QASAMYOD QABUL QILINDI!**\n\n"
