@@ -75,7 +75,8 @@ async def show_profile(target, user_id: int, is_message: bool):
             f"📊 **XAZINA VA IQTISOD:**\n"
             f"🪙 Oltin: **{user.gold:,}** (+{income['gold']}/soat)\n"
             f"🌾 Oziq-ovqat: **{user.food:,}** (+{income['food']}/soat, Upkeep: -{int(upkeep)}/soat)\n"
-            f"⛓️ Temir: **{user.iron:,}** (+{income['iron']}/soat)\n\n"
+            f"⛓️ Temir: **{user.iron:,}** (+{income['iron']}/soat)\n"
+            f"⛏️ Temir Koni: **Lv.{getattr(user, 'iron_mine_level', 1) or 1}** (+{(getattr(user, 'iron_mine_level', 1) or 1) * 50}⛓️/soat)\n\n"
             f"⚔️ **ARMIYA TARKIBI:**\n"
             f"🛡️ Piyodalar: **{inf_cnt:,}**\n"
             f"🏹 Kamonchilar: **{arc_cnt:,}**\n"
@@ -86,6 +87,7 @@ async def show_profile(target, user_id: int, is_message: bool):
         )
 
         buttons = [
+            [InlineKeyboardButton("⛏️ Temir Koni & Savdo (Bozor)", callback_data="menu_iron_mine")],
             [InlineKeyboardButton("🗡️ Afsonaviy Artefaktlar (Armory)", callback_data="menu_artifacts")],
             [InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")],
         ]
@@ -132,20 +134,20 @@ async def show_artifacts_menu(target, user_id: int, is_message: bool = False):
 
     owned_map = {a.code: a for a in user_arts}
 
-    eq_text = "⚔️ **Hozir taqilgan:** Yo'q\n"
+    eq_text = "⚔️ **Hozir taqilgan:** _Hech narsa taqilmagan_\n"
     if equipped and equipped.code in ARTIFACTS_DATA:
         info = ARTIFACTS_DATA[equipped.code]
         eq_text = (
-            f"⚔️ **Hozir taqilgan:** {info['name']}\n"
-            f"✨ _{info['description']}_\n"
+            f"⚔️ **Hozir taqilgan:** **{info['name']}**\n"
+            f"📖 _{info['description']}_\n"
         )
 
     text = (
         f"🗡️ **VESTEROS AFSONAVIY ARTEFAKTLARI (ARMORY)**\n\n"
         f"{eq_text}\n"
-        f"O'zingizga munosib qurol yoki relikni taqing! Har bir artefakt janglarda, duellarda va ajdar quvvatida ulkan afzallik beradi.\n\n"
+        f"O'zingizga munosib afsonaviy qurol yoki relikni taqing! Har bir artefakt janglarda, duellarda va ajdar quvvatida ulkan afzallik beradi.\n\n"
         f"💰 Sizning boyligingiz: **{user.gold:,}**🪙 Oltin, **{user.iron:,}**⛓️ Temir\n\n"
-        f"📜 **KATALOG:**\n"
+        f"📜 **ARTEFAKTLAR RO'YXATI VA KUCHLARI:**\n\n"
     )
 
     buttons = []
@@ -154,17 +156,22 @@ async def show_artifacts_menu(target, user_id: int, is_message: bool = False):
         is_eq = is_owned and owned_map[code].is_equipped
         bonus_desc = []
         if data.get("duel_bonus", 0) > 0:
-            bonus_desc.append(f"+{int(data['duel_bonus']*100)}% Duel")
+            bonus_desc.append(f"⚔️ Duelda +{int(data['duel_bonus']*100)}%")
         if data.get("attack_bonus", 0) > 0:
-            bonus_desc.append(f"+{int(data['attack_bonus']*100)}% Hujum")
+            bonus_desc.append(f"🗡️ Hujumda +{int(data['attack_bonus']*100)}%")
         if data.get("defense_bonus", 0) > 0:
-            bonus_desc.append(f"+{int(data['defense_bonus']*100)}% Mudofaa")
+            bonus_desc.append(f"🛡️ Mudofaada +{int(data['defense_bonus']*100)}%")
         if data.get("dragon_bonus", 0) > 0:
-            bonus_desc.append(f"+{int(data['dragon_bonus']*100)}% Ajdar")
+            bonus_desc.append(f"🔥 Drakarysda +{int(data['dragon_bonus']*100)}%")
 
-        bonus_str = ", ".join(bonus_desc)
-        status_str = "✅ [Sizda bor]" if is_owned else f"{data['price_gold']:,}🪙 / {data['price_iron']:,}⛓️"
-        text += f"• **{data['name']}** ({status_str})\n  _{bonus_str}_\n"
+        bonus_str = " | ".join(bonus_desc) if bonus_desc else "Maxsus afzallik"
+        status_str = "✅ [Sizda bor]" if is_owned else f"Narxi: {data['price_gold']:,}🪙 / {data['price_iron']:,}⛓️"
+        text += (
+            f"• **{data['name']}**\n"
+            f"  📌 {status_str}\n"
+            f"  ⚡ Kuchlari: **{bonus_str}**\n"
+            f"  📖 _{data['description']}_\n\n"
+        )
 
         if is_owned:
             art_id = owned_map[code].id
@@ -173,7 +180,7 @@ async def show_artifacts_menu(target, user_id: int, is_message: bool = False):
             else:
                 buttons.append([InlineKeyboardButton(f"⚡ {data['name'][:22]} (Taqish)", callback_data=f"equip_art_{art_id}")])
         else:
-            buttons.append([InlineKeyboardButton(f"🛒 {data['name'][:20]} ({data['price_gold']:,}🪙)", callback_data=f"buy_art_{code}")])
+            buttons.append([InlineKeyboardButton(f"🛒 Xarid: {data['name'][:18]} ({data['price_gold']:,}🪙)", callback_data=f"buy_art_{code}")])
 
     buttons.append([InlineKeyboardButton("🔙 Profilga Qaytish", callback_data="menu_profile")])
 
@@ -181,6 +188,113 @@ async def show_artifacts_menu(target, user_id: int, is_message: bool = False):
         await target.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
     else:
         await target.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def show_iron_mine_menu(target, user_id: int, is_message: bool = False):
+    """Temir koni va oltin-temir savdo karvoni menyusi"""
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_by_telegram_id(session, user_id)
+        if not user:
+            return
+
+        mine_lvl = user.iron_mine_level or 1
+        curr_prod = mine_lvl * 50
+        next_prod = (mine_lvl + 1) * 50
+        gold_cost = mine_lvl * 1500
+        food_cost = mine_lvl * 800
+
+        text = (
+            f"⛏️ **TEMIR KONI VA SAVDO KARVONI (BOZOR)**\n\n"
+            f"Temir — Vesterosda mustahkam sovutlar, o'tkir qurollar va afsonaviy qilichlar yasash uchun zarur eng muhim xomashyodir!\n\n"
+            f"🏰 **Sizning Koni holati:**\n"
+            f"• Koni Darajasi: **Lv.{mine_lvl} / 10**\n"
+            f"• Soatlik Ishlab Chiqarish: **+{curr_prod}⛓️ Temir / soat**\n"
+        )
+        if mine_lvl < 10:
+            text += (
+                f"• Keyingi daraja (Lv.{mine_lvl + 1}): **+{next_prod}⛓️ Temir / soat**\n"
+                f"• Yangilash narxi: **{gold_cost:,}🪙 Oltin | {food_cost:,}🌾 Oziq-ovqat**\n\n"
+            )
+        else:
+            text += "• 🏆 *Kon maksimal darajaga (Lv.10) yetkazilgan!*\n\n"
+
+        text += (
+            f"💰 **Xazinangiz:** **{user.gold:,}**🪙 Oltin | **{user.food:,}**🌾 Oziq-ovqat | **{user.iron:,}**⛓️ Temir\n\n"
+            f"🐪 **SAVDO KARVONLARI (OLTINGA TEMIR XARID QILISH):**\n"
+            f"Agar temir yetishmayotgan bo'lsa, erkin savdogarlardan oltin evaziga tezkor temir xarid qilishingiz mumkin:\n"
+            f"• 1-To'plam: 500🪙 ➡️ **300⛓️ Temir**\n"
+            f"• 2-To'plam: 1,000🪙 ➡️ **700⛓️ Temir** (+100 bonus)\n"
+            f"• 3-To'plam: 2,500🪙 ➡️ **1,900⛓️ Temir** (+400 bonus)\n"
+            f"• 4-To'plam: 5,000🪙 ➡️ **4,200⛓️ Temir** (+1,200 bonus)\n"
+        )
+
+        buttons = []
+        if mine_lvl < 10:
+            buttons.append([
+                InlineKeyboardButton(f"🔼 Konni Yangilash (Lv.{mine_lvl + 1}) — {gold_cost:,}🪙 / {food_cost:,}🌾", callback_data="upgrade_iron_mine")
+            ])
+
+        buttons.append([
+            InlineKeyboardButton("🛒 300⛓️ (500🪙)", callback_data="buy_iron:pack_1"),
+            InlineKeyboardButton("🛒 700⛓️ (1,000🪙)", callback_data="buy_iron:pack_2"),
+        ])
+        buttons.append([
+            InlineKeyboardButton("🛒 1,900⛓️ (2,500🪙)", callback_data="buy_iron:pack_3"),
+            InlineKeyboardButton("🛒 4,200⛓️ (5,000🪙)", callback_data="buy_iron:pack_4"),
+        ])
+        buttons.append([
+            InlineKeyboardButton("🔙 Profilga Qaytish", callback_data="menu_profile"),
+            InlineKeyboardButton("🏠 Asosiy Menyu", callback_data="menu_main"),
+        ])
+
+    if is_message:
+        await target.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+    else:
+        await target.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def iron_mine_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/mine, /iron, /kon buyruqlari"""
+    user_id = update.effective_user.id
+    await show_iron_mine_menu(update, user_id, is_message=True)
+
+
+async def iron_mine_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """menu_iron_mine callback"""
+    query = update.callback_query
+    await query.answer()
+    await show_iron_mine_menu(query, query.from_user.id, is_message=False)
+
+
+async def upgrade_mine_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Temir konini yangilash callback"""
+    query = update.callback_query
+    user_id = query.from_user.id
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_by_telegram_id(session, user_id)
+        if not user:
+            await query.answer("❌ Avval /start bosing.", show_alert=True)
+            return
+        ok, msg = await crud.upgrade_iron_mine(session, user.id)
+
+    await query.answer(msg, show_alert=True)
+    await show_iron_mine_menu(query, user_id, is_message=False)
+
+
+async def buy_iron_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Oltin evaziga temir xarid qilish callback"""
+    query = update.callback_query
+    pack_code = query.data.replace("buy_iron:", "")
+    user_id = query.from_user.id
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_by_telegram_id(session, user_id)
+        if not user:
+            await query.answer("❌ Avval /start bosing.", show_alert=True)
+            return
+        ok, msg = await crud.buy_iron_with_gold(session, user.id, pack_code)
+
+    await query.answer(msg, show_alert=True)
+    await show_iron_mine_menu(query, user_id, is_message=False)
 
 
 async def artifacts_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -238,9 +352,13 @@ async def unequip_artifact_callback(update: Update, context: ContextTypes.DEFAUL
 def register_profile_handlers(app):
     app.add_handler(CommandHandler("profile", profile_command))
     app.add_handler(CommandHandler(["daily", "bonus"], daily_bonus_callback))
+    app.add_handler(CommandHandler(["mine", "iron", "kon"], iron_mine_command))
     app.add_handler(CallbackQueryHandler(profile_callback, pattern="^menu_profile$"))
     app.add_handler(CallbackQueryHandler(daily_bonus_callback, pattern="^claim_daily_bonus$"))
     app.add_handler(CallbackQueryHandler(artifacts_menu_callback, pattern="^menu_artifacts$"))
     app.add_handler(CallbackQueryHandler(buy_artifact_callback, pattern="^buy_art_"))
     app.add_handler(CallbackQueryHandler(equip_artifact_callback, pattern="^equip_art_"))
     app.add_handler(CallbackQueryHandler(unequip_artifact_callback, pattern="^unequip_art$"))
+    app.add_handler(CallbackQueryHandler(iron_mine_callback, pattern="^menu_iron_mine$"))
+    app.add_handler(CallbackQueryHandler(upgrade_mine_callback, pattern="^upgrade_iron_mine$"))
+    app.add_handler(CallbackQueryHandler(buy_iron_callback, pattern="^buy_iron:"))

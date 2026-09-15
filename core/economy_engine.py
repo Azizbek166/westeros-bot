@@ -25,10 +25,13 @@ def calculate_army_upkeep(army: models.Army) -> float:
 
 
 async def calculate_hourly_income(session: AsyncSession, user: models.User) -> Dict[str, int]:
-    """O'yinchining hududlari va bazaviy soatlik daromadlari"""
+    """O'yinchining hududlari, temir koni va bazaviy soatlik daromadlari"""
+    mine_lvl = getattr(user, "iron_mine_level", 1) or 1
+    mine_iron = mine_lvl * 50  # Har daraja uchun +50 temir/soat
+
     base_gold = 50
     base_food = 100
-    base_iron = 20
+    base_iron = 20 + mine_iron
 
     if not user.house_id:
         return {"gold": base_gold, "food": base_food, "iron": base_iron}

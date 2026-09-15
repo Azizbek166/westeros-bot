@@ -1337,3 +1337,65 @@ async def claim_daily_bonus(session: AsyncSession, user_id: int) -> Tuple[bool, 
     return True, "🎁 **KUNLIK QIROL TUHFASI QABUL QILINDI!**\n\n+500🪙 Oltin\n+1,000🌾 Oziq-ovqat\n+200⛓️ Temir\n+25🏆 Prestige"
 
 
+# ============================================================
+# IRON MINE & MARKET CRUD
+# ============================================================
+
+IRON_MARKET_PACKS = {
+    "pack_1": {"gold": 500, "iron": 300, "title": "📦 Kichik Savdo Qopi (300 temir)"},
+    "pack_2": {"gold": 1000, "iron": 700, "title": "🐎 Savdo Karvoni (700 temir, +100 bonus)"},
+    "pack_3": {"gold": 2500, "iron": 1900, "title": "🚢 Dengiz Savdo Kemasi (1,900 temir, +400 bonus)"},
+    "pack_4": {"gold": 5000, "iron": 4200, "title": "👑 Qirollik Savdo Floti (4,200 temir, +1,200 bonus)"},
+}
+
+
+async def upgrade_iron_mine(session: AsyncSession, user_id: int) -> Tuple[bool, str]:
+    """Temir konini keyingi darajaga ko'tarish"""
+    user = await session.get(models.User, user_id)
+    if not user:
+        return False, "Foydalanuvchi topilmadi."
+
+    current_lvl = getattr(user, "iron_mine_level", 1) or 1
+    if current_lvl >= 10:
+        return False, "❌ Temir koningiz maksimal 10-darajaga yetgan! Tog'ning eng chuqur qatlamlarigacha qazilgan."
+
+    next_lvl = current_lvl + 1
+    gold_cost = current_lvl * 1500
+    food_cost = current_lvl * 800
+
+    if user.gold < gold_cost or user.food < food_cost:
+        return False, f"❌ Konni kuchaytirish uchun {gold_cost:,}🪙 oltin va {food_cost:,}🌾 oziq-ovqat kerak! (Sizda: {user.gold:,}🪙 / {user.food:,}🌾)"
+
+    user.gold -= gold_cost
+    user.food -= food_cost
+    user.iron_mine_level = next_lvl
+    user.prestige += next_lvl * 10
+    user.xp += next_lvl * 50
+
+    from core.leveling import check_user_level_up
+    check_user_level_up(user)
+
+    await session.commit()
+    return True, f"🎉 TABRIKLAYMIZ! Temir koni {next_lvl}-darajaga ko'tarildi! (+{next_lvl*50}⛓️ temir/soat ishlab chiqariladi)"
+
+
+async def buy_iron_with_gold(session: AsyncSession, user_id: int, pack_code: str) -> Tuple[bool, str]:
+    """Bozordan oltin evaziga tayyor temir xarid qilish"""
+    user = await session.get(models.User, user_id)
+    if not user:
+        return False, "Foydalanuvchi topilmadi."
+
+    pack = IRON_MARKET_PACKS.get(pack_code)
+    if not pack:
+        return False, "Noto'g'ri tovar tanlandi."
+
+    if user.gold < pack["gold"]:
+        return False, f"❌ Xarid uchun yetarli oltin yo'q! Kerak: {pack['gold']:,}🪙 (Sizda: {user.gold:,}🪙)"
+
+    user.gold -= pack["gold"]
+    user.iron += pack["iron"]
+    await session.commit()
+    return True, f"✅ Bitim muvaffaqiyatli! +{pack['iron']:,}⛓️ temir omboringizga yetkazildi."
+
+
+

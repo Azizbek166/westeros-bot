@@ -49,6 +49,7 @@ class User(Base):
     daily_rank_quest_count = Column(Integer, default=0)    # Kunlik lavozim (max 2)
     daily_ww_attack_count = Column(Integer, default=0)     # Oq yuruvchilarga hujum (max 3)
     equipped_artifact_id = Column(Integer, nullable=True)
+    iron_mine_level = Column(Integer, default=1)           # Temir koni darajasi (1-10)
     daily_limit_date = Column(String(10), default="")  # YYYY-MM-DD
 
     # Kunlik bonus va taklif (Referral)
