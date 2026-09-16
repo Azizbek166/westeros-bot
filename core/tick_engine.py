@@ -7,6 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import models, AsyncSessionLocal, crud
 from core.battle_engine import calculate_battle
 from core.economy_engine import process_hourly_tick
+from core.leveling import check_user_level_up
+from data.artifacts_data import ARTIFACTS_DATA
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +88,6 @@ async def process_due_marches(bot_app=None):
                             
                             def_art = await crud.get_equipped_artifact(session, def_lord_user.id)
                             if def_art:
-                                from data.artifacts_data import ARTIFACTS_DATA
                                 def_art_bonuses = ARTIFACTS_DATA.get(def_art.code, {})
 
                 # Qal'ada qo'riqchilik qilayotgan xonadon ajdari
@@ -98,7 +99,6 @@ async def process_due_marches(bot_app=None):
                 att_art_bonuses = {}
                 att_art = await crud.get_equipped_artifact(session, attacker.id)
                 if att_art:
-                    from data.artifacts_data import ARTIFACTS_DATA
                     att_art_bonuses = ARTIFACTS_DATA.get(att_art.code, {})
 
                 # Jang hisoblash
@@ -140,7 +140,6 @@ async def process_due_marches(bot_app=None):
                     # Qal'a egasi o'zgarganda mudofaadagi ajdar uyasiga qaytadi
                     if territory.reinforcements_json:
                         try:
-                            import json
                             r_json = json.loads(territory.reinforcements_json)
                             if "stationed_dragon" in r_json:
                                 del r_json["stationed_dragon"]
@@ -157,7 +156,6 @@ async def process_due_marches(bot_app=None):
                     attacker.iron += int(tot_iron * 0.7)
                     attacker.prestige += 50
                     attacker.xp += 250
-                    from core.leveling import check_user_level_up
                     check_user_level_up(attacker)
 
                     if dragon and dragon_pwr > 0:
@@ -171,34 +169,44 @@ async def process_due_marches(bot_app=None):
 
                     # Himoyachi Lordiga boy berish xabari
                     if bot_app and def_lord_id and old_owner_house_id != attacker.house_id:
+                        def_lose_text = (
+                            f"🚨 **QAL'A BOY BERILDI!**\n\n"
+                            f"🏰 **{territory.name} ({territory.castle_name})** qal'asi **{att_house_name}** armiyasi tomonidan qamal qilinib, egallab olindi!\n\n"
+                            f"{battle_res['details']}\n\n"
+                            f"Qal'ani qaytarib olish uchun xonadon a'zolaringiz bilan qarshi hujum uyushtiring!"
+                        )
                         try:
                             await bot_app.bot.send_message(
                                 chat_id=def_lord_id,
-                                text=(
-                                    f"🚨 **QAL'A BOY BERILDI!**\n\n"
-                                    f"🏰 **{territory.name} ({territory.castle_name})** qal'asi **{att_house_name}** armiyasi tomonidan qamal qilinib, egallab olindi!\n\n"
-                                    f"{battle_res['details']}\n\n"
-                                    f"Qal'ani qaytarib olish uchun xonadon a'zolaringiz bilan qarshi hujum uyushtiring!"
-                                ),
+                                text=def_lose_text,
                                 parse_mode="Markdown",
                             )
-                        except Exception as e:
-                            logger.warning(f"Himoyachiga xabar yuborishda xatolik: {e}")
+                        except Exception as e_md:
+                            try:
+                                clean_def = def_lose_text.replace("**", "").replace("*", "").replace("`", "")
+                                await bot_app.bot.send_message(chat_id=def_lord_id, text=clean_def)
+                            except Exception as e:
+                                logger.warning(f"Himoyachiga xabar yuborishda xatolik: {e}")
                 else:
                     # Himoyachi g'alaba qozondi
                     if bot_app and def_lord_id and old_owner_house_id != attacker.house_id:
+                        def_win_text = (
+                            f"🛡️ **QAL'A MUVAFFAQIYATLI HIMOYALANDI!**\n\n"
+                            f"🏰 **{territory.name} ({territory.castle_name})** qal'angizga bo'lgan dushman hujumi jasorat bilan qaytarildi!\n\n"
+                            f"{battle_res['details']}\n"
+                        )
                         try:
                             await bot_app.bot.send_message(
                                 chat_id=def_lord_id,
-                                text=(
-                                    f"🛡️ **QAL'A MUVAFFAQIYATLI HIMOYALANDI!**\n\n"
-                                    f"🏰 **{territory.name} ({territory.castle_name})** qal'angizga bo'lgan dushman hujumi jasorat bilan qaytarildi!\n\n"
-                                    f"{battle_res['details']}\n"
-                                ),
+                                text=def_win_text,
                                 parse_mode="Markdown",
                             )
-                        except Exception as e:
-                            logger.warning(f"Himoyachiga xabar yuborishda xatolik: {e}")
+                        except Exception as e_md:
+                            try:
+                                clean_win = def_win_text.replace("**", "").replace("*", "").replace("`", "")
+                                await bot_app.bot.send_message(chat_id=def_lord_id, text=clean_win)
+                            except Exception as e:
+                                logger.warning(f"Himoyachiga xabar yuborishda xatolik: {e}")
 
                 # Jang hisobotini saqlash
                 report = models.BattleReport(
@@ -217,29 +225,57 @@ async def process_due_marches(bot_app=None):
 
                 # Hujumchiga Telegram orqali xabar yuborish
                 if bot_app and attacker.telegram_id:
-                    try:
-                        res_emoji = "🏆 **G'ALABA! QAL'A ZABT ETILDI!**" if battle_res["winner"] == "attacker" else "🛡️ **MAG'LUBIYAT! HUJUM QAYTARILDI.**"
-                        att_loss_str = ", ".join(f"{t}: {c}" for t, c in battle_res["attacker_losses"].items() if c > 0) or "Yo'qotishlar yo'q"
-                        def_loss_str = ", ".join(f"{t}: {c}" for t, c in battle_res["defender_losses"].items() if c > 0) or "Yo'qotishlar yo'q"
+                    troop_labels_uz = {
+                        "infantry": "Piyoda",
+                        "archers": "Kamonchi",
+                        "cavalry": "Otliq",
+                        "spearmen": "Nayzachi",
+                        "special_troops": "Maxsus qo'shin",
+                    }
+                    att_loss_str = ", ".join(f"{troop_labels_uz.get(t, t)}: -{c:,}" for t, c in battle_res["attacker_losses"].items() if c > 0) or "Yo'qotishlar yo'q"
+                    def_loss_str = ", ".join(f"{troop_labels_uz.get(t, t)}: -{c:,}" for t, c in battle_res["defender_losses"].items() if c > 0) or "Yo'qotishlar yo'q"
 
-                        msg = (
-                            f"⚔️ **JANG HISOBOTI: {territory.name.upper()} ({territory.castle_name})**\n\n"
-                            f"{res_emoji}\n\n"
-                            f"{battle_res['details']}\n\n"
-                            f"👥 **Talofatlar:**\n"
-                            f"• Bizning armiya: {att_loss_str}\n"
-                            f"• Qal'a garnizoni: {def_loss_str}\n\n"
-                            f"💰 **Qo'lga kiritilgan o'lja:**\n"
-                            f"🪙 +{battle_res['loot']['gold']} oltin | 🌾 +{battle_res['loot']['food']} g'alla | ⛓️ +{battle_res['loot']['iron']} temir\n\n"
-                            f"Batafsil ma'lumotni /battle bo'limida ko'rishingiz mumkin."
+                    if battle_res["winner"] == "attacker":
+                        res_title = "🏆 **G'ALABA! QAL'A ZABT ETILDI!**"
+                        res_outcome = (
+                            f"🎉 Tabriklaymiz! **{territory.name} ({territory.castle_name})** qal'asi endi "
+                            f"**{att_house_name}** xonadoni tasarrufiga o'tdi va '/castles' ro'yxatingizga qo'shildi!"
                         )
+                    else:
+                        res_title = "🛡️ **MAG'LUBIYAT! HUJUM QAYTARILDI.**"
+                        res_outcome = (
+                            f"⚠️ Dushman qal'asi mudofaa devorlari va kuchli garnizoni tufayli hujum qaytarildi. "
+                            f"Qal'ani egallash uchun kattaroq qo'shin to'plang yoki ittifoqchilaringiz bilan qayta zarba bering!"
+                        )
+
+                    msg = (
+                        f"⚔️ **JANG HISOBOTI: {territory.name.upper()} ({territory.castle_name})**\n\n"
+                        f"{res_title}\n\n"
+                        f"{res_outcome}\n\n"
+                        f"{battle_res['details']}\n\n"
+                        f"👥 **Talofatlar:**\n"
+                        f"• Bizning armiya: {att_loss_str}\n"
+                        f"• Qal'a garnizoni: {def_loss_str}\n\n"
+                        f"💰 **Qo'lga kiritilgan o'lja:**\n"
+                        f"🪙 +{battle_res['loot']['gold']:,} oltin | 🌾 +{battle_res['loot']['food']:,} g'alla | ⛓️ +{battle_res['loot']['iron']:,} temir\n\n"
+                        f"Batafsil ma'lumot va janglar tarixini /battle bo'limida ko'rishingiz mumkin."
+                    )
+                    try:
                         await bot_app.bot.send_message(
                             chat_id=attacker.telegram_id,
                             text=msg,
                             parse_mode="Markdown",
                         )
-                    except Exception as e:
-                        logger.warning(f"Hujumchiga xabar yuborishda xatolik: {e}")
+                    except Exception as e_md:
+                        logger.warning(f"Markdown orqali xabar yuborishda xatolik ({e_md}), xom matn yuborilmoqda...")
+                        try:
+                            clean_msg = msg.replace("**", "").replace("*", "").replace("`", "")
+                            await bot_app.bot.send_message(
+                                chat_id=attacker.telegram_id,
+                                text=clean_msg,
+                            )
+                        except Exception as e_final:
+                            logger.error(f"Hujumchiga xabar yuborish butunlay muvaffaqiyatsiz bo'ldi: {e_final}")
 
             except Exception as e:
                 logger.error(f"March {march.id} ni hisoblashda xatolik: {e}", exc_info=True)
