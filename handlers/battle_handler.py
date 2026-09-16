@@ -157,26 +157,30 @@ def parse_march_troops(text: str, army: models.Army) -> Optional[dict]:
     k = extract_troop_val(['kamonchilar', 'kamonchi', 'kam', 'k'], text)
     o = extract_troop_val(['otliqlar', 'otliq', 'ot', 'o'], text)
     n = extract_troop_val(['nayzachilar', 'nayzachi', 'nayza', 'n'], text)
+    m = extract_troop_val(['maxsuslar', 'maxsus', 'special', 'spc', 'm'], text)
 
-    has_named = any(x is not None for x in [p, k, o, n])
+    has_named = any(x is not None for x in [p, k, o, n, m])
     if has_named:
         inf = p or 0
         arc = k or 0
         cav = o or 0
         sp = n or 0
+        spc = m or 0
     else:
         nums = [int(x) for x in re.findall(r'\b\d+\b', text)]
         if not nums:
             return None
-        if len(nums) >= 4:
-            inf, arc, cav, sp = nums[0], nums[1], nums[2], nums[3]
+        if len(nums) >= 5:
+            inf, arc, cav, sp, spc = nums[0], nums[1], nums[2], nums[3], nums[4]
+        elif len(nums) == 4:
+            inf, arc, cav, sp, spc = nums[0], nums[1], nums[2], nums[3], 0
         elif len(nums) == 3:
-            inf, arc, cav, sp = nums[0], nums[1], nums[2], 0
+            inf, arc, cav, sp, spc = nums[0], nums[1], nums[2], 0, 0
         elif len(nums) == 2:
-            inf, arc, cav, sp = nums[0], nums[1], 0, 0
+            inf, arc, cav, sp, spc = nums[0], nums[1], 0, 0, 0
         elif len(nums) == 1:
             total_req = nums[0]
-            total_avail = army.infantry + army.archers + army.cavalry + army.spearmen
+            total_avail = army.infantry + army.archers + army.cavalry + army.spearmen + army.special_troops
             if total_avail == 0:
                 return None
             ratio = min(1.0, total_req / total_avail)
@@ -184,7 +188,8 @@ def parse_march_troops(text: str, army: models.Army) -> Optional[dict]:
             arc = int(army.archers * ratio)
             cav = int(army.cavalry * ratio)
             sp = int(army.spearmen * ratio)
-            rem = min(total_req, total_avail) - (inf + arc + cav + sp)
+            spc = int(army.special_troops * ratio)
+            rem = min(total_req, total_avail) - (inf + arc + cav + sp + spc)
             if rem > 0 and army.infantry >= inf + rem:
                 inf += rem
             elif rem > 0 and army.archers >= arc + rem:
@@ -196,13 +201,15 @@ def parse_march_troops(text: str, army: models.Army) -> Optional[dict]:
     arc = max(0, min(arc, army.archers))
     cav = max(0, min(cav, army.cavalry))
     sp = max(0, min(sp, army.spearmen))
+    spc = max(0, min(spc, army.special_troops))
 
     return {
         "infantry": inf,
         "archers": arc,
         "cavalry": cav,
         "spearmen": sp,
-        "total": inf + arc + cav + sp,
+        "special": spc,
+        "total": inf + arc + cav + sp + spc,
     }
 
 
@@ -257,6 +264,8 @@ async def render_march_prep(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         dragon = await crud.get_user_dragon(session, user.id)
         can_use_dragon = dragon and dragon.stage in ["baby", "adult"] and dragon.hunger >= 20
 
+        special_name = user.house.special_troop_name if user.house and user.house.special_troop_name else "Maxsus Qo'shin"
+
         draft_key = f"march_{terr.id}"
         if draft_key not in context.user_data:
             context.user_data[draft_key] = {
@@ -264,6 +273,7 @@ async def render_march_prep(update: Update, context: ContextTypes.DEFAULT_TYPE, 
                 "archers": user.army.archers,
                 "cavalry": user.army.cavalry,
                 "spearmen": user.army.spearmen,
+                "special": user.army.special_troops,
                 "dragon_tactic": "balanced" if can_use_dragon else "none",
             }
 
@@ -272,6 +282,7 @@ async def render_march_prep(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         draft["archers"] = max(0, min(draft.get("archers", user.army.archers), user.army.archers))
         draft["cavalry"] = max(0, min(draft.get("cavalry", user.army.cavalry), user.army.cavalry))
         draft["spearmen"] = max(0, min(draft.get("spearmen", user.army.spearmen), user.army.spearmen))
+        draft["special"] = max(0, min(draft.get("special", user.army.special_troops), user.army.special_troops))
         if not can_use_dragon:
             draft["dragon_tactic"] = "none"
 
@@ -279,7 +290,8 @@ async def render_march_prep(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         sel_arc = draft["archers"]
         sel_cav = draft["cavalry"]
         sel_sp = draft["spearmen"]
-        total_selected = sel_inf + sel_arc + sel_cav + sel_sp
+        sel_spc = draft["special"]
+        total_selected = sel_inf + sel_arc + sel_cav + sel_sp + sel_spc
 
         tactic = draft.get("dragon_tactic", "none")
         tactic_display = {
@@ -307,7 +319,8 @@ async def render_march_prep(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             f"• 🛡️ Piyoda: **{sel_inf:,}** / {user.army.infantry:,}\n"
             f"• 🏹 Kamonchi: **{sel_arc:,}** / {user.army.archers:,}\n"
             f"• 🐎 Otliq: **{sel_cav:,}** / {user.army.cavalry:,}\n"
-            f"• 🗡️ Nayzachi: **{sel_sp:,}** / {user.army.spearmen:,}\n\n"
+            f"• 🗡️ Nayzachi: **{sel_sp:,}** / {user.army.spearmen:,}\n"
+            f"• 🔥 {special_name}: **{sel_spc:,}** / {user.army.special_troops:,}\n\n"
             f"🎯 **Jami safarbar etilmoqda:** **{total_selected:,}** ta askar\n\n"
             f"{dragon_info}"
             f"⚠️ *Hujum boshlangach, 3 kunlik Tinchlik Qalqoningiz bekor bo'ladi!*\n\n"
@@ -343,6 +356,12 @@ async def render_march_prep(update: Update, context: ContextTypes.DEFAULT_TYPE, 
                 InlineKeyboardButton(f"🗡️ Nayzachi: {sel_sp:,}", callback_data=f"m_info:{terr.id}:sp"),
                 InlineKeyboardButton("+100", callback_data=f"m_adj:{terr.id}:sp:+100"),
                 InlineKeyboardButton("MAX", callback_data=f"m_adj:{terr.id}:sp:max"),
+            ],
+            [
+                InlineKeyboardButton("-25", callback_data=f"m_adj:{terr.id}:spc:-25"),
+                InlineKeyboardButton(f"🔥 {special_name[:14]}: {sel_spc:,}", callback_data=f"m_info:{terr.id}:spc"),
+                InlineKeyboardButton("+25", callback_data=f"m_adj:{terr.id}:spc:+25"),
+                InlineKeyboardButton("MAX", callback_data=f"m_adj:{terr.id}:spc:max"),
             ],
             [
                 InlineKeyboardButton("✍️ Aniq Sonlarni Qo'lda Yozish", callback_data=f"march_custom_req:{terr.id}"),
@@ -400,12 +419,14 @@ async def march_adj_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             "arc": user.army.archers,
             "cav": user.army.cavalry,
             "sp": user.army.spearmen,
+            "spc": user.army.special_troops,
         }
         unit_key_map = {
             "inf": "infantry",
             "arc": "archers",
             "cav": "cavalry",
             "sp": "spearmen",
+            "spc": "special",
         }
 
         if unit not in unit_max_map:
@@ -420,17 +441,20 @@ async def march_adj_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             "archers": user.army.archers,
             "cavalry": user.army.cavalry,
             "spearmen": user.army.spearmen,
+            "special": user.army.special_troops,
             "dragon_tactic": "balanced",
         })
 
         curr_val = draft.get(draft_key, max_val)
 
-        if action == "+100":
-            draft[draft_key] = min(max_val, curr_val + 100)
-            await query.answer(f"+100 ({draft[draft_key]}/{max_val})")
-        elif action == "-100":
-            draft[draft_key] = max(0, curr_val - 100)
-            await query.answer(f"-100 ({draft[draft_key]}/{max_val})")
+        if action in ["+100", "+25"]:
+            delta = int(action)
+            draft[draft_key] = min(max_val, curr_val + delta)
+            await query.answer(f"{action} ({draft[draft_key]}/{max_val})")
+        elif action in ["-100", "-25"]:
+            delta = int(action[1:])
+            draft[draft_key] = max(0, curr_val - delta)
+            await query.answer(f"-{delta} ({draft[draft_key]}/{max_val})")
         elif action == "max":
             if curr_val >= max_val and max_val > 0:
                 draft[draft_key] = 0
@@ -464,6 +488,7 @@ async def march_preset_callback(update: Update, context: ContextTypes.DEFAULT_TY
         draft["archers"] = int(user.army.archers * ratio)
         draft["cavalry"] = int(user.army.cavalry * ratio)
         draft["spearmen"] = int(user.army.spearmen * ratio)
+        draft["special"] = int(user.army.special_troops * ratio)
         await query.answer(f"{pct}% ga sozlandi")
 
     await render_march_prep(update, context, terr_id)
@@ -506,6 +531,7 @@ async def march_info_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         "arc": "🏹 Kamonchi",
         "cav": "🐎 Otliq",
         "sp": "🗡️ Nayzachi",
+        "spc": "🔥 Maxsus Qo'shin",
     }
     unit_name = names.get(unit, "Qo'shin")
     await query.answer(f"{unit_name}: Sonni o'zgartirish uchun yonidagi +/- yoki MAX tugmalaridan foydalaning.", show_alert=False)
@@ -538,6 +564,7 @@ async def send_custom_march_callback(update: Update, context: ContextTypes.DEFAU
                 "archers": user.army.archers,
                 "cavalry": user.army.cavalry,
                 "spearmen": user.army.spearmen,
+                "special": user.army.special_troops,
                 "dragon_tactic": "balanced",
             }
 
@@ -545,7 +572,8 @@ async def send_custom_march_callback(update: Update, context: ContextTypes.DEFAU
         archers = max(0, min(draft.get("archers", 0), user.army.archers))
         cavalry = max(0, min(draft.get("cavalry", 0), user.army.cavalry))
         spearmen = max(0, min(draft.get("spearmen", 0), user.army.spearmen))
-        total_sent = infantry + archers + cavalry + spearmen
+        special_troops = max(0, min(draft.get("special", 0), user.army.special_troops))
+        total_sent = infantry + archers + cavalry + spearmen + special_troops
 
         if total_sent <= 0:
             await query.answer("❌ Hujum qilish uchun kamida 1 ta askar tanlang!", show_alert=True)
@@ -574,7 +602,7 @@ async def send_custom_march_callback(update: Update, context: ContextTypes.DEFAU
             archers=archers,
             cavalry=cavalry,
             spearmen=spearmen,
-            special_troops=0,
+            special_troops=special_troops,
             character_id=user.characters[0].id if user.characters else None,
             duration_minutes=BASE_MARCH_MINUTES,
             has_dragon=has_dragon,
@@ -619,6 +647,8 @@ async def send_custom_march_callback(update: Update, context: ContextTypes.DEFAU
         "ranged": "Merganlarni Yoqish",
     }
     dr_msg = f"\n🐉 Ajdar taktikasi: **{tactic_names.get(dragon_tactic, '')}**" if has_dragon else ""
+    special_name = user.house.special_troop_name if user.house and user.house.special_troop_name else "Maxsus Qo'shin"
+    spc_str = f"\n• 🔥 {special_name}: **{special_troops:,}**" if special_troops > 0 else ""
     text = (
         f"🚩 **QO'SHIN YURISHGA CHIQDI!**\n\n"
         f"🎯 Nishon: **{terr.name}** ({terr.castle_name})\n"
@@ -626,7 +656,7 @@ async def send_custom_march_callback(update: Update, context: ContextTypes.DEFAU
         f"• 🛡️ Piyoda: **{infantry:,}**\n"
         f"• 🏹 Kamonchi: **{archers:,}**\n"
         f"• 🐎 Otliq: **{cavalry:,}**\n"
-        f"• 🗡️ Nayzachi: **{spearmen:,}**{dr_msg}\n\n"
+        f"• 🗡️ Nayzachi: **{spearmen:,}**{spc_str}{dr_msg}\n\n"
         f"⏱️ Yetib borish vaqti: **{BASE_MARCH_MINUTES} daqiqa**\n\n"
         f"Qamal boshlangach, bot sizga avtomatik jang hisobotini yuboradi!\n"
         f"Harbiy holatni /battle orqali kuzatib boring."
@@ -933,6 +963,8 @@ async def march_custom_req_callback(update: Update, context: ContextTypes.DEFAUL
     if not user or not terr:
         return
 
+    special_name = user.house.special_troop_name if user.house and user.house.special_troop_name else "Maxsus Qo'shin"
+
     buttons = [
         [InlineKeyboardButton("🔙 Sozlamalarga Qaytish", callback_data=f"march_prep:{terr_id}")],
     ]
@@ -940,19 +972,20 @@ async def march_custom_req_callback(update: Update, context: ContextTypes.DEFAUL
         f"✍️ **QO'SHIN TARKIBINI QO'LDA KIRITISH**\n\n"
         f"🏰 Nishon: **{terr.name} ({terr.castle_name})**\n\n"
         f"Qal'aga qancha askar yubormoqchisiz? Quyidagi formatlardan birida yozing:\n\n"
-        f"1️⃣ **4 ta son probel bilan (Tavsiya etiladi):**\n"
-        f"`500 300 150 200`\n"
-        f"*(Tartibi: Piyoda Kamonchi Otliq Nayzachi)*\n\n"
+        f"1️⃣ **Ketma-ket sonlar probel bilan (Tavsiya etiladi):**\n"
+        f"`500 300 150 200 50`\n"
+        f"*(Tartibi: Piyoda Kamonchi Otliq Nayzachi Maxsus)*\n\n"
         f"2️⃣ **Qisqartma harflar bilan:**\n"
-        f"`p 500 k 300 o 150 n 200`\n"
-        f"*(p=piyoda, k=kamonchi, o=otliq, n=nayzachi)*\n\n"
+        f"`p 500 k 300 o 150 n 200 m 50`\n"
+        f"*(p=piyoda, k=kamonchi, o=otliq, n=nayzachi, m=maxsus)*\n\n"
         f"3️⃣ **Yoki umumiy bitta son:**\n"
         f"`1000` *(mavjud qo'shiningizga qarab mutanosib taqsimlanadi)*\n\n"
         f"📊 **Sizdagi mavjud armiya:**\n"
         f"• 🛡️ Piyoda: {user.army.infantry:,}\n"
         f"• 🏹 Kamonchi: {user.army.archers:,}\n"
         f"• 🐎 Otliq: {user.army.cavalry:,}\n"
-        f"• 🗡️ Nayzachi: {user.army.spearmen:,}\n\n"
+        f"• 🗡️ Nayzachi: {user.army.spearmen:,}\n"
+        f"• 🔥 {special_name}: {user.army.special_troops:,}\n\n"
         f"Iltimos, sonlarni pastdagi xabar maydoniga yozib yuboring:"
     )
     await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
@@ -1003,8 +1036,8 @@ async def handle_battle_text_input(update: Update, context: ContextTypes.DEFAULT
                 await update.message.reply_text(
                     "❌ Askar soni to'g'ri kiritilmadi!\n\n"
                     "Iltimos, sonlarni quyidagi formatlardan birida yozing:\n"
-                    "• `500 300 150 200` (Piyoda Kamonchi Otliq Nayzachi)\n"
-                    "• `p 500 k 300 o 150 n 200`\n"
+                    "• `500 300 150 200 50` (Piyoda Kamonchi Otliq Nayzachi Maxsus)\n"
+                    "• `p 500 k 300 o 150 n 200 m 50`\n"
                     "• `1000` (Umumiy askarlar soni)",
                     parse_mode="Markdown"
                 )
@@ -1017,8 +1050,10 @@ async def handle_battle_text_input(update: Update, context: ContextTypes.DEFAULT
             draft["archers"] = parsed["archers"]
             draft["cavalry"] = parsed["cavalry"]
             draft["spearmen"] = parsed["spearmen"]
+            draft["special"] = parsed["special"]
 
             tot = parsed["total"]
+            special_name = user.house.special_troop_name if user.house and user.house.special_troop_name else "Maxsus Qo'shin"
             buttons = [
                 [InlineKeyboardButton(f"🚀 HUJUMNI BOSHLASH ({tot:,} askar)", callback_data=f"send_custom_march:{terr_id}")],
                 [InlineKeyboardButton("⚙️ Qo'shinni Qayta Sozlash", callback_data=f"march_prep:{terr_id}")],
@@ -1031,7 +1066,8 @@ async def handle_battle_text_input(update: Update, context: ContextTypes.DEFAULT
                 f"• 🛡️ Piyoda: **{parsed['infantry']:,}** / {user.army.infantry:,}\n"
                 f"• 🏹 Kamonchi: **{parsed['archers']:,}** / {user.army.archers:,}\n"
                 f"• 🐎 Otliq: **{parsed['cavalry']:,}** / {user.army.cavalry:,}\n"
-                f"• 🗡️ Nayzachi: **{parsed['spearmen']:,}** / {user.army.spearmen:,}\n\n"
+                f"• 🗡️ Nayzachi: **{parsed['spearmen']:,}** / {user.army.spearmen:,}\n"
+                f"• 🔥 {special_name}: **{parsed['special']:,}** / {user.army.special_troops:,}\n\n"
                 f"🎯 Jami: **{tot:,}** ta askar\n"
                 f"⏱️ Yurish vaqti: **{BASE_MARCH_MINUTES} daqiqa**\n\n"
                 f"Hujumni darhol boshlaysizmi yoki qayta sozlashni xohlaysizmi?"
