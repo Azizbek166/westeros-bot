@@ -17,14 +17,15 @@ from sqlalchemy import event
 
 @event.listens_for(engine.sync_engine, "connect")
 def set_sqlite_pragma(dbapi_connection, connection_record):
-    try:
-        cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA journal_mode=WAL")
-        cursor.execute("PRAGMA synchronous=NORMAL")
-        cursor.execute("PRAGMA busy_timeout=10000")
-        cursor.close()
-    except Exception:
-        pass
+    if "sqlite" in engine.url.drivername:
+        try:
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+            cursor.execute("PRAGMA busy_timeout=10000")
+            cursor.close()
+        except Exception:
+            pass
 
 # Async Session Factory
 AsyncSessionLocal = async_sessionmaker(
@@ -59,27 +60,28 @@ async def init_db():
     from sqlalchemy import text
     async with engine.begin() as conn:
         await conn.run_sync(models.Base.metadata.create_all)
-        # Mavjud bazalar uchun xavfsiz ustun qo'shish (SQLite/PostgreSQL)
-        for alter_stmt in [
-            "ALTER TABLE battle_marches ADD COLUMN has_dragon BOOLEAN DEFAULT 0",
-            "ALTER TABLE battle_marches ADD COLUMN dragon_tactic VARCHAR(50) DEFAULT 'none'",
-            "ALTER TABLE users ADD COLUMN daily_donation_count INTEGER DEFAULT 0",
-            "ALTER TABLE users ADD COLUMN daily_story_quest_count INTEGER DEFAULT 0",
-            "ALTER TABLE users ADD COLUMN daily_rank_quest_count INTEGER DEFAULT 0",
-            "ALTER TABLE users ADD COLUMN daily_ww_attack_count INTEGER DEFAULT 0",
-            "ALTER TABLE users ADD COLUMN equipped_artifact_id INTEGER",
-            "ALTER TABLE dragons ADD COLUMN has_laid_egg BOOLEAN DEFAULT 0",
-            "ALTER TABLE users ADD COLUMN iron_mine_level INTEGER DEFAULT 1",
-            "ALTER TABLE users ADD COLUMN daily_bandit_count INTEGER DEFAULT 0",
-            "ALTER TABLE users ADD COLUMN daily_plague_count INTEGER DEFAULT 0",
-            "ALTER TABLE territories ADD COLUMN last_tax_collected_at DATETIME",
-            "ALTER TABLE dragons ADD COLUMN artifact_code VARCHAR(50)",
-            "ALTER TABLE houses ADD COLUMN lord_elected_at DATETIME",
-        ]:
-            try:
-                await conn.execute(text(alter_stmt))
-            except Exception:
-                pass
+        # Mavjud SQLite bazalar uchun xavfsiz ustun qo'shish (PostgreSQL yangi bazada create_all barcha ustunlarni yaratadi)
+        if "sqlite" in engine.url.drivername:
+            for alter_stmt in [
+                "ALTER TABLE battle_marches ADD COLUMN has_dragon BOOLEAN DEFAULT 0",
+                "ALTER TABLE battle_marches ADD COLUMN dragon_tactic VARCHAR(50) DEFAULT 'none'",
+                "ALTER TABLE users ADD COLUMN daily_donation_count INTEGER DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN daily_story_quest_count INTEGER DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN daily_rank_quest_count INTEGER DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN daily_ww_attack_count INTEGER DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN equipped_artifact_id INTEGER",
+                "ALTER TABLE dragons ADD COLUMN has_laid_egg BOOLEAN DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN iron_mine_level INTEGER DEFAULT 1",
+                "ALTER TABLE users ADD COLUMN daily_bandit_count INTEGER DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN daily_plague_count INTEGER DEFAULT 0",
+                "ALTER TABLE territories ADD COLUMN last_tax_collected_at DATETIME",
+                "ALTER TABLE dragons ADD COLUMN artifact_code VARCHAR(50)",
+                "ALTER TABLE houses ADD COLUMN lord_elected_at DATETIME",
+            ]:
+                try:
+                    await conn.execute(text(alter_stmt))
+                except Exception:
+                    pass
 
         # Check if dragons table in SQLite has obsolete UNIQUE constraint on user_id
         if "sqlite" in engine.url.drivername:
