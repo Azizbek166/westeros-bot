@@ -228,13 +228,8 @@ async def show_my_castles(target, user_id: int, is_message: bool):
             await target.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
 
 
-async def my_castle_detail_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Qal'a boshqaruvi va o'lpon yig'ish sahifasi"""
-    query = update.callback_query
-    await query.answer()
-    terr_id = int(query.data.split(":")[1])
-    user_id = query.from_user.id
-
+async def show_my_castle_detail(query, user_id: int, terr_id: int):
+    """Qal'a boshqaruvi va o'lpon yig'ish sahifasini ko'rsatish"""
     from datetime import datetime, timedelta
     now = datetime.utcnow()
 
@@ -249,23 +244,32 @@ async def my_castle_detail_callback(update: Update, context: ContextTypes.DEFAUL
         hours = min(4, int(elapsed_sec // 3600))
         rem_min = max(1, int((3600 - elapsed_sec) // 60)) if hours < 1 else 0
 
-        acc_gold = terr.gold_income * hours
-        acc_food = terr.food_income * hours
-        acc_iron = terr.iron_income * hours
+        gold_inc = terr.gold_income or 0
+        food_inc = terr.food_income or 0
+        iron_inc = terr.iron_income or 0
+        acc_gold = gold_inc * hours
+        acc_food = food_inc * hours
+        acc_iron = iron_inc * hours
 
         st_dragon = crud.get_stationed_dragon_info(terr)
         drg_str = f"🔥 {st_dragon.get('dragon_name')} ({st_dragon.get('user_name')})" if st_dragon else "Mavjud emas"
 
+        c_name = (terr.castle_name or terr.name or "Qal'a").upper()
+        g_inf = terr.garrison_infantry or 0
+        g_arc = terr.garrison_archers or 0
+        g_cav = terr.garrison_cavalry or 0
+        g_sp = terr.garrison_spearmen or 0
+
         text = (
-            f"🏰 **QAL'A BOSHQARUVI: {terr.castle_name.upper()}**\n\n"
+            f"🏰 **QAL'A BOSHQARUVI: {c_name}**\n\n"
             f"📍 Hudud: **{terr.name}** ({terr.region})\n"
-            f"🛡️ Mudofaa Devori: **{terr.defense}** ball\n"
+            f"🛡️ Mudofaa Devori: **{terr.defense or 0}** ball\n"
             f"🐉 Mudofaadagi Ajdar: **{drg_str}**\n\n"
             f"⚔️ **GARNIZON KUCHLARI:**\n"
-            f"• 🛡️ Piyoda: **{terr.garrison_infantry:,}**\n"
-            f"• 🏹 Kamonchi: **{terr.garrison_archers:,}**\n"
-            f"• 🐎 Otliq: **{terr.garrison_cavalry:,}**\n"
-            f"• 🗡️ Nayzachi: **{terr.garrison_spearmen:,}**\n\n"
+            f"• 🛡️ Piyoda: **{g_inf:,}**\n"
+            f"• 🏹 Kamonchi: **{g_arc:,}**\n"
+            f"• 🐎 Otliq: **{g_cav:,}**\n"
+            f"• 🗡️ Nayzachi: **{g_sp:,}**\n\n"
             f"💰 **TO'PLANGAN O'LPON ({hours}/4 soat):**\n"
             f"• 🪙 Oltin: **+{acc_gold:,}**\n"
             f"• 🌾 Oziq: **+{acc_food:,}**\n"
@@ -292,6 +296,15 @@ async def my_castle_detail_callback(update: Update, context: ContextTypes.DEFAUL
         await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
 
 
+async def my_castle_detail_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Qal'a boshqaruvi va o'lpon yig'ish sahifasi"""
+    query = update.callback_query
+    await query.answer()
+    terr_id = int(query.data.split(":")[1])
+    user_id = query.from_user.id
+    await show_my_castle_detail(query, user_id, terr_id)
+
+
 async def collect_tax_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """O'lpon yig'ib olish"""
     query = update.callback_query
@@ -302,8 +315,7 @@ async def collect_tax_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         ok, msg, res = await crud.collect_castle_tax(session, user_id, terr_id)
 
     await query.answer(msg if not ok else "✅ O'lpon muvaffaqiyatli qabul qilindi!", show_alert=True)
-    query.data = f"my_c_detail:{terr_id}"
-    await my_castle_detail_callback(update, context)
+    await show_my_castle_detail(query, user_id, terr_id)
 
 
 async def upgrade_walls_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -324,13 +336,12 @@ async def upgrade_walls_callback(update: Update, context: ContextTypes.DEFAULT_T
 
         user.gold -= 1500
         user.iron -= 2000
-        terr.defense += 150
-        user.prestige += 50
+        terr.defense = (terr.defense or 0) + 150
+        user.prestige = (user.prestige or 0) + 50
         await session.commit()
 
     await query.answer("🏰 Qal'a devorlari mustahkamlandi! (+150 Mudofaa, +50 Prestige)", show_alert=True)
-    query.data = f"my_c_detail:{terr_id}"
-    await my_castle_detail_callback(update, context)
+    await show_my_castle_detail(query, user_id, terr_id)
 
 
 async def def_withdraw_rf_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -345,18 +356,19 @@ async def def_withdraw_rf_callback(update: Update, context: ContextTypes.DEFAULT
         if not user or not terr:
             return
 
-        if terr.garrison_infantry < 50 and terr.garrison_archers < 25:
+        g_inf = terr.garrison_infantry or 0
+        g_arc = terr.garrison_archers or 0
+        if g_inf < 50 and g_arc < 25:
             await query.answer("❌ Qal'ada qaytarib olish uchun yetarli garnizon askarlari yo'q!", show_alert=True)
             return
 
-        withdrawn = min(100, terr.garrison_infantry)
-        terr.garrison_infantry -= withdrawn
-        user.army.infantry += withdrawn
+        withdrawn = min(100, g_inf)
+        terr.garrison_infantry = g_inf - withdrawn
+        user.army.infantry = (user.army.infantry or 0) + withdrawn
         await session.commit()
 
     await query.answer(f"✅ Qal'adan +{withdrawn} ta piyoda askar shaxsiy armiyangizga qaytarildi!", show_alert=True)
-    query.data = f"my_c_detail:{terr_id}"
-    await my_castle_detail_callback(update, context)
+    await show_my_castle_detail(query, user_id, terr_id)
 
 
 def register_map_handlers(app):

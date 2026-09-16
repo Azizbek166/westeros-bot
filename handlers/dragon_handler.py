@@ -238,13 +238,8 @@ async def dragon_lay_egg_callback(update: Update, context: ContextTypes.DEFAULT_
     await show_dragon_hub(query, user_id, is_message=False)
 
 
-async def dragon_art_shop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Ajdar artefaktlari do'koni va jihozlash menyusi"""
-    query = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
-    dragon_id = int(query.data.split("_")[-1])
-
+async def show_dragon_art_shop(query, user_id: int, dragon_id: int):
+    """Ajdar artefaktlari menyusini ko'rsatish"""
     async with AsyncSessionLocal() as session:
         user = await crud.get_user_with_relations(session, user_id)
         dragon = await session.get(models.Dragon, dragon_id)
@@ -278,6 +273,15 @@ async def dragon_art_shop_callback(update: Update, context: ContextTypes.DEFAULT
         await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
 
 
+async def dragon_art_shop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ajdar artefaktlari do'koni va jihozlash menyusi"""
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    dragon_id = int(query.data.split("_")[-1])
+    await show_dragon_art_shop(query, user_id, dragon_id)
+
+
 async def dragon_buy_art_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Ajdar artefaktini sotib olish va taqish"""
     query = update.callback_query
@@ -290,8 +294,7 @@ async def dragon_buy_art_callback(update: Update, context: ContextTypes.DEFAULT_
         ok, msg = await crud.equip_dragon_artifact(session, user_id, dragon_id, art_code)
 
     await query.answer(msg, show_alert=True)
-    query.data = f"dragon_art_shop_{dragon_id}"
-    await dragon_art_shop_callback(update, context)
+    await show_dragon_art_shop(query, user_id, dragon_id)
 
 
 async def dragon_max_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):

@@ -388,18 +388,8 @@ async def admin_lords_menu_callback(update: Update, context: ContextTypes.DEFAUL
         await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
 
 
-async def admin_lord_house_detail_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Tanlangan xonadon Lordi boshqaruv menyusi"""
-    query = update.callback_query
-    try:
-        await query.answer()
-    except Exception:
-        pass
-    if not is_admin(query.from_user.id):
-        return
-
-    house_id = int(query.data.split(":")[1])
-
+async def show_admin_lord_house_detail(query, house_id: int):
+    """Tanlangan xonadon Lordi boshqaruv kartasini ko'rsatish"""
     async with AsyncSessionLocal() as session:
         house = await session.get(models.House, house_id)
         if not house:
@@ -455,6 +445,20 @@ async def admin_lord_house_detail_callback(update: Update, context: ContextTypes
         buttons.append([InlineKeyboardButton("🔙 Xonadonlar Ro'yxati", callback_data="admin_lords_menu")])
 
         await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def admin_lord_house_detail_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Tanlangan xonadon Lordi boshqaruv menyusi"""
+    query = update.callback_query
+    try:
+        await query.answer()
+    except Exception:
+        pass
+    if not is_admin(query.from_user.id):
+        return
+
+    house_id = int(query.data.split(":")[1])
+    await show_admin_lord_house_detail(query, house_id)
 
 
 async def admin_pick_lord_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -646,8 +650,7 @@ async def admin_do_lord_callback(update: Update, context: ContextTypes.DEFAULT_T
         await query.answer(msg, show_alert=True)
     except Exception:
         pass
-    query.data = f"adm_lord_h:{house_id}"
-    await admin_lord_house_detail_callback(update, context)
+    await show_admin_lord_house_detail(query, house_id)
 
 
 async def admin_dismiss_lord_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -664,8 +667,7 @@ async def admin_dismiss_lord_callback(update: Update, context: ContextTypes.DEFA
         await query.answer(msg, show_alert=True)
     except Exception:
         pass
-    query.data = f"adm_lord_h:{house_id}"
-    await admin_lord_house_detail_callback(update, context)
+    await show_admin_lord_house_detail(query, house_id)
 
 
 async def admin_reset_votes_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -682,8 +684,7 @@ async def admin_reset_votes_callback(update: Update, context: ContextTypes.DEFAU
         await query.answer(msg, show_alert=True)
     except Exception:
         pass
-    query.data = f"adm_lord_h:{house_id}"
-    await admin_lord_house_detail_callback(update, context)
+    await show_admin_lord_house_detail(query, house_id)
 
 
 # ============================================================
@@ -1068,18 +1069,8 @@ async def admin_castles_list_callback(update: Update, context: ContextTypes.DEFA
         await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
 
 
-async def admin_castle_detail_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Qal'a to'liq boshqaruvi"""
-    query = update.callback_query
-    try:
-        await query.answer()
-    except Exception:
-        pass
-    if not is_admin(query.from_user.id):
-        return
-
-    terr_id = int(query.data.split(":")[1])
-
+async def show_admin_castle_detail(query, terr_id: int):
+    """Qal'a to'liq ma'lumotlari va boshqaruv menyusini ko'rsatish"""
     async with AsyncSessionLocal() as session:
         terr = await session.get(models.Territory, terr_id)
         if not terr:
@@ -1093,24 +1084,35 @@ async def admin_castle_detail_callback(update: Update, context: ContextTypes.DEF
         h_str = f"{house.emoji} **{house.name}**" if house else "❌ **Egasi yo'q**"
 
         st_dr = crud.get_stationed_dragon_info(terr)
-        drg_str = f"🐉 {st_dr['name']} (Kuch: {st_dr.get('power', 0):,})" if st_dr else "Yo'q"
+        if st_dr:
+            drg_name = st_dr.get("dragon_name", st_dr.get("name", "Ajdar"))
+            drg_power = st_dr.get("power", 0)
+            drg_str = f"🐉 {drg_name} (Kuch: {drg_power:,})"
+        else:
+            drg_str = "Yo'q"
 
-        tot_garrison = terr.garrison_infantry + terr.garrison_archers + terr.garrison_cavalry + terr.garrison_spearmen
+        g_inf = terr.garrison_infantry or 0
+        g_arc = terr.garrison_archers or 0
+        g_cav = terr.garrison_cavalry or 0
+        g_sp = terr.garrison_spearmen or 0
+        tot_garrison = g_inf + g_arc + g_cav + g_sp
+
         castle_type = "👑 Poytaxt Qal'a" if terr.is_capital else "🏯 Strategik Qal'a"
-        wall_status = "🛡️ Mustahkam (100%)" if terr.defense >= 800 else f"🛡️ {terr.defense} ball"
+        defense = terr.defense or 0
+        wall_status = "🛡️ Mustahkam (100%)" if defense >= 800 else f"🛡️ {defense} ball"
 
         text = (
             f"🏯 **QAL'A: {terr.name.upper()} ({terr.castle_name or 'Qal\'a'})**\n\n"
             f"📍 Mintaqa: **{terr.region}** | Turi: **{castle_type}**\n"
             f"🏰 Hukmron Xonadon: {h_str}\n"
-            f"🛡️ Qal'a Mudofaasi: **{terr.defense}** / 1,000\n"
+            f"🛡️ Qal'a Mudofaasi: **{defense}** / 1,000\n"
             f"🧱 Devor Holati: **{wall_status}**\n"
-            f"💰 Soatlik Daromad: +{terr.gold_income}🪙, +{terr.food_income}🌾, +{terr.iron_income}⛓️\n\n"
+            f"💰 Soatlik Daromad: +{terr.gold_income or 0}🪙, +{terr.food_income or 0}🌾, +{terr.iron_income or 0}⛓️\n\n"
             f"👥 **GARNIZON (Jami: {tot_garrison:,} askar):**\n"
-            f"• 🛡️ Piyoda: **{terr.garrison_infantry:,}**\n"
-            f"• 🏹 Kamonchi: **{terr.garrison_archers:,}**\n"
-            f"• 🐎 Otliq: **{terr.garrison_cavalry:,}**\n"
-            f"• 🗡️ Nayzachi: **{terr.garrison_spearmen:,}**\n\n"
+            f"• 🛡️ Piyoda: **{g_inf:,}**\n"
+            f"• 🏹 Kamonchi: **{g_arc:,}**\n"
+            f"• 🐎 Otliq: **{g_cav:,}**\n"
+            f"• 🗡️ Nayzachi: **{g_sp:,}**\n\n"
             f"🐉 **Qo'riqchi Ajdar:** {drg_str}\n\n"
             f"Boshqaruv amalini tanlang:"
         )
@@ -1127,6 +1129,20 @@ async def admin_castle_detail_callback(update: Update, context: ContextTypes.DEF
             [InlineKeyboardButton("🔙 Qalalar Ro'yxati", callback_data="admin_castles_list:0")],
         ]
         await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def admin_castle_detail_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Qal'a to'liq boshqaruvi"""
+    query = update.callback_query
+    try:
+        await query.answer()
+    except Exception:
+        pass
+    if not is_admin(query.from_user.id):
+        return
+
+    terr_id = int(query.data.split(":")[1])
+    await show_admin_castle_detail(query, terr_id)
 
 
 async def admin_castle_action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1146,10 +1162,10 @@ async def admin_castle_action_callback(update: Update, context: ContextTypes.DEF
             return
 
         if action == "add_garrison":
-            terr.garrison_infantry += val
-            terr.garrison_archers += val
-            terr.garrison_cavalry += val
-            terr.garrison_spearmen += val
+            terr.garrison_infantry = (terr.garrison_infantry or 0) + val
+            terr.garrison_archers = (terr.garrison_archers or 0) + val
+            terr.garrison_cavalry = (terr.garrison_cavalry or 0) + val
+            terr.garrison_spearmen = (terr.garrison_spearmen or 0) + val
             msg = f"Garnizonga har turdan +{val} askar qo'shildi!"
         elif action == "repair_walls":
             terr.defense = val
@@ -1167,8 +1183,7 @@ async def admin_castle_action_callback(update: Update, context: ContextTypes.DEF
         await query.answer(f"✅ {msg}", show_alert=True)
     except Exception:
         pass
-    query.data = f"adm_c_detail:{terr_id}"
-    await admin_castle_detail_callback(update, context)
+    await show_admin_castle_detail(query, terr_id)
 
 
 async def admin_castle_pick_house_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1246,8 +1261,7 @@ async def admin_castle_set_house_callback(update: Update, context: ContextTypes.
         await query.answer(f"✅ {msg}", show_alert=True)
     except Exception:
         pass
-    query.data = f"adm_c_detail:{terr_id}"
-    await admin_castle_detail_callback(update, context)
+    await show_admin_castle_detail(query, terr_id)
 
 
 # ============================================================
@@ -1303,18 +1317,8 @@ async def admin_dragons_list_callback(update: Update, context: ContextTypes.DEFA
         await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
 
 
-async def admin_dragon_detail_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Ajdar to'liq boshqaruvi"""
-    query = update.callback_query
-    try:
-        await query.answer()
-    except Exception:
-        pass
-    if not is_admin(query.from_user.id):
-        return
-
-    drg_id = int(query.data.split(":")[1])
-
+async def show_admin_dragon_detail(query, drg_id: int):
+    """Ajdar to'liq ma'lumotlari va boshqaruv kartasini ko'rsatish"""
     async with AsyncSessionLocal() as session:
         dragon = await session.get(models.Dragon, drg_id)
         if not dragon:
@@ -1368,6 +1372,20 @@ async def admin_dragon_detail_callback(update: Update, context: ContextTypes.DEF
         await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
 
 
+async def admin_dragon_detail_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ajdar to'liq boshqaruvi"""
+    query = update.callback_query
+    try:
+        await query.answer()
+    except Exception:
+        pass
+    if not is_admin(query.from_user.id):
+        return
+
+    drg_id = int(query.data.split(":")[1])
+    await show_admin_dragon_detail(query, drg_id)
+
+
 async def admin_dragon_action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Ajdar xususiyatlarini o'zgartirish"""
     query = update.callback_query
@@ -1403,8 +1421,7 @@ async def admin_dragon_action_callback(update: Update, context: ContextTypes.DEF
         await query.answer(f"✅ {msg}", show_alert=True)
     except Exception:
         pass
-    query.data = f"adm_d_detail:{drg_id}"
-    await admin_dragon_detail_callback(update, context)
+    await show_admin_dragon_detail(query, drg_id)
 
 
 async def admin_dragon_stages_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1452,8 +1469,7 @@ async def admin_dragon_set_stage_callback(update: Update, context: ContextTypes.
         await query.answer(f"✅ {msg}", show_alert=True)
     except Exception:
         pass
-    query.data = f"adm_d_detail:{drg_id}"
-    await admin_dragon_detail_callback(update, context)
+    await show_admin_dragon_detail(query, drg_id)
 
 
 async def admin_dragon_arts_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1501,8 +1517,7 @@ async def admin_dragon_set_art_callback(update: Update, context: ContextTypes.DE
         await query.answer(f"✅ {msg}", show_alert=True)
     except Exception:
         pass
-    query.data = f"adm_d_detail:{drg_id}"
-    await admin_dragon_detail_callback(update, context)
+    await show_admin_dragon_detail(query, drg_id)
 
 
 def register_admin_handlers(app):
