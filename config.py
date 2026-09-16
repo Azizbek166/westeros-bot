@@ -14,7 +14,18 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 
 # PostgreSQL yoki SQLite (PostgreSQL o'rnatilmagan bo'lsa aiosqlite ishlaydi)
 DEFAULT_DB_PATH = BASE_DIR / "got_mmorpg.db"
+if os.path.exists("/var/data"):
+    DEFAULT_DB_PATH = Path("/var/data/got_mmorpg.db")
+elif os.path.exists("/data"):
+    DEFAULT_DB_PATH = Path("/data/got_mmorpg.db")
+
 DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite+aiosqlite:///{DEFAULT_DB_PATH}")
+
+# Render, Supabase, Neon va boshqa bulutli provayderlar taqdim etadigan postgres:// havolasini asinxron asyncpg ga moslash
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://", 1)
+elif DATABASE_URL.startswith("postgresql://") and not DATABASE_URL.startswith("postgresql+asyncpg://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
 
 # Bosh Administrator / Bot Egasi Telegram ID si
 OWNER_ID = 7689627859
