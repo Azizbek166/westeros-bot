@@ -10,7 +10,7 @@ load_dotenv(BASE_DIR / ".env")
 # ASOSIY SOZLAMALAR
 # ============================================================
 
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8732408293:AAG_7xYlNL44_yjmQXsxdeIzXAYdFZYs8Cg")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 
 # PostgreSQL yoki SQLite (PostgreSQL o'rnatilmagan bo'lsa aiosqlite ishlaydi)
 DEFAULT_DB_PATH = BASE_DIR / "got_mmorpg.db"
