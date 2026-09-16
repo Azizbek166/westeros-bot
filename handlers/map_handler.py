@@ -54,7 +54,10 @@ async def show_map(target, user_id: int, is_message: bool):
 async def view_territory_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Bitta hudud tafsilotlarini ko'rsatish"""
     query = update.callback_query
-    await query.answer()
+    try:
+        await query.answer()
+    except Exception:
+        pass
 
     user_id = query.from_user.id
     terr_id = int(query.data.split(":")[1])
@@ -128,10 +131,17 @@ async def def_station_dragon_callback(update: Update, context: ContextTypes.DEFA
     terr_id = int(query.data.split(":")[1])
     user_id = query.from_user.id
     async with AsyncSessionLocal() as session:
-        ok, msg = await crud.station_dragon_in_castle(session, user_id, terr_id)
+        user = await crud.get_user_with_relations(session, user_id)
+        if not user:
+            await query.answer("Foydalanuvchi topilmadi.", show_alert=True)
+            return
+        ok, msg = await crud.station_dragon_in_castle(session, user.id, terr_id)
 
     await query.answer(msg, show_alert=True)
-    await view_territory_callback(update, context)
+    try:
+        await view_territory_callback(update, context)
+    except Exception:
+        pass
 
 
 async def def_recall_dragon_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -140,10 +150,17 @@ async def def_recall_dragon_callback(update: Update, context: ContextTypes.DEFAU
     terr_id = int(query.data.split(":")[1])
     user_id = query.from_user.id
     async with AsyncSessionLocal() as session:
-        ok, msg = await crud.recall_dragon_from_castle(session, user_id, terr_id)
+        user = await crud.get_user_with_relations(session, user_id)
+        if not user:
+            await query.answer("Foydalanuvchi topilmadi.", show_alert=True)
+            return
+        ok, msg = await crud.recall_dragon_from_castle(session, user.id, terr_id)
 
     await query.answer(msg, show_alert=True)
-    await view_territory_callback(update, context)
+    try:
+        await view_territory_callback(update, context)
+    except Exception:
+        pass
 
 
 async def terr_dragon_info_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -312,7 +329,11 @@ async def collect_tax_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     user_id = query.from_user.id
 
     async with AsyncSessionLocal() as session:
-        ok, msg, res = await crud.collect_castle_tax(session, user_id, terr_id)
+        user = await crud.get_user_with_relations(session, user_id)
+        if not user:
+            await query.answer("Foydalanuvchi topilmadi.", show_alert=True)
+            return
+        ok, msg, res = await crud.collect_castle_tax(session, user.id, terr_id)
 
     await query.answer(msg if not ok else "✅ O'lpon muvaffaqiyatli qabul qilindi!", show_alert=True)
     await show_my_castle_detail(query, user_id, terr_id)
@@ -325,9 +346,10 @@ async def upgrade_walls_callback(update: Update, context: ContextTypes.DEFAULT_T
     user_id = query.from_user.id
 
     async with AsyncSessionLocal() as session:
-        user = await session.get(models.User, user_id)
+        user = await crud.get_user_with_relations(session, user_id)
         terr = await session.get(models.Territory, terr_id)
         if not user or not terr:
+            await query.answer("Ma'lumot topilmadi.", show_alert=True)
             return
 
         if user.gold < 1500 or user.iron < 2000:

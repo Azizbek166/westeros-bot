@@ -291,7 +291,11 @@ async def dragon_buy_art_callback(update: Update, context: ContextTypes.DEFAULT_
     user_id = query.from_user.id
 
     async with AsyncSessionLocal() as session:
-        ok, msg = await crud.equip_dragon_artifact(session, user_id, dragon_id, art_code)
+        user = await crud.get_user_with_relations(session, user_id)
+        if not user:
+            await query.answer("Foydalanuvchi topilmadi.", show_alert=True)
+            return
+        ok, msg = await crud.equip_dragon_artifact(session, user.id, dragon_id, art_code)
 
     await query.answer(msg, show_alert=True)
     await show_dragon_art_shop(query, user_id, dragon_id)

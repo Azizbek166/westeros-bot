@@ -936,16 +936,23 @@ async def send_castle_reinforcements(
 async def station_dragon_in_castle(session: AsyncSession, user_id: int, territory_id: int) -> Tuple[bool, str]:
     """Ajdarni qal'a mudofaasiga joylashtirish"""
     user = await session.get(models.User, user_id)
+    if not user:
+        user = await get_user_by_telegram_id(session, user_id)
     territory = await session.get(models.Territory, territory_id)
     if not user or not territory:
         return False, "Foydalanuvchi yoki qal'a topilmadi."
 
-    if territory.owner_house_id != user.house_id:
+    if not user.house_id or territory.owner_house_id != user.house_id:
         return False, "❌ Faqat o'z xonadoningiz nazoratidagi qal'aga ajdar joylashtira olasiz!"
 
-    dragon = await get_user_dragon(session, user.id)
-    if not dragon or dragon.stage not in ["baby", "adult"]:
-        return False, "❌ Qal'ani himoya qilish uchun ulg'aygan ajdaringiz bo'lishi kerak!"
+    dragons = await get_user_dragons(session, user.id)
+    combat_dragons = [d for d in dragons if d.stage in ["baby", "adult"]]
+    if not combat_dragons:
+        if any(d.stage == "egg" for d in dragons):
+            return False, "❌ Sizdagi ajdar hali tuxum holatida! Qal'ani himoya qilish uchun avval tuxumni ochiring (/dragons)."
+        return False, "❌ Sizda ajdar yo'q! Avval /dragons bo'limidan ajdar sotib oling."
+
+    dragon = max(combat_dragons, key=lambda d: d.power)
 
     reinf_data = {}
     if territory.reinforcements_json:
@@ -977,6 +984,8 @@ async def station_dragon_in_castle(session: AsyncSession, user_id: int, territor
 async def recall_dragon_from_castle(session: AsyncSession, user_id: int, territory_id: int) -> Tuple[bool, str]:
     """Ajdarni qal'a mudofaasidan o'z uyasiga qaytarish"""
     user = await session.get(models.User, user_id)
+    if not user:
+        user = await get_user_by_telegram_id(session, user_id)
     territory = await session.get(models.Territory, territory_id)
     if not user or not territory:
         return False, "Foydalanuvchi yoki qal'a topilmadi."
@@ -1099,31 +1108,50 @@ async def get_top_house_contributors(session: AsyncSession, house_id: int, limit
 # ============================================================
 
 async def get_user_dragons(session: AsyncSession, user_id: int) -> List[models.Dragon]:
-    """Foydalanuvchining barcha ajdarlarini olish (maksimal 2 ta)"""
+    """Foydalanuvchining barcha ajdarlarini olish (maksimal 3 ta)"""
+    user = await session.get(models.User, user_id)
+    if not user:
+        user = await get_user_by_telegram_id(session, user_id)
+    actual_user_id = user.id if user else user_id
+
     res = await session.execute(
-        select(models.Dragon).where(models.Dragon.user_id == user_id).order_by(models.Dragon.id)
+        select(models.Dragon).where(models.Dragon.user_id == actual_user_id).order_by(models.Dragon.id)
     )
     return res.scalars().all()
 
 
 async def get_user_dragon(session: AsyncSession, user_id: int, dragon_id: Optional[int] = None) -> Optional[models.Dragon]:
     """Foydalanuvchining asosiy yoki tanlangan ajdarini olish"""
+    user = await session.get(models.User, user_id)
+    if not user:
+        user = await get_user_by_telegram_id(session, user_id)
+    actual_user_id = user.id if user else user_id
+
     if dragon_id:
         res = await session.execute(
-            select(models.Dragon).where(models.Dragon.id == dragon_id, models.Dragon.user_id == user_id)
+            select(models.Dragon).where(models.Dragon.id == dragon_id, models.Dragon.user_id == actual_user_id)
         )
         return res.scalar_one_or_none()
-    dragons = await get_user_dragons(session, user_id)
-    return dragons[0] if dragons else None
+
+    dragons = await get_user_dragons(session, actual_user_id)
+    if not dragons:
+        return None
+    # Agar jangovar (baby yoki adult) ajdar bo'lsa, eng yuqori quvvatlisini tanlash
+    combat_dragons = [d for d in dragons if d.stage in ["baby", "adult"]]
+    if combat_dragons:
+        return max(combat_dragons, key=lambda d: d.power)
+    return dragons[0]
 
 
 async def claim_dragon_egg(session: AsyncSession, user_id: int, name: str, grade: str = "B") -> Tuple[bool, str, Optional[models.Dragon]]:
-    """Yangi ajdar tuxumini xarid qilish (Maksimal 2 ta ajdar)"""
+    """Yangi ajdar tuxumini xarid qilish (Maksimal 3 ta ajdar)"""
     user = await session.get(models.User, user_id)
+    if not user:
+        user = await get_user_by_telegram_id(session, user_id)
     if not user:
         return False, "Foydalanuvchi topilmadi.", None
 
-    existing = await get_user_dragons(session, user_id)
+    existing = await get_user_dragons(session, user.id)
     if len(existing) >= 3:
         return False, "Sizda allaqachon maksimal 3 ta ajdar mavjud!", None
 
@@ -1139,7 +1167,7 @@ async def claim_dragon_egg(session: AsyncSession, user_id: int, name: str, grade
     user.gold -= cost["gold"]
     user.iron -= cost["iron"]
     dragon = models.Dragon(
-        user_id=user_id,
+        user_id=user.id,
         name=name,
         grade=grade,
         stage="egg",
@@ -1156,8 +1184,13 @@ async def claim_dragon_egg(session: AsyncSession, user_id: int, name: str, grade
 async def hatch_dragon(session: AsyncSession, user_id: int, dragon_id: Optional[int] = None) -> Tuple[bool, str]:
     """Ajdar tuxumini ochirish"""
     user = await session.get(models.User, user_id)
-    dragon = await get_user_dragon(session, user_id, dragon_id)
-    if not user or not dragon:
+    if not user:
+        user = await get_user_by_telegram_id(session, user_id)
+    if not user:
+        return False, "Foydalanuvchi topilmadi."
+
+    dragon = await get_user_dragon(session, user.id, dragon_id)
+    if not dragon:
         return False, "Ajdar topilmadi."
 
     if dragon.stage != "egg":
@@ -1186,8 +1219,13 @@ async def hatch_dragon(session: AsyncSession, user_id: int, dragon_id: Optional[
 async def feed_dragon(session: AsyncSession, user_id: int, dragon_id: Optional[int] = None) -> Tuple[bool, str]:
     """Ajdarni boqish (350 oziq-ovqat talab etiladi)"""
     user = await session.get(models.User, user_id)
-    dragon = await get_user_dragon(session, user_id, dragon_id)
-    if not user or not dragon:
+    if not user:
+        user = await get_user_by_telegram_id(session, user_id)
+    if not user:
+        return False, "Foydalanuvchi topilmadi."
+
+    dragon = await get_user_dragon(session, user.id, dragon_id)
+    if not dragon:
         return False, "Ajdar topilmadi."
 
     if dragon.stage == "egg":
@@ -1222,8 +1260,13 @@ def get_dragon_upgrade_cost(dragon: models.Dragon) -> Dict[str, int]:
 async def train_dragon(session: AsyncSession, user_id: int, dragon_id: Optional[int] = None) -> Tuple[bool, str]:
     """Ajdarni parvoz va olovga mashq qildirish (Maksimal 20-daraja, qiyin va qimmat)"""
     user = await session.get(models.User, user_id)
-    dragon = await get_user_dragon(session, user_id, dragon_id)
-    if not user or not dragon:
+    if not user:
+        user = await get_user_by_telegram_id(session, user_id)
+    if not user:
+        return False, "Foydalanuvchi topilmadi."
+
+    dragon = await get_user_dragon(session, user.id, dragon_id)
+    if not dragon:
         return False, "Ajdar topilmadi."
 
     if dragon.stage == "egg":
@@ -1267,11 +1310,16 @@ async def train_dragon(session: AsyncSession, user_id: int, dragon_id: Optional[
 async def dragon_lay_egg(session: AsyncSession, user_id: int, dragon_id: int) -> Tuple[bool, str]:
     """Ulg'aygan 10-darajali ajdarning tuxum qo'yishi va ikkinchi ajdarga ega bo'lish"""
     user = await session.get(models.User, user_id)
+    if not user:
+        user = await get_user_by_telegram_id(session, user_id)
+    if not user:
+        return False, "Foydalanuvchi topilmadi."
+
     dragon = await session.get(models.Dragon, dragon_id)
-    if not user or not dragon or dragon.user_id != user.id:
+    if not dragon or dragon.user_id != user.id:
         return False, "Ajdar topilmadi."
 
-    dragons = await get_user_dragons(session, user_id)
+    dragons = await get_user_dragons(session, user.id)
     if len(dragons) >= 3:
         return False, "❌ Sizda allaqachon maksimal 3 ta ajdar mavjud!"
 
@@ -1315,8 +1363,13 @@ async def dragon_lay_egg(session: AsyncSession, user_id: int, dragon_id: int) ->
 async def equip_dragon_artifact(session: AsyncSession, user_id: int, dragon_id: int, artifact_code: str) -> Tuple[bool, str]:
     """Ajdarga maxsus artefakt sotib olib taqish"""
     user = await session.get(models.User, user_id)
+    if not user:
+        user = await get_user_by_telegram_id(session, user_id)
+    if not user:
+        return False, "Foydalanuvchi topilmadi."
+
     dragon = await session.get(models.Dragon, dragon_id)
-    if not user or not dragon or dragon.user_id != user.id:
+    if not dragon or dragon.user_id != user.id:
         return False, "Ajdar topilmadi."
 
     from data.artifacts_data import ARTIFACTS_DATA
@@ -1344,6 +1397,8 @@ async def equip_dragon_artifact(session: AsyncSession, user_id: int, dragon_id: 
 async def collect_castle_tax(session: AsyncSession, user_id: int, territory_id: int) -> Tuple[bool, str, Dict[str, int]]:
     """Qal'adan 4 soatlik to'plangan o'lponni yig'ib olish"""
     user = await session.get(models.User, user_id)
+    if not user:
+        user = await get_user_by_telegram_id(session, user_id)
     terr = await session.get(models.Territory, territory_id)
     if not user or not terr:
         return False, "Ma'lumot topilmadi.", {}
