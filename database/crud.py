@@ -982,6 +982,164 @@ async def send_castle_reinforcements(
     return True, f"✅ Qal'a mudofaasiga +{total_sent} askar safarbar qilindi! (+30 Prestige)"
 
 
+async def send_castle_reinforcements_proportional(
+    session: AsyncSession,
+    user_id: int,
+    target_territory_id: int,
+    count: Optional[int] = None,
+    send_all: bool = False,
+) -> Tuple[bool, str, Dict[str, int]]:
+    """O'yinchi armiyasidan mutanosib ravishda qal'a garnizoniga askar joylashtirish"""
+    user = await session.get(models.User, user_id)
+    if not user:
+        user = await get_user_by_telegram_id(session, user_id)
+    territory = await session.get(models.Territory, target_territory_id)
+    if not user or not territory:
+        return False, "Foydalanuvchi yoki qal'a topilmadi.", {}
+
+    army_res = await session.execute(select(models.Army).where(models.Army.user_id == user.id))
+    army = army_res.scalar_one_or_none()
+    if not army:
+        return False, "Armiya topilmadi.", {}
+
+    u_inf = army.infantry or 0
+    u_arc = army.archers or 0
+    u_cav = army.cavalry or 0
+    u_sp = army.spearmen or 0
+    total_army = u_inf + u_arc + u_cav + u_sp
+
+    if total_army <= 0:
+        return False, "❌ Sizda qal'aga joylashtirish uchun askar yo'q!", {}
+
+    if send_all or (count is not None and count >= total_army):
+        s_inf, s_arc, s_cav, s_sp = u_inf, u_arc, u_cav, u_sp
+    else:
+        req_count = count if (count is not None and count > 0) else 1
+        req_count = min(req_count, total_army)
+        ratio = req_count / float(total_army)
+
+        s_inf = min(u_inf, int(u_inf * ratio))
+        s_arc = min(u_arc, int(u_arc * ratio))
+        s_cav = min(u_cav, int(u_cav * ratio))
+        s_sp = min(u_sp, int(u_sp * ratio))
+
+        rem = req_count - (s_inf + s_arc + s_cav + s_sp)
+        for _ in range(rem):
+            if (u_inf - s_inf) > 0:
+                s_inf += 1
+            elif (u_arc - s_arc) > 0:
+                s_arc += 1
+            elif (u_cav - s_cav) > 0:
+                s_cav += 1
+            elif (u_sp - s_sp) > 0:
+                s_sp += 1
+
+    tot_s = s_inf + s_arc + s_cav + s_sp
+    if tot_s <= 0:
+        return False, "Yuboriladigan askarlar soni 0 ga teng.", {}
+
+    army.infantry -= s_inf
+    army.archers -= s_arc
+    army.cavalry -= s_cav
+    army.spearmen -= s_sp
+
+    territory.garrison_infantry = (territory.garrison_infantry or 0) + s_inf
+    territory.garrison_archers = (territory.garrison_archers or 0) + s_arc
+    territory.garrison_cavalry = (territory.garrison_cavalry or 0) + s_cav
+    territory.garrison_spearmen = (territory.garrison_spearmen or 0) + s_sp
+
+    user.prestige = (user.prestige or 0) + max(10, tot_s // 5)
+    await session.commit()
+    sent_dict = {
+        "infantry": s_inf,
+        "archers": s_arc,
+        "cavalry": s_cav,
+        "spearmen": s_sp,
+        "total": tot_s,
+    }
+    return True, f"✅ Qal'a mudofaasiga +{tot_s:,} askar joylashtirildi! (+{max(10, tot_s // 5)} Prestige)", sent_dict
+
+
+async def withdraw_castle_reinforcements(
+    session: AsyncSession,
+    user_id: int,
+    territory_id: int,
+    count: Optional[int] = None,
+    withdraw_all: bool = False,
+) -> Tuple[bool, str, Dict[str, int]]:
+    """Qal'a garnizonidan askarlarni mutanosib ravishda o'yinchining shaxsiy armiyasiga qaytarib olish"""
+    user = await session.get(models.User, user_id)
+    if not user:
+        user = await get_user_by_telegram_id(session, user_id)
+    territory = await session.get(models.Territory, territory_id)
+    if not user or not territory:
+        return False, "Foydalanuvchi yoki qal'a topilmadi.", {}
+
+    if territory.owner_house_id != user.house_id:
+        return False, "❌ Siz faqat o'z xonadoningizga tegishli qal'alar garnizonidan askar qaytara olasiz!", {}
+
+    army_res = await session.execute(select(models.Army).where(models.Army.user_id == user.id))
+    army = army_res.scalar_one_or_none()
+    if not army:
+        return False, "Armiya topilmadi.", {}
+
+    g_inf = territory.garrison_infantry or 0
+    g_arc = territory.garrison_archers or 0
+    g_cav = territory.garrison_cavalry or 0
+    g_sp = territory.garrison_spearmen or 0
+    tot_g = g_inf + g_arc + g_cav + g_sp
+
+    if tot_g <= 0:
+        return False, "❌ Qal'a garnizonida qaytarib olish uchun askarlar mavjud emas!", {}
+
+    if withdraw_all or (count is not None and count >= tot_g):
+        w_inf, w_arc, w_cav, w_sp = g_inf, g_arc, g_cav, g_sp
+    else:
+        req_count = count if (count is not None and count > 0) else 1
+        req_count = min(req_count, tot_g)
+        ratio = req_count / float(tot_g)
+
+        w_inf = min(g_inf, int(g_inf * ratio))
+        w_arc = min(g_arc, int(g_arc * ratio))
+        w_cav = min(g_cav, int(g_cav * ratio))
+        w_sp = min(g_sp, int(g_sp * ratio))
+
+        rem = req_count - (w_inf + w_arc + w_cav + w_sp)
+        for _ in range(rem):
+            if (g_inf - w_inf) > 0:
+                w_inf += 1
+            elif (g_arc - w_arc) > 0:
+                w_arc += 1
+            elif (g_cav - w_cav) > 0:
+                w_cav += 1
+            elif (g_sp - w_sp) > 0:
+                w_sp += 1
+
+    tot_w = w_inf + w_arc + w_cav + w_sp
+    if tot_w <= 0:
+        return False, "Qaytarib olinadigan askar miqdori 0 ga teng.", {}
+
+    territory.garrison_infantry -= w_inf
+    territory.garrison_archers -= w_arc
+    territory.garrison_cavalry -= w_cav
+    territory.garrison_spearmen -= w_sp
+
+    army.infantry = (army.infantry or 0) + w_inf
+    army.archers = (army.archers or 0) + w_arc
+    army.cavalry = (army.cavalry or 0) + w_cav
+    army.spearmen = (army.spearmen or 0) + w_sp
+
+    await session.commit()
+    withdrawn_dict = {
+        "infantry": w_inf,
+        "archers": w_arc,
+        "cavalry": w_cav,
+        "spearmen": w_sp,
+        "total": tot_w,
+    }
+    return True, f"✅ Qal'adan +{tot_w:,} askar shaxsiy armiyangizga qaytarildi!", withdrawn_dict
+
+
 async def station_dragon_in_castle(session: AsyncSession, user_id: int, territory_id: int) -> Tuple[bool, str]:
     """Ajdarni qal'a mudofaasiga joylashtirish"""
     user = await session.get(models.User, user_id)

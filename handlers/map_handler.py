@@ -366,12 +366,8 @@ async def upgrade_walls_callback(update: Update, context: ContextTypes.DEFAULT_T
     await show_my_castle_detail(query, user_id, terr_id)
 
 
-async def def_withdraw_rf_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Qal'a garnizonidan askarlarni shaxsiy armiyaga qaytarish"""
-    query = update.callback_query
-    terr_id = int(query.data.split(":")[1])
-    user_id = query.from_user.id
-
+async def show_garrison_withdraw_menu(target, user_id: int, terr_id: int):
+    """Qal'a garnizonidan askarlarni qaytarib olish menyusi"""
     async with AsyncSessionLocal() as session:
         user = await crud.get_user_with_relations(session, user_id)
         terr = await session.get(models.Territory, terr_id)
@@ -380,17 +376,101 @@ async def def_withdraw_rf_callback(update: Update, context: ContextTypes.DEFAULT
 
         g_inf = terr.garrison_infantry or 0
         g_arc = terr.garrison_archers or 0
-        if g_inf < 50 and g_arc < 25:
-            await query.answer("❌ Qal'ada qaytarib olish uchun yetarli garnizon askarlari yo'q!", show_alert=True)
-            return
+        g_cav = terr.garrison_cavalry or 0
+        g_sp = terr.garrison_spearmen or 0
+        tot_g = g_inf + g_arc + g_cav + g_sp
 
-        withdrawn = min(100, g_inf)
-        terr.garrison_infantry = g_inf - withdrawn
-        user.army.infantry = (user.army.infantry or 0) + withdrawn
-        await session.commit()
+        u_army = user.army.infantry + user.army.archers + user.army.cavalry + user.army.spearmen
 
-    await query.answer(f"✅ Qal'adan +{withdrawn} ta piyoda askar shaxsiy armiyangizga qaytarildi!", show_alert=True)
+        buttons = [
+            [
+                InlineKeyboardButton("↩️ 50 ta Askar", callback_data=f"def_with_act:{terr.id}:50"),
+                InlineKeyboardButton("↩️ 100 ta Askar", callback_data=f"def_with_act:{terr.id}:100"),
+            ],
+            [
+                InlineKeyboardButton("↩️ 250 ta Askar", callback_data=f"def_with_act:{terr.id}:250"),
+                InlineKeyboardButton("↩️ 500 ta Askar", callback_data=f"def_with_act:{terr.id}:500"),
+            ],
+            [
+                InlineKeyboardButton("↩️ Barcha Garnizonni Qaytarish", callback_data=f"def_with_act:{terr.id}:all"),
+            ],
+            [
+                InlineKeyboardButton("✍️ Sonini Qo'lda Kiritish", callback_data=f"def_custom_with:{terr.id}"),
+            ],
+            [
+                InlineKeyboardButton("🔙 Qal'aga Qaytish", callback_data=f"my_c_detail:{terr.id}"),
+            ]
+        ]
+
+        c_name = (terr.castle_name or terr.name or "Qal'a").upper()
+        text = (
+            f"↩️ **GARNIZONDAN ASKARLARNI QAYTARISH: {c_name}**\n\n"
+            f"🏰 **Qal'adagi hozirgi garnizon:**\n"
+            f"• 🛡️ Piyoda: **{g_inf:,}**\n"
+            f"• 🏹 Kamonchi: **{g_arc:,}**\n"
+            f"• 🐎 Otliq: **{g_cav:,}**\n"
+            f"• 🗡️ Nayzachi: **{g_sp:,}**\n"
+            f"🎯 Jami garnizon: **{tot_g:,}** askar\n\n"
+            f"👥 **Sizning shaxsiy armiyangiz:** {u_army:,} askar\n\n"
+            f"Qal'a garnizonidan shaxsiy armiyangizga qancha askarni qaytarib olmoqchisiz?"
+        )
+        await target.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def def_withdraw_rf_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Qal'a garnizonidan askarlarni qaytarib olish sahifasini ochish"""
+    query = update.callback_query
+    await query.answer()
+    terr_id = int(query.data.split(":")[1])
+    user_id = query.from_user.id
+    await show_garrison_withdraw_menu(query, user_id, terr_id)
+
+
+async def def_with_act_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Garnizondan tugma orqali askarlarni qaytarib olish amali"""
+    query = update.callback_query
+    parts = query.data.split(":")
+    terr_id = int(parts[1])
+    count_val = parts[2]
+    user_id = query.from_user.id
+
+    async with AsyncSessionLocal() as session:
+        if count_val == "all":
+            ok, msg, _ = await crud.withdraw_castle_reinforcements(
+                session=session,
+                user_id=user_id,
+                territory_id=terr_id,
+                withdraw_all=True
+            )
+        else:
+            ok, msg, _ = await crud.withdraw_castle_reinforcements(
+                session=session,
+                user_id=user_id,
+                territory_id=terr_id,
+                count=int(count_val)
+            )
+
+    await query.answer(msg, show_alert=True)
     await show_my_castle_detail(query, user_id, terr_id)
+
+
+async def def_custom_with_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Garnizondan qo'lda son yozib qaytarib olish so'rovi"""
+    query = update.callback_query
+    await query.answer()
+    terr_id = int(query.data.split(":")[1])
+    context.user_data["awaiting_with_input"] = {"terr_id": terr_id}
+
+    buttons = [
+        [InlineKeyboardButton("🔙 Bekor Qilish", callback_data=f"def_withdraw_rf:{terr_id}")],
+    ]
+    text = (
+        "✍️ **GARNIZONDAN QAYTARILADIGAN ASKARLAR SONI**\n\n"
+        "Qal'adan qancha askarni shaxsiy armiyangizga qaytarib olmoqchisiz?\n"
+        "Iltimos, sonni chatga xabar sifatida yozib yuboring:\n\n"
+        "*(Masalan: `150` yoki `1000`)*"
+    )
+    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
 
 
 def register_map_handlers(app):
@@ -403,6 +483,8 @@ def register_map_handlers(app):
     app.add_handler(CallbackQueryHandler(collect_tax_callback, pattern="^collect_tax:"))
     app.add_handler(CallbackQueryHandler(upgrade_walls_callback, pattern="^upgrade_walls:"))
     app.add_handler(CallbackQueryHandler(def_withdraw_rf_callback, pattern="^def_withdraw_rf:"))
+    app.add_handler(CallbackQueryHandler(def_with_act_callback, pattern="^def_with_act:"))
+    app.add_handler(CallbackQueryHandler(def_custom_with_callback, pattern="^def_custom_with:"))
     app.add_handler(CallbackQueryHandler(view_territory_callback, pattern="^view_terr:"))
     app.add_handler(CallbackQueryHandler(terr_own_info_callback, pattern="^terr_own_info$"))
     app.add_handler(CallbackQueryHandler(def_station_dragon_callback, pattern="^def_station_dragon:"))
