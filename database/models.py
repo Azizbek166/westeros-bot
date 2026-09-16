@@ -283,7 +283,7 @@ class Alliance(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     house_a_id = Column(Integer, ForeignKey("houses.id"), nullable=False)
     house_b_id = Column(Integer, ForeignKey("houses.id"), nullable=False)
-    type = Column(String(50), default="alliance")  # alliance, non_aggression, vassal
+    type = Column(String(50), default="military")  # military, marriage
     status = Column(String(30), default="pending")  # pending, active, broken
     created_at = Column(DateTime, default=datetime.utcnow)
 

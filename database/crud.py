@@ -814,8 +814,15 @@ async def admin_appoint_house_lord(session: AsyncSession, house_id: int, target_
     # Agar xonadonning amaldagi boshqa Lordi bo'lsa, uni ritsarga tushiramiz
     if house.lord_user_id and house.lord_user_id != target_user.telegram_id:
         old_lord = await get_user_by_telegram_id(session, house.lord_user_id)
-        if old_lord and old_lord.rank == "king":
-            old_lord.rank = "knight"
+        if old_lord:
+            if old_lord.rank == "king":
+                old_lord.rank = "knight"
+            old_hm_res = await session.execute(
+                select(models.HouseMember).where(models.HouseMember.user_id == old_lord.id)
+            )
+            old_hm = old_hm_res.scalar_one_or_none()
+            if old_hm:
+                old_hm.rank = "knight"
 
     # Yangi lordni tayinlaymiz
     target_user.house_id = house.id
@@ -824,9 +831,151 @@ async def admin_appoint_house_lord(session: AsyncSession, house_id: int, target_
     house.lord_user_id = target_user.telegram_id
     house.lord_elected_at = datetime.utcnow()
 
+    # HouseMember va Character ni sinxron yangilash
+    hm_res = await session.execute(
+        select(models.HouseMember).where(models.HouseMember.user_id == target_user.id)
+    )
+    hm = hm_res.scalar_one_or_none()
+    if hm:
+        hm.house_id = house.id
+        hm.rank = "king"
+    else:
+        hm = models.HouseMember(house_id=house.id, user_id=target_user.id, rank="king")
+        session.add(hm)
+
+    char_res = await session.execute(
+        select(models.Character).where(models.Character.user_id == target_user.id)
+    )
+    char = char_res.scalar_one_or_none()
+    if char:
+        char.house_id = house.id
+
     await session.commit()
     name = target_user.full_name or target_user.username or f"User {target_user.id}"
     return True, f"👑 {name} muvaffaqiyatli {house.emoji} {house.name} xonadoni Lordi (King) etib tayinlandi!"
+
+
+async def admin_transfer_user_house(session: AsyncSession, user_id: int, new_house_id: int) -> Tuple[bool, str]:
+    """Admin tomonidan o'yinchini boshqa xonadonga ko'chirish"""
+    user = await session.get(models.User, user_id)
+    if not user:
+        user = await get_user_by_telegram_id(session, user_id)
+    if not user:
+        return False, "❌ Foydalanuvchi topilmadi."
+
+    new_house = await session.get(models.House, new_house_id)
+    if not new_house:
+        return False, "❌ Yangi xonadon topilmadi."
+
+    # Agar eski xonadoni lordi bo'lsa, lordlikni bo'shatamiz
+    if user.house_id:
+        old_house = await session.get(models.House, user.house_id)
+        if old_house and old_house.lord_user_id == user.telegram_id:
+            old_house.lord_user_id = None
+
+    user.house_id = new_house.id
+    user.rank = "member"
+
+    # HouseMember
+    hm_res = await session.execute(
+        select(models.HouseMember).where(models.HouseMember.user_id == user.id)
+    )
+    hm = hm_res.scalar_one_or_none()
+    if hm:
+        hm.house_id = new_house.id
+        hm.rank = "member"
+    else:
+        hm = models.HouseMember(house_id=new_house.id, user_id=user.id, rank="member")
+        session.add(hm)
+
+    # Character
+    char_res = await session.execute(
+        select(models.Character).where(models.Character.user_id == user.id)
+    )
+    char = char_res.scalar_one_or_none()
+    if char:
+        char.house_id = new_house.id
+
+    await session.commit()
+    name = user.full_name or user.username or f"User {user.id}"
+    return True, f"✅ {name} {new_house.emoji} {new_house.name} xonadoniga muvaffaqiyatli ko'chirildi!"
+
+
+async def admin_remove_user_from_house(session: AsyncSession, user_id: int) -> Tuple[bool, str]:
+    """Admin tomonidan o'yinchini xonadondan chiqarish"""
+    user = await session.get(models.User, user_id)
+    if not user:
+        user = await get_user_by_telegram_id(session, user_id)
+    if not user:
+        return False, "❌ Foydalanuvchi topilmadi."
+
+    if not user.house_id:
+        return False, "Foydalanuvchi allaqachon xonadonsiz."
+
+    old_house = await session.get(models.House, user.house_id)
+    if old_house and old_house.lord_user_id == user.telegram_id:
+        old_house.lord_user_id = None
+
+    user.house_id = None
+    user.rank = "member"
+
+    await session.execute(
+        delete(models.HouseMember).where(models.HouseMember.user_id == user.id)
+    )
+    await session.commit()
+    name = user.full_name or user.username or f"User {user.id}"
+    return True, f"✅ {name} xonadondan chiqarildi!"
+
+
+async def get_user_army(session: AsyncSession, user_id: int) -> models.Army:
+    """Foydalanuvchi armiyasini olish yoki yangisini yaratish"""
+    res = await session.execute(select(models.Army).where(models.Army.user_id == user_id))
+    army = res.scalar_one_or_none()
+    if not army:
+        army = models.Army(user_id=user_id, infantry=0, archers=0, cavalry=0, spearmen=0, special_troops=0)
+        session.add(army)
+        await session.commit()
+    return army
+
+
+async def admin_set_user_army(
+    session: AsyncSession,
+    user_id: int,
+    infantry: Optional[int] = None,
+    archers: Optional[int] = None,
+    cavalry: Optional[int] = None,
+    spearmen: Optional[int] = None,
+    special_troops: Optional[int] = None,
+    add_mode: bool = False,
+) -> Tuple[bool, str]:
+    """Admin tomonidan o'yinchi armiyasini belgilash yoki qo'shish"""
+    user = await session.get(models.User, user_id)
+    if not user:
+        user = await get_user_by_telegram_id(session, user_id)
+    if not user:
+        return False, "❌ Foydalanuvchi topilmadi."
+
+    army_res = await session.execute(select(models.Army).where(models.Army.user_id == user.id))
+    army = army_res.scalar_one_or_none()
+    if not army:
+        army = models.Army(user_id=user.id)
+        session.add(army)
+
+    if add_mode:
+        if infantry is not None: army.infantry = max(0, (army.infantry or 0) + infantry)
+        if archers is not None: army.archers = max(0, (army.archers or 0) + archers)
+        if cavalry is not None: army.cavalry = max(0, (army.cavalry or 0) + cavalry)
+        if spearmen is not None: army.spearmen = max(0, (army.spearmen or 0) + spearmen)
+        if special_troops is not None: army.special_troops = max(0, (army.special_troops or 0) + special_troops)
+    else:
+        if infantry is not None: army.infantry = max(0, infantry)
+        if archers is not None: army.archers = max(0, archers)
+        if cavalry is not None: army.cavalry = max(0, cavalry)
+        if spearmen is not None: army.spearmen = max(0, spearmen)
+        if special_troops is not None: army.special_troops = max(0, special_troops)
+
+    await session.commit()
+    return True, f"⚔️ {user.full_name} armiyasi yangilandi: 🛡️{army.infantry} 🏹{army.archers} 🐎{army.cavalry} 🗡️{army.spearmen}"
 
 
 async def admin_dismiss_house_lord(session: AsyncSession, house_id: int) -> Tuple[bool, str]:
@@ -862,8 +1011,12 @@ async def admin_reset_house_election_votes(session: AsyncSession, house_id: int)
 
 
 # ============================================================
-# ALLIANCE CRUD
+# ALLIANCE CRUD (1 TA HARBIY VA 1 TA TO'Y ITTIFOQI)
 # ============================================================
+
+# NPC xonadonlar ID lari (ittifoq tuzish taqiqlanadi)
+NPC_HOUSE_IDS = {47, 48, 49, 50}
+
 
 async def get_active_alliances_for_house(session: AsyncSession, house_id: int) -> List[models.Alliance]:
     """Xonadonning barcha faol ittifoqlari"""
@@ -887,12 +1040,52 @@ async def get_pending_alliances_for_house(session: AsyncSession, house_id: int) 
     return list(res.scalars().all())
 
 
-async def propose_alliance(session: AsyncSession, from_house_id: int, to_house_id: int) -> Tuple[bool, str]:
-    """Boshqa xonadonga ittifoq taklif qilish"""
+async def propose_alliance(
+    session: AsyncSession,
+    from_house_id: int,
+    to_house_id: int,
+    alliance_type: str = "military",
+) -> Tuple[bool, str]:
+    """Boshqa xonadonga ittifoq taklif qilish (1 ta Harbiy, 1 ta To'y ittifoqi)"""
     if from_house_id == to_house_id:
         return False, "O'z xonadoningizga ittifoq taklif qila olmaysiz!"
 
-    # Mavjud ittifoqni tekshirish
+    if to_house_id in NPC_HOUSE_IDS or from_house_id in NPC_HOUSE_IDS:
+        return False, "❌ White Walkers, Free Folk, Night's Watch yoki boshqa NPC xonadonlar bilan ittifoq tuzib bo'lmaydi!"
+
+    to_house = await session.get(models.House, to_house_id)
+    if not to_house or getattr(to_house, "is_npc", False):
+        return False, "❌ Ushbu xonadon bilan ittifoq tuzish imkoni yo'q!"
+
+    from_house = await session.get(models.House, from_house_id)
+    if not from_house:
+        return False, "Xonadon topilmadi."
+
+    type_name_uz = "Harbiy Ittifoq" if alliance_type == "military" else "To'y Ittifoqi"
+
+    # 1 ta harbiy va 1 ta to'y ittifoqi cheklovi (From house)
+    from_existing = await session.execute(
+        select(models.Alliance).where(
+            ((models.Alliance.house_a_id == from_house_id) | (models.Alliance.house_b_id == from_house_id)),
+            models.Alliance.type == alliance_type,
+            models.Alliance.status == "active",
+        )
+    )
+    if from_existing.scalars().first():
+        return False, f"❌ Xonadoningizda allaqachon 1 ta faol {type_name_uz} mavjud! (Maksimal 1 ta ruxsat berilgan)"
+
+    # To house uchun ham shu toifadagi faol ittifoqni tekshirish
+    to_existing = await session.execute(
+        select(models.Alliance).where(
+            ((models.Alliance.house_a_id == to_house_id) | (models.Alliance.house_b_id == to_house_id)),
+            models.Alliance.type == alliance_type,
+            models.Alliance.status == "active",
+        )
+    )
+    if to_existing.scalars().first():
+        return False, f"❌ {to_house.name} xonadonida allaqachon 1 ta faol {type_name_uz} mavjud!"
+
+    # Ushbu ikki xonadon o'rtasidagi mavjud aloqani tekshirish
     res = await session.execute(
         select(models.Alliance).where(
             ((models.Alliance.house_a_id == from_house_id) & (models.Alliance.house_b_id == to_house_id)) |
@@ -902,36 +1095,59 @@ async def propose_alliance(session: AsyncSession, from_house_id: int, to_house_i
     existing = res.scalar_one_or_none()
     if existing:
         if existing.status == "active":
-            return False, "Ushbu xonadon bilan allaqachon faol ittifoq mavjud!"
+            return False, f"Ushbu xonadon bilan allaqachon faol ittifoq mavjud ({existing.type})!"
         elif existing.status == "pending":
             return False, "Ittifoq taklifi allaqachon yuborilgan, javob kutilmoqda."
         else:
             existing.status = "pending"
+            existing.type = alliance_type
             existing.house_a_id = from_house_id
             existing.house_b_id = to_house_id
             existing.created_at = datetime.utcnow()
             await session.commit()
-            return True, "Ittifoq taklifi qaytadan yuborildi!"
+            return True, f"💍 {type_name_uz} taklifi qaytadan yuborildi!"
 
     new_alliance = models.Alliance(
         house_a_id=from_house_id,
         house_b_id=to_house_id,
-        type="alliance",
+        type=alliance_type,
         status="pending",
     )
     session.add(new_alliance)
     await session.commit()
-    return True, "Ittifoq taklifi muvaffaqiyatli yuborildi!"
+    return True, f"🤝 {to_house.name} xonadoniga {type_name_uz} taklifi muvaffaqiyatli yuborildi!"
 
 
-async def respond_to_alliance(session: AsyncSession, alliance_id: int, accept: bool) -> bool:
+async def respond_to_alliance(session: AsyncSession, alliance_id: int, accept: bool) -> Tuple[bool, str]:
     """Ittifoq taklifini qabul qilish yoki rad etish"""
     alliance = await session.get(models.Alliance, alliance_id)
     if not alliance:
-        return False
-    alliance.status = "active" if accept else "rejected"
+        return False, "Taklif topilmadi."
+
+    if not accept:
+        alliance.status = "rejected"
+        await session.commit()
+        return True, "Ittifoq taklifi rad etildi."
+
+    # Qabul qilishda ham 1 ta harbiy / 1 ta to'y limiti buzilmaganini tekshirish
+    type_name_uz = "Harbiy Ittifoq" if alliance.type == "military" else "To'y Ittifoqi"
+    for h_id in [alliance.house_a_id, alliance.house_b_id]:
+        active_check = await session.execute(
+            select(models.Alliance).where(
+                ((models.Alliance.house_a_id == h_id) | (models.Alliance.house_b_id == h_id)),
+                models.Alliance.type == alliance.type,
+                models.Alliance.status == "active",
+                models.Alliance.id != alliance.id,
+            )
+        )
+        if active_check.scalars().first():
+            h_obj = await session.get(models.House, h_id)
+            h_name = h_obj.name if h_obj else "Xonadon"
+            return False, f"❌ {h_name} allaqachon boshqa xonadon bilan {type_name_uz} tuzgan!"
+
+    alliance.status = "active"
     await session.commit()
-    return True
+    return True, f"🎉 {type_name_uz} rasman kuchga kirdi!"
 
 
 async def send_castle_reinforcements(
@@ -996,6 +1212,24 @@ async def send_castle_reinforcements_proportional(
     territory = await session.get(models.Territory, target_territory_id)
     if not user or not territory:
         return False, "Foydalanuvchi yoki qal'a topilmadi.", {}
+
+    if not user.house_id:
+        return False, "❌ Qal'ani himoya qilish uchun avval biror xonadonga a'zo bo'ling!", {}
+
+    is_own = (territory.owner_house_id == user.house_id)
+    is_ally = False
+    if not is_own and territory.owner_house_id:
+        al_res = await session.execute(
+            select(models.Alliance).where(
+                models.Alliance.status == "active",
+                ((models.Alliance.house_a_id == user.house_id) & (models.Alliance.house_b_id == territory.owner_house_id)) |
+                ((models.Alliance.house_a_id == territory.owner_house_id) & (models.Alliance.house_b_id == user.house_id))
+            )
+        )
+        is_ally = al_res.scalar_one_or_none() is not None
+
+    if not is_own and not is_ally:
+        return False, "❌ Siz faqat o'z xonadoningiz yoki rasmiy ittifoqchingiz qal'asiga mudofaa askarlarini joylashtira olasiz!", {}
 
     army_res = await session.execute(select(models.Army).where(models.Army.user_id == user.id))
     army = army_res.scalar_one_or_none()
@@ -1308,6 +1542,101 @@ async def get_top_house_contributors(session: AsyncSession, house_id: int, limit
         .limit(limit)
     )
     return list(res.all())
+
+
+async def withdraw_house_treasury(
+    session: AsyncSession,
+    house_id: int,
+    user_id: int,
+    gold: int = 0,
+    food: int = 0,
+    iron: int = 0,
+) -> Tuple[bool, str]:
+    """Lord xonadon umumiy g'aznasidan shaxsiy hisobiga mablag' yechib olishi"""
+    user = await session.get(models.User, user_id)
+    if not user:
+        user = await get_user_by_telegram_id(session, user_id)
+    house = await session.get(models.House, house_id)
+    if not user or not house:
+        return False, "Foydalanuvchi yoki xonadon topilmadi."
+
+    is_lord = (house.lord_user_id == user.telegram_id) or user.rank == "king"
+    if not is_lord:
+        return False, "❌ Faqat Xonadon Lordi g'aznadan foydalanish huquqiga ega!"
+
+    if gold < 0 or food < 0 or iron < 0:
+        return False, "Miqdor manfiy bo'lishi mumkin emas!"
+
+    if gold > house.gold:
+        return False, f"❌ Xonadon g'aznasida yetarli oltin yo'q! (G'aznada: {house.gold:,}🪙)"
+    if food > house.food:
+        return False, f"❌ Xonadon g'aznasida yetarli oziq yo'q! (G'aznada: {house.food:,}🌾)"
+    if iron > house.iron:
+        return False, f"❌ Xonadon g'aznasida yetarli temir yo'q! (G'aznada: {house.iron:,}⛓️)"
+
+    house.gold -= gold
+    house.food -= food
+    house.iron -= iron
+
+    user.gold += gold
+    user.food += food
+    user.iron += iron
+
+    await session.commit()
+    msg_parts = []
+    if gold > 0: msg_parts.append(f"+{gold:,}🪙 oltin")
+    if food > 0: msg_parts.append(f"+{food:,}🌾 oziq-ovqat")
+    if iron > 0: msg_parts.append(f"+{iron:,}⛓️ temir")
+    return True, f"✅ G'aznadan muvaffaqiyatli shaxsiy hisobingizga olindi:\n" + "\n".join(msg_parts)
+
+
+async def distribute_house_treasury(
+    session: AsyncSession,
+    house_id: int,
+    user_id: int,
+    gold: int = 0,
+    food: int = 0,
+    iron: int = 0,
+) -> Tuple[bool, str, int]:
+    """Lord xonadon umumiy g'aznasidan barcha a'zolarga teng miqdorda ulashishi"""
+    user = await session.get(models.User, user_id)
+    if not user:
+        user = await get_user_by_telegram_id(session, user_id)
+    house = await session.get(models.House, house_id)
+    if not user or not house:
+        return False, "Foydalanuvchi yoki xonadon topilmadi.", 0
+
+    is_lord = (house.lord_user_id == user.telegram_id) or user.rank == "king"
+    if not is_lord:
+        return False, "❌ Faqat Xonadon Lordi g'aznani a'zolarga ulasha oladi!", 0
+
+    members = await get_house_members_with_characters(session, house_id)
+    if not members:
+        return False, "Xonadonda birorta ham a'zo topilmadi.", 0
+
+    count = len(members)
+    tot_gold = gold * count
+    tot_food = food * count
+    tot_iron = iron * count
+
+    if tot_gold > house.gold:
+        return False, f"❌ G'aznada yetarli oltin yo'q! {count} a'zoga jami {tot_gold:,}🪙 kerak (G'aznada: {house.gold:,}🪙).", 0
+    if tot_food > house.food:
+        return False, f"❌ G'aznada yetarli oziq yo'q! {count} a'zoga jami {tot_food:,}🌾 kerak (G'aznada: {house.food:,}🌾).", 0
+    if tot_iron > house.iron:
+        return False, f"❌ G'aznada yetarli temir yo'q! {count} a'zoga jami {tot_iron:,}⛓️ kerak (G'aznada: {house.iron:,}⛓️).", 0
+
+    house.gold -= tot_gold
+    house.food -= tot_food
+    house.iron -= tot_iron
+
+    for m in members:
+        m.gold += gold
+        m.food += food
+        m.iron += iron
+
+    await session.commit()
+    return True, f"🎉 {count} nafar xonadon a'zosining har biriga +{gold:,}🪙, +{food:,}🌾, +{iron:,}⛓️ ulashildi!", count
 
 
 # ============================================================
@@ -1799,23 +2128,28 @@ async def fight_ai_champion(
     hero_atk = hero.attack if hero else 50
     hero_def = hero.defense if hero else 50
 
-    # Chempion statistikasi
+    # Daraja (level) o'sishi bilan qahramonning jismoniy kuchi oshishi (+4 Atk, +4 Def har bir darajaga)
+    hero_lvl = user.level or 1
+    eff_atk = hero_atk + (hero_lvl * 4)
+    eff_def = hero_def + (hero_lvl * 4)
+
+    # Chempion statistikasi (adolatli darajalar bo'yicha)
     champions = {
-        "Gregor Clegane": {"atk": 85, "def": 75, "tactic": "heavy"},
-        "Oberyn Martell": {"atk": 80, "def": 65, "tactic": "agile"},
-        "Bronn": {"atk": 70, "def": 70, "tactic": "parry"},
-        "Sandor Clegane": {"atk": 80, "def": 70, "tactic": "heavy"},
+        "Bronn": {"atk": 50, "def": 45, "tactic": "parry"},          # Boshlang'ich raqib (1-3 level yuta oladi)
+        "Sandor Clegane": {"atk": 65, "def": 60, "tactic": "heavy"}, # O'rta darajali jangchi
+        "Oberyn Martell": {"atk": 78, "def": 68, "tactic": "agile"}, # Kuchli mahoratli jangchi
+        "Gregor Clegane": {"atk": 90, "def": 80, "tactic": "heavy"}, # Boss darajadagi Tog'
     }
-    champ = champions.get(champion_name, {"atk": 70, "def": 70, "tactic": "agile"})
+    champ = champions.get(champion_name, {"atk": 60, "def": 55, "tactic": "agile"})
     champ_tactic = champ["tactic"]
 
     # Taktika ustunligi: heavy > agile > parry > heavy
     tactics_win = {"heavy": "agile", "agile": "parry", "parry": "heavy"}
     tactic_bonus = 1.0
     if tactics_win.get(player_tactic) == champ_tactic:
-        tactic_bonus = 1.35
+        tactic_bonus = 1.45  # To'g'ri taktika uchun +45% kuchli ustunlik
     elif tactics_win.get(champ_tactic) == player_tactic:
-        tactic_bonus = 0.75
+        tactic_bonus = 0.80
 
     art_bonus = 0.0
     equipped = await get_equipped_artifact(session, user.id)
@@ -1823,8 +2157,8 @@ async def fight_ai_champion(
         from data.artifacts_data import ARTIFACTS_DATA
         art_bonus = ARTIFACTS_DATA.get(equipped.code, {}).get("duel_bonus", 0.0)
 
-    player_score = (hero_atk * 1.2 + hero_def * 0.8) * tactic_bonus * (1.0 + art_bonus) * random.uniform(0.85, 1.25)
-    champ_score = (champ["atk"] * 1.2 + champ["def"] * 0.8) * random.uniform(0.85, 1.25)
+    player_score = (eff_atk * 1.2 + eff_def * 0.8) * tactic_bonus * (1.0 + art_bonus) * random.uniform(0.90, 1.25)
+    champ_score = (champ["atk"] * 1.2 + champ["def"] * 0.8) * random.uniform(0.85, 1.15)
 
     won = player_score >= champ_score
     if won:

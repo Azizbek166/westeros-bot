@@ -52,6 +52,7 @@ async def show_house(target, user_id: int, is_message: bool):
         ]
         is_lord = (house.lord_user_id == user.telegram_id) or user.rank == "king"
         if is_lord:
+            buttons.append([InlineKeyboardButton("🏛️ Xonadon G'aznasini Boshqarish (Lord)", callback_data="house_treasury_manage")])
             buttons.append([InlineKeyboardButton("📢 Harbiy Safarbarlik (Askar So'rash)", callback_data="call_to_arms_broadcast")])
             buttons.append([InlineKeyboardButton("🎖️ Lavozim Tayinlash (Lord)", callback_data="house_rank_assign_menu")])
             buttons.append([InlineKeyboardButton("🚫 Lordlikdan Voz Kechish (Iste'fo)", callback_data="house_abdicate_prompt")])
@@ -592,6 +593,120 @@ async def house_top_donors_callback(update: Update, context: ContextTypes.DEFAUL
         await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
 
 
+async def house_treasury_manage_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Lord uchun xonadon g'aznasini tasarruf etish boshqaruvi"""
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_with_relations(session, user_id)
+        if not user or not user.house:
+            return
+
+        house = user.house
+        is_lord = (house.lord_user_id == user.telegram_id) or user.rank == "king"
+        if not is_lord:
+            await query.answer("❌ Faqat Xonadon Lordi g'aznadan foydalanishi mumkin!", show_alert=True)
+            return
+
+        members_count = await crud.get_house_members_count(session, house.id)
+
+        text = (
+            f"🏛️ **XONADON G'AZNASI BOSHQARUVI — {house.emoji} {house.name}**\n\n"
+            f"👑 Xonadon Lordi sifatida siz umumiy g'aznani xonadon manfaati uchun tasarruf etishingiz mumkin.\n\n"
+            f"💰 **G'AZNA ZAXIRASI:**\n"
+            f"• 🪙 Oltin: **{house.gold:,}**\n"
+            f"• 🌾 Oziq-ovqat: **{house.food:,}**\n"
+            f"• ⛓️ Temir: **{house.iron:,}**\n\n"
+            f"👥 **Xonadon a'zolari:** {members_count} nafar\n\n"
+            f"Kerakli amaliyotni tanlang:"
+        )
+
+        buttons = [
+            [
+                InlineKeyboardButton("🪙 -1,000 Oltin Yechish", callback_data="h_with:gold:1000"),
+                InlineKeyboardButton("🪙 -2,500 Oltin Yechish", callback_data="h_with:gold:2500"),
+            ],
+            [
+                InlineKeyboardButton("🌾 -2,000 Oziq Yechish", callback_data="h_with:food:2000"),
+                InlineKeyboardButton("⛓️ -1,000 Temir Yechish", callback_data="h_with:iron:1000"),
+            ],
+            [
+                InlineKeyboardButton("🎁 Har Bir A'zoga +500🪙 Ulashish", callback_data="h_dist:gold:500"),
+            ],
+            [
+                InlineKeyboardButton("🎁 Har Bir A'zoga +1,000🌾 Ulashish", callback_data="h_dist:food:1000"),
+            ],
+            [
+                InlineKeyboardButton("🔙 Xonadonga Qaytish", callback_data="menu_house"),
+            ]
+        ]
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def house_treasury_withdraw_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """G'aznadan Lord shaxsiy hisobiga mablag' yechish"""
+    query = update.callback_query
+    parts = query.data.split(":")
+    res_type = parts[1]
+    amount = int(parts[2])
+    user_id = query.from_user.id
+
+    gold = amount if res_type == "gold" else 0
+    food = amount if res_type == "food" else 0
+    iron = amount if res_type == "iron" else 0
+
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_with_relations(session, user_id)
+        if not user or not user.house_id:
+            await query.answer("Xonadon topilmadi.", show_alert=True)
+            return
+
+        ok, msg = await crud.withdraw_house_treasury(
+            session=session,
+            house_id=user.house_id,
+            user_id=user.id,
+            gold=gold,
+            food=food,
+            iron=iron,
+        )
+
+    await query.answer(msg, show_alert=True)
+    await house_treasury_manage_callback(update, context)
+
+
+async def house_treasury_distribute_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """G'aznadan barcha a'zolarga ulashish"""
+    query = update.callback_query
+    parts = query.data.split(":")
+    res_type = parts[1]
+    amount = int(parts[2])
+    user_id = query.from_user.id
+
+    gold = amount if res_type == "gold" else 0
+    food = amount if res_type == "food" else 0
+    iron = amount if res_type == "iron" else 0
+
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_with_relations(session, user_id)
+        if not user or not user.house_id:
+            await query.answer("Xonadon topilmadi.", show_alert=True)
+            return
+
+        ok, msg, count = await crud.distribute_house_treasury(
+            session=session,
+            house_id=user.house_id,
+            user_id=user.id,
+            gold=gold,
+            food=food,
+            iron=iron,
+        )
+
+    await query.answer(msg, show_alert=True)
+    await house_treasury_manage_callback(update, context)
+
+
 def register_house_handlers(app):
     app.add_handler(CommandHandler("house", house_command))
     app.add_handler(CallbackQueryHandler(house_callback, pattern="^menu_house$"))
@@ -612,3 +727,6 @@ def register_house_handlers(app):
     app.add_handler(CallbackQueryHandler(house_donate_menu_callback, pattern="^house_donate_menu$"))
     app.add_handler(CallbackQueryHandler(house_donate_action_callback, pattern="^hdonate:"))
     app.add_handler(CallbackQueryHandler(house_top_donors_callback, pattern="^house_top_donors$"))
+    app.add_handler(CallbackQueryHandler(house_treasury_manage_callback, pattern="^house_treasury_manage$"))
+    app.add_handler(CallbackQueryHandler(house_treasury_withdraw_callback, pattern="^h_with:"))
+    app.add_handler(CallbackQueryHandler(house_treasury_distribute_callback, pattern="^h_dist:"))

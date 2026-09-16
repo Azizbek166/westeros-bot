@@ -70,6 +70,22 @@ async def view_territory_callback(update: Update, context: ContextTypes.DEFAULT_
         user = await crud.get_user_with_relations(session, user_id)
         is_own = user and user.house_id and user.house_id == terr.owner_house_id
 
+        # Ittifoqchi qal'asi ekanligini tekshirish
+        is_ally = False
+        alliance_type_str = ""
+        if user and user.house_id and terr.owner_house_id and not is_own:
+            al_res = await session.execute(
+                select(models.Alliance).where(
+                    models.Alliance.status == "active",
+                    ((models.Alliance.house_a_id == user.house_id) & (models.Alliance.house_b_id == terr.owner_house_id)) |
+                    ((models.Alliance.house_a_id == terr.owner_house_id) & (models.Alliance.house_b_id == user.house_id))
+                )
+            )
+            al = al_res.scalar_one_or_none()
+            if al:
+                is_ally = True
+                alliance_type_str = " (💍 To'y Ittifoqchimiz)" if al.type == "marriage" else " (⚔️ Harbiy Ittifoqchimiz)"
+
         owner_name = f"{terr.owner_house.emoji} {terr.owner_house.name}" if terr.owner_house else "Egaliksiz (Qaroqchilar)"
 
         dragon_info_str = "Mavjud emas"
@@ -79,22 +95,39 @@ async def view_territory_callback(update: Update, context: ContextTypes.DEFAULT_
 
         buttons = []
         if is_own:
-            buttons.append([InlineKeyboardButton("🛡️ Askar Joylashtirish (Garnizon)", callback_data=f"def_rf_menu:{terr.id}")])
+            buttons.append([InlineKeyboardButton("🛡️ Qal'ani Himoya Qilish (Askar Joylash)", callback_data=f"def_rf_menu:{terr.id}")])
+            buttons.append([InlineKeyboardButton("↩️ Garnizondan Askarlarni Qaytarish", callback_data=f"def_withdraw_rf:{terr.id}")])
             if st_dragon:
                 if st_dragon.get("user_id") == user.id or (user.house and user.house.lord_user_id == user.telegram_id):
                     buttons.append([InlineKeyboardButton("🚫 Ajdarni Qal'adan Qaytarish", callback_data=f"def_recall_dragon:{terr.id}")])
                 else:
                     buttons.append([InlineKeyboardButton("🐉 Ajdar Qo'riqlamoqda", callback_data="terr_dragon_info")])
             else:
-                buttons.append([InlineKeyboardButton("🐉 Ajdarni Qal'aga Joylashtirish", callback_data=f"def_station_dragon:{terr.id}")])
+                buttons.append([InlineKeyboardButton("🐉 Ajdarni Mudofaaga Joylashtirish", callback_data=f"def_station_dragon:{terr.id}")])
+            buttons.append([InlineKeyboardButton("🏰 Devorni Kuchaytirish (+150 Mudofaa)", callback_data=f"upgrade_walls:{terr.id}")])
+            buttons.append([InlineKeyboardButton("💰 Qal'a Boshqaruvi & O'lpon", callback_data=f"my_c_detail:{terr.id}")])
+        elif is_ally:
+            buttons.append([InlineKeyboardButton(f"🤝 Qal'a Mudofaasiga Yordam Yuborish{alliance_type_str}", callback_data=f"def_rf_menu:{terr.id}")])
+            if not st_dragon:
+                buttons.append([InlineKeyboardButton("🐉 Ittifoqchi Qal'aga Ajdar Yuborish", callback_data=f"def_station_dragon:{terr.id}")])
         else:
             buttons.append([InlineKeyboardButton("⚔️ Ushbu Qal'aga Yurish Qilish", callback_data=f"march_prep:{terr.id}")])
+
         buttons.append([InlineKeyboardButton("🔙 Xaritaga Qaytish", callback_data="menu_map")])
+
+        ally_tag = f"\n🤝 **Ittifoqchilik:** Bu sizning rasmiy ittifoqchingiz qal'asi! Mudofaa uchun askar va ajdar yuborishingiz mumkin.\n" if is_ally else ""
+
+        if is_own:
+            footer_text = "Qal'ani dushmandan himoya qilish uchun garnizonni to'ldiring va devorlarni mustahkamlang!"
+        elif is_ally:
+            footer_text = "Ittifoqchining qal'asi mudofaasiga ko'maklashing!"
+        else:
+            footer_text = "Ushbu hududni egallash xonadoningizga doimiy daromad va shon-sharaf keltiradi!"
 
         text = (
             f"🏰 **{terr.name.upper()} — {terr.castle_name}**\n\n"
             f"📍 Mintaqa: **{terr.region}**\n"
-            f"👑 Hukmron Xonadon: **{escape_md(owner_name)}**\n"
+            f"👑 Hukmron Xonadon: **{escape_md(owner_name)}**{ally_tag}\n"
             f"👥 Aholi: **{terr.population:,}**\n\n"
             f"💰 **SOATLIK DAROMAD:**\n"
             f"🪙 +{terr.gold_income} oltin | 🌾 +{terr.food_income} oziq-ovqat | ⛓️ +{terr.iron_income} temir\n\n"
@@ -105,14 +138,20 @@ async def view_territory_callback(update: Update, context: ContextTypes.DEFAULT_
             f"• 🏹 Kamonchi: {terr.garrison_archers:,}\n"
             f"• 🐎 Otliq: {terr.garrison_cavalry:,}\n"
             f"• 🗡️ Nayzachi: {terr.garrison_spearmen:,}\n\n"
-            f"Ushbu hududni egallash xonadoningizga doimiy daromad va shon-sharaf keltiradi!"
+            f"{footer_text}"
         )
 
-        if query.message.photo:
-            await query.message.delete()
-            await query.message.chat.send_message(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
-        else:
-            await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        try:
+            if query.message.photo:
+                await query.message.delete()
+                await query.message.chat.send_message(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+            else:
+                await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        except Exception:
+            if query.message.photo:
+                await query.message.chat.send_message(text, parse_mode=None, reply_markup=InlineKeyboardMarkup(buttons))
+            else:
+                await query.edit_message_text(text, parse_mode=None, reply_markup=InlineKeyboardMarkup(buttons))
 
 
 async def terr_own_info_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
