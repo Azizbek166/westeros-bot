@@ -72,6 +72,29 @@ async def get_taken_character_names(session: AsyncSession, house_id: int) -> set
     return set(res.scalars().all())
 
 
+def get_rank_for_member_index(member_count: int) -> str:
+    """Xonadonga qo'shilish tartibiga ko'ra lavozim (0->king, 1->commander, 2->knight, 3->captain, 4->member)"""
+    ranks = ["king", "commander", "knight", "captain", "member"]
+    if 0 <= member_count < len(ranks):
+        return ranks[member_count]
+    return "member"
+
+
+async def is_character_name_taken(session: AsyncSession, name: str, exclude_user_id: Optional[int] = None) -> bool:
+    """Qahramon nomi butun o'yin bo'ylab allaqachon olinganligini tekshirish (katta-kichik harfga befarq)"""
+    clean_name = name.strip()
+    if not clean_name:
+        return True
+    stmt = select(models.Character.id).where(
+        func.lower(models.Character.name) == clean_name.lower(),
+        models.Character.is_alive == True,
+    )
+    if exclude_user_id:
+        stmt = stmt.where(models.Character.user_id != exclude_user_id)
+    res = await session.execute(stmt)
+    return res.scalar_one_or_none() is not None
+
+
 async def create_user(
     session: AsyncSession,
     telegram_id: int,
@@ -81,16 +104,24 @@ async def create_user(
     character_name: str,
 ) -> models.User:
     """Yangi o'yinchini ro'yxatdan o'tkazish"""
+    clean_name = character_name.strip()
+    if await is_character_name_taken(session, clean_name):
+        raise ValueError(f"'{clean_name}' nomi allaqachon band qilingan!")
+
+    members_count = await get_house_members_count(session, house_id)
+    if members_count >= 5:
+        raise ValueError("Bu xonadon to'lgan! Maksimal 5 nafar o'yinchi bo'lishi mumkin.")
+
     shield_expiry = datetime.utcnow() + timedelta(hours=PEACE_SHIELD_HOURS)
     today_str = datetime.utcnow().strftime("%Y-%m-%d")
 
     # Xonadonda Lord bormi? Agar bo'lmasa, birinchi o'yinchi Lord (King) bo'ladi
     house = await session.get(models.House, house_id)
     is_first_lord = False
-    if house and (house.lord_user_id is None or house.lord_user_id == 0):
+    if house and (house.lord_user_id is None or house.lord_user_id == 0 or members_count == 0):
         is_first_lord = True
 
-    user_rank = "king" if is_first_lord else "member"
+    user_rank = "king" if is_first_lord else get_rank_for_member_index(members_count)
 
     user = models.User(
         telegram_id=telegram_id,
@@ -132,7 +163,7 @@ async def create_user(
     hero = models.Character(
         user_id=user.id,
         house_id=house_id,
-        name=character_name,
+        name=clean_name,
         level=1,
         attack=50,
         defense=50,
@@ -169,8 +200,16 @@ async def join_house(
     if not house:
         raise ValueError(f"House with id {house_id} not found")
 
-    is_first_lord = (house.lord_user_id is None or house.lord_user_id == 0)
-    user_rank = "king" if is_first_lord else "member"
+    members_count = await get_house_members_count(session, house_id)
+    if members_count >= 5:
+        raise ValueError("Bu xonadon to'lgan! Maksimal 5 nafar o'yinchi bo'lishi mumkin.")
+
+    clean_name = character_name.strip()
+    if await is_character_name_taken(session, clean_name, exclude_user_id=user.id):
+        raise ValueError(f"'{clean_name}' nomi allaqachon band qilingan!")
+
+    is_first_lord = (house.lord_user_id is None or house.lord_user_id == 0 or members_count == 0)
+    user_rank = "king" if is_first_lord else get_rank_for_member_index(members_count)
 
     user.house_id = house_id
     user.rank = user_rank
@@ -213,12 +252,12 @@ async def join_house(
     char = char_res.scalar_one_or_none()
     if char:
         char.house_id = house_id
-        char.name = character_name
+        char.name = clean_name
     else:
         char = models.Character(
             user_id=user.id,
             house_id=house_id,
-            name=character_name,
+            name=clean_name,
             level=1,
             attack=50,
             defense=50,
@@ -307,6 +346,16 @@ async def get_house_members_count(session: AsyncSession, house_id: int) -> int:
         select(func.count(models.User.id)).where(models.User.house_id == house_id)
     )
     return result.scalar() or 0
+
+
+async def get_all_houses_member_counts(session: AsyncSession) -> Dict[int, int]:
+    """Barcha xonadonlardagi faol a'zolar sonini qaytarish {house_id: count}"""
+    result = await session.execute(
+        select(models.User.house_id, func.count(models.User.id))
+        .where(models.User.house_id.isnot(None))
+        .group_by(models.User.house_id)
+    )
+    return {row[0]: row[1] for row in result.all()}
 
 
 # ============================================================

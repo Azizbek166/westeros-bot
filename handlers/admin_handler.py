@@ -28,6 +28,14 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(user_id):
         await query.answer("❌ Administrator huquqi talab etiladi!", show_alert=True)
         return
+    try:
+        from core.notifier import notify_owner
+        await notify_owner(
+            context.application,
+            f"⚙️ *ADMIN HARAKATI:*\n👤 Admin: *{escape_md(query.from_user.full_name)}* (`{user_id}`)\n📌 Panel ochildi: `⚙️ Admin Paneli`"
+        )
+    except Exception:
+        pass
     await show_admin_dashboard(query, is_message=False)
 
 

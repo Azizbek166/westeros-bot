@@ -1,3 +1,4 @@
+from typing import Optional, Dict
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from data.houses_data import HOUSES_DATA
 from data.map_data import REGIONS_DATA, TERRITORIES_DATA
@@ -86,14 +87,18 @@ def regions_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(buttons)
 
 
-def houses_in_region_keyboard(region_name: str) -> InlineKeyboardMarkup:
-    """Tanlangan mintaqadagi xonadonlar ro'yxati"""
+def houses_in_region_keyboard(region_name: str, member_counts: Optional[Dict[int, int]] = None) -> InlineKeyboardMarkup:
+    """Tanlangan mintaqadagi xonadonlar ro'yxati (a'zolar soni ko'rsatiladi, max 5)"""
     buttons = []
+    member_counts = member_counts or {}
     for h_code, h_info in HOUSES_DATA.items():
         if h_info["region"] == region_name and not h_info.get("is_npc", False):
+            h_id = h_info.get("id", 0)
+            count = member_counts.get(h_id, 0)
+            count_label = f"({count}/5)" if count < 5 else "(5/5 To'lgan)"
             buttons.append([
                 InlineKeyboardButton(
-                    f"{h_info['emoji']} {h_info['name']}",
+                    f"{h_info['emoji']} {h_info['name']} {count_label}",
                     callback_data=f"sel_house:{h_code}"
                 )
             ])

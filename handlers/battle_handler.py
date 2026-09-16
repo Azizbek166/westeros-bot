@@ -1015,6 +1015,12 @@ async def handle_battle_text_input(update: Update, context: ContextTypes.DEFAULT
     if not update.message or not update.message.text:
         return
 
+    # Agar foydalanuvchi qahramon nomini kiritayotgan bo'lsa
+    if context.user_data.get("awaiting_custom_name"):
+        from handlers.start_handler import handle_custom_name_input
+        await handle_custom_name_input(update, context)
+        return
+
     text = update.message.text.strip()
     user_id = update.effective_user.id
 

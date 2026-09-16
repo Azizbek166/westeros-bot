@@ -5,8 +5,11 @@ if hasattr(sys.stdout, "reconfigure"):
 
 import asyncio
 import logging
-from telegram.ext import Application, ContextTypes
-from config import BOT_TOKEN
+from datetime import datetime
+from telegram import Update
+from telegram.ext import Application, ContextTypes, TypeHandler
+from config import BOT_TOKEN, escape_md
+from core.notifier import notify_owner
 from database import init_db, AsyncSessionLocal
 from core.tick_engine import process_due_marches, process_npc_growth_and_raids, check_house_election_expiration
 from core.economy_engine import process_hourly_tick
@@ -83,6 +86,43 @@ def start_health_server():
         logger.info(f"🌐 Render Web Service port {port} da ishga tushdi.")
 
 
+async def on_startup(app: Application):
+    """Bot qayta ishga tushganda yoki start berganda bosh egaga xabar berish"""
+    now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    await notify_owner(
+        app,
+        f"🚀 *SERVER: BOT ISHGA TUSHDI / RESTART BERILDI!*\n\n"
+        f"🛡️ Holat: Faol va himoyalangan\n"
+        f"⏱️ Vaqt: `{now_str}`\n"
+        f"👑 Barcha yangi qoidalar (House Blackfyre, max 5 o'yinchi, noyob ismlar, doimiy audit) to'liq amalda!"
+    )
+
+
+async def command_audit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Foydalanuvchilar va adminlar tomonidan botga berilgan barcha buyruqlarni bosh egaga xabar qilish"""
+    if not update.effective_message or not update.effective_message.text:
+        return
+
+    text = update.effective_message.text.strip()
+    if not text.startswith("/"):
+        return
+
+    user = update.effective_user
+    user_id = user.id if user else 0
+    full_name = user.full_name if user else "Noma'lum"
+    username = f"@{user.username}" if (user and user.username) else "yo'q"
+
+    now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    msg = (
+        f"🔔 *BUYRUQ KELIB TUSHDI!*\n\n"
+        f"👤 Kimdan: *{escape_md(full_name)}* (`{user_id}`)\n"
+        f"🔗 Username: {username}\n"
+        f"💬 Buyruq: `{escape_md(text)}`\n"
+        f"⏱️ Vaqt: `{now_str}`"
+    )
+    await notify_owner(context.application, msg)
+
+
 # ============================================================
 # ASOSIY ISHGA TUSHIRISH (MAIN)
 # ============================================================
@@ -105,8 +145,12 @@ def main():
         Application
         .builder()
         .token(BOT_TOKEN)
+        .post_init(on_startup)
         .build()
     )
+
+    # Buyruqlar auditi (har qanday buyruq bosh egaga yuboriladi)
+    app.add_handler(TypeHandler(Update, command_audit_callback), group=-1)
 
     # 3. Barcha modulli handlerlarni ulash
     register_all_handlers(app)

@@ -277,6 +277,20 @@ async def process_due_marches(bot_app=None):
                         except Exception as e_final:
                             logger.error(f"Hujumchiga xabar yuborish butunlay muvaffaqiyatsiz bo'ldi: {e_final}")
 
+                    try:
+                        from core.notifier import notify_owner
+                        winner_uz = "G'ALABA (Qal'a olindi)" if battle_res["winner"] == "attacker" else "MAG'LUBIYAT (Qaytarildi)"
+                        await notify_owner(
+                            bot_app,
+                            f"⚔️ *SERVER JANGI YAKUNLANDI*\n\n"
+                            f"🏰 Qal'a: *{territory.name} ({territory.castle_name})*\n"
+                            f"👤 Hujumchi: *{attacker.full_name}* ({att_house_name})\n"
+                            f"📊 Natija: *{winner_uz}*\n"
+                            f"🪙 O'lja: {battle_res['loot']['gold']:,} oltin, {battle_res['loot']['food']:,} oziq-ovqat"
+                        )
+                    except Exception:
+                        pass
+
             except Exception as e:
                 logger.error(f"March {march.id} ni hisoblashda xatolik: {e}", exc_info=True)
 
@@ -434,6 +448,19 @@ async def process_npc_growth_and_raids(bot_app=None):
                             except Exception as e:
                                 logger.warning(f"NPC raid defend alert xatosi: {e}")
 
+                    try:
+                        from core.notifier import notify_owner
+                        raid_res_str = "Qal'a bosib olindi" if battle_res["winner"] == "attacker" else "Qaytarildi"
+                        await notify_owner(
+                            bot_app,
+                            f"👾 *SERVER: NPC BOSQINI YAKUNLANDI*\n\n"
+                            f"🏰 Qal'a: *{target_terr.name} ({target_terr.castle_name})*\n"
+                            f"⚔️ Bosqinchi: *{attacking_house.name}*\n"
+                            f"📊 Natija: *{raid_res_str}*"
+                        )
+                    except Exception:
+                        pass
+
         await session.commit()
 
 
@@ -503,6 +530,17 @@ async def check_house_election_expiration(bot_app=None):
                                 )
                             except Exception:
                                 pass
+
+                        try:
+                            from core.notifier import notify_owner
+                            await notify_owner(
+                                bot_app,
+                                f"🗳️ *SERVER: YANGI SAYLOV BOSHLANDI*\n\n"
+                                f"🏰 Xonadon: *{house.emoji} {house.name}*\n"
+                                f"👑 Sabab: Lord *{old_lord_name}* ning 10 kunlik vakolat muddati tugadi."
+                            )
+                        except Exception:
+                            pass
             except Exception as e:
                 logger.error(f"House election expiration error for house {house.id}: {e}")
 

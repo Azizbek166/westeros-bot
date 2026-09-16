@@ -141,6 +141,12 @@ async def init_db():
                     is_npc=h_info.get("is_npc", False),
                 )
                 session.add(new_house)
+            elif result.id == 15 and "Blackfyre" in h_info["name"] and result.name != h_info["name"]:
+                result.name = h_info["name"]
+                result.emoji = h_info["emoji"]
+                result.code = h_code
+                result.description = h_info.get("description", "")
+                result.special_troop_name = h_info.get("special_troop", "Blackfyre Dragonblades")
 
         # Hududlarni kiritish
         for t_code, t_info in TERRITORIES_DATA.items():

@@ -19,7 +19,7 @@ HOUSE_CHARACTERS = {
 
     "targaryen": ["Daenerys Targaryen", "Aegon Targaryen", "Daemon Targaryen", "Rhaenyra Targaryen"],
     "velaryon": ["Corlys Velaryon", "Rhaenys Velaryon", "Laenor Velaryon"],
-    "celtigar": ["Bartimos Celtigar", "Crispin Celtigar"],
+    "blackfyre": ["Daemon I Blackfyre", "Aegor Rivers (Bittersteel)", "Daemon II Blackfyre", "Haegon Blackfyre", "Maelys the Monstrous"],
     "darklyn": ["Denys Darklyn", "Steffon Darklyn"],
 
     "tyrell": ["Olenna Tyrell", "Margaery Tyrell", "Loras Tyrell", "Mace Tyrell", "Willas Tyrell"],
