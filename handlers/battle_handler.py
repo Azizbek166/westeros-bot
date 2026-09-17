@@ -137,8 +137,26 @@ async def show_battle_hub(target, user_id: int, is_message: bool):
         buttons.append([InlineKeyboardButton("🔄 Vaqtni Yangilash", callback_data="menu_battle")])
         buttons.append([InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")])
 
+        # Urush holati
+        war_status = await crud.get_war_status(session)
+        if war_status["is_active"]:
+            rem_info = ""
+            if war_status.get("remaining_seconds") is not None and war_status["remaining_seconds"] > 0:
+                rem_h = war_status["remaining_seconds"] // 3600
+                rem_m = (war_status["remaining_seconds"] % 3600) // 60
+                rem_s = war_status["remaining_seconds"] % 60
+                t_str = f"{rem_h} soat {rem_m} daq" if rem_h > 0 else f"{rem_m} daq {rem_s} soniya"
+                rem_info = f" (⏱️ Qolgan vaqt: **{t_str}**)"
+            war_banner = f"🟢 ⚔️ **HARBIY HOLAT: URUSH REJIMI OCHIQ!**{rem_info}\n*Barcha qal'alarga yurishlar va qamallar faol!*\n"
+        else:
+            war_banner = (
+                "🕊️ 🛑 **SULH DAVRI: URUSH REJIMI VAQTINCHA YOPIQ!**\n"
+                "*Qirol farmoniga binoan o'zaro urushlar to'xtatilgan. Hozirda dushman qal'alariga hujum qilib bo'lmaydi. Armiyangizni mustahkamlang!*\n"
+            )
+
         text = (
             f"🛡️ **HARBIY AMALIYOTLAR MARKAZI**\n\n"
+            f"{war_banner}\n"
             f"🚩 **BIZNING YURISHLAR:**\n{march_text}\n"
         )
         if incoming_text:
@@ -294,6 +312,23 @@ async def render_march_prep(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
             if not user.house and user.house_id:
                 user.house = await session.get(models.House, user.house_id)
+
+            # Urush holati tekshiruvi (Sulh davrida hujum qilib bo'lmaydi)
+            war_status = await crud.get_war_status(session)
+            if not war_status["is_active"]:
+                if query:
+                    await query.answer("🕊️ Hozirda Vesterosda sulh davri! Urush rejimi yopiq.", show_alert=True)
+                await safe_reply(
+                    "🕊️ **HOZIRDA VESTEROSDA SULH DAVRI!**\n\n"
+                    "Qirol farmoniga ko'ra urush rejimi yopiq. Hozirda dushman qal'alariga yangi harbiy yurish jo'natib bo'lmaydi.\n\n"
+                    "🛡️ *Bu vaqtda nima qilish mumkin?*\n"
+                    "• Armiyangizni to'ldiring va yangi askarlar yollang\n"
+                    "• O'z qal'angiz devorlari va garnizonini mustahkamlang\n"
+                    "• Ajdaringizni boqing va tayyorlang\n\n"
+                    "Urush ochilishi haqida botda e'lon beriladi!",
+                    InlineKeyboardMarkup([[InlineKeyboardButton("🗺️ Xaritaga Qaytish", callback_data="menu_map")]])
+                )
+                return
 
             is_allowed, err_msg = can_attack_target(user, terr)
             if not is_allowed:
@@ -641,6 +676,12 @@ async def send_custom_march_callback(update: Update, context: ContextTypes.DEFAU
             await query.answer("Ma'lumot topilmadi.", show_alert=True)
             return
 
+        # Urush holati tekshiruvi (Sulh davrida hujum bloklanadi)
+        war_status = await crud.get_war_status(session)
+        if not war_status["is_active"]:
+            await query.answer("🕊️ Hozirda Vesterosda sulh davri! Urush rejimi yopiq. Hujum jo'natib bo'lmaydi.", show_alert=True)
+            return
+
         is_allowed, err_msg = can_attack_target(user, terr)
         if not is_allowed:
             await query.answer(err_msg, show_alert=True)
@@ -783,6 +824,12 @@ async def send_march_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         if not user or not terr:
             await query.answer("Ma'lumot topilmadi.", show_alert=True)
+            return
+
+        # Urush holati tekshiruvi (Sulh davrida hujum bloklanadi)
+        war_status = await crud.get_war_status(session)
+        if not war_status["is_active"]:
+            await query.answer("🕊️ Hozirda Vesterosda sulh davri! Urush rejimi yopiq. Hujum jo'natib bo'lmaydi.", show_alert=True)
             return
 
         is_allowed, err_msg = can_attack_target(user, terr)

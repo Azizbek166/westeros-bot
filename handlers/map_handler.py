@@ -141,7 +141,11 @@ async def view_territory_callback(update: Update, context: ContextTypes.DEFAULT_
             if not st_dragon:
                 buttons.append([InlineKeyboardButton("🐉 Ittifoqchi Qal'aga Ajdar Yuborish", callback_data=f"def_station_dragon:{terr.id}")])
         else:
-            buttons.append([InlineKeyboardButton("⚔️ Ushbu Qal'aga Yurish Qilish", callback_data=f"march_prep:{terr.id}")])
+            war_st = await crud.get_war_status(session)
+            if war_st["is_active"]:
+                buttons.append([InlineKeyboardButton("⚔️ Ushbu Qal'aga Yurish Qilish", callback_data=f"march_prep:{terr.id}")])
+            else:
+                buttons.append([InlineKeyboardButton("🕊️ Sulh Davri (Urush Yopiq)", callback_data="war_closed_notice")])
 
         buttons.append([InlineKeyboardButton("🔙 Xaritaga Qaytish", callback_data="menu_map")])
 
@@ -620,6 +624,16 @@ async def def_custom_with_callback(update: Update, context: ContextTypes.DEFAULT
     await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
 
 
+async def war_closed_notice_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Urush yopiqligi haqida alert ko'rsatish"""
+    query = update.callback_query
+    await query.answer(
+        "🕊️ Hozirda Vesterosda sulh davri! Urush rejimi vaqtincha yopiq.\n"
+        "Qirol urushni ochmaguncha dushman qal'alariga hujum qilib bo'lmaydi.",
+        show_alert=True
+    )
+
+
 def register_map_handlers(app):
     app.add_handler(CommandHandler("map", map_command))
     app.add_handler(CommandHandler("territory", map_command))
@@ -638,3 +652,4 @@ def register_map_handlers(app):
     app.add_handler(CallbackQueryHandler(def_station_dragon_callback, pattern="^def_station_dragon:"))
     app.add_handler(CallbackQueryHandler(def_recall_dragon_callback, pattern="^def_recall_dragon:"))
     app.add_handler(CallbackQueryHandler(terr_dragon_info_callback, pattern="^terr_dragon_info$"))
+    app.add_handler(CallbackQueryHandler(war_closed_notice_callback, pattern="^war_closed_notice$"))

@@ -2422,6 +2422,21 @@ async def reject_pvp_duel(session: AsyncSession, duel_id: int, user_tg_or_id: in
 # RAVEN MAIL CRUD
 # ============================================================
 
+MAX_DAILY_RAVEN_GOLD = 5000
+
+
+async def get_daily_raven_gold_sent(session: AsyncSession, user_id: int) -> int:
+    """Foydalanuvchining bugun qarg'alar orqali yuborgan jami oltini"""
+    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    res = await session.execute(
+        select(func.sum(models.RavenMessage.gold_attached)).where(
+            models.RavenMessage.sender_id == user_id,
+            models.RavenMessage.created_at >= today_start,
+        )
+    )
+    return res.scalar() or 0
+
+
 async def send_raven(
     session: AsyncSession,
     sender_id: int,
@@ -2429,13 +2444,28 @@ async def send_raven(
     text: str,
     gold: int = 0,
 ) -> Tuple[bool, str, Optional[int]]:
-    """Qarg'a orqali xat va oltin jo'natish"""
+    """Qarg'a orqali xat va oltin jo'natish (kunlik max 5,000 oltin limiti bilan)"""
     sender = await get_user_any(session, sender_id)
     if not sender:
         return False, "Foydalanuvchi topilmadi.", None
 
-    if gold > 0 and sender.gold < gold:
-        return False, "Xatga biriktirish uchun yetarli oltiningiz yo'q!", None
+    if gold < 0:
+        return False, "Oltin miqdori musbat bo'lishi kerak!", None
+
+    if gold > 0:
+        if sender.gold < gold:
+            return False, "Xatga biriktirish uchun yetarli oltiningiz yo'q!", None
+
+        already_sent = await get_daily_raven_gold_sent(session, sender.id)
+        if already_sent + gold > MAX_DAILY_RAVEN_GOLD:
+            remaining = max(0, MAX_DAILY_RAVEN_GOLD - already_sent)
+            return (
+                False,
+                f"❌ Kunlik qarg'a orqali oltin jo'natish limiti: {MAX_DAILY_RAVEN_GOLD:,}🪙 oltin!\n"
+                f"Bugun jo'natilgan: {already_sent:,}🪙\n"
+                f"Siz yana ko'pi bilan {remaining:,}🪙 yuborishingiz mumkin.",
+                None,
+            )
 
     # Qabul qiluvchini qidirish
     recipient = None
@@ -2947,6 +2977,151 @@ async def get_player_conquered_castles_summary(session: AsyncSession) -> Dict[st
         "players": sorted_players,
         "castles_overview": all_castles_overview,
     }
+
+
+# ============================================================
+# WAR MODE / HARBIY HOLAT CRUD
+# ============================================================
+
+async def get_or_create_war_event(session: AsyncSession) -> models.EventState:
+    """'war_mode' EventState yozuvini olish yoki yaratish"""
+    res = await session.execute(
+        select(models.EventState).where(models.EventState.event_name == "war_mode")
+    )
+    ev = res.scalar_one_or_none()
+    if not ev:
+        ev = models.EventState(
+            event_name="war_mode",
+            data_json=json.dumps({
+                "auto_close_at": None,
+                "duration_hours": None,
+                "opened_by": None,
+                "opened_at": None,
+                "closed_at": None,
+            }),
+            is_active=False,  # Standart holat: Sulh (Urush yopiq)
+            started_at=datetime.utcnow(),
+        )
+        session.add(ev)
+        await session.commit()
+    return ev
+
+
+async def get_war_status(session: AsyncSession) -> Dict[str, Any]:
+    """Joriy urush holatini olish (muddati o'tgan bo'lsa avto-yopish)"""
+    ev = await get_or_create_war_event(session)
+    data = {}
+    try:
+        data = json.loads(ev.data_json or "{}")
+    except Exception:
+        data = {}
+
+    is_active = bool(ev.is_active)
+    auto_close_str = data.get("auto_close_at")
+    auto_close_at = None
+    remaining_seconds = None
+
+    if auto_close_str:
+        try:
+            auto_close_at = datetime.fromisoformat(auto_close_str)
+            now = datetime.utcnow()
+            diff = (auto_close_at - now).total_seconds()
+            if diff <= 0 and is_active:
+                # Muddat o'tgan, urushni yopamiz
+                ev.is_active = False
+                data["closed_at"] = now.isoformat()
+                data["auto_close_at"] = None
+                ev.data_json = json.dumps(data)
+                await session.commit()
+                is_active = False
+                remaining_seconds = 0
+            else:
+                remaining_seconds = max(0, int(diff))
+        except Exception:
+            auto_close_at = None
+
+    return {
+        "is_active": is_active,
+        "auto_close_at": auto_close_at,
+        "remaining_seconds": remaining_seconds,
+        "duration_hours": data.get("duration_hours"),
+        "opened_by": data.get("opened_by"),
+        "opened_at": data.get("opened_at"),
+        "closed_at": data.get("closed_at"),
+        "started_at": ev.started_at,
+    }
+
+
+async def set_war_status(
+    session: AsyncSession,
+    is_active: bool,
+    duration_hours: Optional[float] = None,
+    opened_by: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Urush holatini yoqish yoki o'chirish"""
+    ev = await get_or_create_war_event(session)
+    now = datetime.utcnow()
+    data = {}
+    try:
+        data = json.loads(ev.data_json or "{}")
+    except Exception:
+        data = {}
+
+    if is_active:
+        ev.is_active = True
+        ev.started_at = now
+        data["opened_by"] = opened_by
+        data["opened_at"] = now.isoformat()
+        data["closed_at"] = None
+        if duration_hours and duration_hours > 0:
+            auto_close = now + timedelta(hours=duration_hours)
+            data["auto_close_at"] = auto_close.isoformat()
+            data["duration_hours"] = duration_hours
+        else:
+            data["auto_close_at"] = None
+            data["duration_hours"] = None
+    else:
+        ev.is_active = False
+        data["closed_at"] = now.isoformat()
+        data["auto_close_at"] = None
+        data["duration_hours"] = None
+
+    ev.data_json = json.dumps(data)
+    await session.commit()
+    return await get_war_status(session)
+
+
+async def extend_war_duration(
+    session: AsyncSession,
+    additional_hours: float = 1.0,
+) -> Dict[str, Any]:
+    """Ochiq urush vaqtini uzaytirish"""
+    ev = await get_or_create_war_event(session)
+    if not ev.is_active:
+        return await get_war_status(session)
+
+    now = datetime.utcnow()
+    data = {}
+    try:
+        data = json.loads(ev.data_json or "{}")
+    except Exception:
+        data = {}
+
+    current_close_str = data.get("auto_close_at")
+    base_time = now
+    if current_close_str:
+        try:
+            cur_dt = datetime.fromisoformat(current_close_str)
+            if cur_dt > now:
+                base_time = cur_dt
+        except Exception:
+            base_time = now
+
+    new_close = base_time + timedelta(hours=additional_hours)
+    data["auto_close_at"] = new_close.isoformat()
+    ev.data_json = json.dumps(data)
+    await session.commit()
+    return await get_war_status(session)
 
 
 

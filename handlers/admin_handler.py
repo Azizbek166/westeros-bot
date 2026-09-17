@@ -67,12 +67,25 @@ async def show_admin_dashboard(target, is_message: bool):
             ww_data = json.loads(ww_event.data_json)
             ww_hp = f"{ww_data.get('hp', 250000):,}"
 
+        # Urush holati
+        war_st = await crud.get_war_status(session)
+        if war_st["is_active"]:
+            rem_str = ""
+            if war_st.get("remaining_seconds") is not None and war_st["remaining_seconds"] > 0:
+                rem_h = war_st["remaining_seconds"] // 3600
+                rem_m = (war_st["remaining_seconds"] % 3600) // 60
+                rem_str = f" ({rem_h}s {rem_m}d qoldi)" if rem_h > 0 else f" ({rem_m} daq qoldi)"
+            war_status_str = f"🟢 Ochiq (Urush ketmoqda){rem_str}"
+        else:
+            war_status_str = "🔴 Yopiq (Sulh davri)"
+
         text = (
             f"👑 **WESTEROS OLIY ADMINISTRATOR PANELI**\n\n"
             f"📊 **SERVER STATISTIKASI:**\n"
             f"• 👥 Jami Lordlar: **{total_users}** ta\n"
             f"• 🪙 Umumiy Xazina: **{total_gold:,}** oltin\n"
             f"• ⚔️ Faol Yurishlar: **{active_marches}** ta\n"
+            f"• ⚔️ Harbiy Holat: **{war_status_str}**\n"
             f"• 🐉 Tirik Ajdarlar: **{total_dragons}** ta\n"
             f"• ❄️ Tun Qiroli HP: **{ww_hp}** / 250,000\n\n"
             f"Boshqaruv bo'limini tanlang:"
@@ -85,6 +98,7 @@ async def show_admin_dashboard(target, is_message: bool):
             [InlineKeyboardButton("🏰 Xonadonlar va G'aznalar", callback_data="admin_houses_list")],
             [InlineKeyboardButton("🏯 Qalalar va Mintaqalar (Castles)", callback_data="admin_castles_list:0")],
             [InlineKeyboardButton("🏆 Egallangan Qal'alar (O'yinchilar bo'yicha)", callback_data="admin_player_castles:0")],
+            [InlineKeyboardButton("⚔️ Harbiy Holat & Urush Boshqaruvi", callback_data="admin_war_control")],
             [InlineKeyboardButton("🐉 Barcha Ajdarlar (Dragon Manager)", callback_data="admin_dragons_list:0")],
             [InlineKeyboardButton("❄️ Global Hodisalar & Tun Qiroli", callback_data="admin_events_menu")],
             [InlineKeyboardButton("🎁 Barchaga Ommaviy Sovg'a (+2000🪙)", callback_data="admin_mass_gift")],
@@ -1060,6 +1074,237 @@ async def admin_event_action_callback(update: Update, context: ContextTypes.DEFA
     except Exception:
         pass
     await show_admin_dashboard(query, is_message=False)
+
+
+# ============================================================
+# WAR MODE / HARBIY HOLAT BOSHQARUVI
+# ============================================================
+
+async def admin_war_control_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin paneli: Urush rejimini boshqarish menyusi"""
+    query = update.callback_query
+    if query:
+        try:
+            await query.answer()
+        except Exception:
+            pass
+
+    user_id = update.effective_user.id
+    if not is_admin(user_id):
+        return
+
+    async with AsyncSessionLocal() as session:
+        war_st = await crud.get_war_status(session)
+
+    is_active = war_st["is_active"]
+    rem_seconds = war_st.get("remaining_seconds")
+
+    if is_active:
+        status_line = "🟢 **URUSH REJIMI: FAOLLASHTIRILGAN (OCHIQ)**"
+        attack_line = "⚔️ Qal'alarga hujumlar: **OCHIQ (Ruxsat berilgan)**"
+        if rem_seconds is not None and rem_seconds > 0:
+            rem_h = rem_seconds // 3600
+            rem_m = (rem_seconds % 3600) // 60
+            rem_s = rem_seconds % 60
+            t_str = f"{rem_h} soat {rem_m} daqiqa" if rem_h > 0 else f"{rem_m} daqiqa {rem_s} soniya"
+            timer_line = f"⏱️ Qolgan vaqt: **{t_str}**"
+        else:
+            timer_line = "⏱️ Muddat: **Cheksiz (Admin tomonidan qo'lda yopiladi)**"
+    else:
+        status_line = "🔴 **URUSH REJIMI: TO'XTATILGAN (SULH / TINCHLIK)**"
+        attack_line = "🕊️ Qal'alarga hujumlar: **BLOKLANGAN (Taqiqlangan)**"
+        timer_line = "⏱️ Holat: **Tinchlik davri amal qilmoqda**"
+
+    opened_at_str = war_st.get("opened_at") or "Noma'lum"
+    if "T" in opened_at_str:
+        opened_at_str = opened_at_str.replace("T", " ")[:16] + " UTC"
+
+    text = (
+        f"⚔️ **WESTEROS HARBIY HOLAT & URUSH BOSHQARUVI**\n\n"
+        f"📊 **JORIY HOLAT:**\n"
+        f"• {status_line}\n"
+        f"• {attack_line}\n"
+        f"• {timer_line}\n"
+        f"• 🕒 So'nggi o'zgarish: `{opened_at_str}`\n\n"
+        f"📜 **QOIDALAR VA QO'LLANMA:**\n"
+        f"• **Urush Ochiq:** Barcha o'yinchilar dushman qal'alariga harbiy yurish qila oladi.\n"
+        f"• **Urush Yopiq:** O'yinchilar qal'alarga hujum qila olmaydi. Faqat askar yollash, o'z qal'asini mustahkamlash va tayyorgarlik ko'rish mumkin.\n"
+        f"• **Taymer bilan ochish:** Belgilangan vaqt (masalan: 2 soat) tugashi bilan bot avtomatik urushni yopadi va sulh e'lonini barcha o'yinchilarga jo'natadi!\n\n"
+        f"Kerakli amalni tanlang:"
+    )
+
+    buttons = []
+    if not is_active:
+        # Urush yopiq - ochish tugmalari
+        buttons.append([
+            InlineKeyboardButton("⏱️ 2 Soatga Ochish (Tavsiya)", callback_data="adm_war_set:2.0:bcast"),
+        ])
+        buttons.append([
+            InlineKeyboardButton("⏱️ 1 Soatga", callback_data="adm_war_set:1.0:bcast"),
+            InlineKeyboardButton("⏱️ 3 Soatga", callback_data="adm_war_set:3.0:bcast"),
+            InlineKeyboardButton("⏱️ 4 Soatga", callback_data="adm_war_set:4.0:bcast"),
+        ])
+        buttons.append([
+            InlineKeyboardButton("🟢 Doimiy Ochish (Qo'lda yopiladi)", callback_data="adm_war_set:0:bcast"),
+        ])
+        buttons.append([
+            InlineKeyboardButton("🔕 E'lonsiz (Jimjit) 2 Soatga Ochish", callback_data="adm_war_set:2.0:silent"),
+        ])
+    else:
+        # Urush ochiq - yopish va uzaytirish tugmalari
+        buttons.append([
+            InlineKeyboardButton("🔴 Urushni Yopish (Sulh e'lon qilish)", callback_data="adm_war_set:off:bcast"),
+        ])
+        buttons.append([
+            InlineKeyboardButton("🔕 Jimjit Yopish (E'lonsiz)", callback_data="adm_war_set:off:silent"),
+        ])
+        buttons.append([
+            InlineKeyboardButton("➕ 1 Soat Uzaytirish", callback_data="adm_war_add:1.0"),
+            InlineKeyboardButton("➕ 2 Soat Uzaytirish", callback_data="adm_war_add:2.0"),
+        ])
+        buttons.append([
+            InlineKeyboardButton("📢 Urush E'lonini Hamma O'yinchilarga Yuborish", callback_data="adm_war_bcast_now"),
+        ])
+
+    buttons.append([
+        InlineKeyboardButton("🔄 Yangilash", callback_data="admin_war_control"),
+        InlineKeyboardButton("🔙 Admin Panel", callback_data="admin_panel"),
+    ])
+
+    markup = InlineKeyboardMarkup(buttons)
+    if query and query.message:
+        try:
+            await query.edit_message_text(text, parse_mode="Markdown", reply_markup=markup)
+        except Exception:
+            clean = text.replace("*", "").replace("_", "").replace("`", "")
+            await query.edit_message_text(clean, parse_mode=None, reply_markup=markup)
+    elif update.message:
+        await update.message.reply_text(text, parse_mode="Markdown", reply_markup=markup)
+
+
+async def admin_war_action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Urush rejimini o'zgartirish callback handler"""
+    query = update.callback_query
+    data = query.data
+    user_id = query.from_user.id
+    if not is_admin(user_id):
+        await query.answer("❌ Siz admin emassiz!", show_alert=True)
+        return
+
+    alert_msg = ""
+    async with AsyncSessionLocal() as session:
+        if data.startswith("adm_war_set:"):
+            parts = data.split(":")
+            mode = parts[1]
+            bcast = parts[2] if len(parts) > 2 else "bcast"
+
+            if mode == "off":
+                await crud.set_war_status(session, is_active=False, opened_by=user_id)
+                alert_msg = "✅ Urush to'xtatildi! Vesterosda sulh davri boshlandi."
+                if bcast == "bcast":
+                    bcast_text = (
+                        "🕊️ **QIROL FARMONI: UMUMIY SULH (TINCHLIK) E'LON QILINDI!**\n\n"
+                        "Qirolning oliy farmoniga ko'ra Vesterosda harbiy harakatlar to'xtatildi.\n"
+                        "Barcha dushman qal'alariga hujumlar va qamallar yopildi.\n\n"
+                        "🛡️ Endi armiyangizni tiklang, don va temir to'plang, o'z qal'angiz devorlarini mustahkamlang!\n"
+                        "Keyingi harbiy yurishlar ochilishi haqida botda xabar beriladi."
+                    )
+                    users_res = await session.execute(select(models.User.telegram_id))
+                    all_ids = users_res.scalars().all()
+                    for tg_id in all_ids:
+                        try:
+                            await context.bot.send_message(chat_id=tg_id, text=bcast_text, parse_mode="Markdown")
+                        except Exception:
+                            pass
+            else:
+                hours = float(mode)
+                await crud.set_war_status(session, is_active=True, duration_hours=hours if hours > 0 else None, opened_by=user_id)
+                dur_text = f"{int(hours)} soatga" if hours > 0 else "doimiy"
+                alert_msg = f"✅ Urush rejimi {dur_text} muvaffaqiyatli ochildi!"
+                if bcast == "bcast":
+                    dur_banner = f" (⏱️ Davomiyligi: **{int(hours)} soat**)" if hours > 0 else ""
+                    bcast_text = (
+                        f"⚔️ **QIROL FARMONI: HARBIY HOLAT E'LON QILINDI!**{dur_banner}\n\n"
+                        f"Vesteros uzra urush darvozalari ochildi!\n"
+                        f"Barcha Lordlar va jangchilar o'z qo'shinlarini dushman qal'alariga yurishga jo'natishi mumkin. Qon va shon-sharaf sizniki bo'lsin! 🚩\n\n"
+                        f"*(Xaritadan dushman qal'asini tanlang va yurish boshlang!)*"
+                    )
+                    users_res = await session.execute(select(models.User.telegram_id))
+                    all_ids = users_res.scalars().all()
+                    for tg_id in all_ids:
+                        try:
+                            await context.bot.send_message(chat_id=tg_id, text=bcast_text, parse_mode="Markdown")
+                        except Exception:
+                            pass
+
+        elif data.startswith("adm_war_add:"):
+            hours = float(data.split(":")[1])
+            await crud.extend_war_duration(session, additional_hours=hours)
+            alert_msg = f"✅ Urush vaqti +{int(hours)} soatga uzaytirildi!"
+
+        elif data == "adm_war_bcast_now":
+            war_st = await crud.get_war_status(session)
+            if war_st["is_active"]:
+                rem_sec = war_st.get("remaining_seconds")
+                dur_str = ""
+                if rem_sec and rem_sec > 0:
+                    dur_str = f" (Qolgan vaqt: {rem_sec // 3600} soat {(rem_sec % 3600) // 60} daqiqa)"
+                bcast_text = (
+                    f"⚔️ **QIROL FARMONI: HARBIY HOLAT DAVOM ETMOQDA!**{dur_str}\n\n"
+                    f"Qal'alarga yurishlar davom etmoqda. O'z xonadoningiz bayrog'ini baland ko'taring!"
+                )
+                users_res = await session.execute(select(models.User.telegram_id))
+                all_ids = users_res.scalars().all()
+                for tg_id in all_ids:
+                    try:
+                        await context.bot.send_message(chat_id=tg_id, text=bcast_text, parse_mode="Markdown")
+                    except Exception:
+                        pass
+                alert_msg = "📢 Barcha o'yinchilarga urush eslatmasi yuborildi!"
+            else:
+                alert_msg = "Urush hozir yopiq."
+
+    try:
+        await query.answer(alert_msg, show_alert=True)
+    except Exception:
+        pass
+
+    await admin_war_control_callback(update, context)
+
+
+async def set_war_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/setwar on [hours] yoki /setwar off buyrug'i"""
+    user_id = update.effective_user.id
+    if not is_admin(user_id):
+        return
+
+    args = context.args
+    if not args:
+        await admin_war_control_callback(update, context)
+        return
+
+    action = args[0].lower()
+    async with AsyncSessionLocal() as session:
+        if action in ["on", "open", "start", "ochish"]:
+            hours = 2.0
+            if len(args) > 1 and args[1].replace(".", "", 1).isdigit():
+                hours = float(args[1])
+            await crud.set_war_status(session, is_active=True, duration_hours=hours if hours > 0 else None, opened_by=user_id)
+            await update.message.reply_text(
+                f"✅ **Urush rejimi {int(hours) if hours > 0 else 'cheksiz'} soatga ochildi!**\nBoshqaruv uchun `/setwar` yozing.",
+                parse_mode="Markdown"
+            )
+        elif action in ["off", "close", "stop", "yopish"]:
+            await crud.set_war_status(session, is_active=False, opened_by=user_id)
+            await update.message.reply_text(
+                "✅ **Urush to'xtatildi! Sulh rejimi faollashtirildi.**",
+                parse_mode="Markdown"
+            )
+        else:
+            await update.message.reply_text(
+                "Foydalanish: `/setwar on 2` (2 soatga ochish) yoki `/setwar off` (yopish)",
+                parse_mode="Markdown"
+            )
 
 
 # ============================================================
@@ -2249,5 +2494,8 @@ def register_admin_handlers(app):
     app.add_handler(CallbackQueryHandler(admin_broadcast_info_callback, pattern="^admin_broadcast_info$"))
     app.add_handler(CallbackQueryHandler(admin_wipe_ask_callback, pattern="^admin_wipe_ask$"))
     app.add_handler(CallbackQueryHandler(admin_wipe_confirm_callback, pattern="^admin_wipe_confirm$"))
+    app.add_handler(CommandHandler(["setwar", "warcontrol"], set_war_command))
+    app.add_handler(CallbackQueryHandler(admin_war_control_callback, pattern="^admin_war_control$"))
+    app.add_handler(CallbackQueryHandler(admin_war_action_callback, pattern="^(adm_war_set:|adm_war_add:|adm_war_bcast_now)"))
 
 

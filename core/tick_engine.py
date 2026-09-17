@@ -547,3 +547,67 @@ async def check_house_election_expiration(bot_app=None):
 
         await session.commit()
 
+
+async def check_war_mode_expiration(bot_app=None):
+    """Urush rejimi vaqti tugagan bo'lsa, uni avtomatik yopish va o'yinchilarga sulh e'lonini yuborish"""
+    try:
+        async with AsyncSessionLocal() as session:
+            ev = await session.execute(
+                select(models.EventState).where(models.EventState.event_name == "war_mode")
+            )
+            war_event = ev.scalar_one_or_none()
+            if not war_event or not war_event.is_active:
+                return
+
+            data = {}
+            try:
+                data = json.loads(war_event.data_json or "{}")
+            except Exception:
+                data = {}
+
+            auto_close_str = data.get("auto_close_at")
+            if not auto_close_str:
+                return
+
+            try:
+                auto_close_at = datetime.fromisoformat(auto_close_str)
+            except Exception:
+                return
+
+            now = datetime.utcnow()
+            if now >= auto_close_at:
+                # Muddat tugadi, urushni yopamiz
+                war_event.is_active = False
+                data["closed_at"] = now.isoformat()
+                data["auto_close_at"] = None
+                war_event.data_json = json.dumps(data)
+                await session.commit()
+
+                logger.info("⚔️ Urush vaqti tugadi. Sulh rejimi kuchga kirdi.")
+
+                if bot_app:
+                    peace_announcement = (
+                        "🕊️ **QIROL FARMONI: URUSH YAKUNLANDI (SULH BOSHLANDI)!**\n\n"
+                        "Vesteros uzra belgilangan urush vaqti nihoyasiga yetdi.\n"
+                        "Qirol farmoniga binoan barcha dushman qal'alariga hujumlar to'xtatildi!\n\n"
+                        "🛡️ *Endi nima qilish kerak?*\n"
+                        "• O'z qal'angiz mudofaasini tiklang va garnizonni to'ldiring\n"
+                        "• Yangi askarlar yollang va don/temir to'plang\n"
+                        "• Keyingi urush uchun kuch to'plang!\n\n"
+                        "Keyingi harbiy holat admin tomonidan e'lon qilinadi."
+                    )
+
+                    users_res = await session.execute(select(models.User.telegram_id))
+                    all_ids = users_res.scalars().all()
+                    for tg_id in all_ids:
+                        try:
+                            await bot_app.bot.send_message(
+                                chat_id=tg_id,
+                                text=peace_announcement,
+                                parse_mode="Markdown",
+                            )
+                        except Exception:
+                            pass
+    except Exception as e:
+        logger.error(f"check_war_mode_expiration xatosi: {e}")
+

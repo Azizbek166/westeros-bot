@@ -37,6 +37,9 @@ async def show_raven_hub(target, user_id: int, is_message: bool):
                 await target.edit_message_text(msg)
             return
 
+        already_sent = await crud.get_daily_raven_gold_sent(session, user.id)
+        rem_limit = max(0, crud.MAX_DAILY_RAVEN_GOLD - already_sent)
+
         text = (
             "🐦 **QORA QARG'ALAR QAL'ASI (XAT TIZIMI)**\n\n"
             "Vesterosning eng ishonchli pochtasi! Qarg'alar orqali boshqa lordlarga "
@@ -46,6 +49,7 @@ async def show_raven_hub(target, user_id: int, is_message: bool):
             "• Oddiy xat:\n`/xat @username Salom ittifoqdosh!`\n"
             "• Oltin bilan xat:\n`/xat @username 200 Bizga qo'shin yordami bering!`\n\n"
             f"💰 Hamyoningiz: **{user.gold:,}**🪙 oltin\n"
+            f"📦 Kunlik oltin jo'natish limiti: **{already_sent:,} / {crud.MAX_DAILY_RAVEN_GOLD:,}**🪙 (Qoldi: **{rem_limit:,}**🪙)\n"
         )
 
         buttons = [
@@ -111,6 +115,7 @@ async def raven_help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         "`/xat @foydalanuvchi_nomi Xabaringiz matni...`\n\n"
         "2️⃣ **Xat + Oltin biriktirish:**\n"
         "`/xat @foydalanuvchi_nomi 150 Qal'angizni mustahkamlash uchun sovg'a!`\n\n"
+        "⚠️ *Limit: Qarg'a orqali bir kunda jami ko'pi bilan 5,000🪙 oltin jo'natish mumkin.*\n\n"
         "💡 *Telegram ID orqali ham yuborish mumkin, masalan:*\n"
         "`/xat 123456789 Salom!`"
     )

@@ -11,7 +11,12 @@ from telegram.ext import Application, ContextTypes, TypeHandler
 from config import BOT_TOKEN, escape_md
 from core.notifier import notify_owner
 from database import init_db, AsyncSessionLocal
-from core.tick_engine import process_due_marches, process_npc_growth_and_raids, check_house_election_expiration
+from core.tick_engine import (
+    process_due_marches,
+    process_npc_growth_and_raids,
+    check_house_election_expiration,
+    check_war_mode_expiration,
+)
 from core.economy_engine import process_hourly_tick
 from handlers import register_all_handlers
 
@@ -28,11 +33,12 @@ logger = logging.getLogger(__name__)
 # ============================================================
 
 async def march_resolution_job(context: ContextTypes.DEFAULT_TYPE):
-    """Har 10 soniyada manziliga yetgan harbiy yurishlarni hisoblash"""
+    """Har 10 soniyada manziliga yetgan harbiy yurishlarni hisoblash va urush muddati tugashini tekshirish"""
     try:
         await process_due_marches(bot_app=context.application)
+        await check_war_mode_expiration(bot_app=context.application)
     except Exception as e:
-        logger.error(f"March job xatosi: {e}")
+        logger.error(f"March / war job xatosi: {e}")
 
 
 async def hourly_economy_job(context: ContextTypes.DEFAULT_TYPE):
