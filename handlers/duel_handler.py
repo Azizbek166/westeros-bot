@@ -8,10 +8,15 @@ import html
 
 
 CHAMPIONS_LIST = [
+    ("Arthur Dayne", "🗡️ Ser Arthur Dayne (Tong Qilichi)", "Afsonaviy Qirollik soqchisi, 'Dawn' qilichi sohibi"),
+    ("Jaime Lannister", "🦁 Ser Jaime Lannister (Qirol Qotili)", "Westerosning eng tezkor va epchil qilichbozi"),
+    ("Daemon Targaryen", "🐉 Shahzoda Daemon Targaryen", "Dark Sister egasi, shafqatsiz jangchi"),
+    ("Brienne of Tarth", "🛡️ Brienne of Tarth", "Matonatli, yengilmas va ulkan qalqonli jangchi"),
     ("Gregor Clegane", "💀 Ser Gregor Clegane (Tog')", "Og'ir sovutli, vahshiy qudrat egasi"),
     ("Oberyn Martell", "🐍 Oberyn Martell (Qizil Ilon)", "Zaharli nayza va chaqqon harakatlar ustasi"),
-    ("Bronn", "🗡️ Ser Bronn of the Blackwater", "Ayyor, tajribali va kutilmagan zarbalar ustasi"),
+    ("Barristan Selmy", "👑 Ser Barristan Selmy (Jasur)", "Qirollik soqchilarining eng tajribali ritsari"),
     ("Sandor Clegane", "🐕 Sandor Clegane (Tog' Iti)", "Ayovsiz qilichboz va shafqatsiz jangchi"),
+    ("Bronn", "🗡️ Ser Bronn of the Blackwater", "Ayyor, tajribali va kutilmagan zarbalar ustasi"),
 ]
 
 
@@ -41,6 +46,10 @@ async def show_duel_hub(target, user_id: int, is_message: bool):
         if not user:
             return
 
+        await crud.check_and_reset_daily_limits(session, user)
+        duel_cnt = getattr(user, "daily_duel_count", 0) or 0
+        rem_duels = max(0, 10 - duel_cnt)
+
         hero = user.characters[0] if user.characters else None
         h_name = hero.name if hero else "Lord"
         h_atk = hero.attack if hero else 50
@@ -64,11 +73,13 @@ async def show_duel_hub(target, user_id: int, is_message: bool):
             f"⚔️ **WESTEROS DUELLAR VA RITSARLAR ARENASI**\n\n"
             f"👤 Jangchingiz: **{escape_md(h_name)}**\n"
             f"⚔️ Hujum: **{h_atk}** | 🛡️ Mudofaa: **{h_def}**\n"
-            f"🪙 Xazinangiz: **{user.gold:,}** oltin\n\n"
+            f"🪙 Xazinangiz: **{user.gold:,}** oltin\n"
+            f"🎯 Bugungi duel limitingiz: **{rem_duels}/10** ta jang qoldi\n"
+            f"🎁 G'alaba mukofoti: **+500🪙 Oltin, +3 Prestige, +15 XP**\n\n"
             f"Duel turlari:\n"
             f"• 👥 **PvP:** Haqiqiy o'yinchilarga duel e'lon qilish (`/duel @username`)\n"
             f"• ⚔️ **AI Chempionlar:** Vesteros afsonalari bilan jang (bepul yoki garovli)\n"
-            f"• 🗡️ Taktika: Og'ir Zarba > Epchil Hamla > Qalqonli Mudofaa > Og'ir Zarba (+35% bonus)\n\n"
+            f"• 🗡️ Taktika: Og'ir Zarba > Epchil Hamla > Qalqonli Mudofaa > Og'ir Zarba (+45% bonus)\n\n"
             f"Jang turini tanlang:"
         )
 
@@ -159,14 +170,15 @@ async def duel_execute_callback(update: Update, context: ContextTypes.DEFAULT_TY
     won = res["won"]
     tactic_names = {"heavy": "🗡️ Og'ir Zarba", "parry": "🛡️ Qalqonli Mudofaa", "agile": "⚡ Epchil Hamla"}
 
-    if bet_gold > 0:
-        gold_line = f"🪙 Oltin: {'+' if won else '-'}{bet_gold} tanga\n"
-        prestige_line = f"🏆 Prestige: {'+30' if won else '+0'}\n"
-        xp_line = f"⭐ XP: {'+150' if won else '+40'}"
+    if won:
+        gold_line = "🪙 Oltin: **+500 tanga**\n"
+        prestige_line = "🏆 Prestige: **+3**\n"
+        xp_line = "⭐ XP: **+15 XP**"
     else:
-        gold_line = f"🪙 Oltin: {'+50 tanga (mukofot)' if won else '0 tanga'}\n"
-        prestige_line = f"🏆 Prestige: {'+15' if won else '+0'}\n"
-        xp_line = f"⭐ XP: {'+100' if won else '+25'}"
+        loss_gold = f"-{bet_gold} tanga" if bet_gold > 0 else "0 tanga"
+        gold_line = f"🪙 Oltin: **{loss_gold}**\n"
+        prestige_line = "🏆 Prestige: **+0**\n"
+        xp_line = "⭐ XP: **+5 XP**"
 
     text = (
         f"{res['outcome']}\n\n"

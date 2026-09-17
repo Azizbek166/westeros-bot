@@ -104,20 +104,52 @@ async def quest_main_do_callback(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def quest_daily_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Kunlik vazifalar ro'yxati"""
+    """Kunlik vazifalar ro'yxati va holati"""
     query = update.callback_query
     await query.answer()
 
-    text = "⭐ **BUGUNGI KUNLIK VAZIFALAR:**\n\n"
-    for q in DAILY_QUESTS:
-        text += (
-            f"**{q['title']}**\n"
-            f"_{q['description']}_\n"
-            f"🎁 Mukofot: +{q['reward_gold']}🪙, +{q.get('reward_food', 0)}🌾, +{q['reward_xp']} XP\n\n"
+    user_id = query.from_user.id
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_by_telegram_id(session, user_id)
+        if not user:
+            return
+        await crud.check_and_reset_daily_limits(session, user)
+
+        rec_cnt = getattr(user, "daily_recruit_count", 0) or 0
+        quiz_cnt = getattr(user, "daily_quiz_count", 0) or 0
+        council_cnt = getattr(user, "daily_council_count", 0) or 0
+        duel_cnt = getattr(user, "daily_duel_count", 0) or 0
+
+        rec_status = "✅ Bajarildi (+500🪙, +1,000🌾, +80 XP)" if rec_cnt >= 100 else f"⏳ Progress: **{rec_cnt}/100** ta askar"
+        quiz_status = "✅ Bajarildi (+600🪙, +300⛓️, +100 XP)" if quiz_cnt >= 5 else f"⏳ Progress: **{quiz_cnt}/5** ta savol"
+        council_status = "✅ Bajarildi (+400🪙, +800🌾, +70 XP)" if council_cnt >= 2 else f"⏳ Progress: **{council_cnt}/2** ta masala"
+        duel_status = "✅ Bajarildi (+500🪙, +15 XP)" if duel_cnt >= 3 else f"⏳ Progress: **{duel_cnt}/3** ta jang"
+
+        text = (
+            "⭐ **BUGUNGI KUNLIK VAZIFALAR VA PROGRESS:**\n\n"
+            f"1. 🛡️ **Yangi Qon (100 ta askar yollash)**\n"
+            f"   {rec_status}\n\n"
+            f"2. 📚 **Maester Saboqlari (5 ta savolga javob)**\n"
+            f"   {quiz_status}\n\n"
+            f"3. 👑 **Kengash Maslahati (2 ta masala)**\n"
+            f"   {council_status}\n\n"
+            f"4. ⚔️ **Duel Jasorati (3 ta jangda ishtirok)**\n"
+            f"   {duel_status}\n\n"
+            "Topshiriqlarni bajarish uchun quyidagi bo'limlarga o'ting:"
         )
 
-    buttons = [[InlineKeyboardButton("🔙 Questlarga Qaytish", callback_data="menu_quests")]]
-    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        buttons = [
+            [
+                InlineKeyboardButton("🛡️ Askar Yollash", callback_data="menu_army"),
+                InlineKeyboardButton("📚 Maester Saboqlari", callback_data="menu_citadel"),
+            ],
+            [
+                InlineKeyboardButton("👑 Kengash Masalasi", callback_data="menu_council"),
+                InlineKeyboardButton("⚔️ Duellar Arenasi", callback_data="menu_duel"),
+            ],
+            [InlineKeyboardButton("🔙 Questlarga Qaytish", callback_data="menu_quests")],
+        ]
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
 
 
 async def quest_secret_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -265,6 +297,16 @@ async def citadel_answer_callback(update: Update, context: ContextTypes.DEFAULT_
                 f"📊 Qolgan viktorinalar: **{max(0, DAILY_QUIZ_LIMIT - user.daily_quiz_count)}/{DAILY_QUIZ_LIMIT}**"
             )
 
+        if user.daily_quiz_count >= DAILY_QUIZ_LIMIT:
+            user.gold += 600
+            user.iron += 300
+            user.xp += 100
+            await session.commit()
+            text += (
+                "\n\n🎉 **TABRIKLAYMIZ! KUNLIK VAZIFA BAJARILDI: Maester Saboqlari (5/5)!**\n"
+                "🎁 Mukofot hisobingizga o'tkazildi: **+600🪙 Oltin, +300⛓️ Temir, +100 XP**"
+            )
+
     buttons = [
         [InlineKeyboardButton("📚 Yana Bir Savol", callback_data="menu_citadel")],
         [InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")],
@@ -344,6 +386,16 @@ async def council_answer_callback(update: Update, context: ContextTypes.DEFAULT_
                 "❌ **NOTO'G'RI QAROR!**\n\n"
                 "Bu qaror aholi orasida norozilikka sabab bo'ldi. Mukofot berilmadi.\n"
                 f"📊 Qolgan masalalar: **{max(0, DAILY_COUNCIL_LIMIT - user.daily_council_count)}/{DAILY_COUNCIL_LIMIT}**"
+            )
+
+        if user.daily_council_count >= DAILY_COUNCIL_LIMIT:
+            user.gold += 400
+            user.food += 800
+            user.xp += 70
+            await session.commit()
+            text += (
+                "\n\n🎉 **TABRIKLAYMIZ! KUNLIK VAZIFA BAJARILDI: Kengash Maslahati (2/2)!**\n"
+                "🎁 Mukofot hisobingizga o'tkazildi: **+400🪙 Oltin, +800🌾 Oziq-ovqat, +70 XP**"
             )
 
     buttons = [

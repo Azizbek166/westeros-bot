@@ -81,7 +81,7 @@ async def recruit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer(err_msg, show_alert=True)
             return
 
-        success = await crud.recruit_troops(
+        success, quest_completed = await crud.recruit_troops(
             session=session,
             user_id=user.id,
             unit_type=unit_type,
@@ -92,7 +92,10 @@ async def recruit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if success:
             unit_name = UNITS_DATA[unit_type]["name"]
-            await query.answer(f"✅ +{amount} ta {unit_name} safga qo'shildi!", show_alert=True)
+            msg = f"✅ +{amount:,} ta {unit_name} safga qo'shildi!"
+            if quest_completed:
+                msg += "\n\n🎉 TABRIKLAYMIZ! Kunlik vazifa bajarildi (100 ta askar yollash)!\n🎁 Mukofot: +500🪙 Oltin, +1,000🌾 Oziq-ovqat, +80 XP"
+            await query.answer(msg, show_alert=True)
             await show_army(query, user_id, is_message=False)
         else:
             await query.answer("❌ Xatolik yuz berdi.", show_alert=True)

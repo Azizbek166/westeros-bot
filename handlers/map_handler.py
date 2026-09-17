@@ -94,6 +94,7 @@ async def view_territory_callback(update: Update, context: ContextTypes.DEFAULT_
             dragon_info_str = f"🔥 **{st_dragon.get('dragon_name')}** (Kuch: {st_dragon.get('power')}, Egasi: {st_dragon.get('user_name')})"
 
         buttons = []
+        c_lvl = getattr(terr, "castle_level", 1) or 1
         if is_own:
             buttons.append([InlineKeyboardButton("🛡️ Qal'ani Himoya Qilish (Askar Joylash)", callback_data=f"def_rf_menu:{terr.id}")])
             buttons.append([InlineKeyboardButton("↩️ Garnizondan Askarlarni Qaytarish", callback_data=f"def_withdraw_rf:{terr.id}")])
@@ -104,7 +105,11 @@ async def view_territory_callback(update: Update, context: ContextTypes.DEFAULT_
                     buttons.append([InlineKeyboardButton("🐉 Ajdar Qo'riqlamoqda", callback_data="terr_dragon_info")])
             else:
                 buttons.append([InlineKeyboardButton("🐉 Ajdarni Mudofaaga Joylashtirish", callback_data=f"def_station_dragon:{terr.id}")])
-            buttons.append([InlineKeyboardButton("🏰 Devorni Kuchaytirish (+150 Mudofaa)", callback_data=f"upgrade_walls:{terr.id}")])
+            if c_lvl < 5:
+                c_cost_g = c_lvl * 3000
+                c_cost_i = c_lvl * 2500
+                buttons.append([InlineKeyboardButton(f"🏰 Qal'ani Kengaytirish (Tier {c_lvl+1}: {c_cost_g:,}🪙/{c_cost_i:,}⛓️)", callback_data=f"upgrade_castle:{terr.id}")])
+            buttons.append([InlineKeyboardButton("🛡️ Devorni Kuchaytirish (+150 Mudofaa)", callback_data=f"upgrade_walls:{terr.id}")])
             buttons.append([InlineKeyboardButton("💰 Qal'a Boshqaruvi & O'lpon", callback_data=f"my_c_detail:{terr.id}")])
         elif is_ally:
             buttons.append([InlineKeyboardButton(f"🤝 Qal'a Mudofaasiga Yordam Yuborish{alliance_type_str}", callback_data=f"def_rf_menu:{terr.id}")])
@@ -316,9 +321,20 @@ async def show_my_castle_detail(query, user_id: int, terr_id: int):
         g_cav = terr.garrison_cavalry or 0
         g_sp = terr.garrison_spearmen or 0
 
+        c_lvl = getattr(terr, "castle_level", 1) or 1
+        tier_names = {
+            1: "Istehkom Qal'acha (Tier 1)",
+            2: "Mustahkam Tosh Qal'a (Tier 2)",
+            3: "Ulug'vor Feodal Qasr (Tier 3)",
+            4: "Momaqaldiroq Qal'asi (Tier 4)",
+            5: "O'tib Bo'lmas Afsonaviy Qasr (Tier 5)",
+        }
+        tier_str = tier_names.get(c_lvl, f"Tier {c_lvl}")
+
         text = (
             f"🏰 **QAL'A BOSHQARUVI: {c_name}**\n\n"
             f"📍 Hudud: **{terr.name}** ({terr.region})\n"
+            f"🏛️ Qal'a Bosqichi: **{tier_str}**\n"
             f"🛡️ Mudofaa Devori: **{terr.defense or 0}** ball\n"
             f"🐉 Mudofaadagi Ajdar: **{drg_str}**\n\n"
             f"⚔️ **GARNIZON KUCHLARI:**\n"
@@ -345,7 +361,12 @@ async def show_my_castle_detail(query, user_id: int, terr_id: int):
         else:
             buttons.append([InlineKeyboardButton("🐉 Ajdarni Qal'aga Joylashtirish", callback_data=f"def_station_dragon:{terr.id}")])
 
-        buttons.append([InlineKeyboardButton("🏰 Devorni Kuchaytirish (-1,500🪙, -2,000⛓️)", callback_data=f"upgrade_walls:{terr.id}")])
+        if c_lvl < 5:
+            c_cost_g = c_lvl * 3000
+            c_cost_i = c_lvl * 2500
+            buttons.append([InlineKeyboardButton(f"🏰 Qal'ani Kengaytirish (Tier {c_lvl+1}: {c_cost_g:,}🪙/{c_cost_i:,}⛓️)", callback_data=f"upgrade_castle:{terr.id}")])
+
+        buttons.append([InlineKeyboardButton("🛡️ Devorni Kuchaytirish (-1,500🪙, -2,000⛓️)", callback_data=f"upgrade_walls:{terr.id}")])
         buttons.append([InlineKeyboardButton("🔙 Qalalarim Ro'yxati", callback_data="menu_castles")])
         buttons.append([InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")])
 
@@ -402,6 +423,19 @@ async def upgrade_walls_callback(update: Update, context: ContextTypes.DEFAULT_T
         await session.commit()
 
     await query.answer("🏰 Qal'a devorlari mustahkamlandi! (+150 Mudofaa, +50 Prestige)", show_alert=True)
+    await show_my_castle_detail(query, user_id, terr_id)
+
+
+async def upgrade_castle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Qal'a qasrini (Tier) keyingi bosqichga ko'tarish"""
+    query = update.callback_query
+    terr_id = int(query.data.split(":")[1])
+    user_id = query.from_user.id
+
+    async with AsyncSessionLocal() as session:
+        ok, msg = await crud.upgrade_castle_keep(session, user_id, terr_id)
+
+    await query.answer(msg, show_alert=True)
     await show_my_castle_detail(query, user_id, terr_id)
 
 
@@ -521,6 +555,7 @@ def register_map_handlers(app):
     app.add_handler(CallbackQueryHandler(my_castle_detail_callback, pattern="^my_c_detail:"))
     app.add_handler(CallbackQueryHandler(collect_tax_callback, pattern="^collect_tax:"))
     app.add_handler(CallbackQueryHandler(upgrade_walls_callback, pattern="^upgrade_walls:"))
+    app.add_handler(CallbackQueryHandler(upgrade_castle_callback, pattern="^upgrade_castle:"))
     app.add_handler(CallbackQueryHandler(def_withdraw_rf_callback, pattern="^def_withdraw_rf:"))
     app.add_handler(CallbackQueryHandler(def_with_act_callback, pattern="^def_with_act:"))
     app.add_handler(CallbackQueryHandler(def_custom_with_callback, pattern="^def_custom_with:"))

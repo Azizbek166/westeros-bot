@@ -77,9 +77,26 @@ async def init_db():
                 "ALTER TABLE territories ADD COLUMN last_tax_collected_at DATETIME",
                 "ALTER TABLE dragons ADD COLUMN artifact_code VARCHAR(50)",
                 "ALTER TABLE houses ADD COLUMN lord_elected_at DATETIME",
+                "ALTER TABLE users ADD COLUMN daily_duel_count INTEGER DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN daily_recruit_count INTEGER DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN grain_mill_level INTEGER DEFAULT 1",
+                "ALTER TABLE territories ADD COLUMN castle_level INTEGER DEFAULT 1",
             ]:
                 try:
                     await conn.execute(text(alter_stmt))
+                except Exception:
+                    pass
+        else:
+            # PostgreSQL (Render)
+            for pg_alter in [
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_duel_count INTEGER DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_recruit_count INTEGER DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS iron_mine_level INTEGER DEFAULT 1",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS grain_mill_level INTEGER DEFAULT 1",
+                "ALTER TABLE territories ADD COLUMN IF NOT EXISTS castle_level INTEGER DEFAULT 1",
+            ]:
+                try:
+                    await conn.execute(text(pg_alter))
                 except Exception:
                     pass
 
@@ -172,6 +189,7 @@ async def init_db():
                     garrison_cavalry=t_info.get("garrison_cavalry", 50),
                     garrison_spearmen=t_info.get("garrison_spearmen", 50),
                     is_capital=t_info.get("is_capital", False),
+                    castle_level=1,
                 )
                 session.add(new_territory)
 

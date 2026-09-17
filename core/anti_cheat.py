@@ -13,11 +13,17 @@ def can_attack_target(attacker: models.User, territory: models.Territory) -> Tup
     if attacker.house_id and attacker.house_id == territory.owner_house_id:
         return False, "❌ O'z xonadoningizga qarashli qal'aga hujum qila olmaysiz!"
 
-    # Agar xonadonning saylangan Lordi mavjud bo'lsa, yurish boshlash vakolati Lord va qo'mondonlarga tegishli
-    if attacker.house and attacker.house.lord_user_id:
-        is_commander = (attacker.house.lord_user_id == attacker.telegram_id) or attacker.rank in ["king", "hand", "general"]
-        if not is_commander:
-            return False, "❌ Harbiy yurish boshlash vakolati faqat Xonadon Lordi yoki Bosh Qo'mondonga tegishli! Lorddan safarbarlik so'rang yoki Lordlikka saylaning."
+    # Kamida 50 ta askar kerakligini tekshirish
+    if attacker.army:
+        tot_army = (
+            attacker.army.infantry
+            + attacker.army.archers
+            + attacker.army.cavalry
+            + attacker.army.spearmen
+            + attacker.army.special_troops
+        )
+        if tot_army < 50:
+            return False, "❌ Harbiy yurish boshlash uchun armiyangizda kamida 50 ta askar bo'lishi kerak!"
 
     return True, "OK"
 

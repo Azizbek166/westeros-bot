@@ -25,26 +25,29 @@ def calculate_army_upkeep(army: models.Army) -> float:
 
 
 async def calculate_hourly_income(session: AsyncSession, user: models.User) -> Dict[str, int]:
-    """O'yinchining hududlari, temir koni va bazaviy soatlik daromadlari"""
+    """O'yinchining hududlari, temir koni, don tegirmoni va bazaviy soatlik daromadlari"""
     mine_lvl = getattr(user, "iron_mine_level", 1) or 1
     mine_iron = mine_lvl * 50  # Har daraja uchun +50 temir/soat
 
+    mill_lvl = getattr(user, "grain_mill_level", 1) or 1
+    mill_food = mill_lvl * 75  # Har daraja uchun +75 oziq-ovqat/soat
+
     base_gold = 50
-    base_food = 100
+    base_food = 100 + mill_food
     base_iron = 20 + mine_iron
 
     if not user.house_id:
         return {"gold": base_gold, "food": base_food, "iron": base_iron}
 
-    # Xonadonga qarashli hududlar daromadidan ulush
+    # Xonadonga qarashli hududlar daromadidan ulush (Qal'a darajasiga ko'ra +25% bonus bilan)
     res = await session.execute(
         select(models.Territory).where(models.Territory.owner_house_id == user.house_id)
     )
     territories = res.scalars().all()
 
-    terr_gold = sum(t.gold_income for t in territories) // 5
-    terr_food = sum(t.food_income for t in territories) // 5
-    terr_iron = sum(t.iron_income for t in territories) // 5
+    terr_gold = sum(int((t.gold_income or 0) * (1.0 + (max(1, getattr(t, 'castle_level', 1) or 1) - 1) * 0.25)) for t in territories) // 5
+    terr_food = sum(int((t.food_income or 0) * (1.0 + (max(1, getattr(t, 'castle_level', 1) or 1) - 1) * 0.25)) for t in territories) // 5
+    terr_iron = sum(int((t.iron_income or 0) * (1.0 + (max(1, getattr(t, 'castle_level', 1) or 1) - 1) * 0.25)) for t in territories) // 5
 
     return {
         "gold": base_gold + terr_gold,

@@ -58,9 +58,23 @@ async def show_battle_hub(target, user_id: int, is_message: bool):
 
         # Qal'amizga bo'layotgan dushman yurishlari (incoming attacks)
         incoming_text = ""
+        inc_marches = []
         if user.house_id:
+            relevant_house_ids = [user.house_id]
+            al_res = await session.execute(
+                select(models.Alliance).where(
+                    models.Alliance.status == "active",
+                    (models.Alliance.house_a_id == user.house_id) | (models.Alliance.house_b_id == user.house_id)
+                )
+            )
+            alliances = al_res.scalars().all()
+            for al in alliances:
+                ally_id = al.house_b_id if al.house_a_id == user.house_id else al.house_a_id
+                if ally_id not in relevant_house_ids:
+                    relevant_house_ids.append(ally_id)
+
             terr_ids_res = await session.execute(
-                select(models.Territory.id).where(models.Territory.owner_house_id == user.house_id)
+                select(models.Territory.id).where(models.Territory.owner_house_id.in_(relevant_house_ids))
             )
             house_terr_ids = terr_ids_res.scalars().all()
             if house_terr_ids:
@@ -77,7 +91,8 @@ async def show_battle_hub(target, user_id: int, is_message: bool):
                         rem_sec = max(0, int((im.arrival_time - datetime.utcnow()).total_seconds()))
                         t_name = terr.name if terr else "Qal'a"
                         dr_icon = "🔥🐉 " if getattr(im, "has_dragon", False) else ""
-                        incoming_text += f"• 🚨 {dr_icon}**{t_name}** ga hujum kelmoqda: {rem_sec // 60} daq {rem_sec % 60} soniya qoldi!\n"
+                        tag = "🤝 Ittifoqchimiz" if (terr and terr.owner_house_id != user.house_id) else "🚨 Qal'amiz"
+                        incoming_text += f"• {tag}: {dr_icon}**{t_name}** ga hujum kelmoqda ({rem_sec // 60} daq {rem_sec % 60} soniya qoldi)!\n"
 
         # So'nggi jang hisobotlari
         reports_res = await session.execute(
@@ -105,8 +120,9 @@ async def show_battle_hub(target, user_id: int, is_message: bool):
                 terr = await session.get(models.Territory, im.target_territory_id)
                 rem_sec = max(0, int((im.arrival_time - datetime.utcnow()).total_seconds()))
                 t_name = terr.name if terr else "Qal'a"
+                tag = "🤝 Ittifoqchi" if (terr and terr.owner_house_id != user.house_id) else "🚨 Qal'amiz"
                 defense_buttons.append([
-                    InlineKeyboardButton(f"🚨 {t_name} Himoyasiga O'tish! ({rem_sec // 60}d {rem_sec % 60}s)", callback_data=f"defend_siege:{im.id}")
+                    InlineKeyboardButton(f"{tag}: {t_name} Himoyasiga O'tish! ({rem_sec // 60}d {rem_sec % 60}s)", callback_data=f"defend_siege:{im.id}")
                 ])
 
         buttons = []
@@ -117,7 +133,7 @@ async def show_battle_hub(target, user_id: int, is_message: bool):
         if is_lord:
             buttons.append([InlineKeyboardButton("📢 Xonadonga Safarbarlik Chaqiruvi (SOS)", callback_data="call_to_arms_broadcast")])
 
-        buttons.append([InlineKeyboardButton("🗺️ Qal'a Tanlash (Xaritaga o'tish)", callback_data="menu_map")])
+        buttons.append([InlineKeyboardButton("⚔️ Dushman Qal'asiga Yurish Boshlash (Xarita)", callback_data="menu_map")])
         buttons.append([InlineKeyboardButton("🔄 Vaqtni Yangilash", callback_data="menu_battle")])
         buttons.append([InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")])
 
@@ -237,6 +253,21 @@ async def render_march_prep(update: Update, context: ContextTypes.DEFAULT_TYPE, 
                     reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🗺️ Xaritaga Qaytish", callback_data="menu_map")]])
                 )
             return
+
+        # Ittifoqchi xonadonga hujum qilish taqiqlanadi
+        if user.house_id and terr.owner_house_id and user.house_id != terr.owner_house_id:
+            allies = await crud.get_active_alliances_for_house(session, user.house_id)
+            allied_ids = {a.house_a_id if a.house_b_id == user.house_id else a.house_b_id for a in allies}
+            if terr.owner_house_id in allied_ids:
+                if query:
+                    await query.answer("❌ Ushbu qal'a sizning rasmiy ittifoqchingizga tegishli! Ittifoqdoshga hujum qilib bo'lmaydi.", show_alert=True)
+                    await query.edit_message_text(
+                        "❌ **Ittifoqdosh qal'asiga hujum qilib bo'lmaydi!**\n\n"
+                        "Siz ushbu xonadon bilan sulh yoki harbiy ittifoq tuzgansiz. Faqat dushman qal'alariga yurish boshlashingiz mumkin.",
+                        parse_mode="Markdown",
+                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🗺️ Xaritaga Qaytish", callback_data="menu_map")]])
+                    )
+                return
 
         total_army = (
             user.army.infantry
@@ -557,6 +588,13 @@ async def send_custom_march_callback(update: Update, context: ContextTypes.DEFAU
             await query.answer(err_msg, show_alert=True)
             return
 
+        if user.house_id and terr.owner_house_id and user.house_id != terr.owner_house_id:
+            allies = await crud.get_active_alliances_for_house(session, user.house_id)
+            allied_ids = {a.house_a_id if a.house_b_id == user.house_id else a.house_b_id for a in allies}
+            if terr.owner_house_id in allied_ids:
+                await query.answer("❌ Ushbu qal'a rasmiy ittifoqchingizga qarashli!", show_alert=True)
+                return
+
         draft = context.user_data.get(f"march_{terr_id}")
         if not draft:
             draft = {
@@ -683,6 +721,18 @@ async def send_march_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             await query.answer("Ma'lumot topilmadi.", show_alert=True)
             return
 
+        is_allowed, err_msg = can_attack_target(user, terr)
+        if not is_allowed:
+            await query.answer(err_msg, show_alert=True)
+            return
+
+        if user.house_id and terr.owner_house_id and user.house_id != terr.owner_house_id:
+            allies = await crud.get_active_alliances_for_house(session, user.house_id)
+            allied_ids = {a.house_a_id if a.house_b_id == user.house_id else a.house_b_id for a in allies}
+            if terr.owner_house_id in allied_ids:
+                await query.answer("❌ Ushbu qal'a rasmiy ittifoqchingizga qarashli!", show_alert=True)
+                return
+
         ratio = percent / 100.0
         infantry = int(user.army.infantry * ratio)
         archers = int(user.army.archers * ratio)
@@ -789,6 +839,9 @@ async def def_rf_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 InlineKeyboardButton("🛡️ Barcha Askarlarni Joylashtirish", callback_data=f"def_send_rf:{terr.id}:all"),
             ],
             [
+                InlineKeyboardButton("↩️ Garnizondan Askarlarni Qaytarish", callback_data=f"def_withdraw_rf:{terr.id}"),
+            ],
+            [
                 InlineKeyboardButton("✍️ Askar Sonini Qo'lda Kiritish", callback_data=f"def_custom_rf:{terr.id}"),
             ],
             [
@@ -837,8 +890,11 @@ async def def_send_rf_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
     await query.answer(msg, show_alert=True)
     if ok:
-        from handlers.map_handler import show_my_castle_detail
-        await show_my_castle_detail(query, user_id, terr_id)
+        if terr.owner_house_id == user.house_id:
+            from handlers.map_handler import show_my_castle_detail
+            await show_my_castle_detail(query, user_id, terr_id)
+        else:
+            await def_rf_menu_callback(update, context)
 
 
 async def def_sos_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):

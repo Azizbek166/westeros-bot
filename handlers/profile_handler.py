@@ -76,7 +76,8 @@ async def show_profile(target, user_id: int, is_message: bool):
             f"🪙 Oltin: **{user.gold:,}** (+{income['gold']}/soat)\n"
             f"🌾 Oziq-ovqat: **{user.food:,}** (+{income['food']}/soat, Upkeep: -{int(upkeep)}/soat)\n"
             f"⛓️ Temir: **{user.iron:,}** (+{income['iron']}/soat)\n"
-            f"⛏️ Temir Koni: **Lv.{getattr(user, 'iron_mine_level', 1) or 1}** (+{(getattr(user, 'iron_mine_level', 1) or 1) * 50}⛓️/soat)\n\n"
+            f"⛏️ Temir Koni: **Lv.{getattr(user, 'iron_mine_level', 1) or 1}** (+{(getattr(user, 'iron_mine_level', 1) or 1) * 50}⛓️/soat)\n"
+            f"🌾 Don Tegirmoni: **Lv.{getattr(user, 'grain_mill_level', 1) or 1}** (+{(getattr(user, 'grain_mill_level', 1) or 1) * 75}🌾/soat)\n\n"
             f"⚔️ **ARMIYA TARKIBI:**\n"
             f"🛡️ Piyodalar: **{inf_cnt:,}**\n"
             f"🏹 Kamonchilar: **{arc_cnt:,}**\n"
@@ -87,7 +88,7 @@ async def show_profile(target, user_id: int, is_message: bool):
         )
 
         buttons = [
-            [InlineKeyboardButton("⛏️ Temir Koni & Savdo (Bozor)", callback_data="menu_iron_mine")],
+            [InlineKeyboardButton("⛏️ Kon, 🌾 Tegirmon & Bozor", callback_data="menu_iron_mine")],
             [InlineKeyboardButton("🗡️ Afsonaviy Artefaktlar (Armory)", callback_data="menu_artifacts")],
             [InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")],
         ]
@@ -203,25 +204,37 @@ async def show_iron_mine_menu(target, user_id: int, is_message: bool = False):
         gold_cost = mine_lvl * 1500
         food_cost = mine_lvl * 800
 
+        mill_lvl = getattr(user, "grain_mill_level", 1) or 1
+        mill_prod = mill_lvl * 75
+        mill_next_prod = (mill_lvl + 1) * 75
+        mill_gold_cost = mill_lvl * 1200
+        mill_iron_cost = mill_lvl * 600
+
         text = (
-            f"⛏️ **TEMIR KONI VA SAVDO KARVONI (BOZOR)**\n\n"
-            f"Temir — Vesterosda mustahkam sovutlar, o'tkir qurollar va afsonaviy qilichlar yasash uchun zarur eng muhim xomashyodir!\n\n"
-            f"🏰 **Sizning Koni holati:**\n"
-            f"• Koni Darajasi: **Lv.{mine_lvl} / 10**\n"
-            f"• Soatlik Ishlab Chiqarish: **+{curr_prod}⛓️ Temir / soat**\n"
+            f"⛏️ **TEMIR KONI, DON TEGIRMONI VA BOZOR**\n\n"
+            f"Vesterosda armiyani boqish uchun don (oziq-ovqat) va sovut-qurollar uchun temir eng muhim manba hisoblanadi!\n\n"
+            f"⛏️ **Temir Koni:**\n"
+            f"• Darajasi: **Lv.{mine_lvl} / 10**\n"
+            f"• Hosildorlik: **+{curr_prod}⛓️ Temir / soat**\n"
         )
         if mine_lvl < 10:
-            text += (
-                f"• Keyingi daraja (Lv.{mine_lvl + 1}): **+{next_prod}⛓️ Temir / soat**\n"
-                f"• Yangilash narxi: **{gold_cost:,}🪙 Oltin | {food_cost:,}🌾 Oziq-ovqat**\n\n"
-            )
+            text += f"• Yangilash (Lv.{mine_lvl + 1}): **{gold_cost:,}🪙 Oltin | {food_cost:,}🌾 Oziq** (+{next_prod}⛓️/soat)\n\n"
         else:
-            text += "• 🏆 *Kon maksimal darajaga (Lv.10) yetkazilgan!*\n\n"
+            text += "• 🏆 *Kon maksimal darajaga yetgan!*\n\n"
+
+        text += (
+            f"🌾 **Don Tegirmoni (Grain Mill):**\n"
+            f"• Darajasi: **Lv.{mill_lvl} / 10**\n"
+            f"• Hosildorlik: **+{mill_prod}🌾 Oziq-ovqat / soat**\n"
+        )
+        if mill_lvl < 10:
+            text += f"• Yangilash (Lv.{mill_lvl + 1}): **{mill_gold_cost:,}🪙 Oltin | {mill_iron_cost:,}⛓️ Temir** (+{mill_next_prod}🌾/soat)\n\n"
+        else:
+            text += "• 🏆 *Tegirmon maksimal darajaga yetgan!*\n\n"
 
         text += (
             f"💰 **Xazinangiz:** **{user.gold:,}**🪙 Oltin | **{user.food:,}**🌾 Oziq-ovqat | **{user.iron:,}**⛓️ Temir\n\n"
             f"🐪 **SAVDO KARVONLARI (OLTINGA TEMIR XARID QILISH):**\n"
-            f"Agar temir yetishmayotgan bo'lsa, erkin savdogarlardan oltin evaziga tezkor temir xarid qilishingiz mumkin:\n"
             f"• 1-To'plam: 500🪙 ➡️ **300⛓️ Temir**\n"
             f"• 2-To'plam: 1,000🪙 ➡️ **700⛓️ Temir** (+100 bonus)\n"
             f"• 3-To'plam: 2,500🪙 ➡️ **1,900⛓️ Temir** (+400 bonus)\n"
@@ -231,7 +244,11 @@ async def show_iron_mine_menu(target, user_id: int, is_message: bool = False):
         buttons = []
         if mine_lvl < 10:
             buttons.append([
-                InlineKeyboardButton(f"🔼 Konni Yangilash (Lv.{mine_lvl + 1}) — {gold_cost:,}🪙 / {food_cost:,}🌾", callback_data="upgrade_iron_mine")
+                InlineKeyboardButton(f"⛏️ Konni Yangilash (Lv.{mine_lvl + 1})", callback_data="upgrade_iron_mine")
+            ])
+        if mill_lvl < 10:
+            buttons.append([
+                InlineKeyboardButton(f"🌾 Tegirmonni Yangilash (Lv.{mill_lvl + 1})", callback_data="upgrade_grain_mill")
             ])
 
         buttons.append([
@@ -276,6 +293,21 @@ async def upgrade_mine_callback(update: Update, context: ContextTypes.DEFAULT_TY
             await query.answer("❌ Avval /start bosing.", show_alert=True)
             return
         ok, msg = await crud.upgrade_iron_mine(session, user.id)
+
+    await query.answer(msg, show_alert=True)
+    await show_iron_mine_menu(query, user_id, is_message=False)
+
+
+async def upgrade_grain_mill_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Don tegirmonini yangilash callback"""
+    query = update.callback_query
+    user_id = query.from_user.id
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_by_telegram_id(session, user_id)
+        if not user:
+            await query.answer("❌ Avval /start bosing.", show_alert=True)
+            return
+        ok, msg = await crud.upgrade_grain_mill(session, user.id)
 
     await query.answer(msg, show_alert=True)
     await show_iron_mine_menu(query, user_id, is_message=False)
@@ -361,4 +393,5 @@ def register_profile_handlers(app):
     app.add_handler(CallbackQueryHandler(unequip_artifact_callback, pattern="^unequip_art$"))
     app.add_handler(CallbackQueryHandler(iron_mine_callback, pattern="^menu_iron_mine$"))
     app.add_handler(CallbackQueryHandler(upgrade_mine_callback, pattern="^upgrade_iron_mine$"))
+    app.add_handler(CallbackQueryHandler(upgrade_grain_mill_callback, pattern="^upgrade_grain_mill$"))
     app.add_handler(CallbackQueryHandler(buy_iron_callback, pattern="^buy_iron:"))

@@ -54,6 +54,8 @@ async def check_and_reset_daily_limits(session: AsyncSession, user: models.User)
         user.daily_rank_quest_count = 0
         user.daily_ww_attack_count = 0
         user.daily_bandit_count = 0
+        user.daily_duel_count = 0
+        user.daily_recruit_count = 0
         user.daily_limit_date = today_str
         await session.commit()
 
@@ -423,6 +425,17 @@ async def recruit_troops(
     setattr(army, unit_type, current + amount)
     army.updated_at = datetime.utcnow()
 
+    # Kunlik yollash hisobi va vazifa tekshiruvi
+    await check_and_reset_daily_limits(session, user)
+    old_cnt = getattr(user, "daily_recruit_count", 0) or 0
+    user.daily_recruit_count = old_cnt + amount
+    quest_completed = False
+    if old_cnt < 100 <= user.daily_recruit_count:
+        user.gold += 500
+        user.food += 1000
+        user.xp += 80
+        quest_completed = True
+
     # Tranzaksiyani yozish
     tx = models.Transaction(
         user_id=user_id,
@@ -434,7 +447,7 @@ async def recruit_troops(
     session.add(tx)
 
     await session.commit()
-    return True
+    return True, quest_completed
 
 
 # ============================================================
@@ -1282,7 +1295,7 @@ async def send_castle_reinforcements_proportional(
     territory.garrison_cavalry = (territory.garrison_cavalry or 0) + s_cav
     territory.garrison_spearmen = (territory.garrison_spearmen or 0) + s_sp
 
-    user.prestige = (user.prestige or 0) + max(10, tot_s // 5)
+    user.prestige = (user.prestige or 0) + 2
     await session.commit()
     sent_dict = {
         "infantry": s_inf,
@@ -1291,7 +1304,7 @@ async def send_castle_reinforcements_proportional(
         "spearmen": s_sp,
         "total": tot_s,
     }
-    return True, f"✅ Qal'a mudofaasiga +{tot_s:,} askar joylashtirildi! (+{max(10, tot_s // 5)} Prestige)", sent_dict
+    return True, f"✅ Qal'a mudofaasiga +{tot_s:,} askar joylashtirildi! (+2 Prestige)", sent_dict
 
 
 async def withdraw_castle_reinforcements(
@@ -1309,8 +1322,20 @@ async def withdraw_castle_reinforcements(
     if not user or not territory:
         return False, "Foydalanuvchi yoki qal'a topilmadi.", {}
 
-    if territory.owner_house_id != user.house_id:
-        return False, "❌ Siz faqat o'z xonadoningizga tegishli qal'alar garnizonidan askar qaytara olasiz!", {}
+    is_own = (territory.owner_house_id == user.house_id)
+    is_ally = False
+    if not is_own and territory.owner_house_id and user.house_id:
+        al_res = await session.execute(
+            select(models.Alliance).where(
+                models.Alliance.status == "active",
+                ((models.Alliance.house_a_id == user.house_id) & (models.Alliance.house_b_id == territory.owner_house_id)) |
+                ((models.Alliance.house_a_id == territory.owner_house_id) & (models.Alliance.house_b_id == user.house_id))
+            )
+        )
+        is_ally = al_res.scalar_one_or_none() is not None
+
+    if not is_own and not is_ally:
+        return False, "❌ Siz faqat o'z xonadoningiz yoki rasmiy ittifoqchingiz qal'alar garnizonidan askar qaytara olasiz!", {}
 
     army_res = await session.execute(select(models.Army).where(models.Army.user_id == user.id))
     army = army_res.scalar_one_or_none()
@@ -2121,6 +2146,13 @@ async def fight_ai_champion(
     if bet_gold > 0 and user.gold < bet_gold:
         return {"success": False, "error": f"Duel uchun kamida {bet_gold}🪙 oltin kerak!"}
 
+    await check_and_reset_daily_limits(session, user)
+    duel_cnt = getattr(user, "daily_duel_count", 0) or 0
+    if duel_cnt >= 10:
+        return {"success": False, "error": "❌ Bugungi 10 ta duel limitingiz tugagan! Ertaga yana maydonga tushishingiz mumkin."}
+
+    user.daily_duel_count = duel_cnt + 1
+
     # Qahramon ko'rsatkichlari
     char_res = await session.execute(select(models.Character).where(models.Character.user_id == user.id))
     hero = char_res.scalars().first()
@@ -2135,10 +2167,15 @@ async def fight_ai_champion(
 
     # Chempion statistikasi (adolatli darajalar bo'yicha)
     champions = {
-        "Bronn": {"atk": 50, "def": 45, "tactic": "parry"},          # Boshlang'ich raqib (1-3 level yuta oladi)
-        "Sandor Clegane": {"atk": 65, "def": 60, "tactic": "heavy"}, # O'rta darajali jangchi
-        "Oberyn Martell": {"atk": 78, "def": 68, "tactic": "agile"}, # Kuchli mahoratli jangchi
-        "Gregor Clegane": {"atk": 90, "def": 80, "tactic": "heavy"}, # Boss darajadagi Tog'
+        "Bronn": {"atk": 50, "def": 45, "tactic": "parry"},
+        "Sandor Clegane": {"atk": 65, "def": 60, "tactic": "heavy"},
+        "Brienne of Tarth": {"atk": 70, "def": 75, "tactic": "parry"},
+        "Oberyn Martell": {"atk": 78, "def": 68, "tactic": "agile"},
+        "Jaime Lannister": {"atk": 82, "def": 72, "tactic": "agile"},
+        "Barristan Selmy": {"atk": 85, "def": 78, "tactic": "parry"},
+        "Daemon Targaryen": {"atk": 88, "def": 75, "tactic": "agile"},
+        "Gregor Clegane": {"atk": 92, "def": 82, "tactic": "heavy"},
+        "Arthur Dayne": {"atk": 95, "def": 85, "tactic": "heavy"},
     }
     champ = champions.get(champion_name, {"atk": 60, "def": 55, "tactic": "agile"})
     champ_tactic = champ["tactic"]
@@ -2162,24 +2199,20 @@ async def fight_ai_champion(
 
     won = player_score >= champ_score
     if won:
-        if bet_gold > 0:
-            user.gold += bet_gold
-            outcome = f"🏆 **G'ALABA!** Sizning qilich zarbangiz {champion_name}ning mudofaasini teshib o'tdi!"
-            user.prestige += 30
-            user.xp += 150
-        else:
-            user.gold += 50
-            outcome = f"🏆 **G'ALABA!** Bepul mashg'ulot jangida {champion_name} ustidan ustun keldingiz! (+50🪙 Rag'batlantiruvchi mukofot)"
-            user.prestige += 15
-            user.xp += 100
+        user.gold += 500
+        user.prestige += 3
+        user.xp += 15
+        outcome = (
+            f"🏆 **G'ALABA!** Sizning qilich zarbangiz {champion_name}ning mudofaasini teshib o'tdi!\n"
+            f"🎁 Mukofot: **+500🪙 Oltin, +3 Prestige, +15 XP** ({user.daily_duel_count}/10)"
+        )
     else:
         if bet_gold > 0:
             user.gold = max(0, user.gold - bet_gold)
-            outcome = f"💀 **MAG'LUBIYAT!** {champion_name} chaqqonlik bilan ustun keldi."
-            user.xp += 40
+            outcome = f"💀 **MAG'LUBIYAT!** {champion_name} chaqqonlik bilan ustun keldi. (-{bet_gold}🪙 Garov yo'qotildi)"
         else:
-            outcome = f"💀 **MAG'LUBIYAT!** Mashg'ulot jangida {champion_name} tajribasi ustun keldi. Oltin yo'qotilmadi!"
-            user.xp += 25
+            outcome = f"💀 **MAG'LUBIYAT!** Mashg'ulot jangida {champion_name} tajribasi ustun keldi."
+        user.xp += 5
 
     from core.leveling import check_user_level_up
     check_user_level_up(user)
@@ -2194,6 +2227,10 @@ async def fight_ai_champion(
         "outcome": outcome,
         "player_tactic": player_tactic,
         "champ_tactic": champ_tactic,
+        "daily_duels": user.daily_duel_count,
+        "reward_gold": 500 if won else 0,
+        "reward_prestige": 3 if won else 0,
+        "reward_xp": 15 if won else 5,
     }
 
 
@@ -2542,6 +2579,108 @@ async def buy_iron_with_gold(session: AsyncSession, user_id: int, pack_code: str
     user.iron += pack["iron"]
     await session.commit()
     return True, f"✅ Bitim muvaffaqiyatli! +{pack['iron']:,}⛓️ temir omboringizga yetkazildi."
+
+
+async def upgrade_grain_mill(session: AsyncSession, user_id: int) -> Tuple[bool, str]:
+    """Don tegirmonini (Grain Mill) keyingi darajaga ko'tarish"""
+    user = await session.get(models.User, user_id)
+    if not user:
+        return False, "Foydalanuvchi topilmadi."
+
+    current_lvl = getattr(user, "grain_mill_level", 1) or 1
+    if current_lvl >= 10:
+        return False, "❌ Don tegirmoni maksimal 10-darajaga yetgan! Butun vodiy donlari sizning tegirmoningizda yanchilmoqda."
+
+    next_lvl = current_lvl + 1
+    gold_cost = current_lvl * 1200
+    iron_cost = current_lvl * 600
+
+    if (user.gold or 0) < gold_cost or (user.iron or 0) < iron_cost:
+        return False, f"❌ Tegirmonni kuchaytirish uchun {gold_cost:,}🪙 oltin va {iron_cost:,}⛓️ temir kerak! (Sizda: {user.gold:,}🪙 / {user.iron:,}⛓️)"
+
+    user.gold -= gold_cost
+    user.iron -= iron_cost
+    user.grain_mill_level = next_lvl
+    user.prestige = (user.prestige or 0) + 3
+    user.xp = (user.xp or 0) + next_lvl * 25
+
+    from core.leveling import check_user_level_up
+    check_user_level_up(user)
+
+    await session.commit()
+    return True, f"🎉 TABRIKLAYMIZ! Don tegirmoni {next_lvl}-darajaga ko'tarildi! (+{next_lvl*75}🌾 oziq-ovqat/soat ishlab chiqariladi)"
+
+
+async def upgrade_castle_keep(session: AsyncSession, user_id: int, territory_id: int) -> Tuple[bool, str]:
+    """Qal'a qasrini (Keep Tier) 1 dan 5 gacha ko'tarish"""
+    user = await session.get(models.User, user_id)
+    if not user:
+        user = await get_user_by_telegram_id(session, user_id)
+    territory = await session.get(models.Territory, territory_id)
+    if not user or not territory:
+        return False, "Foydalanuvchi yoki qal'a topilmadi."
+
+    if territory.owner_house_id != user.house_id:
+        return False, "❌ Siz faqat o'z xonadoningizga tegishli qal'alarni kengaytira olasiz!"
+
+    current_lvl = getattr(territory, "castle_level", 1) or 1
+    if current_lvl >= 5:
+        return False, "❌ Qal'a maksimal 5-darajaga (Afsonaviy Istehkom) yetgan!"
+
+    next_lvl = current_lvl + 1
+    gold_cost = current_lvl * 3000
+    iron_cost = current_lvl * 2500
+
+    if (user.gold or 0) < gold_cost or (user.iron or 0) < iron_cost:
+        return False, f"❌ Qal'ani {next_lvl}-bosqichga ko'tarish uchun {gold_cost:,}🪙 oltin va {iron_cost:,}⛓️ temir kerak! (Sizda: {user.gold:,}🪙 / {user.iron:,}⛓️)"
+
+    user.gold -= gold_cost
+    user.iron -= iron_cost
+    territory.castle_level = next_lvl
+    territory.defense = (territory.defense or 0) + 300
+    territory.gold_income = int((territory.gold_income or 200) * 1.25)
+    territory.food_income = int((territory.food_income or 500) * 1.25)
+    territory.iron_income = int((territory.iron_income or 100) * 1.25)
+    user.prestige = (user.prestige or 0) + 5
+    user.xp = (user.xp or 0) + next_lvl * 30
+
+    from core.leveling import check_user_level_up
+    check_user_level_up(user)
+
+    await session.commit()
+    return True, f"🏰 TABRIKLAYMIZ! {territory.name} qal'asi {next_lvl}-bosqichga (Tier {next_lvl}) ko'tarildi!\n🛡️ Mudofaa: +300\n💰 Soatlik daromad: +25%"
+
+
+async def release_user_dragon(session: AsyncSession, user_id: int, dragon_id: int) -> Tuple[bool, str]:
+    """Ajdardan voz kechish (ozod qilish) va uyani bo'shatish"""
+    user = await session.get(models.User, user_id)
+    if not user:
+        user = await get_user_by_telegram_id(session, user_id)
+    if not user:
+        return False, "Foydalanuvchi topilmadi."
+
+    dragon = await session.get(models.Dragon, dragon_id)
+    if not dragon or dragon.user_id != user.id:
+        return False, "❌ Ajdar topilmadi yoki u sizga tegishli emas."
+
+    # Qal'alardagi qo'riqchilik ro'yxatidan tozalash
+    t_res = await session.execute(select(models.Territory))
+    for terr in t_res.scalars().all():
+        if terr.reinforcements_json:
+            try:
+                r_data = json.loads(terr.reinforcements_json)
+                if "stationed_dragon" in r_data and r_data["stationed_dragon"].get("dragon_id") == dragon.id:
+                    del r_data["stationed_dragon"]
+                    terr.reinforcements_json = json.dumps(r_data)
+            except Exception:
+                pass
+
+    dragon_name = dragon.name
+    await session.delete(dragon)
+    await session.commit()
+    return True, f"🕊️ **{dragon_name}** ozodlikka qo'yib yuborildi! Endi siz boshqa yangi ajdar tuxumini tanlashingiz mumkin."
+
+
 
 
 

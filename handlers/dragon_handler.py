@@ -137,6 +137,8 @@ async def show_dragon_hub(target, user_id: int, is_message: bool):
                 if dragon.stage == "adult" and dragon.level >= 10 and len(dragons) < 3 and not dragon.has_laid_egg:
                     buttons.append([InlineKeyboardButton(f"🥚 {dragon.name}: Yangi Tuxum Qo'yish (Nasl)", callback_data=f"dragon_lay_egg_{dragon.id}")])
 
+            buttons.append([InlineKeyboardButton(f"🕊️ {dragon.name}ni Ozod Qilish (Tashlash)", callback_data=f"dragon_release_ask_{dragon.id}")])
+
         buttons.append([InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")])
 
         if is_message:
@@ -306,6 +308,44 @@ async def dragon_max_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     await query.answer("⭐ Ushbu ajdar maksimal 20-darajaga yetgan! U o'zining eng qudratli cho'qqisida.", show_alert=True)
 
 
+async def dragon_release_ask_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ajdardan voz kechish tasdig'ini so'rash"""
+    query = update.callback_query
+    await query.answer()
+
+    dragon_id = int(query.data.split("_")[-1])
+    async with AsyncSessionLocal() as session:
+        dragon = await session.get(models.Dragon, dragon_id)
+        if not dragon:
+            await query.answer("Ajdar topilmadi.", show_alert=True)
+            return
+
+        buttons = [
+            [InlineKeyboardButton("✅ Ha, Ozod Qilish (Tashlash)", callback_data=f"dragon_release_confirm_{dragon.id}")],
+            [InlineKeyboardButton("❌ Bekor Qilish", callback_data="menu_dragons")],
+        ]
+        text = (
+            f"⚠️ **DIQQAT: AJDARDAN VOZ KECHISH!**\n\n"
+            f"Haqiqatan ham **{dragon.name}** ({dragon.grade} Toifa, {dragon.level}-daraja) ajdaringizni ozodlikka qo'yib yubormoqchimisiz?\n\n"
+            f"❗️ *Ushbu amalni ortga qaytarib bo'lmaydi!* "
+            f"Ajdar ozod qilingach, siz boshqa yangi ajdar tuxumini tanlashingiz va tarbiyalashingiz mumkin bo'ladi."
+        )
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def dragon_release_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ajdarni bazadan o'chirish va ozod qilish"""
+    query = update.callback_query
+    dragon_id = int(query.data.split("_")[-1])
+    user_id = query.from_user.id
+
+    async with AsyncSessionLocal() as session:
+        ok, msg = await crud.release_user_dragon(session, user_id, dragon_id)
+
+    await query.answer(msg, show_alert=True)
+    await show_dragon_hub(query, user_id, is_message=False)
+
+
 def register_dragon_handlers(app):
     app.add_handler(CommandHandler("dragons", dragon_command))
     app.add_handler(CommandHandler("dragon", dragon_command))
@@ -318,4 +358,6 @@ def register_dragon_handlers(app):
     app.add_handler(CallbackQueryHandler(dragon_art_shop_callback, pattern="^dragon_art_shop_"))
     app.add_handler(CallbackQueryHandler(dragon_buy_art_callback, pattern="^dragon_buy_art:"))
     app.add_handler(CallbackQueryHandler(dragon_max_callback, pattern="^dragon_max_"))
+    app.add_handler(CallbackQueryHandler(dragon_release_ask_callback, pattern="^dragon_release_ask_"))
+    app.add_handler(CallbackQueryHandler(dragon_release_confirm_callback, pattern="^dragon_release_confirm_"))
 

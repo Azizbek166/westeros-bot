@@ -50,8 +50,11 @@ class User(Base):
     daily_ww_attack_count = Column(Integer, default=0)     # Oq yuruvchilarga hujum (max 3)
     daily_bandit_count = Column(Integer, default=0)        # Qaroqchilar pistirmasiga hujum (max 3)
     daily_plague_count = Column(Integer, default=0)        # Kunlik vabo chorasi (max 2)
+    daily_duel_count = Column(Integer, default=0)          # Kunlik duel jangi (max 10)
+    daily_recruit_count = Column(Integer, default=0)       # Kunlik yollangan askarlar soni
     equipped_artifact_id = Column(Integer, nullable=True)
     iron_mine_level = Column(Integer, default=1)           # Temir koni darajasi (1-10)
+    grain_mill_level = Column(Integer, default=1)          # Don tegirmoni darajasi (1-10)
     daily_limit_date = Column(String(10), default="")  # YYYY-MM-DD
 
     # Kunlik bonus va taklif (Referral)
@@ -185,6 +188,7 @@ class Territory(Base):
     garrison_spearmen = Column(Integer, default=50)
 
     is_capital = Column(Boolean, default=False)  # King's Landing, Winterfell va h.k.
+    castle_level = Column(Integer, default=1)  # Qal'a istehkom darajasi (Tier 1-5)
     last_tax_collected_at = Column(DateTime, default=datetime.utcnow)  # Oxirgi o'lpon yig'ilgan vaqt
     reinforcements_json = Column(Text, default="{}")  # Ittifoqchilar mudofaasi: {house_name: {infantry: N, ...}}
 
