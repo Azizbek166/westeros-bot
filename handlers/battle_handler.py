@@ -943,6 +943,15 @@ async def def_rf_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             user.army.infantry + user.army.archers + user.army.cavalry + user.army.spearmen
         )
 
+        is_lord = (
+            user.house
+            and terr.owner_house_id == user.house_id
+            and (
+                user.house.lord_user_id == user.telegram_id
+                or user.rank == "king"
+            )
+        )
+
         buttons = [
             [
                 InlineKeyboardButton("🛡️ +50 Askar", callback_data=f"def_send_rf:{terr.id}:50"),
@@ -955,16 +964,21 @@ async def def_rf_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             [
                 InlineKeyboardButton("🛡️ Barcha Askarlarni Joylashtirish", callback_data=f"def_send_rf:{terr.id}:all"),
             ],
-            [
+        ]
+
+        if is_lord:
+            buttons.append([
                 InlineKeyboardButton("↩️ Garnizondan Askarlarni Qaytarish", callback_data=f"def_withdraw_rf:{terr.id}"),
-            ],
+            ])
+
+        buttons.extend([
             [
                 InlineKeyboardButton("✍️ Askar Sonini Qo'lda Kiritish", callback_data=f"def_custom_rf:{terr.id}"),
             ],
             [
                 InlineKeyboardButton("🔙 Qal'aga Qaytish", callback_data=f"my_c_detail:{terr.id}"),
             ],
-        ]
+        ])
 
         text = (
             f"🛡️ **QAL'AGA ASKAR JOYLASHTIRISH: {terr.name.upper()}**\n\n"

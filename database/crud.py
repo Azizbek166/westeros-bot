@@ -1363,20 +1363,13 @@ async def withdraw_castle_reinforcements(
     if not user or not territory:
         return False, "Foydalanuvchi yoki qal'a topilmadi.", {}
 
-    is_own = (territory.owner_house_id == user.house_id) or (territory.owner_house_id is None)
-    is_ally = False
-    if not is_own and territory.owner_house_id and user.house_id:
-        al_res = await session.execute(
-            select(models.Alliance).where(
-                models.Alliance.status == "active",
-                ((models.Alliance.house_a_id == user.house_id) & (models.Alliance.house_b_id == territory.owner_house_id)) |
-                ((models.Alliance.house_a_id == territory.owner_house_id) & (models.Alliance.house_b_id == user.house_id))
-            )
-        )
-        is_ally = al_res.scalar_one_or_none() is not None
+    if not user.house_id or territory.owner_house_id != user.house_id:
+        return False, "❌ Siz faqat o'z xonadoningiz qal'asi garnizonidan askar qaytara olasiz!", {}
 
-    if not is_own and not is_ally and territory.owner_house_id is not None:
-        return False, "❌ Siz faqat o'z xonadoningiz yoki rasmiy ittifoqchingiz qal'alar garnizonidan askar qaytara olasiz!", {}
+    house = await session.get(models.House, user.house_id)
+    is_lord = house and ((house.lord_user_id == user.telegram_id) or (user.rank == "king"))
+    if not is_lord:
+        return False, "❌ Qal'a garnizonidan askarlarni qaytarib olish huquqi faqat Xonadon Lordiga tegishli!", {}
 
     army_res = await session.execute(select(models.Army).where(models.Army.user_id == user.id))
     army = army_res.scalar_one_or_none()
