@@ -1190,6 +1190,12 @@ async def handle_battle_text_input(update: Update, context: ContextTypes.DEFAULT
         await handle_custom_name_input(update, context)
         return
 
+    # Agar foydalanuvchi askar sonini qo'lda kiritayotgan bo'lsa
+    if "awaiting_recruit_input" in context.user_data:
+        from handlers.army_handler import handle_recruit_text_input
+        await handle_recruit_text_input(update, context)
+        return
+
     text = update.message.text.strip()
     user_id = update.effective_user.id
 

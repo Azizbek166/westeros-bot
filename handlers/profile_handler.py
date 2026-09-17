@@ -63,28 +63,19 @@ async def show_profile(target, user_id: int, is_message: bool):
         spm_cnt = user.army.spearmen if user.army else 0
         spc_cnt = user.army.special_troops if user.army else 0
 
+        net_food = income['food'] - int(upkeep)
+        net_food_str = f"+{net_food}" if net_food >= 0 else f"{net_food}"
+        art_line = f"🗡️ Artefakt: **{equipped_art.name}**\n" if equipped_art else ""
+
         text = (
             f"👤 **LORD PROFILI**\n\n"
-            f"👑 Ism: **{escape_md(hero.name if hero else user.full_name)}**\n"
-            f"🏰 Xonadon: **{house_str}**\n"
-            f"🎖️ Lavozim: **{user.rank.title()}**\n"
-            f"⭐ Daraja: **{lvl} / 30** — **{title}**\n"
-            f"📈 Tajriba: `[{prog_bar}]` **{user.xp:,} / {next_req:,} XP** ({int(progress)}%)\n"
-            f"{art_str}"
-            f"🏆 Prestige: **{user.prestige:,}**\n\n"
-            f"📊 **XAZINA VA IQTISOD:**\n"
-            f"🪙 Oltin: **{user.gold:,}** (+{income['gold']}/soat)\n"
-            f"🌾 Oziq-ovqat: **{user.food:,}** (+{income['food']}/soat, Upkeep: -{int(upkeep)}/soat)\n"
-            f"⛓️ Temir: **{user.iron:,}** (+{income['iron']}/soat)\n"
-            f"⛏️ Temir Koni: **Lv.{getattr(user, 'iron_mine_level', 1) or 1}** (+{(getattr(user, 'iron_mine_level', 1) or 1) * 50}⛓️/soat)\n"
-            f"🌾 Don Tegirmoni: **Lv.{getattr(user, 'grain_mill_level', 1) or 1}** (+{(getattr(user, 'grain_mill_level', 1) or 1) * 75}🌾/soat)\n\n"
-            f"⚔️ **ARMIYA TARKIBI:**\n"
-            f"🛡️ Piyodalar: **{inf_cnt:,}**\n"
-            f"🏹 Kamonchilar: **{arc_cnt:,}**\n"
-            f"🐎 Otliqlar: **{cav_cnt:,}**\n"
-            f"🗡️ Nayzachilar: **{spm_cnt:,}**\n"
-            f"🔥 Maxsus Qo'shin: **{spc_cnt:,}**\n\n"
-            f"🔰 **TINCHLIK QALQONI:** {shield_str}"
+            f"👑 **{escape_md(hero.name if hero else user.full_name)}** | {house_str}\n"
+            f"🎖️ {user.rank.title()} | ⭐ Lv.{lvl}/30 ({title}) | 🏆 {user.prestige:,} Prestige\n"
+            f"📈 `[{prog_bar}]` {user.xp:,}/{next_req:,} XP ({int(progress)}%)\n"
+            f"{art_line}"
+            f"🔰 Qalqon: {shield_str}\n\n"
+            f"📊 **Xazina:** 🪙**{user.gold:,}** (+{income['gold']}/s) | 🌾**{user.food:,}** ({net_food_str}/s) | ⛓️**{user.iron:,}** (+{income['iron']}/s)\n"
+            f"⚔️ **Qo'shin:** 🛡️{inf_cnt:,} | 🏹{arc_cnt:,} | 🐎{cav_cnt:,} | 🗡️{spm_cnt:,} | 🔥{spc_cnt:,}"
         )
 
         buttons = [
@@ -123,8 +114,8 @@ async def daily_bonus_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text(msg, parse_mode="Markdown")
 
 
-async def show_artifacts_menu(target, user_id: int, is_message: bool = False):
-    """Afsonaviy artefaktlar qurolxonasi menyusi"""
+async def show_artifacts_menu(target, user_id: int, is_message: bool = False, page: int = 0):
+    """Afsonaviy artefaktlar qurolxonasi menyusi (ixcham va sahifalangan)"""
     from data.artifacts_data import ARTIFACTS_DATA
     async with AsyncSessionLocal() as session:
         user = await crud.get_user_by_telegram_id(session, user_id)
@@ -135,53 +126,62 @@ async def show_artifacts_menu(target, user_id: int, is_message: bool = False):
 
     owned_map = {a.code: a for a in user_arts}
 
-    eq_text = "⚔️ **Hozir taqilgan:** _Hech narsa taqilmagan_\n"
+    eq_str = "_Hech narsa taqilmagan_"
     if equipped and equipped.code in ARTIFACTS_DATA:
         info = ARTIFACTS_DATA[equipped.code]
-        eq_text = (
-            f"⚔️ **Hozir taqilgan:** **{info['name']}**\n"
-            f"📖 _{info['description']}_\n"
-        )
+        eq_str = f"**{info['name']}**"
+
+    all_items = list(ARTIFACTS_DATA.items())
+    PAGE_SIZE = 4
+    total_pages = max(1, (len(all_items) + PAGE_SIZE - 1) // PAGE_SIZE)
+    page = max(0, min(page, total_pages - 1))
+    page_items = all_items[page * PAGE_SIZE : (page + 1) * PAGE_SIZE]
 
     text = (
-        f"🗡️ **VESTEROS AFSONAVIY ARTEFAKTLARI (ARMORY)**\n\n"
-        f"{eq_text}\n"
-        f"O'zingizga munosib afsonaviy qurol yoki relikni taqing! Har bir artefakt janglarda, duellarda va ajdar quvvatida ulkan afzallik beradi.\n\n"
-        f"💰 Sizning boyligingiz: **{user.gold:,}**🪙 Oltin, **{user.iron:,}**⛓️ Temir\n\n"
-        f"📜 **ARTEFAKTLAR RO'YXATI VA KUCHLARI:**\n\n"
+        f"🗡️ **AFSONAVIY ARTEFAKTLAR (ARMORY)**\n"
+        f"⚔️ **Taqilgan:** {eq_str}\n"
+        f"💰 **Xazina:** **{user.gold:,}**🪙 Oltin | **{user.iron:,}**⛓️ Temir\n"
+        f"📄 Sahifa: **{page + 1} / {total_pages}**\n\n"
     )
 
     buttons = []
-    for code, data in ARTIFACTS_DATA.items():
+    for code, data in page_items:
         is_owned = code in owned_map
         is_eq = is_owned and owned_map[code].is_equipped
         bonus_desc = []
         if data.get("duel_bonus", 0) > 0:
-            bonus_desc.append(f"⚔️ Duelda +{int(data['duel_bonus']*100)}%")
+            bonus_desc.append(f"Duel +{int(data['duel_bonus']*100)}%")
         if data.get("attack_bonus", 0) > 0:
-            bonus_desc.append(f"🗡️ Hujumda +{int(data['attack_bonus']*100)}%")
+            bonus_desc.append(f"Hujum +{int(data['attack_bonus']*100)}%")
         if data.get("defense_bonus", 0) > 0:
-            bonus_desc.append(f"🛡️ Mudofaada +{int(data['defense_bonus']*100)}%")
+            bonus_desc.append(f"Mudofaa +{int(data['defense_bonus']*100)}%")
         if data.get("dragon_bonus", 0) > 0:
-            bonus_desc.append(f"🔥 Drakarysda +{int(data['dragon_bonus']*100)}%")
+            bonus_desc.append(f"Drakarys +{int(data['dragon_bonus']*100)}%")
 
-        bonus_str = " | ".join(bonus_desc) if bonus_desc else "Maxsus afzallik"
-        status_str = "✅ [Sizda bor]" if is_owned else f"Narxi: {data['price_gold']:,}🪙 / {data['price_iron']:,}⛓️"
+        bonus_str = ", ".join(bonus_desc) if bonus_desc else "Maxsus afzallik"
+        status_tag = "✅ Sizda bor" if is_owned else f"{data['price_gold']:,}🪙/{data['price_iron']:,}⛓️"
+
         text += (
-            f"• **{data['name']}**\n"
-            f"  📌 {status_str}\n"
-            f"  ⚡ Kuchlari: **{bonus_str}**\n"
-            f"  📖 _{data['description']}_\n\n"
+            f"• **{data['name']}** ({status_tag})\n"
+            f"  ⚡ *{bonus_str}*\n"
         )
 
         if is_owned:
             art_id = owned_map[code].id
             if is_eq:
-                buttons.append([InlineKeyboardButton(f"🚫 {data['name'][:22]} (Yechish)", callback_data="unequip_art")])
+                buttons.append([InlineKeyboardButton(f"🚫 {data['name'][:20]} (Yechish)", callback_data=f"unequip_art:{page}")])
             else:
-                buttons.append([InlineKeyboardButton(f"⚡ {data['name'][:22]} (Taqish)", callback_data=f"equip_art_{art_id}")])
+                buttons.append([InlineKeyboardButton(f"⚡ {data['name'][:20]} (Taqish)", callback_data=f"equip_art_{art_id}:{page}")])
         else:
-            buttons.append([InlineKeyboardButton(f"🛒 Xarid: {data['name'][:18]} ({data['price_gold']:,}🪙)", callback_data=f"buy_art_{code}")])
+            buttons.append([InlineKeyboardButton(f"🛒 Xarid: {data['name'][:18]} ({data['price_gold']:,}🪙)", callback_data=f"buy_art_{code}:{page}")])
+
+    nav_row = []
+    if page > 0:
+        nav_row.append(InlineKeyboardButton("⬅️ Oldingi", callback_data=f"menu_art_pg:{page - 1}"))
+    if page < total_pages - 1:
+        nav_row.append(InlineKeyboardButton("Keyingi ➡️", callback_data=f"menu_art_pg:{page + 1}"))
+    if nav_row:
+        buttons.append(nav_row)
 
     buttons.append([InlineKeyboardButton("🔙 Profilga Qaytish", callback_data="menu_profile")])
 
@@ -192,7 +192,7 @@ async def show_artifacts_menu(target, user_id: int, is_message: bool = False):
 
 
 async def show_iron_mine_menu(target, user_id: int, is_message: bool = False):
-    """Temir koni va oltin-temir savdo karvoni menyusi"""
+    """Temir koni va oltin-temir savdo karvoni menyusi (ixcham ko'rinish)"""
     async with AsyncSessionLocal() as session:
         user = await crud.get_user_by_telegram_id(session, user_id)
         if not user:
@@ -211,41 +211,27 @@ async def show_iron_mine_menu(target, user_id: int, is_message: bool = False):
         mill_iron_cost = mill_lvl * 600
 
         text = (
-            f"⛏️ **TEMIR KONI, DON TEGIRMONI VA BOZOR**\n\n"
-            f"Vesterosda armiyani boqish uchun don (oziq-ovqat) va sovut-qurollar uchun temir eng muhim manba hisoblanadi!\n\n"
-            f"⛏️ **Temir Koni:**\n"
-            f"• Darajasi: **Lv.{mine_lvl} / 10**\n"
-            f"• Hosildorlik: **+{curr_prod}⛓️ Temir / soat**\n"
+            f"⛏️ **KON, TEGIRMON VA BOZOR**\n"
+            f"💰 **Xazina:** {user.gold:,}🪙 | {user.food:,}🌾 | {user.iron:,}⛓️\n\n"
+            f"⛏️ **Kon:** Lv.{mine_lvl}/10 (+{curr_prod}⛓️/s)"
         )
         if mine_lvl < 10:
-            text += f"• Yangilash (Lv.{mine_lvl + 1}): **{gold_cost:,}🪙 Oltin | {food_cost:,}🌾 Oziq** (+{next_prod}⛓️/soat)\n\n"
+            text += f" | Keyingi: {gold_cost:,}🪙 {food_cost:,}🌾\n"
         else:
-            text += "• 🏆 *Kon maksimal darajaga yetgan!*\n\n"
+            text += " (MAX)\n"
 
-        text += (
-            f"🌾 **Don Tegirmoni (Grain Mill):**\n"
-            f"• Darajasi: **Lv.{mill_lvl} / 10**\n"
-            f"• Hosildorlik: **+{mill_prod}🌾 Oziq-ovqat / soat**\n"
-        )
+        text += f"🌾 **Tegirmon:** Lv.{mill_lvl}/10 (+{mill_prod}🌾/s)"
         if mill_lvl < 10:
-            text += f"• Yangilash (Lv.{mill_lvl + 1}): **{mill_gold_cost:,}🪙 Oltin | {mill_iron_cost:,}⛓️ Temir** (+{mill_next_prod}🌾/soat)\n\n"
+            text += f" | Keyingi: {mill_gold_cost:,}🪙 {mill_iron_cost:,}⛓️\n\n"
         else:
-            text += "• 🏆 *Tegirmon maksimal darajaga yetgan!*\n\n"
+            text += " (MAX)\n\n"
 
         text += (
-            f"💰 **Xazinangiz:** **{user.gold:,}**🪙 Oltin | **{user.food:,}**🌾 Oziq-ovqat | **{user.iron:,}**⛓️ Temir\n\n"
-            f"🌾 **OZIQ-OVQAT BOZORI (OLTINGA DON XARID QILISH):**\n"
-            f"• 1-To'plam: 300🪙 ➡️ **390🌾 Oziq-ovqat**\n"
-            f"• 2-To'plam: 500🪙 ➡️ **700🌾 Oziq-ovqat** (+50 bonus)\n"
-            f"• 3-To'plam: 1,000🪙 ➡️ **1,500🌾 Oziq-ovqat** (+200 bonus)\n"
-            f"• 4-To'plam: 2,500🪙 ➡️ **4,000🌾 Oziq-ovqat** (+750 bonus)\n"
-            f"• 5-To'plam: 5,000🪙 ➡️ **9,000🌾 Oziq-ovqat** (+2,500 bonus)\n"
-            f"*(Ixtiyoriy miqdorda xarid qilish: `/buyfood 500`)*\n\n"
-            f"🐪 **SAVDO KARVONLARI (OLTINGA TEMIR XARID QILISH):**\n"
-            f"• 1-To'plam: 500🪙 ➡️ **300⛓️ Temir**\n"
-            f"• 2-To'plam: 1,000🪙 ➡️ **700⛓️ Temir** (+100 bonus)\n"
-            f"• 3-To'plam: 2,500🪙 ➡️ **1,900⛓️ Temir** (+400 bonus)\n"
-            f"• 4-To'plam: 5,000🪙 ➡️ **4,200⛓️ Temir** (+1,200 bonus)\n"
+            f"🌾 **Oziq-ovqat Bozori (Don):**\n"
+            f"• 300🪙➡️390🌾 | 500🪙➡️700🌾 | 1k🪙➡️1,500🌾\n"
+            f"• 2.5k🪙➡️4,000🌾 | 5k🪙➡️9,000🌾 `(/buyfood 500)`\n\n"
+            f"⛓️ **Temir Karvoni:**\n"
+            f"• 500🪙➡️300⛓️ | 1k🪙➡️700⛓️ | 2.5k🪙➡️1,900⛓️ | 5k🪙➡️4,200⛓️"
         )
 
         buttons = []
@@ -260,21 +246,19 @@ async def show_iron_mine_menu(target, user_id: int, is_message: bool = False):
         buttons.append([
             InlineKeyboardButton("🌾 390 (300🪙)", callback_data="buy_food:food_1"),
             InlineKeyboardButton("🌾 700 (500🪙)", callback_data="buy_food:food_2"),
+            InlineKeyboardButton("🌾 1.5k (1k🪙)", callback_data="buy_food:food_3"),
         ])
         buttons.append([
-            InlineKeyboardButton("🌾 1,500 (1,000🪙)", callback_data="buy_food:food_3"),
-            InlineKeyboardButton("🌾 4,000 (2.5k🪙)", callback_data="buy_food:food_4"),
+            InlineKeyboardButton("🌾 4k (2.5k🪙)", callback_data="buy_food:food_4"),
+            InlineKeyboardButton("🌾 9k (5k🪙)", callback_data="buy_food:food_5"),
         ])
         buttons.append([
-            InlineKeyboardButton("🌾 9,000 Don (5,000🪙)", callback_data="buy_food:food_5"),
+            InlineKeyboardButton("⛓️ 300 (500🪙)", callback_data="buy_iron:pack_1"),
+            InlineKeyboardButton("⛓️ 700 (1k🪙)", callback_data="buy_iron:pack_2"),
         ])
         buttons.append([
-            InlineKeyboardButton("🛒 300⛓️ (500🪙)", callback_data="buy_iron:pack_1"),
-            InlineKeyboardButton("🛒 700⛓️ (1,000🪙)", callback_data="buy_iron:pack_2"),
-        ])
-        buttons.append([
-            InlineKeyboardButton("🛒 1,900⛓️ (2.5k🪙)", callback_data="buy_iron:pack_3"),
-            InlineKeyboardButton("🛒 4,200⛓️ (5,000🪙)", callback_data="buy_iron:pack_4"),
+            InlineKeyboardButton("⛓️ 1.9k (2.5k🪙)", callback_data="buy_iron:pack_3"),
+            InlineKeyboardButton("⛓️ 4.2k (5k🪙)", callback_data="buy_iron:pack_4"),
         ])
         buttons.append([
             InlineKeyboardButton("🔙 Profilga Qaytish", callback_data="menu_profile"),
@@ -382,13 +366,24 @@ async def buy_food_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def artifacts_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await show_artifacts_menu(query, query.from_user.id, is_message=False)
+    await show_artifacts_menu(query, query.from_user.id, is_message=False, page=0)
+
+
+async def artifacts_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    page = int(query.data.split(":")[1]) if ":" in query.data else 0
+    await show_artifacts_menu(query, query.from_user.id, is_message=False, page=page)
 
 
 async def buy_artifact_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    code = query.data.replace("buy_art_", "")
+    raw = query.data.replace("buy_art_", "")
+    parts = raw.split(":")
+    code = parts[0]
+    page = int(parts[1]) if len(parts) > 1 else 0
     user_id = query.from_user.id
+
     async with AsyncSessionLocal() as session:
         user = await crud.get_user_by_telegram_id(session, user_id)
         if not user:
@@ -397,13 +392,17 @@ async def buy_artifact_callback(update: Update, context: ContextTypes.DEFAULT_TY
         ok, msg = await crud.buy_artifact(session, user.id, code)
 
     await query.answer(msg, show_alert=True)
-    await show_artifacts_menu(query, user_id, is_message=False)
+    await show_artifacts_menu(query, user_id, is_message=False, page=page)
 
 
 async def equip_artifact_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    art_id = int(query.data.replace("equip_art_", ""))
+    raw = query.data.replace("equip_art_", "")
+    parts = raw.split(":")
+    art_id = int(parts[0])
+    page = int(parts[1]) if len(parts) > 1 else 0
     user_id = query.from_user.id
+
     async with AsyncSessionLocal() as session:
         user = await crud.get_user_by_telegram_id(session, user_id)
         if not user:
@@ -412,12 +411,15 @@ async def equip_artifact_callback(update: Update, context: ContextTypes.DEFAULT_
         ok, msg = await crud.equip_artifact(session, user.id, art_id)
 
     await query.answer(msg, show_alert=True)
-    await show_artifacts_menu(query, user_id, is_message=False)
+    await show_artifacts_menu(query, user_id, is_message=False, page=page)
 
 
 async def unequip_artifact_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    parts = query.data.split(":")
+    page = int(parts[1]) if len(parts) > 1 else 0
     user_id = query.from_user.id
+
     async with AsyncSessionLocal() as session:
         user = await crud.get_user_by_telegram_id(session, user_id)
         if user:
@@ -428,7 +430,7 @@ async def unequip_artifact_callback(update: Update, context: ContextTypes.DEFAUL
             await session.commit()
 
     await query.answer("🛡️ Artefakt qurolxonaga olib qo'yildi.", show_alert=True)
-    await show_artifacts_menu(query, user_id, is_message=False)
+    await show_artifacts_menu(query, user_id, is_message=False, page=page)
 
 
 def register_profile_handlers(app):
@@ -439,9 +441,10 @@ def register_profile_handlers(app):
     app.add_handler(CallbackQueryHandler(profile_callback, pattern="^menu_profile$"))
     app.add_handler(CallbackQueryHandler(daily_bonus_callback, pattern="^claim_daily_bonus$"))
     app.add_handler(CallbackQueryHandler(artifacts_menu_callback, pattern="^menu_artifacts$"))
+    app.add_handler(CallbackQueryHandler(artifacts_page_callback, pattern="^menu_art_pg:"))
     app.add_handler(CallbackQueryHandler(buy_artifact_callback, pattern="^buy_art_"))
     app.add_handler(CallbackQueryHandler(equip_artifact_callback, pattern="^equip_art_"))
-    app.add_handler(CallbackQueryHandler(unequip_artifact_callback, pattern="^unequip_art$"))
+    app.add_handler(CallbackQueryHandler(unequip_artifact_callback, pattern="^unequip_art(:[0-9]+)?$"))
     app.add_handler(CallbackQueryHandler(iron_mine_callback, pattern="^menu_iron_mine$"))
     app.add_handler(CallbackQueryHandler(upgrade_mine_callback, pattern="^upgrade_iron_mine$"))
     app.add_handler(CallbackQueryHandler(upgrade_grain_mill_callback, pattern="^upgrade_grain_mill$"))

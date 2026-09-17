@@ -107,18 +107,17 @@ def houses_in_region_keyboard(region_name: str, member_counts: Optional[Dict[int
 
 
 def recruit_keyboard() -> InlineKeyboardMarkup:
-    """Qo'shin yollash klaviaturasi"""
+    """Qo'shin yollash klaviaturasi (ixcham va qulay)"""
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("🛡️ +100 Piyoda (200💰 100⛓️)", callback_data="rec:infantry:100"),
-            InlineKeyboardButton("🏹 +100 Kamonchi (300💰 100⛓️)", callback_data="rec:archers:100"),
+            InlineKeyboardButton("🛡️ +100 (200🪙)", callback_data="rec:infantry:100"),
+            InlineKeyboardButton("🏹 +100 (300🪙)", callback_data="rec:archers:100"),
+            InlineKeyboardButton("🐎 +50 (300🪙)", callback_data="rec:cavalry:50"),
         ],
         [
-            InlineKeyboardButton("🐎 +50 Otliq (300💰 150⛓️)", callback_data="rec:cavalry:50"),
-            InlineKeyboardButton("🗡️ +100 Nayzachi (200💰 200⛓️)", callback_data="rec:spearmen:100"),
-        ],
-        [
-            InlineKeyboardButton("🔥 +25 Maxsus Qo'shin (300💰 150⛓️)", callback_data="rec:special_troops:25"),
+            InlineKeyboardButton("🗡️ +100 (200🪙)", callback_data="rec:spearmen:100"),
+            InlineKeyboardButton("🔥 +25 (300🪙)", callback_data="rec:special_troops:25"),
+            InlineKeyboardButton("✍️ Qo'lda Yollash", callback_data="rec_custom_menu"),
         ],
         [
             InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")
