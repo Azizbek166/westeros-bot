@@ -47,25 +47,27 @@ async def show_dragon_hub(target, user_id: int, is_message: bool):
         dragons = await crud.get_user_dragons(session, user.id)
 
         if not dragons:
-            # Ajdar tuxumini tanlash (narxlar bilan)
+            # Ajdar tuxumini tanlash (birinchi ajdar bepul)
             buttons = []
-            prices = {"A": "3,000🪙 1,500⛓️", "B": "2,000🪙 1,000⛓️", "C": "1,200🪙 600⛓️"}
             for name, grade, desc in DRAGON_PRESETS:
-                p = prices.get(grade, "2,000🪙 1,000⛓️")
-                buttons.append([InlineKeyboardButton(f"🥚 {name} ({grade} Toifa — {p})", callback_data=f"dragon_claim:{name}:{grade}")])
+                buttons.append([InlineKeyboardButton(f"🥚 {name} ({grade} Toifa — 🎁 Bepul)", callback_data=f"dragon_claim:{name}:{grade}")])
             buttons.append([InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")])
 
             text = (
                 f"🐉 **VALYRIA MEROSI — AFSONAVIY AJDARLAR**\n\n"
-                f"Ajdarlar — Vesterosning eng noyob va qudratli maxluqlaridir! "
-                f"Ularni xarid qilish va boqish faqat boy va nufuzli lordlar qo'lidan keladi.\n\n"
+                f"Ajdarlar — Vesterosning eng noyob va qudratli maxluqlaridir!\n"
+                f"Siz birinchi ajdaringizni **bepul** tanlab, uni boqib voyaga yetkazishingiz mumkin.\n\n"
                 f"🎒 Sizning zaxirangiz: **{user.gold:,}**🪙 oltin, **{user.iron:,}**⛓️ temir\n\n"
                 f"Tarbiyalash uchun birinchi ajdar tuxumini tanlang:"
             )
-            if is_message:
-                await target.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
-            else:
-                await target.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+            try:
+                if is_message:
+                    await target.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+                else:
+                    await target.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+            except Exception:
+                if hasattr(target, "message") and target.message:
+                    await target.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
             return
 
         stage_names = {
@@ -141,10 +143,14 @@ async def show_dragon_hub(target, user_id: int, is_message: bool):
 
         buttons.append([InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")])
 
-        if is_message:
-            await target.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
-        else:
-            await target.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        try:
+            if is_message:
+                await target.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+            else:
+                await target.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        except Exception:
+            if hasattr(target, "message") and target.message:
+                await target.message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
 
 
 async def dragon_claim_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -311,26 +317,41 @@ async def dragon_max_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def dragon_release_ask_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Ajdardan voz kechish tasdig'ini so'rash"""
     query = update.callback_query
-    await query.answer()
+    try:
+        await query.answer()
+    except Exception:
+        pass
 
     dragon_id = int(query.data.split("_")[-1])
     async with AsyncSessionLocal() as session:
         dragon = await session.get(models.Dragon, dragon_id)
         if not dragon:
-            await query.answer("Ajdar topilmadi.", show_alert=True)
+            try:
+                await query.answer("❌ Ajdar topilmadi yoki u allaqachon ozod qilingan.", show_alert=True)
+            except Exception:
+                pass
+            await show_dragon_hub(query, query.from_user.id, is_message=False)
             return
 
         buttons = [
             [InlineKeyboardButton("✅ Ha, Ozod Qilish (Tashlash)", callback_data=f"dragon_release_confirm_{dragon.id}")],
             [InlineKeyboardButton("❌ Bekor Qilish", callback_data="menu_dragons")],
         ]
+        dr_name = escape_md(dragon.name)
         text = (
             f"⚠️ **DIQQAT: AJDARDAN VOZ KECHISH!**\n\n"
-            f"Haqiqatan ham **{dragon.name}** ({dragon.grade} Toifa, {dragon.level}-daraja) ajdaringizni ozodlikka qo'yib yubormoqchimisiz?\n\n"
+            f"Haqiqatan ham **{dr_name}** ({dragon.grade} Toifa, {dragon.level}-daraja) ajdaringizni ozodlikka qo'yib yubormoqchimisiz?\n\n"
             f"❗️ *Ushbu amalni ortga qaytarib bo'lmaydi!* "
             f"Ajdar ozod qilingach, siz boshqa yangi ajdar tuxumini tanlashingiz va tarbiyalashingiz mumkin bo'ladi."
         )
-        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        try:
+            await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        except Exception:
+            try:
+                await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+            except Exception:
+                if query.message:
+                    await query.message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
 
 
 async def dragon_release_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -342,7 +363,11 @@ async def dragon_release_confirm_callback(update: Update, context: ContextTypes.
     async with AsyncSessionLocal() as session:
         ok, msg = await crud.release_user_dragon(session, user_id, dragon_id)
 
-    await query.answer(msg, show_alert=True)
+    try:
+        clean_msg = msg.replace("**", "").replace("*", "").replace("_", "")
+        await query.answer(clean_msg, show_alert=True)
+    except Exception:
+        pass
     await show_dragon_hub(query, user_id, is_message=False)
 
 

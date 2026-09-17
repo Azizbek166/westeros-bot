@@ -1229,7 +1229,7 @@ async def send_castle_reinforcements_proportional(
     if not user.house_id:
         return False, "❌ Qal'ani himoya qilish uchun avval biror xonadonga a'zo bo'ling!", {}
 
-    is_own = (territory.owner_house_id == user.house_id)
+    is_own = (territory.owner_house_id == user.house_id) or (territory.owner_house_id is None)
     is_ally = False
     if not is_own and territory.owner_house_id:
         al_res = await session.execute(
@@ -1241,7 +1241,7 @@ async def send_castle_reinforcements_proportional(
         )
         is_ally = al_res.scalar_one_or_none() is not None
 
-    if not is_own and not is_ally:
+    if not is_own and not is_ally and territory.owner_house_id is not None:
         return False, "❌ Siz faqat o'z xonadoningiz yoki rasmiy ittifoqchingiz qal'asiga mudofaa askarlarini joylashtira olasiz!", {}
 
     army_res = await session.execute(select(models.Army).where(models.Army.user_id == user.id))
@@ -1285,10 +1285,10 @@ async def send_castle_reinforcements_proportional(
     if tot_s <= 0:
         return False, "Yuboriladigan askarlar soni 0 ga teng.", {}
 
-    army.infantry -= s_inf
-    army.archers -= s_arc
-    army.cavalry -= s_cav
-    army.spearmen -= s_sp
+    army.infantry = max(0, (army.infantry or 0) - s_inf)
+    army.archers = max(0, (army.archers or 0) - s_arc)
+    army.cavalry = max(0, (army.cavalry or 0) - s_cav)
+    army.spearmen = max(0, (army.spearmen or 0) - s_sp)
 
     territory.garrison_infantry = (territory.garrison_infantry or 0) + s_inf
     territory.garrison_archers = (territory.garrison_archers or 0) + s_arc
@@ -1322,7 +1322,7 @@ async def withdraw_castle_reinforcements(
     if not user or not territory:
         return False, "Foydalanuvchi yoki qal'a topilmadi.", {}
 
-    is_own = (territory.owner_house_id == user.house_id)
+    is_own = (territory.owner_house_id == user.house_id) or (territory.owner_house_id is None)
     is_ally = False
     if not is_own and territory.owner_house_id and user.house_id:
         al_res = await session.execute(
@@ -1334,13 +1334,22 @@ async def withdraw_castle_reinforcements(
         )
         is_ally = al_res.scalar_one_or_none() is not None
 
-    if not is_own and not is_ally:
+    if not is_own and not is_ally and territory.owner_house_id is not None:
         return False, "❌ Siz faqat o'z xonadoningiz yoki rasmiy ittifoqchingiz qal'alar garnizonidan askar qaytara olasiz!", {}
 
     army_res = await session.execute(select(models.Army).where(models.Army.user_id == user.id))
     army = army_res.scalar_one_or_none()
     if not army:
-        return False, "Armiya topilmadi.", {}
+        army = models.Army(
+            user_id=user.id,
+            infantry=0,
+            archers=0,
+            cavalry=0,
+            spearmen=0,
+            special_troops=0
+        )
+        session.add(army)
+        await session.flush()
 
     g_inf = territory.garrison_infantry or 0
     g_arc = territory.garrison_archers or 0
@@ -1378,10 +1387,10 @@ async def withdraw_castle_reinforcements(
     if tot_w <= 0:
         return False, "Qaytarib olinadigan askar miqdori 0 ga teng.", {}
 
-    territory.garrison_infantry -= w_inf
-    territory.garrison_archers -= w_arc
-    territory.garrison_cavalry -= w_cav
-    territory.garrison_spearmen -= w_sp
+    territory.garrison_infantry = max(0, (territory.garrison_infantry or 0) - w_inf)
+    territory.garrison_archers = max(0, (territory.garrison_archers or 0) - w_arc)
+    territory.garrison_cavalry = max(0, (territory.garrison_cavalry or 0) - w_cav)
+    territory.garrison_spearmen = max(0, (territory.garrison_spearmen or 0) - w_sp)
 
     army.infantry = (army.infantry or 0) + w_inf
     army.archers = (army.archers or 0) + w_arc
@@ -1716,17 +1725,24 @@ async def claim_dragon_egg(session: AsyncSession, user_id: int, name: str, grade
     if len(existing) >= 3:
         return False, "Sizda allaqachon maksimal 3 ta ajdar mavjud!", None
 
-    costs = {
-        "A": {"gold": 3000, "iron": 1500},
-        "B": {"gold": 2000, "iron": 1000},
-        "C": {"gold": 1200, "iron": 600},
-    }
-    cost = costs.get(grade, {"gold": 2000, "iron": 1000})
-    if user.gold < cost["gold"] or user.iron < cost["iron"]:
-        return False, f"Ajdar tuxumini xarid qilish uchun {cost['gold']:,}🪙 oltin va {cost['iron']:,}⛓️ temir kerak!\nSizda: {user.gold:,}🪙 oltin, {user.iron:,}⛓️ temir bor.", None
+    if len(existing) == 0:
+        # Birinchi ajdar (yoki avvalgisidan voz kechib yangisini tanlash) mutlaqo bepul
+        cost = {"gold": 0, "iron": 0}
+    else:
+        costs = {
+            "A": {"gold": 3000, "iron": 1500},
+            "B": {"gold": 2000, "iron": 1000},
+            "C": {"gold": 1200, "iron": 600},
+        }
+        cost = costs.get(grade, {"gold": 2000, "iron": 1000})
+        if user.gold < cost["gold"] or user.iron < cost["iron"]:
+            return False, f"Ajdar tuxumini xarid qilish uchun {cost['gold']:,}🪙 oltin va {cost['iron']:,}⛓️ temir kerak!\nSizda: {user.gold:,}🪙 oltin, {user.iron:,}⛓️ temir bor.", None
 
-    user.gold -= cost["gold"]
-    user.iron -= cost["iron"]
+    if cost["gold"] > 0:
+        user.gold -= cost["gold"]
+    if cost["iron"] > 0:
+        user.iron -= cost["iron"]
+
     dragon = models.Dragon(
         user_id=user.id,
         name=name,
@@ -1739,6 +1755,8 @@ async def claim_dragon_egg(session: AsyncSession, user_id: int, name: str, grade
     )
     session.add(dragon)
     await session.commit()
+    if cost["gold"] == 0:
+        return True, f"🎉 Tabriklaymiz! Siz {name} ({grade} Toifa) ajdari tuxumini bepul qabul qildingiz!", dragon
     return True, f"🎉 Siz {name} ({grade} Toifa) ajdari tuxumini xarid qildingiz!", dragon
 
 
@@ -2661,7 +2679,11 @@ async def release_user_dragon(session: AsyncSession, user_id: int, dragon_id: in
 
     dragon = await session.get(models.Dragon, dragon_id)
     if not dragon or dragon.user_id != user.id:
-        return False, "❌ Ajdar topilmadi yoki u sizga tegishli emas."
+        u_dragons = await get_user_dragons(session, user.id)
+        if u_dragons:
+            dragon = u_dragons[0]
+        else:
+            return False, "❌ Ajdar topilmadi yoki u allaqachon ozod qilingan."
 
     # Qal'alardagi qo'riqchilik ro'yxatidan tozalash
     t_res = await session.execute(select(models.Territory))

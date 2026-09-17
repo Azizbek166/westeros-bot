@@ -1,7 +1,7 @@
 import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CommandHandler, CallbackQueryHandler, ContextTypes
-from database import AsyncSessionLocal, crud
+from database import AsyncSessionLocal, crud, models
 from keyboards.menus import territories_keyboard, back_to_main_keyboard
 from config import escape_md
 
@@ -453,7 +453,12 @@ async def show_garrison_withdraw_menu(target, user_id: int, terr_id: int):
         g_sp = terr.garrison_spearmen or 0
         tot_g = g_inf + g_arc + g_cav + g_sp
 
-        u_army = user.army.infantry + user.army.archers + user.army.cavalry + user.army.spearmen
+        u_army = (
+            (user.army.infantry or 0)
+            + (user.army.archers or 0)
+            + (user.army.cavalry or 0)
+            + (user.army.spearmen or 0)
+        ) if (user and user.army) else 0
 
         buttons = [
             [
@@ -487,13 +492,20 @@ async def show_garrison_withdraw_menu(target, user_id: int, terr_id: int):
             f"👥 **Sizning shaxsiy armiyangiz:** {u_army:,} askar\n\n"
             f"Qal'a garnizonidan shaxsiy armiyangizga qancha askarni qaytarib olmoqchisiz?"
         )
-        await target.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        try:
+            await target.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        except Exception:
+            if hasattr(target, "message") and target.message:
+                await target.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
 
 
 async def def_withdraw_rf_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Qal'a garnizonidan askarlarni qaytarib olish sahifasini ochish"""
     query = update.callback_query
-    await query.answer()
+    try:
+        await query.answer()
+    except Exception:
+        pass
     terr_id = int(query.data.split(":")[1])
     user_id = query.from_user.id
     await show_garrison_withdraw_menu(query, user_id, terr_id)
@@ -523,8 +535,11 @@ async def def_with_act_callback(update: Update, context: ContextTypes.DEFAULT_TY
                 count=int(count_val)
             )
 
-    await query.answer(msg, show_alert=True)
-    await show_my_castle_detail(query, user_id, terr_id)
+    try:
+        await query.answer(msg.replace("*", ""), show_alert=True)
+    except Exception:
+        pass
+    await show_garrison_withdraw_menu(query, user_id, terr_id)
 
 
 async def def_custom_with_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):

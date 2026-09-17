@@ -706,7 +706,7 @@ TERRITORIES_DATA = {
         "name": "Ashemark",
         "region": "Westerlands",
         "castle": "Kulli Qoyalar Qal'asi",
-        "initial_owner_id": 46,  # Blackfyre
+        "initial_owner_id": 15,  # Blackfyre
         "population": 50000,
         "gold_income": 580,
         "food_income": 700,
