@@ -2510,7 +2510,7 @@ async def claim_daily_bonus(session: AsyncSession, user_id: int) -> Tuple[bool, 
 
 
 # ============================================================
-# IRON MINE & MARKET CRUD
+# RESOURCE MARKET (IRON & FOOD) CRUD
 # ============================================================
 
 IRON_MARKET_PACKS = {
@@ -2518,6 +2518,14 @@ IRON_MARKET_PACKS = {
     "pack_2": {"gold": 1000, "iron": 700, "title": "🐎 Savdo Karvoni (700 temir, +100 bonus)"},
     "pack_3": {"gold": 2500, "iron": 1900, "title": "🚢 Dengiz Savdo Kemasi (1,900 temir, +400 bonus)"},
     "pack_4": {"gold": 5000, "iron": 4200, "title": "👑 Qirollik Savdo Floti (4,200 temir, +1,200 bonus)"},
+}
+
+FOOD_MARKET_PACKS = {
+    "food_1": {"gold": 200, "food": 500, "title": "🌾 Kichik Bug'doy Xaltasi (500 oziq)"},
+    "food_2": {"gold": 500, "food": 1500, "title": "🌾 Savdo Karvoni (1,500 oziq, +250 bonus)"},
+    "food_3": {"gold": 1000, "food": 3500, "title": "🌾 Ombor Zaxirasi (3,500 oziq, +1,000 bonus)"},
+    "food_4": {"gold": 2500, "food": 10000, "title": "🌾 Qirollik Don Karvoni (10,000 oziq, +3,750 bonus)"},
+    "food_5": {"gold": 5000, "food": 25000, "title": "🌾 Butun Vodiy Hosili (25,000 oziq, +12,500 bonus)"},
 }
 
 
@@ -2568,6 +2576,50 @@ async def buy_iron_with_gold(session: AsyncSession, user_id: int, pack_code: str
     user.iron += pack["iron"]
     await session.commit()
     return True, f"✅ Bitim muvaffaqiyatli! +{pack['iron']:,}⛓️ temir omboringizga yetkazildi."
+
+
+async def buy_food_with_gold(session: AsyncSession, user_id: int, pack_code_or_gold: Any) -> Tuple[bool, str]:
+    """Bozordan oltin evaziga tayyor oziq-ovqat (don) xarid qilish"""
+    user = await get_user_any(session, user_id)
+    if not user:
+        return False, "Foydalanuvchi topilmadi."
+
+    # 1. Agar to'plam kodi uzatilgan bo'lsa (masalan, food_1, food_2...)
+    if isinstance(pack_code_or_gold, str) and pack_code_or_gold in FOOD_MARKET_PACKS:
+        pack = FOOD_MARKET_PACKS[pack_code_or_gold]
+        gold_cost = pack["gold"]
+        food_amount = pack["food"]
+    else:
+        # 2. Agar foydalanuvchi ixtiyoriy oltin miqdorini kiritgan bo'lsa
+        try:
+            gold_cost = int(pack_code_or_gold)
+        except (ValueError, TypeError):
+            return False, "Noto'g'ri tovar yoki oltin miqdori tanlandi."
+
+        if gold_cost < 50:
+            return False, "❌ Minimal xarid miqdori — 50🪙 oltin!"
+
+        # Miqdorga qarab progressiv bonuslar
+        if gold_cost >= 5000:
+            multiplier = 5.0
+        elif gold_cost >= 2500:
+            multiplier = 4.0
+        elif gold_cost >= 1000:
+            multiplier = 3.5
+        elif gold_cost >= 500:
+            multiplier = 3.0
+        else:
+            multiplier = 2.5
+
+        food_amount = int(gold_cost * multiplier)
+
+    if (user.gold or 0) < gold_cost:
+        return False, f"❌ Xarid uchun yetarli oltin yo'q!\nKerak: {gold_cost:,}🪙 (Sizda: {user.gold:,}🪙)"
+
+    user.gold -= gold_cost
+    user.food = (user.food or 0) + food_amount
+    await session.commit()
+    return True, f"✅ Bitim muvaffaqiyatli!\n\n💰 Sarflandi: -{gold_cost:,}🪙 Oltin\n🌾 Olingan: +{food_amount:,}🌾 Oziq-ovqat\n📦 Yangi zaxirangiz: {user.food:,}🌾 oziq, {user.gold:,}🪙 oltin."
 
 
 async def upgrade_grain_mill(session: AsyncSession, user_id: int) -> Tuple[bool, str]:
@@ -2727,8 +2779,141 @@ async def reset_entire_game(session: AsyncSession) -> None:
         t.castle_level = 1
         t.last_tax_collected_at = None
         t.reinforcements_json = None
+        t.conquered_by_user_id = None
 
     await session.commit()
+
+
+async def get_player_conquered_castles_summary(session: AsyncSession) -> Dict[str, Any]:
+    """Admin paneli uchun: qaysi o'yinchi nechta va qaysi qalalarni egallaganligi to'liq hisoboti"""
+    # 1. Barcha hududlar (qalalar)
+    terrs_res = await session.execute(
+        select(models.Territory).order_by(models.Territory.name)
+    )
+    all_terrs = terrs_res.scalars().all()
+
+    # 2. Barcha foydalanuvchilar
+    users_res = await session.execute(
+        select(models.User)
+    )
+    all_users = {u.id: u for u in users_res.scalars().all()}
+    users_by_tg = {u.telegram_id: u for u in all_users.values()}
+
+    # 3. Barcha xonadonlar
+    houses_res = await session.execute(
+        select(models.House)
+    )
+    all_houses = {h.id: h for h in houses_res.scalars().all()}
+
+    # 4. G'olib bo'lingan so'nggi jang hisobotlari
+    reports_res = await session.execute(
+        select(models.BattleReport)
+        .where(models.BattleReport.result == "attacker_won")
+        .order_by(desc(models.BattleReport.id))
+    )
+    battle_reports = reports_res.scalars().all()
+    latest_conqueror_by_terr: Dict[int, int] = {}
+    for r in battle_reports:
+        if r.territory_id not in latest_conqueror_by_terr:
+            latest_conqueror_by_terr[r.territory_id] = r.attacker_user_id
+
+    # 5. O'yinchilar bo'yicha qalalar xaritasi
+    player_stats: Dict[int, Dict[str, Any]] = {}
+
+    def ensure_player_entry(usr: models.User) -> Dict[str, Any]:
+        if usr.id not in player_stats:
+            h = all_houses.get(usr.house_id)
+            player_stats[usr.id] = {
+                "user_id": usr.id,
+                "telegram_id": usr.telegram_id,
+                "name": usr.full_name or usr.username or f"Lord {usr.id}",
+                "username": usr.username,
+                "rank": usr.rank or "member",
+                "house_name": h.name if h else "Xonadonsiz",
+                "house_emoji": h.emoji if h else "🏰",
+                "is_lord": bool(h and h.lord_user_id == usr.telegram_id),
+                "total_castles": 0,
+                "direct_conquests": 0,
+                "castles": [],
+            }
+        return player_stats[usr.id]
+
+    npc_castles_count = 0
+    player_castles_count = 0
+    neutral_castles_count = 0
+
+    for t in all_terrs:
+        tot_garrison = (
+            (t.garrison_infantry or 0)
+            + (t.garrison_archers or 0)
+            + (t.garrison_cavalry or 0)
+            + (t.garrison_spearmen or 0)
+        )
+        terr_dict = {
+            "id": t.id,
+            "code": t.code,
+            "name": t.name,
+            "castle_name": t.castle_name or "Qal'a",
+            "region": t.region,
+            "is_capital": bool(t.is_capital),
+            "castle_level": t.castle_level or 1,
+            "defense": t.defense or 0,
+            "garrison_total": tot_garrison,
+            "is_direct_conquest": False,
+        }
+
+        # Egalikni tekshirish
+        conqueror_user = all_users.get(t.conquered_by_user_id) if t.conquered_by_user_id else None
+
+        if not conqueror_user and t.id in latest_conqueror_by_terr:
+            rep_uid = latest_conqueror_by_terr[t.id]
+            rep_user = all_users.get(rep_uid)
+            if rep_user and rep_user.house_id == t.owner_house_id:
+                conqueror_user = rep_user
+
+        owner_house = all_houses.get(t.owner_house_id) if t.owner_house_id else None
+
+        if conqueror_user:
+            terr_dict["is_direct_conquest"] = True
+            entry = ensure_player_entry(conqueror_user)
+            entry["total_castles"] += 1
+            entry["direct_conquests"] += 1
+            entry["castles"].append(terr_dict)
+            player_castles_count += 1
+        elif owner_house and not owner_house.is_npc:
+            lord_user = users_by_tg.get(owner_house.lord_user_id) if owner_house.lord_user_id else None
+            if not lord_user:
+                for u in all_users.values():
+                    if u.house_id == owner_house.id:
+                        lord_user = u
+                        break
+
+            if lord_user:
+                entry = ensure_player_entry(lord_user)
+                entry["total_castles"] += 1
+                entry["castles"].append(terr_dict)
+                player_castles_count += 1
+            else:
+                npc_castles_count += 1
+        elif owner_house and owner_house.is_npc:
+            npc_castles_count += 1
+        else:
+            neutral_castles_count += 1
+
+    sorted_players = sorted(
+        player_stats.values(),
+        key=lambda x: (x["total_castles"], x["direct_conquests"], len(x["castles"])),
+        reverse=True
+    )
+
+    return {
+        "total_territories": len(all_terrs),
+        "player_controlled": player_castles_count,
+        "npc_controlled": npc_castles_count,
+        "neutral_controlled": neutral_castles_count,
+        "players": sorted_players,
+    }
+
 
 
 

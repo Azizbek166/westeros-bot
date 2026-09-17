@@ -234,6 +234,13 @@ async def show_iron_mine_menu(target, user_id: int, is_message: bool = False):
 
         text += (
             f"💰 **Xazinangiz:** **{user.gold:,}**🪙 Oltin | **{user.food:,}**🌾 Oziq-ovqat | **{user.iron:,}**⛓️ Temir\n\n"
+            f"🌾 **OZIQ-OVQAT BOZORI (OLTINGA DON XARID QILISH):**\n"
+            f"• 1-To'plam: 200🪙 ➡️ **500🌾 Oziq-ovqat**\n"
+            f"• 2-To'plam: 500🪙 ➡️ **1,500🌾 Oziq-ovqat** (+250 bonus)\n"
+            f"• 3-To'plam: 1,000🪙 ➡️ **3,500🌾 Oziq-ovqat** (+1,000 bonus)\n"
+            f"• 4-To'plam: 2,500🪙 ➡️ **10,000🌾 Oziq-ovqat** (+3,750 bonus)\n"
+            f"• 5-To'plam: 5,000🪙 ➡️ **25,000🌾 Oziq-ovqat** (+12,500 bonus)\n"
+            f"*(Ixtiyoriy miqdorda xarid qilish: `/buyfood 500`)*\n\n"
             f"🐪 **SAVDO KARVONLARI (OLTINGA TEMIR XARID QILISH):**\n"
             f"• 1-To'plam: 500🪙 ➡️ **300⛓️ Temir**\n"
             f"• 2-To'plam: 1,000🪙 ➡️ **700⛓️ Temir** (+100 bonus)\n"
@@ -242,21 +249,31 @@ async def show_iron_mine_menu(target, user_id: int, is_message: bool = False):
         )
 
         buttons = []
+        up_row = []
         if mine_lvl < 10:
-            buttons.append([
-                InlineKeyboardButton(f"⛏️ Konni Yangilash (Lv.{mine_lvl + 1})", callback_data="upgrade_iron_mine")
-            ])
+            up_row.append(InlineKeyboardButton(f"⛏️ Kon Lv.{mine_lvl + 1}", callback_data="upgrade_iron_mine"))
         if mill_lvl < 10:
-            buttons.append([
-                InlineKeyboardButton(f"🌾 Tegirmonni Yangilash (Lv.{mill_lvl + 1})", callback_data="upgrade_grain_mill")
-            ])
+            up_row.append(InlineKeyboardButton(f"🌾 Tegirmon Lv.{mill_lvl + 1}", callback_data="upgrade_grain_mill"))
+        if up_row:
+            buttons.append(up_row)
 
+        buttons.append([
+            InlineKeyboardButton("🌾 500 (200🪙)", callback_data="buy_food:food_1"),
+            InlineKeyboardButton("🌾 1,500 (500🪙)", callback_data="buy_food:food_2"),
+        ])
+        buttons.append([
+            InlineKeyboardButton("🌾 3,500 (1,000🪙)", callback_data="buy_food:food_3"),
+            InlineKeyboardButton("🌾 10,000 (2.5k🪙)", callback_data="buy_food:food_4"),
+        ])
+        buttons.append([
+            InlineKeyboardButton("🌾 25,000 Don (5,000🪙)", callback_data="buy_food:food_5"),
+        ])
         buttons.append([
             InlineKeyboardButton("🛒 300⛓️ (500🪙)", callback_data="buy_iron:pack_1"),
             InlineKeyboardButton("🛒 700⛓️ (1,000🪙)", callback_data="buy_iron:pack_2"),
         ])
         buttons.append([
-            InlineKeyboardButton("🛒 1,900⛓️ (2,500🪙)", callback_data="buy_iron:pack_3"),
+            InlineKeyboardButton("🛒 1,900⛓️ (2.5k🪙)", callback_data="buy_iron:pack_3"),
             InlineKeyboardButton("🛒 4,200⛓️ (5,000🪙)", callback_data="buy_iron:pack_4"),
         ])
         buttons.append([
@@ -273,6 +290,23 @@ async def show_iron_mine_menu(target, user_id: int, is_message: bool = False):
 async def iron_mine_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/mine, /iron, /kon buyruqlari"""
     user_id = update.effective_user.id
+    await show_iron_mine_menu(update, user_id, is_message=True)
+
+
+async def buy_food_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/buyfood, /food, /oziq, /bozor buyruqlari"""
+    user_id = update.effective_user.id
+    if context.args and len(context.args) > 0:
+        arg = context.args[0].strip()
+        async with AsyncSessionLocal() as session:
+            user = await crud.get_user_by_telegram_id(session, user_id)
+            if not user:
+                await update.message.reply_text("❌ Avval /start bosing.")
+                return
+            ok, msg = await crud.buy_food_with_gold(session, user.id, arg)
+            await update.message.reply_text(msg, parse_mode="Markdown")
+            return
+
     await show_iron_mine_menu(update, user_id, is_message=True)
 
 
@@ -324,6 +358,22 @@ async def buy_iron_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer("❌ Avval /start bosing.", show_alert=True)
             return
         ok, msg = await crud.buy_iron_with_gold(session, user.id, pack_code)
+
+    await query.answer(msg, show_alert=True)
+    await show_iron_mine_menu(query, user_id, is_message=False)
+
+
+async def buy_food_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Oltin evaziga oziq-ovqat xarid qilish callback"""
+    query = update.callback_query
+    pack_code = query.data.replace("buy_food:", "")
+    user_id = query.from_user.id
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_by_telegram_id(session, user_id)
+        if not user:
+            await query.answer("❌ Avval /start bosing.", show_alert=True)
+            return
+        ok, msg = await crud.buy_food_with_gold(session, user.id, pack_code)
 
     await query.answer(msg, show_alert=True)
     await show_iron_mine_menu(query, user_id, is_message=False)
@@ -384,7 +434,8 @@ async def unequip_artifact_callback(update: Update, context: ContextTypes.DEFAUL
 def register_profile_handlers(app):
     app.add_handler(CommandHandler("profile", profile_command))
     app.add_handler(CommandHandler(["daily", "bonus"], daily_bonus_callback))
-    app.add_handler(CommandHandler(["mine", "iron", "kon"], iron_mine_command))
+    app.add_handler(CommandHandler(["mine", "iron", "kon", "tegirmon"], iron_mine_command))
+    app.add_handler(CommandHandler(["buyfood", "food", "oziq", "bozor"], buy_food_command))
     app.add_handler(CallbackQueryHandler(profile_callback, pattern="^menu_profile$"))
     app.add_handler(CallbackQueryHandler(daily_bonus_callback, pattern="^claim_daily_bonus$"))
     app.add_handler(CallbackQueryHandler(artifacts_menu_callback, pattern="^menu_artifacts$"))
@@ -395,3 +446,4 @@ def register_profile_handlers(app):
     app.add_handler(CallbackQueryHandler(upgrade_mine_callback, pattern="^upgrade_iron_mine$"))
     app.add_handler(CallbackQueryHandler(upgrade_grain_mill_callback, pattern="^upgrade_grain_mill$"))
     app.add_handler(CallbackQueryHandler(buy_iron_callback, pattern="^buy_iron:"))
+    app.add_handler(CallbackQueryHandler(buy_food_callback, pattern="^buy_food:"))

@@ -137,6 +137,7 @@ async def process_due_marches(bot_app=None):
 
                 if battle_res["winner"] == "attacker":
                     territory.owner_house_id = attacker.house_id
+                    territory.conquered_by_user_id = attacker.id
                     # Qal'a egasi o'zgarganda mudofaadagi ajdar uyasiga qaytadi
                     if territory.reinforcements_json:
                         try:

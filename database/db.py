@@ -81,6 +81,7 @@ async def init_db():
                 "ALTER TABLE users ADD COLUMN daily_recruit_count INTEGER DEFAULT 0",
                 "ALTER TABLE users ADD COLUMN grain_mill_level INTEGER DEFAULT 1",
                 "ALTER TABLE territories ADD COLUMN castle_level INTEGER DEFAULT 1",
+                "ALTER TABLE territories ADD COLUMN conquered_by_user_id INTEGER",
             ]:
                 try:
                     await conn.execute(text(alter_stmt))
@@ -94,6 +95,7 @@ async def init_db():
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS iron_mine_level INTEGER DEFAULT 1",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS grain_mill_level INTEGER DEFAULT 1",
                 "ALTER TABLE territories ADD COLUMN IF NOT EXISTS castle_level INTEGER DEFAULT 1",
+                "ALTER TABLE territories ADD COLUMN IF NOT EXISTS conquered_by_user_id INTEGER",
             ]:
                 try:
                     await conn.execute(text(pg_alter))

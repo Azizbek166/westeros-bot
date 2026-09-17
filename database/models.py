@@ -174,6 +174,7 @@ class Territory(Base):
     castle_name = Column(String(100), nullable=False)
 
     owner_house_id = Column(Integer, ForeignKey("houses.id"), nullable=True)
+    conquered_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     population = Column(Integer, default=50000)
 
     # Soatlik daromadlar

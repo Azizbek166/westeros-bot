@@ -84,6 +84,7 @@ async def show_admin_dashboard(target, is_message: bool):
             [InlineKeyboardButton("👑 Xonadon Lordlarini Tayinlash", callback_data="admin_lords_menu")],
             [InlineKeyboardButton("🏰 Xonadonlar va G'aznalar", callback_data="admin_houses_list")],
             [InlineKeyboardButton("🏯 Qalalar va Mintaqalar (Castles)", callback_data="admin_castles_list:0")],
+            [InlineKeyboardButton("🏆 Egallangan Qal'alar (O'yinchilar bo'yicha)", callback_data="admin_player_castles:0")],
             [InlineKeyboardButton("🐉 Barcha Ajdarlar (Dragon Manager)", callback_data="admin_dragons_list:0")],
             [InlineKeyboardButton("❄️ Global Hodisalar & Tun Qiroli", callback_data="admin_events_menu")],
             [InlineKeyboardButton("🎁 Barchaga Ommaviy Sovg'a (+2000🪙)", callback_data="admin_mass_gift")],
@@ -1351,6 +1352,7 @@ async def admin_castles_list_callback(update: Update, context: ContextTypes.DEFA
         if nav_row:
             buttons.append(nav_row)
 
+        buttons.append([InlineKeyboardButton("🏆 O'yinchilar Egallagan Qal'alar", callback_data="admin_player_castles:0")])
         buttons.append([InlineKeyboardButton("🔙 Admin Panel", callback_data="admin_panel")])
 
         text = (
@@ -1359,6 +1361,100 @@ async def admin_castles_list_callback(update: Update, context: ContextTypes.DEFA
             f"Qal'ani tanlab, uning garnizoni, egasi, devorlari va holatini to'liq boshqarishingiz mumkin:"
         )
         await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def admin_player_castles_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin paneli: qaysi o'yinchi nechta va qaysi qalalarni egallaganligi ro'yxati"""
+    query = update.callback_query
+    try:
+        await query.answer()
+    except Exception:
+        pass
+
+    if not is_admin(query.from_user.id):
+        return
+
+    offset = int(query.data.split(":")[1]) if ":" in query.data else 0
+    PAGE_SIZE = 3
+
+    async with AsyncSessionLocal() as session:
+        summary = await crud.get_player_conquered_castles_summary(session)
+
+    players = summary.get("players", [])
+    total_terrs = summary.get("total_territories", 48)
+    player_terrs = summary.get("player_controlled", 0)
+    npc_terrs = summary.get("npc_controlled", 0)
+
+    total_players = len(players)
+    current_page_players = players[offset : offset + PAGE_SIZE]
+
+    text = (
+        f"🏆 **VESTEROS QAL'ALARI — O'YINCHILAR HISOBOTI**\n\n"
+        f"📊 **UMUMIY STATISTIKA:**\n"
+        f"• 🏯 Jami Qal'alar: **{total_terrs}** ta\n"
+        f"• 👑 O'yinchilar Tasarrufida: **{player_terrs}** ta qal'a\n"
+        f"• 🤖 NPC Xonadonlar Nazoratida: **{npc_terrs}** ta qal'a\n"
+        f"• 👥 Qal'aga ega O'yinchilar: **{total_players}** nafar\n\n"
+    )
+
+    buttons = []
+
+    if not players:
+        text += (
+            "ℹ️ *Hozircha hech qaysi o'yinchi qal'alarni egallamagan yoki xonadonga a'zo emas.*\n\n"
+            "O'yinchilar harbiy yurish qilib qal'alarni zabt etganlarida bu yerda to'liq ro'yxat shakllanadi."
+        )
+    else:
+        text += "🏰 **O'YINCHILAR VA ULARNING QAL'ALARI:**\n"
+        text += "════════════════════════════\n\n"
+
+        for idx, p in enumerate(current_page_players, start=offset + 1):
+            uname_str = f"@{p['username']}" if p.get("username") else f"ID: {p['telegram_id']}"
+            lord_badge = "👑 Lord" if p.get("is_lord") else f"🎖️ {str(p.get('rank', 'member')).title()}"
+            direct_str = f" (⚔️ {p['direct_conquests']} tasi jangda fath etilgan)" if p.get("direct_conquests", 0) > 0 else ""
+
+            text += (
+                f"**{idx}. {p['name']}** ({uname_str})\n"
+                f"• {p['house_emoji']} Xonadon: **{p['house_name']}** ({lord_badge})\n"
+                f"• 🏯 Egalikdagi Qal'alar: **{p['total_castles']} ta**{direct_str}\n"
+                f"• Qal'alar ro'yxati:\n"
+            )
+
+            for c in p.get("castles", []):
+                tag = "⚔️ Fath etilgan" if c.get("is_direct_conquest") else ("👑 Poytaxt" if c.get("is_capital") else "🛡️ Xonadon qal'asi")
+                text += (
+                    f"   ▫️ 🏯 **{c['name']}** ({c['castle_name']}) — *{c['region']}*\n"
+                    f"      ┗ [{tag}] | Devor: {c['defense']} | Garnizon: {c['garrison_total']:,} askar\n"
+                )
+            text += "\n"
+
+        text += "════════════════════════════\n"
+        total_pages = max(1, (total_players + PAGE_SIZE - 1) // PAGE_SIZE)
+        curr_page = offset // PAGE_SIZE + 1
+        text += f"Sahifa: {curr_page} / {total_pages}"
+
+        for p in current_page_players:
+            buttons.append([
+                InlineKeyboardButton(
+                    f"👤 {p['name'][:15]} ({p['total_castles']} qal'a)",
+                    callback_data=f"admin_u_detail:{p['user_id']}"
+                )
+            ])
+
+    nav_row = []
+    if offset >= PAGE_SIZE:
+        nav_row.append(InlineKeyboardButton("⬅️ Oldingi", callback_data=f"admin_player_castles:{offset - PAGE_SIZE}"))
+    if offset + PAGE_SIZE < total_players:
+        nav_row.append(InlineKeyboardButton("Keyingi ➡️", callback_data=f"admin_player_castles:{offset + PAGE_SIZE}"))
+    if nav_row:
+        buttons.append(nav_row)
+
+    buttons.append([
+        InlineKeyboardButton("🏯 Qalalar Ro'yxati", callback_data="admin_castles_list:0"),
+        InlineKeyboardButton("🔙 Admin Panel", callback_data="admin_panel"),
+    ])
+
+    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
 
 
 async def show_admin_castle_detail(query, terr_id: int):
@@ -2053,6 +2149,7 @@ def register_admin_handlers(app):
     app.add_handler(CallbackQueryHandler(admin_house_detail_callback, pattern="^adm_h_detail:"))
     app.add_handler(CallbackQueryHandler(admin_house_action_callback, pattern="^adm_h_act:"))
     app.add_handler(CallbackQueryHandler(admin_castles_list_callback, pattern="^admin_castles_list:"))
+    app.add_handler(CallbackQueryHandler(admin_player_castles_callback, pattern="^admin_player_castles:"))
     app.add_handler(CallbackQueryHandler(admin_castle_detail_callback, pattern="^adm_c_detail:"))
     app.add_handler(CallbackQueryHandler(admin_castle_action_callback, pattern="^adm_c_act:"))
     app.add_handler(CallbackQueryHandler(admin_castle_pick_house_callback, pattern="^adm_c_pick_h:"))
