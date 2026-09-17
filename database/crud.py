@@ -1725,23 +1725,17 @@ async def claim_dragon_egg(session: AsyncSession, user_id: int, name: str, grade
     if len(existing) >= 3:
         return False, "Sizda allaqachon maksimal 3 ta ajdar mavjud!", None
 
-    if len(existing) == 0:
-        # Birinchi ajdar (yoki avvalgisidan voz kechib yangisini tanlash) mutlaqo bepul
-        cost = {"gold": 0, "iron": 0}
-    else:
-        costs = {
-            "A": {"gold": 3000, "iron": 1500},
-            "B": {"gold": 2000, "iron": 1000},
-            "C": {"gold": 1200, "iron": 600},
-        }
-        cost = costs.get(grade, {"gold": 2000, "iron": 1000})
-        if user.gold < cost["gold"] or user.iron < cost["iron"]:
-            return False, f"Ajdar tuxumini xarid qilish uchun {cost['gold']:,}🪙 oltin va {cost['iron']:,}⛓️ temir kerak!\nSizda: {user.gold:,}🪙 oltin, {user.iron:,}⛓️ temir bor.", None
+    costs = {
+        "A": {"gold": 3000, "iron": 1500},
+        "B": {"gold": 2000, "iron": 1000},
+        "C": {"gold": 1200, "iron": 600},
+    }
+    cost = costs.get(grade, {"gold": 2000, "iron": 1000})
+    if user.gold < cost["gold"] or user.iron < cost["iron"]:
+        return False, f"Ajdar tuxumini xarid qilish uchun {cost['gold']:,}🪙 oltin va {cost['iron']:,}⛓️ temir kerak!\nSizda: {user.gold:,}🪙 oltin, {user.iron:,}⛓️ temir bor.", None
 
-    if cost["gold"] > 0:
-        user.gold -= cost["gold"]
-    if cost["iron"] > 0:
-        user.iron -= cost["iron"]
+    user.gold -= cost["gold"]
+    user.iron -= cost["iron"]
 
     dragon = models.Dragon(
         user_id=user.id,
@@ -1755,8 +1749,6 @@ async def claim_dragon_egg(session: AsyncSession, user_id: int, name: str, grade
     )
     session.add(dragon)
     await session.commit()
-    if cost["gold"] == 0:
-        return True, f"🎉 Tabriklaymiz! Siz {name} ({grade} Toifa) ajdari tuxumini bepul qabul qildingiz!", dragon
     return True, f"🎉 Siz {name} ({grade} Toifa) ajdari tuxumini xarid qildingiz!", dragon
 
 
@@ -2700,7 +2692,7 @@ async def release_user_dragon(session: AsyncSession, user_id: int, dragon_id: in
     dragon_name = dragon.name
     await session.delete(dragon)
     await session.commit()
-    return True, f"🕊️ **{dragon_name}** ozodlikka qo'yib yuborildi! Endi siz boshqa yangi ajdar tuxumini tanlashingiz mumkin."
+    return True, f"🗑️ **{dragon_name}** tashlandi (ozod qilindi)! Bo'shagan o'ringa yangi ajdar xarid qilishingiz mumkin."
 
 
 
