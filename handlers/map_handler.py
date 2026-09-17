@@ -1,4 +1,5 @@
 import os
+from sqlalchemy import select
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CommandHandler, CallbackQueryHandler, ContextTypes
 from database import AsyncSessionLocal, crud, models
@@ -76,34 +77,41 @@ async def view_territory_callback(update: Update, context: ContextTypes.DEFAULT_
         pass
 
     user_id = query.from_user.id
-    terr_id = int(query.data.split(":")[1])
-    async with AsyncSessionLocal() as session:
-        terr = await crud.get_territory_by_id(session, terr_id)
-        if not terr:
-            await query.answer("Hudud topilmadi.", show_alert=True)
-            return
+    try:
+        terr_id = int(query.data.split(":")[1])
+    except Exception:
+        return
 
-        user = await crud.get_user_any(session, user_id)
-        is_own = user and user.house_id and user.house_id == terr.owner_house_id
+    try:
+        async with AsyncSessionLocal() as session:
+            terr = await crud.get_territory_by_id(session, terr_id)
+            if not terr:
+                if query:
+                    try:
+                        await query.answer("Hudud topilmadi.", show_alert=True)
+                    except Exception:
+                        pass
+                return
 
-        # Ittifoqchi qal'asi ekanligini tekshirish
-        is_ally = False
-        alliance_type_str = ""
-        if user and user.house_id and terr.owner_house_id and not is_own:
-            al_res = await session.execute(
-                select(models.Alliance).where(
-                    models.Alliance.status == "active",
-                    ((models.Alliance.house_a_id == user.house_id) & (models.Alliance.house_b_id == terr.owner_house_id)) |
-                    ((models.Alliance.house_a_id == terr.owner_house_id) & (models.Alliance.house_b_id == user.house_id))
-                )
-            )
-            al = al_res.scalar_one_or_none()
-            if al:
-                is_ally = True
-                alliance_type_str = " (💍 To'y Ittifoqchimiz)" if al.type == "marriage" else " (⚔️ Harbiy Ittifoqchimiz)"
+            user = await crud.get_user_any(session, user_id, load_relations=True)
+            is_own = user and user.house_id and user.house_id == terr.owner_house_id
 
-        owner_name = f"{terr.owner_house.emoji} {terr.owner_house.name}" if terr.owner_house else "Egaliksiz (Qaroqchilar)"
-        clean_owner = owner_name.replace("*", "").replace("_", "").replace("`", "")
+            # Ittifoqchi qal'asi ekanligini tekshirish
+            is_ally = False
+            alliance_type_str = ""
+            if user and user.house_id and terr.owner_house_id and not is_own:
+                try:
+                    allies = await crud.get_active_alliances_for_house(session, user.house_id)
+                    for a in allies:
+                        if (a.house_a_id == terr.owner_house_id) or (a.house_b_id == terr.owner_house_id):
+                            is_ally = True
+                            alliance_type_str = " (💍 To'y Ittifoqchimiz)" if a.type == "marriage" else " (⚔️ Harbiy Ittifoqchimiz)"
+                            break
+                except Exception:
+                    pass
+
+            owner_name = f"{terr.owner_house.emoji} {terr.owner_house.name}" if terr.owner_house else "Egaliksiz (Qaroqchilar)"
+            clean_owner = owner_name.replace("*", "").replace("_", "").replace("`", "")
 
         dragon_info_str = "Mavjud emas"
         st_dragon = crud.get_stationed_dragon_info(terr)
@@ -187,15 +195,23 @@ async def view_territory_callback(update: Update, context: ContextTypes.DEFAULT_
             except Exception:
                 clean_text = text.replace("*", "").replace("_", "").replace("`", "")
                 await context.bot.send_message(chat_id=chat_id, text=clean_text, reply_markup=InlineKeyboardMarkup(buttons))
-        else:
-            try:
-                await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
-            except Exception:
-                clean_text = text.replace("*", "").replace("_", "").replace("`", "")
+            else:
                 try:
-                    await query.edit_message_text(clean_text, reply_markup=InlineKeyboardMarkup(buttons))
+                    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
                 except Exception:
-                    await context.bot.send_message(chat_id=chat_id, text=clean_text, reply_markup=InlineKeyboardMarkup(buttons))
+                    clean_text = text.replace("*", "").replace("_", "").replace("`", "")
+                    try:
+                        await query.edit_message_text(clean_text, reply_markup=InlineKeyboardMarkup(buttons))
+                    except Exception:
+                        await context.bot.send_message(chat_id=chat_id, text=clean_text, reply_markup=InlineKeyboardMarkup(buttons))
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        if query:
+            try:
+                await query.answer(f"Xatolik: {str(e)[:50]}", show_alert=True)
+            except Exception:
+                pass
 
 
 async def terr_own_info_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
