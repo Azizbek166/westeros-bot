@@ -76,6 +76,18 @@ async def show_diplomacy_hub(target, user_id: int, is_message: bool):
         buttons.append([InlineKeyboardButton("🤝 Yangi Ittifoq Taklif Qilish", callback_data="diplo_propose_alliance:0")])
         if active_alliances:
             buttons.append([InlineKeyboardButton("🛡️ Ittifoqchiga Qo'shin Yordami Yuborish", callback_data="diplo_reinforce_pick")])
+
+        # Ittifoqni uzish imkoniyati (Faqat Lord yoki Qo'mondon uchun)
+        is_leader = (user.rank in ["king", "commander"]) or (house.lord_user_id == user.telegram_id)
+        if is_leader:
+            break_row = []
+            if mil_alliance:
+                break_row.append(InlineKeyboardButton("💔 Harbiy Ittifoqni Uzish", callback_data=f"diplo_break_prompt:{mil_alliance.id}"))
+            if mar_alliance:
+                break_row.append(InlineKeyboardButton("💔 To'y Ittifoqini Uzish", callback_data=f"diplo_break_prompt:{mar_alliance.id}"))
+            if break_row:
+                buttons.append(break_row)
+
         buttons.append([InlineKeyboardButton("⚔️ Urush E'lon Qilish (Xaritaga o'tish)", callback_data="menu_map")])
         buttons.append([InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")])
 
@@ -366,6 +378,104 @@ async def send_rf_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await show_diplomacy_hub(query, user_id, is_message=False)
 
 
+async def diplo_break_prompt_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ittifoqni uzish tasdiqlash ekrani"""
+    query = update.callback_query
+    await query.answer()
+
+    parts = query.data.split(":")
+    alliance_id = int(parts[1])
+    user_id = query.from_user.id
+
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_with_relations(session, user_id)
+        if not user or not user.house:
+            return
+
+        is_leader = (user.rank in ["king", "commander"]) or (user.house.lord_user_id == user.telegram_id)
+        if not is_leader:
+            await query.answer("❌ Faqat Xonadon Lordi yoki Qo'mondoni ittifoqni uza oladi!", show_alert=True)
+            return
+
+        alliance = await session.get(models.Alliance, alliance_id)
+        if not alliance or alliance.status != "active":
+            await query.answer("❌ Ushbu ittifoq faol emas!", show_alert=True)
+            await show_diplomacy_hub(query, user_id, is_message=False)
+            return
+
+        other_id = alliance.house_b_id if alliance.house_a_id == user.house.id else alliance.house_a_id
+        other_h = await session.get(models.House, other_id)
+        if not other_h:
+            await query.answer("❌ Xonadon topilmadi!", show_alert=True)
+            return
+
+        type_name = "⚔️ Harbiy Ittifoq" if alliance.type == "military" else "💍 To'y Ittifoqi"
+
+        buttons = [
+            [InlineKeyboardButton("✅ Ha, Ittifoqni Uzaman (-10% Jarima)", callback_data=f"diplo_break_do:{alliance.id}")],
+            [InlineKeyboardButton("🔙 Bekor Qilish", callback_data="menu_diplomacy")],
+        ]
+
+        text = (
+            f"⚠️ **HAQIQATAN HAM ITTIFOQNI UZMOQCHIMISIZ?**\n\n"
+            f"🏰 Nishon: **{other_h.emoji} {escape_md(other_h.name)}** ({escape_md(other_h.region)})\n"
+            f"📜 Ittifoq turi: **{type_name}**\n\n"
+            f"🛑 **QASAMYOD BUZILISHI JAZOSI:**\n"
+            f"Westerosda ittifoq shartnomasini buzish katta isnod va xiyonat sanaladi!\n"
+            f"• Xonadon nufuzi (Prestige) **-10%** ga kamayadi;\n"
+            f"• Xonadoningizdagi barcha lordlarning (a'zolarining) **XP va Prestige ballari -10%** ga kamayadi!\n\n"
+            f"Ushbu qat'iy qarorni tasdiqlaysizmi?"
+        )
+        try:
+            await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        except Exception:
+            await query.edit_message_text(text, parse_mode=None, reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def diplo_break_do_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ittifoqni uzishni bajarish"""
+    query = update.callback_query
+    parts = query.data.split(":")
+    alliance_id = int(parts[1])
+    user_id = query.from_user.id
+
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_with_relations(session, user_id)
+        if not user or not user.house:
+            await query.answer("❌ Xatolik yuz berdi.", show_alert=True)
+            return
+
+        is_leader = (user.rank in ["king", "commander"]) or (user.house.lord_user_id == user.telegram_id)
+        if not is_leader:
+            await query.answer("❌ Faqat Xonadon Lordi yoki Qo'mondoni ittifoqni uza oladi!", show_alert=True)
+            return
+
+        ok, msg, info = await crud.break_alliance(session, alliance_id, user.house.id)
+
+    try:
+        await query.answer(msg, show_alert=True)
+    except Exception:
+        pass
+
+    # Ikkinchi xonadon Lordiga qarg'a orqali xabar jo'natish
+    if ok and info and info.get("other_lord_id"):
+        try:
+            await context.bot.send_message(
+                chat_id=info["other_lord_id"],
+                text=(
+                    f"💔 **QARG'A XABARI: ITTIFOQ BUZILDI!**\n\n"
+                    f"🏰 **{user.house.emoji} {user.house.name}** xonadoni siz bilan tuzilgan "
+                    f"**{info['type_name']}**ni bir tomonlama bekor qildi!\n\n"
+                    f"Qasamyodni buzgani sababli ularning xonadoni va lordlarining nufuzi (Prestige) hamda tajribasi (XP) -10% ga kamaytirildi."
+                ),
+                parse_mode="Markdown",
+            )
+        except Exception:
+            pass
+
+    await show_diplomacy_hub(query, user_id, is_message=False)
+
+
 def register_diplomacy_handlers(app):
     app.add_handler(CommandHandler("alliance", diplomacy_command))
     app.add_handler(CommandHandler("diplomacy", diplomacy_command))
@@ -374,6 +484,8 @@ def register_diplomacy_handlers(app):
     app.add_handler(CallbackQueryHandler(pick_alliance_type_callback, pattern="^diplo_pick_type:"))
     app.add_handler(CallbackQueryHandler(send_proposal_callback, pattern="^diplo_send_prop:"))
     app.add_handler(CallbackQueryHandler(answer_proposal_callback, pattern="^diplo_ans:"))
+    app.add_handler(CallbackQueryHandler(diplo_break_prompt_callback, pattern="^diplo_break_prompt:"))
+    app.add_handler(CallbackQueryHandler(diplo_break_do_callback, pattern="^diplo_break_do:"))
     app.add_handler(CallbackQueryHandler(reinforce_pick_callback, pattern="^diplo_reinforce_pick$"))
     app.add_handler(CallbackQueryHandler(send_rf_callback, pattern="^diplo_send_rf:"))
 

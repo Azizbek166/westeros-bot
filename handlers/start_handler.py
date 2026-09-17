@@ -59,12 +59,17 @@ async def region_selected_callback(update: Update, context: ContextTypes.DEFAULT
     query = update.callback_query
     await query.answer()
 
+    user_id = query.from_user.id
+    async with AsyncSessionLocal() as session:
+        existing = await crud.get_user_by_telegram_id(session, user_id)
+        if existing and existing.house_id:
+            await query.answer("❌ Siz allaqachon xonadonga a'zosiz! Xonadonni almashtirish taqiqlanadi.", show_alert=True)
+            return
+        member_counts = await crud.get_all_houses_member_counts(session)
+
     context.user_data.pop("awaiting_custom_name", None)
     region_name = query.data.split(":", 1)[1]
     context.user_data["selected_region"] = region_name
-
-    async with AsyncSessionLocal() as session:
-        member_counts = await crud.get_all_houses_member_counts(session)
 
     text = (
         f"📍 **{region_name}** mintaqasidagi xonadonlar:\n\n"
@@ -83,18 +88,20 @@ async def house_selected_callback(update: Update, context: ContextTypes.DEFAULT_
     query = update.callback_query
     await query.answer()
 
+    user_id = query.from_user.id
+    async with AsyncSessionLocal() as session:
+        existing = await crud.get_user_by_telegram_id(session, user_id)
+        if existing and existing.house_id:
+            await query.answer("❌ Siz allaqachon xonadonga a'zosiz! Xonadonni almashtirish taqiqlanadi.", show_alert=True)
+            await query.edit_message_text("❌ Siz allaqachon xonadon tanlagansiz! Xonadonni almashtirish taqiqlangan.", reply_markup=main_menu_keyboard(user_id))
+            return
+
     house_code = query.data.split(":", 1)[1]
     context.user_data["selected_house"] = house_code
     house_info = HOUSES_DATA.get(house_code, {})
     house_id = house_info.get("id", 1)
 
-    user_id = query.from_user.id
     async with AsyncSessionLocal() as session:
-        existing = await crud.get_user_by_telegram_id(session, user_id)
-        if existing and existing.house_id:
-            await query.edit_message_text("❌ Siz allaqachon xonadon tanlagansiz!", reply_markup=main_menu_keyboard(user_id))
-            return
-
         member_count = await crud.get_house_members_count(session, house_id)
 
     if member_count >= 5:
@@ -175,6 +182,14 @@ async def handle_custom_name_input(update: Update, context: ContextTypes.DEFAULT
             await update.effective_message.reply_text(
                 f"❌ Kechirasiz, **{house_info['name']}** xonadoni hozirgina to'ldi (5/5). Iltimos, boshqa xonadon tanlang.",
                 reply_markup=regions_keyboard()
+            )
+            return
+
+        if existing and existing.house_id:
+            context.user_data.pop("awaiting_custom_name", None)
+            await update.effective_message.reply_text(
+                "❌ Siz allaqachon xonadonga a'zosiz! Xonadonni almashtirish taqiqlangan.",
+                reply_markup=main_menu_keyboard(user_id)
             )
             return
 

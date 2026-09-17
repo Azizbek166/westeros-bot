@@ -219,6 +219,9 @@ async def join_house(
     full_name: Optional[str] = None,
 ) -> models.User:
     """Mavjud o'yinchini xonadonga a'zo qilish va qasamyod qildirish"""
+    if user.house_id:
+        raise ValueError("Siz allaqachon xonadonga a'zosiz! Xonadonni almashtirish taqiqlangan.")
+
     house = await session.get(models.House, house_id)
     if not house:
         raise ValueError(f"House with id {house_id} not found")
@@ -313,39 +316,8 @@ async def join_house(
 
 
 async def leave_house(session: AsyncSession, user_id: int) -> Tuple[bool, str]:
-    """O'yinchi xonadondan chiqishi"""
-    user = await get_user_any(session, user_id)
-    if not user or not user.house_id:
-        return False, "❌ Siz biron xonadonga a'zo emassiz."
-
-    house = await session.get(models.House, user.house_id)
-    if house and house.lord_user_id == user.telegram_id:
-        house.lord_user_id = None
-        house.lord_elected_at = datetime.utcnow()
-
-    # Ovozlarini tozalash
-    await session.execute(
-        delete(models.HouseVote).where(
-            (models.HouseVote.voter_user_id == user.id) | (models.HouseVote.candidate_user_id == user.id)
-        )
-    )
-
-    # HouseMember dan o'chirish
-    await session.execute(
-        delete(models.HouseMember).where(models.HouseMember.user_id == user.id)
-    )
-
-    # Foydalanuvchini xonadondan ozod qilish
-    user.house_id = None
-    user.rank = "member"
-
-    # Eski personajni tozalash (yangi xonadonga kirganda yangi qahramon tanlanadi)
-    await session.execute(
-        delete(models.Character).where(models.Character.user_id == user.id)
-    )
-
-    await session.commit()
-    return True, "✅ Siz xonadondan chiqdingiz. Endi yangi xonadon tanlashingiz mumkin!"
+    """O'yinchi xonadondan chiqishi (Westeros qonunlariga ko'ra qasamyod umrboddir)"""
+    return False, "❌ Westeros qonunlariga ko'ra, xonadonga berilgan qasamyod umrboddir! Xonadonni tark etish yoki almashtirish taqiqlanadi."
 
 
 # ============================================================
@@ -1184,6 +1156,60 @@ async def respond_to_alliance(session: AsyncSession, alliance_id: int, accept: b
     return True, f"🎉 {type_name_uz} rasman kuchga kirdi!"
 
 
+async def break_alliance(
+    session: AsyncSession,
+    alliance_id: int,
+    broken_by_house_id: int
+) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
+    """Ittifoqni bir tomonlama uzish va qasamyod buzilgani uchun -10% jarima qo'llash"""
+    alliance = await session.get(models.Alliance, alliance_id)
+    if not alliance or alliance.status != "active":
+        return False, "❌ Faol ittifoq topilmadi.", None
+
+    if broken_by_house_id not in [alliance.house_a_id, alliance.house_b_id]:
+        return False, "❌ Sizning xonadoningiz ushbu ittifoq a'zosi emas.", None
+
+    other_house_id = alliance.house_b_id if broken_by_house_id == alliance.house_a_id else alliance.house_a_id
+
+    breaker_house = await session.get(models.House, broken_by_house_id)
+    other_house = await session.get(models.House, other_house_id)
+    if not breaker_house or not other_house:
+        return False, "❌ Xonadon ma'lumotlari topilmadi.", None
+
+    # Ittifoq statusini 'broken' ga o'tkazamiz
+    alliance.status = "broken"
+
+    # 1. Xonadon nufuzi (Prestige) dan -10%
+    house_old_prestige = breaker_house.prestige or 0
+    house_loss = int(house_old_prestige * 0.10)
+    breaker_house.prestige = max(0, house_old_prestige - house_loss)
+
+    # 2. Xonadondagi barcha lordlarning XP va Prestige ballaridan -10%
+    members_res = await session.execute(
+        select(models.User).where(models.User.house_id == broken_by_house_id)
+    )
+    members = members_res.scalars().all()
+    for m in members:
+        if m.prestige:
+            m.prestige = max(0, int(m.prestige * 0.90))
+        if m.xp:
+            m.xp = max(0, int(m.xp * 0.90))
+
+    await session.commit()
+
+    type_name_uz = "Harbiy Ittifoq" if alliance.type == "military" else "To'y Ittifoqi"
+    info = {
+        "alliance_type": alliance.type,
+        "type_name": type_name_uz,
+        "breaker_house": breaker_house,
+        "other_house": other_house,
+        "other_lord_id": other_house.lord_user_id,
+        "prestige_lost": house_loss,
+        "members_affected": len(members),
+    }
+    return True, f"💔 {other_house.name} bilan tuzilgan {type_name_uz} bekor qilindi!\nQasamyod buzilgani sababli xonadoningiz va barcha a'zolardan -10% XP hamda -10% Prestige chegirildi.", info
+
+
 async def send_castle_reinforcements(
     session: AsyncSession,
     user_id: int,
@@ -1527,10 +1553,6 @@ async def donate_to_house_treasury(
     if not user or not user.house_id:
         return False, "Siz hali xonadonga a'zo emassiz."
 
-    await check_and_reset_daily_limits(session, user)
-    if user.daily_donation_count >= 2:
-        return False, "❌ Siz bugungi 2 ta ehson limitingizdan foydalanib bo'ldingiz! Ertaga yana xazinaga ehson qilishingiz mumkin."
-
     if user.gold < gold or user.food < food or user.iron < iron:
         return False, "Xazinaga topshirish uchun resurslaringiz yetarli emas!"
 
@@ -1542,19 +1564,13 @@ async def donate_to_house_treasury(
     user.gold -= gold
     user.food -= food
     user.iron -= iron
-    user.daily_donation_count += 1
 
     # Xonadon xazinasiga qo'shish
     house.gold += gold
     house.food += food
     house.iron += iron
 
-    # Nufuz (Prestige) hisoblash (har 100 tanga/temir yoki 200 oziq-ovqat uchun +2 prestige)
-    prestige_gain = (gold // 50) + (iron // 50) + (food // 100) + 5
-    user.prestige += prestige_gain
-    house.prestige += (prestige_gain // 2)
-
-    # HouseMember dagi hissani yangilash
+    # HouseMember dagi hissani yangilash (Eng saxiy a'zolar reytingi uchun)
     hm_res = await session.execute(
         select(models.HouseMember).where(
             models.HouseMember.user_id == user.id,
@@ -1568,7 +1584,15 @@ async def donate_to_house_treasury(
         hm.contribution_iron += iron
 
     await session.commit()
-    return True, f"✅ Xonadon g'aznasiga ehson qabul qilindi ({user.daily_donation_count}/2)! (+{prestige_gain}🏆 Prestige berildi)"
+    parts_desc = []
+    if gold > 0:
+        parts_desc.append(f"{gold:,}🪙")
+    if food > 0:
+        parts_desc.append(f"{food:,}🌾")
+    if iron > 0:
+        parts_desc.append(f"{iron:,}⛓️")
+    don_str = " + ".join(parts_desc) if parts_desc else "resurslar"
+    return True, f"✅ Xonadon g'aznasiga ehson qabul qilindi ({don_str})!"
 
 
 async def get_top_house_contributors(session: AsyncSession, house_id: int, limit: int = 5) -> List[Tuple[str, str, int]]:

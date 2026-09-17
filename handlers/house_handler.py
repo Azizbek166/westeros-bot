@@ -59,7 +59,6 @@ async def show_house(target, user_id: int, is_message: bool):
         elif house.lord_user_id:
             buttons.append([InlineKeyboardButton("🛡️ Lordga Askar Berish (Safarbarlik)", callback_data="troop_donation_menu")])
 
-        buttons.append([InlineKeyboardButton("🚪 Xonadondan Chiqish", callback_data="house_leave_prompt")])
         buttons.append([InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")])
 
         text = (
@@ -295,46 +294,17 @@ async def house_abdicate_confirm_callback(update: Update, context: ContextTypes.
 
 
 async def house_leave_prompt_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Xonadondan chiqish tasdig'ini so'rash"""
+    """Xonadondan chiqishni taqiqlash"""
     query = update.callback_query
-    await query.answer()
-
-    buttons = [
-        [InlineKeyboardButton("✅ Ha, Xonadondan Chiqaman", callback_data="house_leave_confirm")],
-        [InlineKeyboardButton("❌ Bekor Qilish", callback_data="menu_house")],
-    ]
-    text = (
-        "🚪 **XONADONDAN CHIQISH**\n\n"
-        "Haqiqatan ham ushbu xonadondan chiqmoqchimisiz?\n\n"
-        "• Xonadondagi barcha lavozimingiz bekor qilinadi.\n"
-        "• Agar Lord bo'lsangiz, Lordlik o'rni boshqa a'zolar uchun bo'shaydi.\n"
-        "• Shundan so'ng /start orqali istalgan boshqa xonadonga qaytadan a'zo bo'lishingiz mumkin!"
-    )
-    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+    await query.answer("❌ Westeros qonunlariga ko'ra, xonadonga berilgan qasamyod umrboddir! Xonadondan chiqish yoki uni almashtirish taqiqlanadi.", show_alert=True)
+    await show_house(query, query.from_user.id, is_message=False)
 
 
 async def house_leave_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Xonadondan chiqishni bajarish"""
+    """Xonadondan chiqishni taqiqlash"""
     query = update.callback_query
-    user_id = query.from_user.id
-
-    async with AsyncSessionLocal() as session:
-        user = await crud.get_user_by_telegram_id(session, user_id)
-        if not user:
-            await query.answer("❌ Foydalanuvchi topilmadi.", show_alert=True)
-            return
-        ok, msg = await crud.leave_house(session, user.id)
-
-    await query.answer(msg, show_alert=True)
-    if ok:
-        text = (
-            "🚪 **SIZ XONADONDAN CHIQDINGIZ!**\n\n"
-            "Yangi xonadon va qahramon tanlash uchun quyidagi mintaqalardan birini tanlang:"
-        )
-        from keyboards.menus import regions_keyboard
-        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=regions_keyboard())
-    else:
-        await show_house(query, user_id, is_message=False)
+    await query.answer("❌ Westeros qonunlariga ko'ra, xonadonga berilgan qasamyod umrboddir! Xonadondan chiqish yoki uni almashtirish taqiqlanadi.", show_alert=True)
+    await show_house(query, query.from_user.id, is_message=False)
 
 
 async def house_vote_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -501,8 +471,8 @@ async def house_donate_menu_callback(update: Update, context: ContextTypes.DEFAU
         house = user.house
         text = (
             f"💰 **{house.emoji} {house.name} G'AZNASIGA EHSON**\n\n"
-            f"Shaxsiy boyliklaringizni umumiy xazinaga topshirib, xonadon qudratini oshiring!\n"
-            f"Har bir ehson uchun sizga shaxsiy **Prestige (Nufuz)** beriladi.\n\n"
+            f"Shaxsiy boyliklaringizni umumiy xazinaga topshirib, xonadoningiz qudratini oshiring!\n"
+            f"*(Ehson qilishda kunlik cheklov yo'q)*\n\n"
             f"🏛️ **Hozirgi xonadon g'aznasi:**\n"
             f"• 🪙 Oltin: {house.gold:,}\n"
             f"• 🌾 Oziq-ovqat: {house.food:,}\n"
@@ -513,11 +483,22 @@ async def house_donate_menu_callback(update: Update, context: ContextTypes.DEFAU
         )
 
         buttons = [
-            [InlineKeyboardButton("🪙 100 Oltin", callback_data="hdonate:gold:100"),
-             InlineKeyboardButton("🪙 500 Oltin", callback_data="hdonate:gold:500")],
-            [InlineKeyboardButton("🌾 500 Oziq-ovqat", callback_data="hdonate:food:500"),
-             InlineKeyboardButton("⛓️ 200 Temir", callback_data="hdonate:iron:200")],
-            [InlineKeyboardButton("✨ Katta Karvon (500🪙 + 500🌾 + 200⛓️)", callback_data="hdonate:combo:1")],
+            [
+                InlineKeyboardButton("🪙 500", callback_data="hdonate:gold:500"),
+                InlineKeyboardButton("🪙 2,500", callback_data="hdonate:gold:2500"),
+                InlineKeyboardButton("🪙 10k", callback_data="hdonate:gold:10000"),
+            ],
+            [
+                InlineKeyboardButton("🌾 1,000", callback_data="hdonate:food:1000"),
+                InlineKeyboardButton("🌾 5,000", callback_data="hdonate:food:5000"),
+                InlineKeyboardButton("🌾 20k", callback_data="hdonate:food:20000"),
+            ],
+            [
+                InlineKeyboardButton("⛓️ 500", callback_data="hdonate:iron:500"),
+                InlineKeyboardButton("⛓️ 2,500", callback_data="hdonate:iron:2500"),
+                InlineKeyboardButton("⛓️ 10k", callback_data="hdonate:iron:10000"),
+            ],
+            [InlineKeyboardButton("✨ Katta Karvon (1k🪙 + 2k🌾 + 1k⛓️)", callback_data="hdonate:combo:1")],
             [InlineKeyboardButton("🔙 Xonadonga Qaytish", callback_data="menu_house")],
         ]
         await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
@@ -540,9 +521,9 @@ async def house_donate_action_callback(update: Update, context: ContextTypes.DEF
     elif dtype == "iron":
         iron = int(parts[2])
     elif dtype == "combo":
-        gold = 500
-        food = 500
-        iron = 200
+        gold = 1000
+        food = 2000
+        iron = 1000
 
     async with AsyncSessionLocal() as session:
         user = await crud.get_user_with_relations(session, user_id)
