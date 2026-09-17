@@ -467,6 +467,7 @@ async def create_battle_march(
     duration_minutes: int,
     has_dragon: bool = False,
     dragon_tactic: str = "none",
+    dragon_id: Optional[int] = None,
 ) -> models.BattleMarch:
     """Yangi harbiy yurishni ro'yxatga olish"""
     # O'yinchining armiyasidan yuborilgan qismini ayirish
@@ -492,6 +493,7 @@ async def create_battle_march(
         special_troops=special_troops,
         character_id=character_id,
         has_dragon=has_dragon,
+        dragon_id=dragon_id,
         dragon_tactic=dragon_tactic,
         departure_time=datetime.utcnow(),
         arrival_time=arrival_time,
@@ -1442,7 +1444,7 @@ async def withdraw_castle_reinforcements(
     return True, f"✅ Qal'adan +{tot_w:,} askar shaxsiy armiyangizga qaytarildi!", withdrawn_dict
 
 
-async def station_dragon_in_castle(session: AsyncSession, user_id: int, territory_id: int) -> Tuple[bool, str]:
+async def station_dragon_in_castle(session: AsyncSession, user_id: int, territory_id: int, dragon_id: Optional[int] = None) -> Tuple[bool, str]:
     """Ajdarni qal'a mudofaasiga joylashtirish"""
     user = await get_user_any(session, user_id)
     territory = await session.get(models.Territory, territory_id)
@@ -1450,16 +1452,45 @@ async def station_dragon_in_castle(session: AsyncSession, user_id: int, territor
         return False, "Foydalanuvchi yoki qal'a topilmadi."
 
     if not user.house_id or territory.owner_house_id != user.house_id:
-        return False, "❌ Faqat o'z xonadoningiz nazoratidagi qal'aga ajdar joylashtira olasiz!"
+        active_alliances = await get_active_alliances_for_house(session, user.house_id) if user.house_id else []
+        is_ally = any(
+            (a.house_a_id == territory.owner_house_id or a.house_b_id == territory.owner_house_id)
+            for a in active_alliances
+        )
+        if not is_ally:
+            return False, "❌ Faqat o'z xonadoningiz yoki rasmiy ittifoqchingiz qal'asiga ajdar joylashtira olasiz!"
 
-    dragons = await get_user_dragons(session, user.id)
-    combat_dragons = [d for d in dragons if d.stage in ["baby", "adult"]]
-    if not combat_dragons:
-        if any(d.stage == "egg" for d in dragons):
-            return False, "❌ Sizdagi ajdar hali tuxum holatida! Qal'ani himoya qilish uchun avval tuxumni ochiring (/dragons)."
-        return False, "❌ Sizda ajdar yo'q! Avval /dragons bo'limidan ajdar sotib oling."
+    # Ajdarni aniqlash
+    if dragon_id:
+        dragon = await session.get(models.Dragon, dragon_id)
+        if not dragon or dragon.user_id != user.id:
+            return False, "❌ Ushbu ajdar sizga tegishli emas!"
+    else:
+        available = await get_user_available_dragons(session, user.id)
+        if not available:
+            all_dragons = await get_user_dragons(session, user.id)
+            if not all_dragons:
+                return False, "❌ Sizda ajdar yo'q! Avval /dragons bo'limidan ajdar xarid qiling."
+            combat = [d for d in all_dragons if d.stage in ["baby", "adult"]]
+            if not combat:
+                return False, "❌ Sizdagi ajdar hali tuxum holatida! Avval tuxumni ochiring (/dragons)."
+            if any(d.hunger < 20 for d in combat):
+                return False, "❌ Ajdaringiz juda och (to'qlik < 20%)! Avval uni boqing (/dragons)."
+            return False, "❌ Barcha jangovar ajdarlaringiz band (qal'alarda yoki yurishda)!"
+        dragon = max(available, key=lambda d: d.power)
 
-    dragon = max(combat_dragons, key=lambda d: d.power)
+    if dragon.stage not in ["baby", "adult"]:
+        return False, "❌ Ajdar hali tuxum holatida! Qal'ani himoya qilish uchun avval uni ochiring."
+
+    if dragon.hunger < 20:
+        return False, f"❌ {dragon.name} juda och (to'qlik: {dragon.hunger}%)! Mudofaa uchun to'qlik kamida 20% bo'lishi kerak."
+
+    cur_status = await get_dragon_deployment_status(session, dragon.id)
+    if cur_status["type"] == "stationed":
+        t_name = cur_status.get("territory_name", "boshqa qal'a")
+        return False, f"⚠️ {dragon.name} allaqachon **{t_name}** qal'asi mudofaasida xizmat qilmoqda! Avval uni u yerdan qaytaring."
+    elif cur_status["type"] == "marching":
+        return False, f"⚠️ {dragon.name} hozirda dushmanga qarshi harbiy yurishda/jangda qatnashmoqda!"
 
     reinf_data = {}
     if territory.reinforcements_json:
@@ -1468,13 +1499,17 @@ async def station_dragon_in_castle(session: AsyncSession, user_id: int, territor
         except Exception:
             reinf_data = {}
 
-    current_stationed = reinf_data.get("stationed_dragon")
-    if current_stationed and current_stationed.get("dragon_id") == dragon.id:
-        return False, f"⚠️ Ajdaringiz ({dragon.name}) allaqachon ushbu qal'a osmonida qo'riqchilik qilmoqda!"
+    stationed_list = reinf_data.get("stationed_dragons", [])
+    if not stationed_list and "stationed_dragon" in reinf_data and isinstance(reinf_data["stationed_dragon"], dict):
+        stationed_list.append(reinf_data["stationed_dragon"])
+
+    if any(st.get("dragon_id") == dragon.id for st in stationed_list):
+        return False, f"⚠️ {dragon.name} allaqachon ushbu qal'a osmonida qo'riqchilik qilmoqda!"
 
     char_res = await session.execute(select(models.Character.name).where(models.Character.user_id == user.id).limit(1))
     char_name = char_res.scalar_one_or_none() or user.full_name
-    reinf_data["stationed_dragon"] = {
+
+    new_st = {
         "user_id": user.id,
         "user_name": char_name,
         "dragon_id": dragon.id,
@@ -1482,14 +1517,20 @@ async def station_dragon_in_castle(session: AsyncSession, user_id: int, territor
         "power": dragon.power,
         "stationed_at": datetime.utcnow().isoformat(),
     }
+    stationed_list.append(new_st)
+    reinf_data["stationed_dragons"] = stationed_list
+
+    best_dr = max(stationed_list, key=lambda d: d.get("power", 0))
+    reinf_data["stationed_dragon"] = best_dr
+
     territory.reinforcements_json = json.dumps(reinf_data)
     user.prestige += 50
     await session.commit()
-    return True, f"🐉🔥 Ulug'vor {dragon.name} (Kuch: {dragon.power}) {territory.name} qal'asi mudofaasiga joylashtirildi! (+50 Prestige)"
+    return True, f"🐉🔥 Ulug'vor {dragon.name} (Kuch: {dragon.power}⚡) {territory.name} qal'asi mudofaasiga joylashtirildi! (+50 Prestige)"
 
 
-async def recall_dragon_from_castle(session: AsyncSession, user_id: int, territory_id: int) -> Tuple[bool, str]:
-    """Ajdarni qal'a mudofaasidan o'z uyasiga qaytarish"""
+async def recall_dragon_from_castle(session: AsyncSession, user_id: int, territory_id: int, dragon_id: Optional[int] = None) -> Tuple[bool, str]:
+    """Ajdarni qal'a mudofaasidan o'z uyasiga qaytarish (aniq ajdar yoki foydalanuvchi ajdari)"""
     user = await get_user_any(session, user_id)
     territory = await session.get(models.Territory, territory_id)
     if not user or not territory:
@@ -1503,24 +1544,54 @@ async def recall_dragon_from_castle(session: AsyncSession, user_id: int, territo
     except Exception:
         reinf_data = {}
 
-    stationed = reinf_data.get("stationed_dragon")
-    if not stationed:
+    stationed_list = reinf_data.get("stationed_dragons", [])
+    if not stationed_list and "stationed_dragon" in reinf_data and isinstance(reinf_data["stationed_dragon"], dict):
+        stationed_list.append(reinf_data["stationed_dragon"])
+
+    if not stationed_list:
         return False, "Qal'ada joylashtirilgan ajdar topilmadi."
 
     house = await session.get(models.House, user.house_id) if user.house_id else None
-    is_lord = house and house.lord_user_id == user.telegram_id
-    if stationed.get("user_id") != user.id and not is_lord:
-        return False, "❌ Bu ajdar sizga tegishli emas!"
+    is_lord = house and (house.lord_user_id == user.telegram_id or user.rank == "king")
 
-    dragon_name = stationed.get("dragon_name", "Ajdar")
-    del reinf_data["stationed_dragon"]
+    target_idx = None
+    target_st = None
+    for i, st in enumerate(stationed_list):
+        if dragon_id and st.get("dragon_id") == dragon_id:
+            if st.get("user_id") == user.id or is_lord:
+                target_idx = i
+                target_st = st
+                break
+        elif not dragon_id and st.get("user_id") == user.id:
+            target_idx = i
+            target_st = st
+            break
+
+    if target_idx is None:
+        if is_lord and stationed_list:
+            target_idx = 0
+            target_st = stationed_list[0]
+        else:
+            return False, "❌ Ushbu qal'ada sizga tegishli ajdar topilmadi!"
+
+    dragon_name = target_st.get("dragon_name", "Ajdar")
+    stationed_list.pop(target_idx)
+    reinf_data["stationed_dragons"] = stationed_list
+
+    if stationed_list:
+        best_dr = max(stationed_list, key=lambda d: d.get("power", 0))
+        reinf_data["stationed_dragon"] = best_dr
+    else:
+        if "stationed_dragon" in reinf_data:
+            del reinf_data["stationed_dragon"]
+
     territory.reinforcements_json = json.dumps(reinf_data)
     await session.commit()
     return True, f"🐉 {dragon_name} qal'a mudofaasidan o'z uyasiga eson-omon qaytarildi."
 
 
 def get_stationed_dragon_info(territory: models.Territory) -> Optional[Dict[str, Any]]:
-    """Qal'ada joylashtirilgan ajdar haqida ma'lumot"""
+    """Qal'ada joylashtirilgan asosiy/eng kuchli ajdar haqida ma'lumot"""
     if not territory or not territory.reinforcements_json:
         return None
     try:
@@ -1528,6 +1599,68 @@ def get_stationed_dragon_info(territory: models.Territory) -> Optional[Dict[str,
         return data.get("stationed_dragon")
     except Exception:
         return None
+
+
+def get_stationed_dragons_list(territory: models.Territory) -> List[Dict[str, Any]]:
+    """Qal'ada joylashtirilgan barcha ajdarlar ro'yxati"""
+    if not territory or not territory.reinforcements_json:
+        return []
+    try:
+        data = json.loads(territory.reinforcements_json)
+        s_list = data.get("stationed_dragons", [])
+        if not s_list and "stationed_dragon" in data and isinstance(data["stationed_dragon"], dict):
+            s_list = [data["stationed_dragon"]]
+        return s_list
+    except Exception:
+        return []
+
+
+async def get_dragon_deployment_status(session: AsyncSession, dragon_id: int) -> Dict[str, Any]:
+    """Ajdarning joriy joylashuvini aniqlash:
+    - type: 'stationed' (qal'ada mudofaada), territory_id, territory_name
+    - type: 'marching' (harbiy yurishda), march_id, target_name
+    - type: 'resting' (uyada, erkin)
+    """
+    march_res = await session.execute(
+        select(models.BattleMarch).where(
+            models.BattleMarch.dragon_id == dragon_id,
+            models.BattleMarch.status == "marching",
+        ).limit(1)
+    )
+    march = march_res.scalar_one_or_none()
+    if march:
+        target_t = await session.get(models.Territory, march.target_territory_id)
+        t_name = target_t.name if target_t else "Dushman qal'asi"
+        return {"type": "marching", "march_id": march.id, "target_name": t_name}
+
+    terr_res = await session.execute(select(models.Territory))
+    for terr in terr_res.scalars().all():
+        if terr.reinforcements_json:
+            try:
+                data = json.loads(terr.reinforcements_json)
+                st_list = data.get("stationed_dragons", [])
+                for st in st_list:
+                    if st.get("dragon_id") == dragon_id:
+                        return {"type": "stationed", "territory_id": terr.id, "territory_name": terr.name}
+                single_st = data.get("stationed_dragon")
+                if single_st and single_st.get("dragon_id") == dragon_id:
+                    return {"type": "stationed", "territory_id": terr.id, "territory_name": terr.name}
+            except Exception:
+                pass
+
+    return {"type": "resting"}
+
+
+async def get_user_available_dragons(session: AsyncSession, user_id: int) -> List[models.Dragon]:
+    """Faqat uyada bo'sh turgan, jangovar va to'qligi yetarli ajdarlar ro'yxati"""
+    dragons = await get_user_dragons(session, user_id)
+    available = []
+    for d in dragons:
+        if d.stage in ["baby", "adult"] and d.hunger >= 20:
+            st = await get_dragon_deployment_status(session, d.id)
+            if st["type"] == "resting":
+                available.append(d)
+    return available
 
 
 # ============================================================
@@ -2759,8 +2892,19 @@ async def release_user_dragon(session: AsyncSession, user_id: int, dragon_id: in
         if terr.reinforcements_json:
             try:
                 r_data = json.loads(terr.reinforcements_json)
+                changed = False
+                if "stationed_dragons" in r_data and isinstance(r_data["stationed_dragons"], list):
+                    orig_len = len(r_data["stationed_dragons"])
+                    r_data["stationed_dragons"] = [st for st in r_data["stationed_dragons"] if st.get("dragon_id") != dragon.id]
+                    if len(r_data["stationed_dragons"]) != orig_len:
+                        changed = True
                 if "stationed_dragon" in r_data and r_data["stationed_dragon"].get("dragon_id") == dragon.id:
-                    del r_data["stationed_dragon"]
+                    if r_data.get("stationed_dragons"):
+                        r_data["stationed_dragon"] = max(r_data["stationed_dragons"], key=lambda d: d.get("power", 0))
+                    else:
+                        del r_data["stationed_dragon"]
+                    changed = True
+                if changed:
                     terr.reinforcements_json = json.dumps(r_data)
             except Exception:
                 pass
@@ -3139,6 +3283,215 @@ async def extend_war_duration(
     ev.data_json = json.dumps(data)
     await session.commit()
     return await get_war_status(session)
+
+
+# ============================================================
+# RESOURCE EXCHANGE (FOOD / IRON ➡️ GOLD) CRUD
+# ============================================================
+
+async def sell_food_for_gold(session: AsyncSession, user_id: int, food_amount: int) -> Tuple[bool, str]:
+    """Donni (oziq-ovqat) oltinga almashtirish (2 Don = 1 Oltin)"""
+    user = await get_user_any(session, user_id)
+    if not user:
+        return False, "Foydalanuvchi topilmadi."
+
+    if food_amount < 100:
+        return False, "❌ Minimal sotish miqdori — 100🌾 don!"
+
+    if (user.food or 0) < food_amount:
+        return False, f"❌ Sizda buncha don yo'q!\nSizda: {(user.food or 0):,}🌾 | So'ralgan: {food_amount:,}🌾"
+
+    gold_earned = food_amount // 2
+    user.food = (user.food or 0) - food_amount
+    user.gold = (user.gold or 0) + gold_earned
+    await session.commit()
+    return True, f"✅ Bitim muvaffaqiyatli!\n\n🌾 Sotildi: -{food_amount:,}🌾 Don\n🪙 Qabul qilindi: +{gold_earned:,}🪙 Oltin\n💰 Yangi xazinangiz: {user.food:,}🌾 don, {user.gold:,}🪙 oltin."
+
+
+async def sell_iron_for_gold(session: AsyncSession, user_id: int, iron_amount: int) -> Tuple[bool, str]:
+    """Temirni oltinga almashtirish (1 Temir = 1 Oltin)"""
+    user = await get_user_any(session, user_id)
+    if not user:
+        return False, "Foydalanuvchi topilmadi."
+
+    if iron_amount < 50:
+        return False, "❌ Minimal sotish miqdori — 50⛓️ temir!"
+
+    if (user.iron or 0) < iron_amount:
+        return False, f"❌ Sizda buncha temir yo'q!\nSizda: {(user.iron or 0):,}⛓️ | So'ralgan: {iron_amount:,}⛓️"
+
+    gold_earned = iron_amount
+    user.iron = (user.iron or 0) - iron_amount
+    user.gold = (user.gold or 0) + gold_earned
+    await session.commit()
+    return True, f"✅ Bitim muvaffaqiyatli!\n\n⛓️ Sotildi: -{iron_amount:,}⛓️ Temir\n🪙 Qabul qilindi: +{gold_earned:,}🪙 Oltin\n💰 Yangi xazinangiz: {user.iron:,}⛓️ temir, {user.gold:,}🪙 oltin."
+
+
+# ============================================================
+# HOUSE TRADES (XONADONLARARO SAVDO BIRJASI) CRUD
+# ============================================================
+
+async def create_house_trade(
+    session: AsyncSession,
+    user_id: int,
+    offer_resource: str,
+    offer_amount: int,
+    request_resource: str,
+    request_amount: int,
+) -> Tuple[bool, str, Optional[models.HouseTrade]]:
+    """Xonadonlararo savdo loti yaratish (taklif qilingan tovar zaxiraga/escrow olinadi)"""
+    user = await get_user_with_relations(session, user_id)
+    if not user or not user.house_id:
+        return False, "❌ Siz biror xonadonga a'zo bo'lishingiz kerak!", None
+
+    valid_res = ["food", "iron", "gold"]
+    if offer_resource not in valid_res or request_resource not in valid_res:
+        return False, "❌ Noto'g'ri resurs turi tanlandi! (food, iron, gold)", None
+
+    if offer_resource == request_resource:
+        return False, "❌ Bir xil resursni bir-biriga almashtirib bo'lmaydi!", None
+
+    if offer_amount <= 0 or request_amount <= 0:
+        return False, "❌ Resurs miqdori 0 dan katta bo'lishi kerak!", None
+
+    res_names = {"food": "🌾 Don", "iron": "⛓️ Temir", "gold": "🪙 Oltin"}
+    cur_val = getattr(user, offer_resource, 0) or 0
+    if cur_val < offer_amount:
+        return False, f"❌ Sizda yetarli {res_names[offer_resource]} yo'q!\nKerak: {offer_amount:,} (Sizda: {cur_val:,})", None
+
+    # Zaxiraga olish
+    setattr(user, offer_resource, cur_val - offer_amount)
+
+    trade = models.HouseTrade(
+        seller_user_id=user.id,
+        seller_house_id=user.house_id,
+        offer_resource=offer_resource,
+        offer_amount=offer_amount,
+        request_resource=request_resource,
+        request_amount=request_amount,
+        status="active",
+        created_at=datetime.utcnow(),
+    )
+    session.add(trade)
+    await session.commit()
+    return True, f"⚖️ **SAVDO LOTI BIRJAGA JOYLASHDIRILDI!**\n\nTaklif: **{offer_amount:,}** {res_names[offer_resource]}\nTalab: **{request_amount:,}** {res_names[request_resource]}\n\nBoshqa xonadon a'zolari ushbu lotni xarid qilishi mumkin.", trade
+
+
+async def get_active_house_trades(session: AsyncSession) -> List[models.HouseTrade]:
+    """Barcha faol savdo takliflarini olish"""
+    stmt = (
+        select(models.HouseTrade)
+        .options(
+            selectinload(models.HouseTrade.seller),
+            selectinload(models.HouseTrade.seller_house),
+        )
+        .where(models.HouseTrade.status == "active")
+        .order_by(models.HouseTrade.created_at.desc())
+        .limit(40)
+    )
+    res = await session.execute(stmt)
+    return res.scalars().all()
+
+
+async def get_user_active_trades(session: AsyncSession, user_id: int) -> List[models.HouseTrade]:
+    """Foydalanuvchining o'zi joylashtirgan faol takliflari"""
+    user = await get_user_any(session, user_id)
+    if not user:
+        return []
+    res = await session.execute(
+        select(models.HouseTrade)
+        .where(models.HouseTrade.seller_user_id == user.id, models.HouseTrade.status == "active")
+        .order_by(models.HouseTrade.created_at.desc())
+    )
+    return res.scalars().all()
+
+
+async def cancel_house_trade(session: AsyncSession, user_id: int, trade_id: int) -> Tuple[bool, str]:
+    """Savdo taklifini bekor qilish va zaxirani qaytarish"""
+    user = await get_user_any(session, user_id)
+    if not user:
+        return False, "Foydalanuvchi topilmadi."
+
+    trade = await session.get(models.HouseTrade, trade_id)
+    if not trade or trade.status != "active":
+        return False, "❌ Savdo taklifi topilmadi yoki allaqachon yakunlangan."
+
+    if trade.seller_user_id != user.id:
+        return False, "❌ Bu savdo taklifi sizga tegishli emas!"
+
+    curr = getattr(user, trade.offer_resource, 0) or 0
+    setattr(user, trade.offer_resource, curr + trade.offer_amount)
+    trade.status = "cancelled"
+    trade.completed_at = datetime.utcnow()
+    await session.commit()
+    res_names = {"food": "🌾 Don", "iron": "⛓️ Temir", "gold": "🪙 Oltin"}
+    return True, f"✅ Savdo loti bekor qilindi. +{trade.offer_amount:,} {res_names.get(trade.offer_resource, '')} hamyoningizga qaytarildi."
+
+
+async def fulfill_house_trade(session: AsyncSession, buyer_user_id: int, trade_id: int) -> Tuple[bool, str]:
+    """Boshqa xonadon savdo lotini xarid qilish"""
+    buyer = await get_user_with_relations(session, buyer_user_id)
+    if not buyer or not buyer.house_id:
+        return False, "❌ Bitim tuzish uchun avval biror xonadonga a'zo bo'lishingiz kerak."
+
+    trade = await session.get(models.HouseTrade, trade_id)
+    if not trade or trade.status != "active":
+        return False, "❌ Ushbu savdo loti faol emas yoki allaqachon sotib olingan."
+
+    if trade.seller_house_id == buyer.house_id:
+        return False, "❌ Xonadonlararo savdoda o'z xonadoningiz taklifini xarid qila olmaysiz!\nBoshqa xonadonlar bilan savdo qiling."
+
+    buyer_res = getattr(buyer, trade.request_resource, 0) or 0
+    res_names = {"food": "🌾 Don", "iron": "⛓️ Temir", "gold": "🪙 Oltin"}
+    if buyer_res < trade.request_amount:
+        return False, f"❌ Sizda yetarli {res_names.get(trade.request_resource, '')} yo'q!\nKerak: {trade.request_amount:,} (Sizda: {buyer_res:,})"
+
+    seller = await session.get(models.User, trade.seller_user_id)
+    if not seller:
+        return False, "Sotuvchi topilmadi."
+
+    # Resurslar o'tkazmasi
+    setattr(buyer, trade.request_resource, buyer_res - trade.request_amount)
+    buyer_get = getattr(buyer, trade.offer_resource, 0) or 0
+    setattr(buyer, trade.offer_resource, buyer_get + trade.offer_amount)
+
+    seller_get = getattr(seller, trade.request_resource, 0) or 0
+    setattr(seller, trade.request_resource, seller_get + trade.request_amount)
+
+    # Ikkala xonadonga ham savdo rivoji uchun +10 Prestige
+    seller_house = await session.get(models.House, trade.seller_house_id)
+    buyer_house = await session.get(models.House, buyer.house_id)
+    if seller_house:
+        seller_house.prestige = (seller_house.prestige or 0) + 10
+    if buyer_house:
+        buyer_house.prestige = (buyer_house.prestige or 0) + 10
+
+    trade.buyer_user_id = buyer.id
+    trade.buyer_house_id = buyer.house_id
+    trade.status = "completed"
+    trade.completed_at = datetime.utcnow()
+
+    # Sotuvchiga Qarg'a xabarnomasi yuborish
+    seller_h_name = seller_house.name if seller_house else "Xonadon"
+    buyer_h_name = buyer_house.name if buyer_house else "Xonadon"
+    raven_msg = models.RavenMessage(
+        sender_id=buyer.id,
+        recipient_id=seller.id,
+        message_text=(
+            f"🤝 **SAVDO BITIMI MUVAFFAQIShLI YAKUNLANDI!**\n\n"
+            f"**{buyer_h_name}** xonadonidan {buyer.full_name} sizning savdo lotingizni xarid qildi:\n"
+            f"• Berildi: -{trade.offer_amount:,} {res_names.get(trade.offer_resource, '')}\n"
+            f"• Qabul qilindi: +{trade.request_amount:,} {res_names.get(trade.request_resource, '')}\n\n"
+            f"Xonadoningizga savdo qudrati uchun +10 Prestige berildi! ⚖️"
+        ),
+        gold_attached=0,
+        is_read=False,
+    )
+    session.add(raven_msg)
+
+    await session.commit()
+    return True, f"🎉 Bitim muvaffaqiyatli!\n\n+{trade.offer_amount:,} {res_names.get(trade.offer_resource, '')} qabul qildingiz.\n-{trade.request_amount:,} {res_names.get(trade.request_resource, '')} to'landi.\nXonadoningizga +10 Prestige! ⚖️"
+
 
 
 

@@ -228,10 +228,12 @@ async def show_iron_mine_menu(target, user_id: int, is_message: bool = False):
 
         text += (
             f"🌾 **Oziq-ovqat Bozori (Don):**\n"
-            f"• 300🪙➡️390🌾 | 500🪙➡️700🌾 | 1k🪙➡️1,500🌾\n"
-            f"• 2.5k🪙➡️4,000🌾 | 5k🪙➡️9,000🌾 `(/buyfood 500)`\n\n"
-            f"⛓️ **Temir Karvoni:**\n"
-            f"• 500🪙➡️300⛓️ | 1k🪙➡️700⛓️ | 2.5k🪙➡️1,900⛓️ | 5k🪙➡️4,200⛓️"
+            f"• Xarid: 300🪙➡️390🌾 | 500🪙➡️700🌾 | 1k🪙➡️1,500🌾\n"
+            f"• Sotish: 500🌾➡️250🪙 | 1k🌾➡️500🪙 | 5k🌾➡️2,500🪙 `(/sellfood 1000)`\n\n"
+            f"⛓️ **Temir Bozori:**\n"
+            f"• Xarid: 500🪙➡️300⛓️ | 1k🪙➡️700⛓️ | 2.5k🪙➡️1,900⛓️\n"
+            f"• Sotish: 300⛓️➡️300🪙 | 700⛓️➡️700🪙 | 1.5k⛓️➡️1,500🪙 `(/selliron 500)`\n\n"
+            f"⚖️ **Xonadonlararo Savdo:** Boshqa xonadonlar bilan savdo qilish uchun `/trade` bosing!"
         )
 
         buttons = []
@@ -259,6 +261,19 @@ async def show_iron_mine_menu(target, user_id: int, is_message: bool = False):
         buttons.append([
             InlineKeyboardButton("⛓️ 1.9k (2.5k🪙)", callback_data="buy_iron:pack_3"),
             InlineKeyboardButton("⛓️ 4.2k (5k🪙)", callback_data="buy_iron:pack_4"),
+        ])
+        buttons.append([
+            InlineKeyboardButton("💰 500🌾➡️250🪙", callback_data="sell_res:food:500"),
+            InlineKeyboardButton("💰 1k🌾➡️500🪙", callback_data="sell_res:food:1000"),
+            InlineKeyboardButton("💰 5k🌾➡️2.5k🪙", callback_data="sell_res:food:5000"),
+        ])
+        buttons.append([
+            InlineKeyboardButton("💰 300⛓️➡️300🪙", callback_data="sell_res:iron:300"),
+            InlineKeyboardButton("💰 700⛓️➡️700🪙", callback_data="sell_res:iron:700"),
+            InlineKeyboardButton("💰 1.5k⛓️➡️1.5k🪙", callback_data="sell_res:iron:1500"),
+        ])
+        buttons.append([
+            InlineKeyboardButton("⚖️ Xonadonlararo Savdo Birjasi", callback_data="menu_trade"),
         ])
         buttons.append([
             InlineKeyboardButton("🔙 Profilga Qaytish", callback_data="menu_profile"),
@@ -363,6 +378,71 @@ async def buy_food_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await show_iron_mine_menu(query, user_id, is_message=False)
 
 
+async def sell_res_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Resurslarni oltinga sotish callback"""
+    query = update.callback_query
+    parts = query.data.split(":")
+    res_type = parts[1]
+    amount = int(parts[2])
+    user_id = query.from_user.id
+
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_by_telegram_id(session, user_id)
+        if not user:
+            await query.answer("❌ Avval /start bosing.", show_alert=True)
+            return
+        if res_type == "food":
+            ok, msg = await crud.sell_food_for_gold(session, user.id, amount)
+        else:
+            ok, msg = await crud.sell_iron_for_gold(session, user.id, amount)
+
+    try:
+        await query.answer(msg.replace("**", "").replace("*", ""), show_alert=True)
+    except Exception:
+        pass
+    await show_iron_mine_menu(query, user_id, is_message=False)
+
+
+async def sell_food_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/sellfood <miqdor> buyrug'i"""
+    user_id = update.effective_user.id
+    if not context.args or len(context.args) == 0:
+        await update.message.reply_text("ℹ️ Don sotish uchun miqdorni yozing: `/sellfood 1000`\n(Kurs: 2 Don = 1 Oltin)", parse_mode="Markdown")
+        return
+    try:
+        amt = int(context.args[0].strip())
+    except ValueError:
+        await update.message.reply_text("❌ Miqdor faqat son bo'lishi kerak! Masalan: `/sellfood 1000`", parse_mode="Markdown")
+        return
+
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_by_telegram_id(session, user_id)
+        if not user:
+            return
+        ok, msg = await crud.sell_food_for_gold(session, user.id, amt)
+    await update.message.reply_text(msg, parse_mode="Markdown")
+
+
+async def sell_iron_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/selliron <miqdor> buyrug'i"""
+    user_id = update.effective_user.id
+    if not context.args or len(context.args) == 0:
+        await update.message.reply_text("ℹ️ Temir sotish uchun miqdorni yozing: `/selliron 500`\n(Kurs: 1 Temir = 1 Oltin)", parse_mode="Markdown")
+        return
+    try:
+        amt = int(context.args[0].strip())
+    except ValueError:
+        await update.message.reply_text("❌ Miqdor faqat son bo'lishi kerak! Masalan: `/selliron 500`", parse_mode="Markdown")
+        return
+
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_by_telegram_id(session, user_id)
+        if not user:
+            return
+        ok, msg = await crud.sell_iron_for_gold(session, user.id, amt)
+    await update.message.reply_text(msg, parse_mode="Markdown")
+
+
 async def artifacts_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -438,6 +518,8 @@ def register_profile_handlers(app):
     app.add_handler(CommandHandler(["daily", "bonus"], daily_bonus_callback))
     app.add_handler(CommandHandler(["mine", "iron", "kon", "tegirmon"], iron_mine_command))
     app.add_handler(CommandHandler(["buyfood", "food", "oziq", "bozor"], buy_food_command))
+    app.add_handler(CommandHandler(["sellfood", "don_sotish"], sell_food_command))
+    app.add_handler(CommandHandler(["selliron", "temir_sotish"], sell_iron_command))
     app.add_handler(CallbackQueryHandler(profile_callback, pattern="^menu_profile$"))
     app.add_handler(CallbackQueryHandler(daily_bonus_callback, pattern="^claim_daily_bonus$"))
     app.add_handler(CallbackQueryHandler(artifacts_menu_callback, pattern="^menu_artifacts$"))
@@ -450,3 +532,4 @@ def register_profile_handlers(app):
     app.add_handler(CallbackQueryHandler(upgrade_grain_mill_callback, pattern="^upgrade_grain_mill$"))
     app.add_handler(CallbackQueryHandler(buy_iron_callback, pattern="^buy_iron:"))
     app.add_handler(CallbackQueryHandler(buy_food_callback, pattern="^buy_food:"))
+    app.add_handler(CallbackQueryHandler(sell_res_callback, pattern="^sell_res:"))

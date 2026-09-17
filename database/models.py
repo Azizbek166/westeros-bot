@@ -230,6 +230,7 @@ class BattleMarch(Base):
     special_troops = Column(Integer, default=0)
     character_id = Column(Integer, nullable=True)
     has_dragon = Column(Boolean, default=False)
+    dragon_id = Column(Integer, nullable=True)  # Hujumda ishtirok etayotgan aniq ajdar ID si
     dragon_tactic = Column(String(50), default="none")  # none, walls, ranged, frontline, balanced
 
     departure_time = Column(DateTime, default=datetime.utcnow)
@@ -432,5 +433,35 @@ class NightKingContribution(Base):
     damage_dealt = Column(BigInteger, default=0)
     attacks_count = Column(Integer, default=0)
     last_attack = Column(DateTime, default=datetime.utcnow)
+
+
+# ============================================================
+# 21. HOUSE TRADE (XONADONLARARO SAVDO-SOTIQ BIRJASI)
+# ============================================================
+class HouseTrade(Base):
+    __tablename__ = "house_trades"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    seller_user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    seller_house_id = Column(Integer, ForeignKey("houses.id"), nullable=False, index=True)
+
+    offer_resource = Column(String(20), nullable=False)    # "food", "iron", "gold"
+    offer_amount = Column(BigInteger, nullable=False)
+
+    request_resource = Column(String(20), nullable=False)  # "gold", "food", "iron"
+    request_amount = Column(BigInteger, nullable=False)
+
+    buyer_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    buyer_house_id = Column(Integer, ForeignKey("houses.id"), nullable=True)
+
+    status = Column(String(20), default="active", index=True)  # "active", "completed", "cancelled"
+    created_at = Column(DateTime, default=datetime.utcnow)
+    completed_at = Column(DateTime, nullable=True)
+
+    seller = relationship("User", foreign_keys=[seller_user_id])
+    seller_house = relationship("House", foreign_keys=[seller_house_id])
+    buyer = relationship("User", foreign_keys=[buyer_user_id])
+    buyer_house = relationship("House", foreign_keys=[buyer_house_id])
+
 
 

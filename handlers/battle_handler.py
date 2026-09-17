@@ -376,20 +376,28 @@ async def render_march_prep(update: Update, context: ContextTypes.DEFAULT_TYPE, 
                 await safe_reply(msg, markup)
                 return
 
-            dragon = await crud.get_user_dragon(session, user.id)
-            can_use_dragon = dragon and dragon.stage in ["baby", "adult"] and dragon.hunger >= 20
+            user_dragons = await crud.get_user_dragons(session, user.id)
+            dragon_items = []
+            for d in user_dragons:
+                if d.stage in ["baby", "adult"] and d.hunger >= 20:
+                    d_st = await crud.get_dragon_deployment_status(session, d.id)
+                    dragon_items.append({"dragon": d, "status": d_st})
+
+            free_dragons = [di["dragon"] for di in dragon_items if di["status"]["type"] == "resting"]
 
             special_name = user.house.special_troop_name if user.house and user.house.special_troop_name else "Maxsus Qo'shin"
 
             draft_key = f"march_{terr.id}"
             if draft_key not in context.user_data:
+                first_free = free_dragons[0] if free_dragons else None
                 context.user_data[draft_key] = {
                     "infantry": u_inf,
                     "archers": u_arc,
                     "cavalry": u_cav,
                     "spearmen": u_sp,
                     "special": u_spc,
-                    "dragon_tactic": "balanced" if can_use_dragon else "none",
+                    "dragon_id": first_free.id if first_free else None,
+                    "dragon_tactic": "balanced" if first_free else "none",
                 }
 
             draft = context.user_data[draft_key]
@@ -398,7 +406,11 @@ async def render_march_prep(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             draft["cavalry"] = max(0, min(draft.get("cavalry", u_cav) or 0, u_cav))
             draft["spearmen"] = max(0, min(draft.get("spearmen", u_sp) or 0, u_sp))
             draft["special"] = max(0, min(draft.get("special", u_spc) or 0, u_spc))
-            if not can_use_dragon:
+
+            sel_dr_id = draft.get("dragon_id")
+            active_dragon = next((d for d in free_dragons if d.id == sel_dr_id), None)
+            if not active_dragon:
+                draft["dragon_id"] = None
                 draft["dragon_tactic"] = "none"
 
             sel_inf = draft["infantry"]
@@ -413,18 +425,32 @@ async def render_march_prep(update: Update, context: ContextTypes.DEFAULT_TYPE, 
                 "balanced": "🔥 Yalpi Olovli Bo'ron",
                 "walls": "🔥 Devorlarni Eritish",
                 "ranged": "🔥 Merganlarni Yoqish",
+                "frontline": "🔥 Old Qatorlarni Yoqish",
                 "none": "❌ Ajdarsiz",
             }.get(tactic, "❌ Ajdarsiz")
 
             dragon_info = ""
-            if can_use_dragon:
-                dragon_info = (
-                    f"🐉 **AJDARINGIZ JANGGA TAYYOR:**\n"
-                    f"• {dragon.name} ({dragon.stage.title()}) | Kuch: **{dragon.power}**⚡ | Qorin: **{dragon.hunger}%**🍗\n"
-                    f"• Drakarys taktikasi: **{tactic_display}**\n\n"
-                )
-            elif dragon:
-                dragon_info = f"⚠️ *Ajdaringiz ({dragon.name}) och yoki tuxumda bo'lgani uchun qatnashmaydi.*\n\n"
+            if dragon_items:
+                dragon_info = "🐉 **SIZNING AJDARLARINGIZ HOLATI:**\n"
+                for di in dragon_items:
+                    d = di["dragon"]
+                    dst = di["status"]
+                    is_sel = (draft.get("dragon_id") == d.id)
+                    sel_str = " ⚔️ **[HUJUMGA TANLANGAN]**" if is_sel else ""
+                    if dst["type"] == "stationed":
+                        status_str = f"🏰 {dst.get('territory_name', 'Qal\'a')} mudofaasida"
+                    elif dst["type"] == "marching":
+                        status_str = f"⚔️ {dst.get('target_name', 'Qal\'a')}ga yurishda"
+                    else:
+                        status_str = "🏠 Uyada (erkin)"
+                    dragon_info += f"• **{d.name}** ({d.power}⚡, {d.hunger}%🍗) — {status_str}{sel_str}\n"
+
+                if active_dragon:
+                    dragon_info += f"• Tanlangan ajdar taktikasi: **{tactic_display}**\n\n"
+                else:
+                    dragon_info += f"• Tanlangan taktika: **❌ Ajdarsiz yurish**\n\n"
+            else:
+                dragon_info = "⚠️ *Sizda jangovar ajdar yo'q yoki qorni och.*\n\n"
 
             t_name = (terr.name or "Hudud").upper()
             c_name = terr.castle_name or terr.name or "Qal'a"
@@ -487,10 +513,15 @@ async def render_march_prep(update: Update, context: ContextTypes.DEFAULT_TYPE, 
                 ],
             ]
 
-            if can_use_dragon:
+            if free_dragons:
+                sel_name = active_dragon.name if active_dragon else "❌ Ajdarsiz"
                 buttons.append([
-                    InlineKeyboardButton(f"🐉 Ajdar Taktikasi: {tactic_display} 🔄", callback_data=f"m_drg:{terr.id}")
+                    InlineKeyboardButton(f"🐉 Ajdarni Tanlash: {sel_name} 🔄", callback_data=f"m_sel_drg:{terr.id}")
                 ])
+                if active_dragon:
+                    buttons.append([
+                        InlineKeyboardButton(f"🔥 Drakarys Taktikasi: {tactic_display} 🔄", callback_data=f"m_drg:{terr.id}")
+                    ])
 
             buttons.append([
                 InlineKeyboardButton(f"🚀 HUJUMNI BOSHLASH ({total_selected:,} askar)", callback_data=f"send_custom_march:{terr.id}")
@@ -618,18 +649,57 @@ async def march_preset_callback(update: Update, context: ContextTypes.DEFAULT_TY
     await render_march_prep(update, context, terr_id)
 
 
+async def march_select_dragon_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Harbiy yurishga olib ketiladigan ajdarni tanlash / almashtirish"""
+    query = update.callback_query
+    parts = query.data.split(":")
+    terr_id = int(parts[1])
+    user_id = query.from_user.id
+
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_with_relations(session, user_id)
+        if not user:
+            return
+        free_dragons = await crud.get_user_available_dragons(session, user.id)
+
+    draft = context.user_data.setdefault(f"march_{terr_id}", {})
+    cur_id = draft.get("dragon_id")
+
+    cycle_opts = [None] + [d.id for d in free_dragons]
+    try:
+        cur_idx = cycle_opts.index(cur_id)
+        next_idx = (cur_idx + 1) % len(cycle_opts)
+    except ValueError:
+        next_idx = 0
+
+    new_id = cycle_opts[next_idx]
+    draft["dragon_id"] = new_id
+
+    if new_id is None:
+        draft["dragon_tactic"] = "none"
+        await query.answer("❌ Ajdarsiz hujum tanlandi.")
+    else:
+        chosen_d = next((d for d in free_dragons if d.id == new_id), None)
+        d_name = chosen_d.name if chosen_d else "Ajdar"
+        if draft.get("dragon_tactic", "none") == "none":
+            draft["dragon_tactic"] = "balanced"
+        await query.answer(f"🐉 {d_name} tanlandi!")
+
+    await render_march_prep(update, context, terr_id)
+
+
 async def march_dragon_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Ajdar jangovar taktikasini o'zgartirish"""
     query = update.callback_query
     parts = query.data.split(":")
     terr_id = int(parts[1])
 
-    tactics_cycle = ["balanced", "walls", "ranged", "none"]
+    tactics_cycle = ["balanced", "walls", "ranged", "frontline"]
     tactic_names = {
         "balanced": "Yalpi Olovli Bo'ron",
         "walls": "Devorlarni Eritish",
         "ranged": "Merganlarni Yoqish",
-        "none": "Ajdarsiz",
+        "frontline": "Old Qatorlarni Yoqish",
     }
 
     draft = context.user_data.setdefault(f"march_{terr_id}", {})
@@ -640,7 +710,7 @@ async def march_dragon_callback(update: Update, context: ContextTypes.DEFAULT_TY
         next_idx = 0
     new_tactic = tactics_cycle[next_idx]
     draft["dragon_tactic"] = new_tactic
-    await query.answer(f"🐉 Ajdar: {tactic_names[new_tactic]}")
+    await query.answer(f"🐉 Taktika: {tactic_names[new_tactic]}")
 
     await render_march_prep(update, context, terr_id)
 
@@ -725,13 +795,20 @@ async def send_custom_march_callback(update: Update, context: ContextTypes.DEFAU
         await query.answer("🚩 Qo'shin yo'lga chiqdi!")
 
         # Ajdarni tekshirish
-        dragon = await crud.get_user_dragon(session, user.id)
+        selected_dr_id = draft.get("dragon_id")
+        dragon = None
+        if selected_dr_id:
+            dragon = await session.get(models.Dragon, selected_dr_id)
+            if dragon and dragon.user_id != user.id:
+                dragon = None
+
         can_use_dragon = dragon and dragon.stage in ["baby", "adult"] and dragon.hunger >= 20
         raw_tactic = draft.get("dragon_tactic", "none")
-        if not can_use_dragon or raw_tactic not in ["balanced", "walls", "ranged"]:
+        if not can_use_dragon or raw_tactic not in ["balanced", "walls", "ranged", "frontline"]:
             raw_tactic = "none"
-        has_dragon = (raw_tactic != "none")
+        has_dragon = (raw_tactic != "none" and dragon is not None)
         dragon_tactic = raw_tactic
+        dragon_id_to_send = dragon.id if has_dragon else None
 
         # Qalqonni bekor qilish
         user.peace_shield_until = None
@@ -750,6 +827,7 @@ async def send_custom_march_callback(update: Update, context: ContextTypes.DEFAU
             duration_minutes=BASE_MARCH_MINUTES,
             has_dragon=has_dragon,
             dragon_tactic=dragon_tactic,
+            dragon_id=dragon_id_to_send,
         )
 
         # Tozalash
@@ -867,6 +945,15 @@ async def send_march_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         # Qalqonni bekor qilish
         user.peace_shield_until = None
 
+        dragon_id_to_send = None
+        if has_dragon:
+            free_dragons = await crud.get_user_available_dragons(session, user.id)
+            if free_dragons:
+                dragon_id_to_send = free_dragons[0].id
+            else:
+                has_dragon = False
+                dragon_tactic = "none"
+
         march = await crud.create_battle_march(
             session=session,
             attacker_user_id=user.id,
@@ -881,6 +968,7 @@ async def send_march_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             duration_minutes=BASE_MARCH_MINUTES,
             has_dragon=has_dragon,
             dragon_tactic=dragon_tactic,
+            dragon_id=dragon_id_to_send,
         )
 
         # Himoyachi xonadon Lordiga real-time ogohlantirish qarg'asi
@@ -1337,6 +1425,7 @@ def register_battle_handlers(app):
     app.add_handler(CallbackQueryHandler(march_custom_req_callback, pattern="^march_custom_req:"))
     app.add_handler(CallbackQueryHandler(march_adj_callback, pattern="^m_adj:"))
     app.add_handler(CallbackQueryHandler(march_preset_callback, pattern="^m_pre:"))
+    app.add_handler(CallbackQueryHandler(march_select_dragon_callback, pattern="^m_sel_drg:"))
     app.add_handler(CallbackQueryHandler(march_dragon_callback, pattern="^m_drg:"))
     app.add_handler(CallbackQueryHandler(march_info_callback, pattern="^m_info:"))
     app.add_handler(CallbackQueryHandler(send_custom_march_callback, pattern="^send_custom_march:"))

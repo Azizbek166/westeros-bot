@@ -45,7 +45,10 @@ def main_menu_keyboard(user_id: int = None) -> InlineKeyboardMarkup:
             InlineKeyboardButton("🐦 Qarg'alar", callback_data="menu_raven"),
         ],
         [
+            InlineKeyboardButton("⚖️ Bozor", callback_data="menu_trade"),
             InlineKeyboardButton("🏆 Reyting", callback_data="menu_rank"),
+        ],
+        [
             InlineKeyboardButton("❄️ Oq Yuruvchilar", callback_data="menu_throne"),
         ],
     ]

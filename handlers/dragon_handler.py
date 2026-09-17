@@ -102,9 +102,18 @@ async def show_dragon_hub(target, user_id: int, is_message: bool):
                 elif len(dragons) < 3:
                     egg_info = "✨ **Tuxum qo'yishga tayyor!** (Nasl qoldirish mumkin)\n"
 
+            deploy_st = await crud.get_dragon_deployment_status(session, dragon.id)
+            if deploy_st["type"] == "stationed":
+                loc_str = f"🏰 **{deploy_st.get('territory_name', 'Qal\'a')}** mudofaasida"
+            elif deploy_st["type"] == "marching":
+                loc_str = f"⚔️ **{deploy_st.get('target_name', 'Qal\'a')}**ga harbiy yurishda"
+            else:
+                loc_str = "🏠 Uyada (hujum va mudofaaga tayyor)"
+
             text += (
                 f"**{idx}-Ajdar: {dragon.name}**\n"
                 f"🏷️ Toifa: **{gr_name}** | Holati: **{st_name}**\n"
+                f"📍 Joylashuvi: {loc_str}\n"
                 f"⭐ Daraja: **{dragon.level} / 20**\n"
                 f"⚔️ Jang Quvvati: **{dragon.power:,}**\n"
                 f"🍗 To'qlik: `[{hunger_bar}]` **{dragon.hunger}%**\n"
@@ -116,6 +125,9 @@ async def show_dragon_hub(target, user_id: int, is_message: bool):
                 text += f"🏺 Taqilgan Artefakt: **{art_item.get('name', dragon.artifact_code)}** (+{int(art_item.get('dragon_bonus', 0)*100)}% quvvat)\n"
 
             text += f"{egg_info}"
+
+            if deploy_st["type"] == "stationed":
+                buttons.append([InlineKeyboardButton(f"↩️ {dragon.name}ni Qal'adan Uyaga Qaytarish", callback_data=f"dragon_recall_home:{deploy_st['territory_id']}:{dragon.id}")])
 
             if dragon.stage == "egg":
                 buttons.append([InlineKeyboardButton(f"✨ {dragon.name} Tuxumini Ochirish (2,500🌾 1,500⛓️ 1,000🪙)", callback_data=f"dragon_hatch_{dragon.id}")])
@@ -142,6 +154,9 @@ async def show_dragon_hub(target, user_id: int, is_message: bool):
                     buttons.append([InlineKeyboardButton(f"🥚 {dragon.name}: Yangi Tuxum Qo'yish (Nasl)", callback_data=f"dragon_lay_egg_{dragon.id}")])
 
             buttons.append([InlineKeyboardButton(f"🗑️ {dragon.name}ni Tashlash (Ozod Qilish)", callback_data=f"dragon_release_ask_{dragon.id}")])
+
+        if len(dragons) < 3:
+            buttons.append([InlineKeyboardButton(f"🥚 Yangi Ajdar Xarid Qilish ({len(dragons)}/3)", callback_data="dragon_buy_more")])
 
         buttons.append([InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")])
 
@@ -387,10 +402,60 @@ async def dragon_release_confirm_callback(update: Update, context: ContextTypes.
     await show_dragon_hub(query, user_id, is_message=False)
 
 
+async def dragon_buy_more_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Qo'shimcha ajdar tuxumi xarid qilish oynasi"""
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_with_relations(session, user_id)
+        if not user:
+            return
+
+        buttons = []
+        prices = {"A": "3,000🪙 1,500⛓️", "B": "2,000🪙 1,000⛓️", "C": "1,200🪙 600⛓️"}
+        for name, grade, desc in DRAGON_PRESETS:
+            p = prices.get(grade, "2,000🪙 1,000⛓️")
+            buttons.append([InlineKeyboardButton(f"🥚 {name} ({grade} Toifa — {p})", callback_data=f"dragon_claim:{name}:{grade}")])
+        buttons.append([InlineKeyboardButton("🔙 Ajdarlar Markaziga Qaytish", callback_data="menu_dragons")])
+
+        text = (
+            f"🥚 **YANGI AJDAR TUXUMINI TANLASH (3 tagacha)**\n\n"
+            f"🎒 Sizning zaxirangiz: **{user.gold:,}**🪙 oltin, **{user.iron:,}**⛓️ temir\n\n"
+            f"Quyidagi afsonaviy ajdarlardan birini tanlang:"
+        )
+        try:
+            await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        except Exception:
+            await query.edit_message_text(text.replace("*", ""), reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def dragon_recall_home_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ajdarni qal'adan to'g'ridan-to'g'ri uyaga qaytarish"""
+    query = update.callback_query
+    parts = query.data.split(":")
+    terr_id = int(parts[1])
+    dragon_id = int(parts[2])
+    user_id = query.from_user.id
+
+    async with AsyncSessionLocal() as session:
+        ok, msg = await crud.recall_dragon_from_castle(session, user_id, terr_id, dragon_id)
+
+    try:
+        clean_msg = msg.replace("**", "").replace("*", "").replace("_", "")
+        await query.answer(clean_msg, show_alert=True)
+    except Exception:
+        pass
+    await show_dragon_hub(query, user_id, is_message=False)
+
+
 def register_dragon_handlers(app):
     app.add_handler(CommandHandler("dragons", dragon_command))
     app.add_handler(CommandHandler("dragon", dragon_command))
     app.add_handler(CallbackQueryHandler(dragon_callback, pattern="^menu_dragons$"))
+    app.add_handler(CallbackQueryHandler(dragon_buy_more_callback, pattern="^dragon_buy_more$"))
+    app.add_handler(CallbackQueryHandler(dragon_recall_home_callback, pattern="^dragon_recall_home:"))
     app.add_handler(CallbackQueryHandler(dragon_claim_callback, pattern="^dragon_claim:"))
     app.add_handler(CallbackQueryHandler(dragon_hatch_callback, pattern="^dragon_hatch"))
     app.add_handler(CallbackQueryHandler(dragon_feed_callback, pattern="^dragon_feed"))

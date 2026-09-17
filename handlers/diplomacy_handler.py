@@ -88,6 +88,7 @@ async def show_diplomacy_hub(target, user_id: int, is_message: bool):
             if break_row:
                 buttons.append(break_row)
 
+        buttons.append([InlineKeyboardButton("⚖️ Savdo Bozori (Xonadonlararo Birja)", callback_data="menu_trade")])
         buttons.append([InlineKeyboardButton("⚔️ Urush E'lon Qilish (Xaritaga o'tish)", callback_data="menu_map")])
         buttons.append([InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")])
 

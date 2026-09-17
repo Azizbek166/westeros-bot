@@ -57,7 +57,11 @@ async def process_due_marches(bot_app=None):
                 }
 
                 # Ajdar tekshiruvi (Hujumchi ajdari)
-                dragon = await crud.get_user_dragon(session, attacker.id)
+                march_dr_id = getattr(march, "dragon_id", None)
+                if march_dr_id:
+                    dragon = await session.get(models.Dragon, march_dr_id)
+                else:
+                    dragon = await crud.get_user_dragon(session, attacker.id)
                 dragon_pwr = 0
                 has_dragon = getattr(march, "has_dragon", True)
                 dragon_tactic = getattr(march, "dragon_tactic", "balanced")
@@ -144,7 +148,9 @@ async def process_due_marches(bot_app=None):
                             r_json = json.loads(territory.reinforcements_json)
                             if "stationed_dragon" in r_json:
                                 del r_json["stationed_dragon"]
-                                territory.reinforcements_json = json.dumps(r_json)
+                            if "stationed_dragons" in r_json:
+                                del r_json["stationed_dragons"]
+                            territory.reinforcements_json = json.dumps(r_json)
                         except Exception:
                             pass
 

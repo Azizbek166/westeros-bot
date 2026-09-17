@@ -114,24 +114,24 @@ async def view_territory_callback(update: Update, context: ContextTypes.DEFAULT_
             clean_owner = owner_name.replace("*", "").replace("_", "").replace("`", "")
 
         dragon_info_str = "Mavjud emas"
-        st_dragon = crud.get_stationed_dragon_info(terr)
-        if st_dragon:
-            dragon_info_str = f"🔥 **{st_dragon.get('dragon_name')}** (Kuch: {st_dragon.get('power')}, Egasi: {st_dragon.get('user_name')})"
+        st_dragons = crud.get_stationed_dragons_list(terr)
+        if st_dragons:
+            dragon_info_str = ", ".join([f"🔥 **{d.get('dragon_name')}** ({d.get('power')}⚡)" for d in st_dragons])
 
         buttons = []
         c_lvl = getattr(terr, "castle_level", 1) or 1
         is_lord = is_own and ((user.house and user.house.lord_user_id == user.telegram_id) or (user.rank == "king"))
+        user_st_dragon = next((d for d in st_dragons if d.get("user_id") == user.id), None)
+
         if is_own:
             buttons.append([InlineKeyboardButton("🛡️ Qal'ani Himoya Qilish (Askar Joylash)", callback_data=f"def_rf_menu:{terr.id}")])
             if is_lord:
                 buttons.append([InlineKeyboardButton("↩️ Garnizondan Askarlarni Qaytarish", callback_data=f"def_withdraw_rf:{terr.id}")])
-            if st_dragon:
-                if (user and st_dragon.get("user_id") == user.id) or (user and user.house and user.house.lord_user_id == user.telegram_id):
-                    buttons.append([InlineKeyboardButton("🚫 Ajdarni Qal'adan Qaytarish", callback_data=f"def_recall_dragon:{terr.id}")])
-                else:
-                    buttons.append([InlineKeyboardButton("🐉 Ajdar Qo'riqlamoqda", callback_data="terr_dragon_info")])
-            else:
-                buttons.append([InlineKeyboardButton("🐉 Ajdarni Mudofaaga Joylashtirish", callback_data=f"def_station_dragon:{terr.id}")])
+            if user_st_dragon:
+                buttons.append([InlineKeyboardButton(f"🚫 {user_st_dragon.get('dragon_name')}ni Qal'adan Qaytarish", callback_data=f"def_recall_dragon:{terr.id}:{user_st_dragon.get('dragon_id')}")])
+            elif is_lord and st_dragons:
+                buttons.append([InlineKeyboardButton(f"🚫 {st_dragons[0].get('dragon_name')}ni Qal'adan Qaytarish", callback_data=f"def_recall_dragon:{terr.id}:{st_dragons[0].get('dragon_id')}")])
+            buttons.append([InlineKeyboardButton("🐉 Ajdarni Mudofaaga Joylashtirish", callback_data=f"def_station_dragon:{terr.id}")])
             if c_lvl < 5:
                 c_cost_g = c_lvl * 3000
                 c_cost_i = c_lvl * 2500
@@ -140,7 +140,9 @@ async def view_territory_callback(update: Update, context: ContextTypes.DEFAULT_
             buttons.append([InlineKeyboardButton("💰 Qal'a Boshqaruvi & O'lpon", callback_data=f"my_c_detail:{terr.id}")])
         elif is_ally:
             buttons.append([InlineKeyboardButton(f"🤝 Qal'a Mudofaasiga Yordam Yuborish{alliance_type_str}", callback_data=f"def_rf_menu:{terr.id}")])
-            if not st_dragon:
+            if user_st_dragon:
+                buttons.append([InlineKeyboardButton(f"🚫 {user_st_dragon.get('dragon_name')}ni Qal'adan Qaytarish", callback_data=f"def_recall_dragon:{terr.id}:{user_st_dragon.get('dragon_id')}")])
+            else:
                 buttons.append([InlineKeyboardButton("🐉 Ittifoqchi Qal'aga Ajdar Yuborish", callback_data=f"def_station_dragon:{terr.id}")])
         else:
             war_st = await crud.get_war_status(session)
@@ -231,35 +233,74 @@ async def terr_own_info_callback(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def def_station_dragon_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Ajdarni qal'aga mudofaa uchun joylashtirish"""
+    """Ajdarni qal'aga mudofaa uchun joylashtirish (tanlov menyusi bilan)"""
     query = update.callback_query
-    terr_id = int(query.data.split(":")[1])
+    parts = query.data.split(":")
+    terr_id = int(parts[1])
+    specific_dragon_id = int(parts[2]) if len(parts) > 2 else None
     user_id = query.from_user.id
+
     async with AsyncSessionLocal() as session:
         user = await crud.get_user_with_relations(session, user_id)
-        if not user:
-            await query.answer("Foydalanuvchi topilmadi.", show_alert=True)
+        terr = await session.get(models.Territory, terr_id)
+        if not user or not terr:
+            await query.answer("Ma'lumot topilmadi.", show_alert=True)
             return
-        ok, msg = await crud.station_dragon_in_castle(session, user.id, terr_id)
 
-    await query.answer(msg, show_alert=True)
-    try:
-        await view_territory_callback(update, context)
-    except Exception:
-        pass
+        if specific_dragon_id:
+            ok, msg = await crud.station_dragon_in_castle(session, user.id, terr_id, specific_dragon_id)
+            await query.answer(msg, show_alert=True)
+            try:
+                await view_territory_callback(update, context)
+            except Exception:
+                pass
+            return
+
+        avail = await crud.get_user_available_dragons(session, user.id)
+        if not avail:
+            ok, msg = await crud.station_dragon_in_castle(session, user.id, terr_id)
+            await query.answer(msg, show_alert=True)
+            return
+        elif len(avail) == 1:
+            ok, msg = await crud.station_dragon_in_castle(session, user.id, terr_id, avail[0].id)
+            await query.answer(msg, show_alert=True)
+            try:
+                await view_territory_callback(update, context)
+            except Exception:
+                pass
+            return
+        else:
+            buttons = []
+            for d in avail:
+                buttons.append([InlineKeyboardButton(f"🐉 {d.name} (Kuch: {d.power}⚡, To'qlik: {d.hunger}%)", callback_data=f"def_station_dragon:{terr_id}:{d.id}")])
+            buttons.append([InlineKeyboardButton("🔙 Qal'aga Qaytish", callback_data=f"terr_view:{terr_id}")])
+
+            text = (
+                f"🐉 **QAL'AGA AJDAR TANLASH: {terr.name.upper()}**\n\n"
+                f"Sizda {len(avail)} ta bo'sh jangovar ajdar mavjud. Qaysi birini ushbu qal'a osmoniga joylashtirasiz?\n"
+                f"*(Ajdaringiz qal'ani dushman hujumlaridan o't purkab himoya qiladi)*"
+            )
+            await query.answer()
+            try:
+                await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+            except Exception:
+                await query.edit_message_text(text.replace("*", ""), reply_markup=InlineKeyboardMarkup(buttons))
+            return
 
 
 async def def_recall_dragon_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Ajdarni qal'a mudofaasidan qaytarib olish"""
     query = update.callback_query
-    terr_id = int(query.data.split(":")[1])
+    parts = query.data.split(":")
+    terr_id = int(parts[1])
+    dragon_id = int(parts[2]) if len(parts) > 2 else None
     user_id = query.from_user.id
     async with AsyncSessionLocal() as session:
         user = await crud.get_user_with_relations(session, user_id)
         if not user:
             await query.answer("Foydalanuvchi topilmadi.", show_alert=True)
             return
-        ok, msg = await crud.recall_dragon_from_castle(session, user.id, terr_id)
+        ok, msg = await crud.recall_dragon_from_castle(session, user.id, terr_id, dragon_id)
 
     await query.answer(msg, show_alert=True)
     try:
@@ -419,10 +460,13 @@ async def show_my_castle_detail(query, user_id: int, terr_id: int):
         if is_lord:
             buttons.append([InlineKeyboardButton("↩️ Garnizondan Askarlarni Qaytarish", callback_data=f"def_withdraw_rf:{terr.id}")])
 
-        if st_dragon:
-            buttons.append([InlineKeyboardButton("🚫 Ajdarni Qaytarib Olish", callback_data=f"def_recall_dragon:{terr.id}")])
-        else:
-            buttons.append([InlineKeyboardButton("🐉 Ajdarni Qal'aga Joylashtirish", callback_data=f"def_station_dragon:{terr.id}")])
+        st_dragons = crud.get_stationed_dragons_list(terr)
+        user_st_dragon = next((d for d in st_dragons if d.get("user_id") == user.id), None)
+        if user_st_dragon:
+            buttons.append([InlineKeyboardButton(f"🚫 {user_st_dragon.get('dragon_name')}ni Qaytarib Olish", callback_data=f"def_recall_dragon:{terr.id}:{user_st_dragon.get('dragon_id')}")])
+        elif is_lord and st_dragons:
+            buttons.append([InlineKeyboardButton(f"🚫 {st_dragons[0].get('dragon_name')}ni Qaytarib Olish", callback_data=f"def_recall_dragon:{terr.id}:{st_dragons[0].get('dragon_id')}")])
+        buttons.append([InlineKeyboardButton("🐉 Ajdarni Qal'aga Joylashtirish", callback_data=f"def_station_dragon:{terr.id}")])
 
         if c_lvl < 5:
             c_cost_g = c_lvl * 3000

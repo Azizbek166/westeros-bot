@@ -12,6 +12,7 @@ from handlers.admin_handler import register_admin_handlers
 from handlers.dragon_handler import register_dragon_handlers
 from handlers.duel_handler import register_duel_handlers
 from handlers.raven_handler import register_raven_handlers
+from handlers.trade_handler import register_trade_handlers
 
 def register_all_handlers(app):
     """Barcha bot handlerlarini Application ga ro'yxatdan o'tkazish"""
@@ -29,3 +30,4 @@ def register_all_handlers(app):
     register_dragon_handlers(app)
     register_duel_handlers(app)
     register_raven_handlers(app)
+    register_trade_handlers(app)
