@@ -92,7 +92,7 @@ async def show_admin_dashboard(target, is_message: bool):
             [InlineKeyboardButton("🛡️ Adminlar Ro'yxati & Huquqlar", callback_data="admin_admins_list")],
         ]
 
-        if target_user_id == OWNER_ID:
+        if is_admin(target_user_id) or str(target_user_id) == str(OWNER_ID):
             buttons.append([InlineKeyboardButton("⚠️ O'YINNI 0 QILISH (MAVSUM RESET)", callback_data="admin_wipe_ask")])
 
         buttons.append([InlineKeyboardButton("🔙 Bosh Menyu", callback_data="menu_main")])
@@ -1954,8 +1954,9 @@ async def admin_wipe_ask_callback(update: Update, context: ContextTypes.DEFAULT_
     """O'yinni tozalashdan oldin ogohlantirish ekrani"""
     query = update.callback_query
     await query.answer()
-    if query.from_user.id != OWNER_ID:
-        await query.answer("❌ Faqat Bosh Administrator (Owner) o'yinni tozalashi mumkin!", show_alert=True)
+    uid = query.from_user.id
+    if not is_admin(uid) and uid != OWNER_ID:
+        await query.answer("❌ Faqat Administrator o'yinni tozalashi mumkin!", show_alert=True)
         return
 
     text = (
@@ -1978,7 +1979,8 @@ async def admin_wipe_ask_callback(update: Update, context: ContextTypes.DEFAULT_
 async def admin_wipe_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Butun o'yinni tozalashni amalga oshirish"""
     query = update.callback_query
-    if query.from_user.id != OWNER_ID:
+    uid = query.from_user.id
+    if not is_admin(uid) and uid != OWNER_ID:
         await query.answer("❌ Huquqingiz yetarli emas!", show_alert=True)
         return
 
@@ -2000,9 +2002,10 @@ async def admin_wipe_confirm_callback(update: Update, context: ContextTypes.DEFA
 
 
 async def wipe_game_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/wipe_game buyrug'i (faqat Owner uchun)"""
-    if update.effective_user.id != OWNER_ID:
-        await update.message.reply_text("❌ Faqat Bosh Administrator (Owner) ushbu buyruqni bera oladi!")
+    """/wipe_game yoki /reset_game buyrug'i"""
+    uid = update.effective_user.id
+    if not is_admin(uid) and uid != OWNER_ID:
+        await update.message.reply_text("❌ Faqat Administrator ushbu buyruqni bera oladi!")
         return
 
     text = (
@@ -2019,7 +2022,7 @@ async def wipe_game_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def register_admin_handlers(app):
-    app.add_handler(CommandHandler("wipe_game", wipe_game_command))
+    app.add_handler(CommandHandler(["wipe_game", "reset_game", "restart_game"], wipe_game_command))
     app.add_handler(CommandHandler("admin", admin_command))
     app.add_handler(CommandHandler("adminsearch", admin_search_command))
     app.add_handler(CommandHandler("sethouse", set_house_command))
