@@ -2521,11 +2521,11 @@ IRON_MARKET_PACKS = {
 }
 
 FOOD_MARKET_PACKS = {
-    "food_1": {"gold": 200, "food": 500, "title": "🌾 Kichik Bug'doy Xaltasi (500 oziq)"},
-    "food_2": {"gold": 500, "food": 1500, "title": "🌾 Savdo Karvoni (1,500 oziq, +250 bonus)"},
-    "food_3": {"gold": 1000, "food": 3500, "title": "🌾 Ombor Zaxirasi (3,500 oziq, +1,000 bonus)"},
-    "food_4": {"gold": 2500, "food": 10000, "title": "🌾 Qirollik Don Karvoni (10,000 oziq, +3,750 bonus)"},
-    "food_5": {"gold": 5000, "food": 25000, "title": "🌾 Butun Vodiy Hosili (25,000 oziq, +12,500 bonus)"},
+    "food_1": {"gold": 300, "food": 390, "title": "🌾 Kichik Don Qopi (390 oziq)"},
+    "food_2": {"gold": 500, "food": 700, "title": "🌾 Savdo Karvoni (700 oziq, +50 bonus)"},
+    "food_3": {"gold": 1000, "food": 1500, "title": "🌾 Don Ombri Zaxirasi (1,500 oziq, +200 bonus)"},
+    "food_4": {"gold": 2500, "food": 4000, "title": "🌾 Savdo Kemasi (4,000 oziq, +750 bonus)"},
+    "food_5": {"gold": 5000, "food": 9000, "title": "🌾 Qirollik Zaxirasi (9,000 oziq, +2,500 bonus)"},
 }
 
 
@@ -2579,7 +2579,7 @@ async def buy_iron_with_gold(session: AsyncSession, user_id: int, pack_code: str
 
 
 async def buy_food_with_gold(session: AsyncSession, user_id: int, pack_code_or_gold: Any) -> Tuple[bool, str]:
-    """Bozordan oltin evaziga tayyor oziq-ovqat (don) xarid qilish"""
+    """Bozordan oltin evaziga tayyor oziq-ovqat (don) xarid qilish (muvozanatli narxda)"""
     user = await get_user_any(session, user_id)
     if not user:
         return False, "Foydalanuvchi topilmadi."
@@ -2599,17 +2599,19 @@ async def buy_food_with_gold(session: AsyncSession, user_id: int, pack_code_or_g
         if gold_cost < 50:
             return False, "❌ Minimal xarid miqdori — 50🪙 oltin!"
 
-        # Miqdorga qarab progressiv bonuslar
+        # Muvozanatli progressiv stavkalar (1.2x dan 1.8x gacha)
         if gold_cost >= 5000:
-            multiplier = 5.0
+            multiplier = 1.8
         elif gold_cost >= 2500:
-            multiplier = 4.0
+            multiplier = 1.6
         elif gold_cost >= 1000:
-            multiplier = 3.5
+            multiplier = 1.5
         elif gold_cost >= 500:
-            multiplier = 3.0
+            multiplier = 1.4
+        elif gold_cost >= 300:
+            multiplier = 1.3
         else:
-            multiplier = 2.5
+            multiplier = 1.2
 
         food_amount = int(gold_cost * multiplier)
 
@@ -2817,7 +2819,7 @@ async def get_player_conquered_castles_summary(session: AsyncSession) -> Dict[st
         if r.territory_id not in latest_conqueror_by_terr:
             latest_conqueror_by_terr[r.territory_id] = r.attacker_user_id
 
-    # 5. O'yinchilar bo'yicha qalalar xaritasi
+    # 5. O'yinchilar ro'yxatini shakllantirish
     player_stats: Dict[int, Dict[str, Any]] = {}
 
     def ensure_player_entry(usr: models.User) -> Dict[str, Any]:
@@ -2827,7 +2829,7 @@ async def get_player_conquered_castles_summary(session: AsyncSession) -> Dict[st
                 "user_id": usr.id,
                 "telegram_id": usr.telegram_id,
                 "name": usr.full_name or usr.username or f"Lord {usr.id}",
-                "username": usr.username,
+                "username": usr.username or "",
                 "rank": usr.rank or "member",
                 "house_name": h.name if h else "Xonadonsiz",
                 "house_emoji": h.emoji if h else "🏰",
@@ -2838,9 +2840,14 @@ async def get_player_conquered_castles_summary(session: AsyncSession) -> Dict[st
             }
         return player_stats[usr.id]
 
+    # Avval barcha ro'yxatdan o'tgan o'yinchilarni ro'yxatga kiritamiz
+    for u in all_users.values():
+        ensure_player_entry(u)
+
     npc_castles_count = 0
     player_castles_count = 0
     neutral_castles_count = 0
+    all_castles_overview = []
 
     for t in all_terrs:
         tot_garrison = (
@@ -2863,7 +2870,7 @@ async def get_player_conquered_castles_summary(session: AsyncSession) -> Dict[st
         }
 
         # Egalikni tekshirish
-        conqueror_user = all_users.get(t.conquered_by_user_id) if t.conquered_by_user_id else None
+        conqueror_user = all_users.get(t.conquered_by_user_id) if getattr(t, "conquered_by_user_id", None) else None
 
         if not conqueror_user and t.id in latest_conqueror_by_terr:
             rep_uid = latest_conqueror_by_terr[t.id]
@@ -2873,13 +2880,20 @@ async def get_player_conquered_castles_summary(session: AsyncSession) -> Dict[st
 
         owner_house = all_houses.get(t.owner_house_id) if t.owner_house_id else None
 
+        holder_name = "Hech kim"
+        holder_user_id = None
+        is_direct = False
+
         if conqueror_user:
             terr_dict["is_direct_conquest"] = True
+            is_direct = True
             entry = ensure_player_entry(conqueror_user)
             entry["total_castles"] += 1
             entry["direct_conquests"] += 1
             entry["castles"].append(terr_dict)
             player_castles_count += 1
+            holder_name = f"{conqueror_user.full_name} (⚔️ Fath etilgan)"
+            holder_user_id = conqueror_user.id
         elif owner_house and not owner_house.is_npc:
             lord_user = users_by_tg.get(owner_house.lord_user_id) if owner_house.lord_user_id else None
             if not lord_user:
@@ -2893,12 +2907,31 @@ async def get_player_conquered_castles_summary(session: AsyncSession) -> Dict[st
                 entry["total_castles"] += 1
                 entry["castles"].append(terr_dict)
                 player_castles_count += 1
+                holder_name = f"{owner_house.emoji} {owner_house.name} ({lord_user.full_name})"
+                holder_user_id = lord_user.id
             else:
                 npc_castles_count += 1
+                holder_name = f"{owner_house.emoji} {owner_house.name} (Bo'sh)"
         elif owner_house and owner_house.is_npc:
             npc_castles_count += 1
+            holder_name = f"{owner_house.emoji} {owner_house.name} (NPC)"
         else:
             neutral_castles_count += 1
+            holder_name = "Egasi yo'q"
+
+        all_castles_overview.append({
+            "id": t.id,
+            "name": t.name,
+            "castle_name": t.castle_name or "Qal'a",
+            "region": t.region,
+            "owner_house_name": owner_house.name if owner_house else "Egasi yo'q",
+            "owner_house_emoji": owner_house.emoji if owner_house else "🏰",
+            "holder_name": holder_name,
+            "holder_user_id": holder_user_id,
+            "is_direct_conquest": is_direct,
+            "garrison_total": tot_garrison,
+            "defense": t.defense or 0,
+        })
 
     sorted_players = sorted(
         player_stats.values(),
@@ -2912,6 +2945,7 @@ async def get_player_conquered_castles_summary(session: AsyncSession) -> Dict[st
         "npc_controlled": npc_castles_count,
         "neutral_controlled": neutral_castles_count,
         "players": sorted_players,
+        "castles_overview": all_castles_overview,
     }
 
 

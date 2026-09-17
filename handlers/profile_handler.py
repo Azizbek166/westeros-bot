@@ -235,11 +235,11 @@ async def show_iron_mine_menu(target, user_id: int, is_message: bool = False):
         text += (
             f"💰 **Xazinangiz:** **{user.gold:,}**🪙 Oltin | **{user.food:,}**🌾 Oziq-ovqat | **{user.iron:,}**⛓️ Temir\n\n"
             f"🌾 **OZIQ-OVQAT BOZORI (OLTINGA DON XARID QILISH):**\n"
-            f"• 1-To'plam: 200🪙 ➡️ **500🌾 Oziq-ovqat**\n"
-            f"• 2-To'plam: 500🪙 ➡️ **1,500🌾 Oziq-ovqat** (+250 bonus)\n"
-            f"• 3-To'plam: 1,000🪙 ➡️ **3,500🌾 Oziq-ovqat** (+1,000 bonus)\n"
-            f"• 4-To'plam: 2,500🪙 ➡️ **10,000🌾 Oziq-ovqat** (+3,750 bonus)\n"
-            f"• 5-To'plam: 5,000🪙 ➡️ **25,000🌾 Oziq-ovqat** (+12,500 bonus)\n"
+            f"• 1-To'plam: 300🪙 ➡️ **390🌾 Oziq-ovqat**\n"
+            f"• 2-To'plam: 500🪙 ➡️ **700🌾 Oziq-ovqat** (+50 bonus)\n"
+            f"• 3-To'plam: 1,000🪙 ➡️ **1,500🌾 Oziq-ovqat** (+200 bonus)\n"
+            f"• 4-To'plam: 2,500🪙 ➡️ **4,000🌾 Oziq-ovqat** (+750 bonus)\n"
+            f"• 5-To'plam: 5,000🪙 ➡️ **9,000🌾 Oziq-ovqat** (+2,500 bonus)\n"
             f"*(Ixtiyoriy miqdorda xarid qilish: `/buyfood 500`)*\n\n"
             f"🐪 **SAVDO KARVONLARI (OLTINGA TEMIR XARID QILISH):**\n"
             f"• 1-To'plam: 500🪙 ➡️ **300⛓️ Temir**\n"
@@ -258,15 +258,15 @@ async def show_iron_mine_menu(target, user_id: int, is_message: bool = False):
             buttons.append(up_row)
 
         buttons.append([
-            InlineKeyboardButton("🌾 500 (200🪙)", callback_data="buy_food:food_1"),
-            InlineKeyboardButton("🌾 1,500 (500🪙)", callback_data="buy_food:food_2"),
+            InlineKeyboardButton("🌾 390 (300🪙)", callback_data="buy_food:food_1"),
+            InlineKeyboardButton("🌾 700 (500🪙)", callback_data="buy_food:food_2"),
         ])
         buttons.append([
-            InlineKeyboardButton("🌾 3,500 (1,000🪙)", callback_data="buy_food:food_3"),
-            InlineKeyboardButton("🌾 10,000 (2.5k🪙)", callback_data="buy_food:food_4"),
+            InlineKeyboardButton("🌾 1,500 (1,000🪙)", callback_data="buy_food:food_3"),
+            InlineKeyboardButton("🌾 4,000 (2.5k🪙)", callback_data="buy_food:food_4"),
         ])
         buttons.append([
-            InlineKeyboardButton("🌾 25,000 Don (5,000🪙)", callback_data="buy_food:food_5"),
+            InlineKeyboardButton("🌾 9,000 Don (5,000🪙)", callback_data="buy_food:food_5"),
         ])
         buttons.append([
             InlineKeyboardButton("🛒 300⛓️ (500🪙)", callback_data="buy_iron:pack_1"),

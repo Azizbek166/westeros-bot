@@ -1381,12 +1381,17 @@ async def admin_player_castles_callback(update: Update, context: ContextTypes.DE
         summary = await crud.get_player_conquered_castles_summary(session)
 
     players = summary.get("players", [])
-    total_terrs = summary.get("total_territories", 48)
+    total_terrs = summary.get("total_territories", 40)
     player_terrs = summary.get("player_controlled", 0)
     npc_terrs = summary.get("npc_controlled", 0)
 
-    total_players = len(players)
-    current_page_players = players[offset : offset + PAGE_SIZE]
+    # Faqat qal'aga ega bo'lganlar (yoki hech kim bo'lmasa barcha ro'yxatdan o'tganlar)
+    active_players = [p for p in players if p.get("total_castles", 0) > 0]
+    if not active_players:
+        active_players = players
+
+    total_players = len(active_players)
+    current_page_players = active_players[offset : offset + PAGE_SIZE]
 
     text = (
         f"🏆 **VESTEROS QAL'ALARI — O'YINCHILAR HISOBOTI**\n\n"
@@ -1399,7 +1404,7 @@ async def admin_player_castles_callback(update: Update, context: ContextTypes.DE
 
     buttons = []
 
-    if not players:
+    if not active_players:
         text += (
             "ℹ️ *Hozircha hech qaysi o'yinchi qal'alarni egallamagan yoki xonadonga a'zo emas.*\n\n"
             "O'yinchilar harbiy yurish qilib qal'alarni zabt etganlarida bu yerda to'liq ro'yxat shakllanadi."
@@ -1409,23 +1414,29 @@ async def admin_player_castles_callback(update: Update, context: ContextTypes.DE
         text += "════════════════════════════\n\n"
 
         for idx, p in enumerate(current_page_players, start=offset + 1):
-            uname_str = f"@{p['username']}" if p.get("username") else f"ID: {p['telegram_id']}"
+            p_name = p['name'].replace('*', '').replace('_', ' ')
+            p_uname = f"@{p['username'].replace('_', '')}" if p.get("username") else f"ID: {p['telegram_id']}"
             lord_badge = "👑 Lord" if p.get("is_lord") else f"🎖️ {str(p.get('rank', 'member')).title()}"
             direct_str = f" (⚔️ {p['direct_conquests']} tasi jangda fath etilgan)" if p.get("direct_conquests", 0) > 0 else ""
 
             text += (
-                f"**{idx}. {p['name']}** ({uname_str})\n"
+                f"**{idx}. {p_name}** ({p_uname})\n"
                 f"• {p['house_emoji']} Xonadon: **{p['house_name']}** ({lord_badge})\n"
                 f"• 🏯 Egalikdagi Qal'alar: **{p['total_castles']} ta**{direct_str}\n"
-                f"• Qal'alar ro'yxati:\n"
             )
 
-            for c in p.get("castles", []):
-                tag = "⚔️ Fath etilgan" if c.get("is_direct_conquest") else ("👑 Poytaxt" if c.get("is_capital") else "🛡️ Xonadon qal'asi")
-                text += (
-                    f"   ▫️ 🏯 **{c['name']}** ({c['castle_name']}) — *{c['region']}*\n"
-                    f"      ┗ [{tag}] | Devor: {c['defense']} | Garnizon: {c['garrison_total']:,} askar\n"
-                )
+            if p.get("castles"):
+                text += "• Qal'alar ro'yxati:\n"
+                for c in p.get("castles", []):
+                    c_name = c['name'].replace('*', '').replace('_', ' ')
+                    c_castle = (c['castle_name'] or "Qal'a").replace('*', '').replace('_', ' ')
+                    tag = "⚔️ Fath etilgan" if c.get("is_direct_conquest") else ("👑 Poytaxt" if c.get("is_capital") else "🛡️ Xonadon qal'asi")
+                    text += (
+                        f"   ▫️ 🏯 **{c_name}** ({c_castle}) — *{c['region']}*\n"
+                        f"      ┗ 🏷️ {tag} | Devor: {c['defense']} | Garnizon: {c['garrison_total']:,} askar\n"
+                    )
+            else:
+                text += "• *Qal'alari yo'q*\n"
             text += "\n"
 
         text += "════════════════════════════\n"
@@ -1450,11 +1461,80 @@ async def admin_player_castles_callback(update: Update, context: ContextTypes.DE
         buttons.append(nav_row)
 
     buttons.append([
-        InlineKeyboardButton("🏯 Qalalar Ro'yxati", callback_data="admin_castles_list:0"),
+        InlineKeyboardButton("🗺️ Barcha Qal'alar Ro'yxati (40 ta)", callback_data="admin_all_castles_ov:0")
+    ])
+    buttons.append([
+        InlineKeyboardButton("🏯 Qalalar Garnizoni Boshqaruvi", callback_data="admin_castles_list:0"),
         InlineKeyboardButton("🔙 Admin Panel", callback_data="admin_panel"),
     ])
 
-    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+    try:
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+    except Exception:
+        clean_text = text.replace("**", "").replace("*", "").replace("`", "").replace("_", "")
+        await query.edit_message_text(clean_text, parse_mode=None, reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def admin_all_castles_overview_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin paneli: barcha 40 ta qal'alar va ularning egalari to'liq ro'yxati"""
+    query = update.callback_query
+    try:
+        await query.answer()
+    except Exception:
+        pass
+
+    if not is_admin(query.from_user.id):
+        return
+
+    offset = int(query.data.split(":")[1]) if ":" in query.data else 0
+    PAGE_SIZE = 6
+
+    async with AsyncSessionLocal() as session:
+        summary = await crud.get_player_conquered_castles_summary(session)
+
+    all_castles = summary.get("castles_overview", [])
+    total_castles = len(all_castles)
+    page_castles = all_castles[offset : offset + PAGE_SIZE]
+
+    text = (
+        f"🏯 **VESTEROS BARCHA QAL'ALARI VA ULARNING EGALARI**\n\n"
+        f"Jami qal'alar: **{total_castles}** ta | Sahifa: **{offset // PAGE_SIZE + 1} / {max(1, (total_castles + PAGE_SIZE - 1) // PAGE_SIZE)}**\n\n"
+    )
+
+    buttons = []
+
+    for c in page_castles:
+        status_emoji = "⚔️" if c.get("is_direct_conquest") else "🏰"
+        text += (
+            f"{status_emoji} **{c['name']}** ({c['castle_name']}) — *{c['region']}*\n"
+            f"   • Egasi: **{c['holder_name']}**\n"
+            f"   • Mudofaa: **{c['defense']}** | Garnizon: **{c['garrison_total']:,}** askar\n\n"
+        )
+        buttons.append([
+            InlineKeyboardButton(
+                f"🏯 {c['name']} ({c['holder_name'][:18]})",
+                callback_data=f"adm_c_detail:{c['id']}"
+            )
+        ])
+
+    nav_row = []
+    if offset >= PAGE_SIZE:
+        nav_row.append(InlineKeyboardButton("⬅️ Oldingi", callback_data=f"admin_all_castles_ov:{offset - PAGE_SIZE}"))
+    if offset + PAGE_SIZE < total_castles:
+        nav_row.append(InlineKeyboardButton("Keyingi ➡️", callback_data=f"admin_all_castles_ov:{offset + PAGE_SIZE}"))
+    if nav_row:
+        buttons.append(nav_row)
+
+    buttons.append([
+        InlineKeyboardButton("🏆 O'yinchilar Bo'yicha Ro'yxat", callback_data="admin_player_castles:0"),
+        InlineKeyboardButton("🔙 Admin Panel", callback_data="admin_panel"),
+    ])
+
+    try:
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+    except Exception:
+        clean_text = text.replace("**", "").replace("*", "").replace("`", "").replace("_", "")
+        await query.edit_message_text(clean_text, parse_mode=None, reply_markup=InlineKeyboardMarkup(buttons))
 
 
 async def show_admin_castle_detail(query, terr_id: int):
@@ -2150,6 +2230,7 @@ def register_admin_handlers(app):
     app.add_handler(CallbackQueryHandler(admin_house_action_callback, pattern="^adm_h_act:"))
     app.add_handler(CallbackQueryHandler(admin_castles_list_callback, pattern="^admin_castles_list:"))
     app.add_handler(CallbackQueryHandler(admin_player_castles_callback, pattern="^admin_player_castles:"))
+    app.add_handler(CallbackQueryHandler(admin_all_castles_overview_callback, pattern="^admin_all_castles_ov:"))
     app.add_handler(CallbackQueryHandler(admin_castle_detail_callback, pattern="^adm_c_detail:"))
     app.add_handler(CallbackQueryHandler(admin_castle_action_callback, pattern="^adm_c_act:"))
     app.add_handler(CallbackQueryHandler(admin_castle_pick_house_callback, pattern="^adm_c_pick_h:"))
