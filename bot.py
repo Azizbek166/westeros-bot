@@ -123,6 +123,11 @@ async def command_audit_callback(update: Update, context: ContextTypes.DEFAULT_T
     await notify_owner(context.application, msg)
 
 
+async def global_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Barcha kutilmagan bot xatolarini to'liq traceback bilan logger ga yozish"""
+    logger.error("⚠️ Telegram botda xatolik yuz berdi:", exc_info=context.error)
+
+
 # ============================================================
 # ASOSIY ISHGA TUSHIRISH (MAIN)
 # ============================================================
@@ -148,6 +153,9 @@ def main():
         .post_init(on_startup)
         .build()
     )
+
+    # Global error handler
+    app.add_error_handler(global_error_handler)
 
     # Buyruqlar auditi (har qanday buyruq bosh egaga yuboriladi)
     app.add_handler(TypeHandler(Update, command_audit_callback), group=-1)

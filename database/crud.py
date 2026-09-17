@@ -42,6 +42,26 @@ async def get_user_with_relations(session: AsyncSession, telegram_id: int) -> Op
     return user
 
 
+async def get_user_any(session: AsyncSession, identifier: int) -> Optional[models.User]:
+    """Foydalanuvchini id yoki telegram_id orqali xavfsiz qidirish (PostgreSQL 32-bit int chegarasi xatolaridan himoyalangan)"""
+    if not identifier:
+        return None
+    try:
+        ident_int = int(identifier)
+    except Exception:
+        return None
+
+    # Agar 32-bit int chegarasidan (2,147,483,647) katta bo'lsa, bu 100% telegram_id!
+    # Uni session.get(models.User) ga berish PostgreSQL da "integer out of range" beradi.
+    if ident_int > 2147483647:
+        return await get_user_by_telegram_id(session, ident_int)
+
+    u = await session.get(models.User, ident_int)
+    if u:
+        return u
+    return await get_user_by_telegram_id(session, ident_int)
+
+
 async def check_and_reset_daily_limits(session: AsyncSession, user: models.User) -> None:
     """Kunlik limitlarni yangi kunda 0 ga tushirish"""
     today_str = datetime.utcnow().strftime("%Y-%m-%d")
@@ -293,7 +313,7 @@ async def join_house(
 
 async def leave_house(session: AsyncSession, user_id: int) -> Tuple[bool, str]:
     """O'yinchi xonadondan chiqishi"""
-    user = await session.get(models.User, user_id)
+    user = await get_user_any(session, user_id)
     if not user or not user.house_id:
         return False, "❌ Siz biron xonadonga a'zo emassiz."
 
@@ -379,7 +399,13 @@ async def get_territory_by_id(session: AsyncSession, territory_id: int) -> Optio
     )
     territory = result.scalar_one_or_none()
     if territory:
-        await session.refresh(territory, ["owner_house"])
+        if territory.owner_house_id:
+            try:
+                await session.refresh(territory, ["owner_house"])
+            except Exception:
+                pass
+        else:
+            territory.owner_house = None
     return territory
 
 
@@ -404,7 +430,7 @@ async def recruit_troops(
     iron_cost: int,
 ) -> bool:
     """Yangi askarlarni yollash va resurslarni yechish"""
-    user = await session.get(models.User, user_id)
+    user = await get_user_any(session, user_id)
     if not user:
         return False
 
@@ -581,7 +607,7 @@ async def get_house_members_with_characters(session: AsyncSession, house_id: int
 
 async def set_user_rank(session: AsyncSession, user_id: int, new_rank: str) -> bool:
     """O'yinchining xonadondagi lavozimini o'zgartirish"""
-    user = await session.get(models.User, user_id)
+    user = await get_user_any(session, user_id)
     if not user:
         return False
     user.rank = new_rank
@@ -629,7 +655,7 @@ async def cast_house_vote(session: AsyncSession, house_id: int, voter_user_id: i
     # Agar 50% dan ko'p ovoz to'plansa (yoki xonadonda 1-2 kishi bo'lsa)
     if votes_for_cand > (total_members / 2):
         house = await session.get(models.House, house_id)
-        cand = await session.get(models.User, candidate_user_id)
+        cand = await get_user_any(session, candidate_user_id)
         if house and cand:
             # Eski lordni knight darajasiga tushiramiz
             old_lord_res = await session.execute(
@@ -713,7 +739,7 @@ async def get_house_election_stats(session: AsyncSession, house_id: int, current
 
 async def claim_vacant_house_lord(session: AsyncSession, user_id: int) -> Tuple[bool, str]:
     """Bo'sh xonadon Lordligini egallash"""
-    user = await session.get(models.User, user_id)
+    user = await get_user_any(session, user_id)
     if not user or not user.house_id:
         return False, "Foydalanuvchi yoki xonadon topilmadi."
 
@@ -736,7 +762,7 @@ async def claim_vacant_house_lord(session: AsyncSession, user_id: int) -> Tuple[
 
 async def abdicate_house_lord(session: AsyncSession, user_id: int) -> Tuple[bool, str]:
     """Xonadon Lordi o'z xohishi bilan iste'foga chiqishi (voz kechishi)"""
-    user = await session.get(models.User, user_id)
+    user = await get_user_any(session, user_id)
     if not user or not user.house_id:
         return False, "❌ Foydalanuvchi yoki xonadon topilmadi."
 
@@ -774,8 +800,8 @@ async def transfer_troops_to_lord(
     spearmen: int = 0,
 ) -> Tuple[bool, str]:
     """A'zolarning xonadon Lordi armiyasiga safarbarlik doirasida askar jo'natishi"""
-    sender = await session.get(models.User, sender_user_id)
-    lord = await session.get(models.User, lord_user_id)
+    sender = await get_user_any(session, sender_user_id)
+    lord = await get_user_any(session, lord_user_id)
     if not sender or not lord:
         return False, "O'yinchi topilmadi."
 
@@ -820,7 +846,7 @@ async def admin_appoint_house_lord(session: AsyncSession, house_id: int, target_
     if not house:
         return False, "❌ Xonadon topilmadi."
 
-    target_user = await session.get(models.User, target_user_id)
+    target_user = await get_user_any(session, target_user_id)
     if not target_user:
         return False, "❌ Foydalanuvchi topilmadi."
 
@@ -870,9 +896,7 @@ async def admin_appoint_house_lord(session: AsyncSession, house_id: int, target_
 
 async def admin_transfer_user_house(session: AsyncSession, user_id: int, new_house_id: int) -> Tuple[bool, str]:
     """Admin tomonidan o'yinchini boshqa xonadonga ko'chirish"""
-    user = await session.get(models.User, user_id)
-    if not user:
-        user = await get_user_by_telegram_id(session, user_id)
+    user = await get_user_any(session, user_id)
     if not user:
         return False, "❌ Foydalanuvchi topilmadi."
 
@@ -916,9 +940,7 @@ async def admin_transfer_user_house(session: AsyncSession, user_id: int, new_hou
 
 async def admin_remove_user_from_house(session: AsyncSession, user_id: int) -> Tuple[bool, str]:
     """Admin tomonidan o'yinchini xonadondan chiqarish"""
-    user = await session.get(models.User, user_id)
-    if not user:
-        user = await get_user_by_telegram_id(session, user_id)
+    user = await get_user_any(session, user_id)
     if not user:
         return False, "❌ Foydalanuvchi topilmadi."
 
@@ -962,9 +984,7 @@ async def admin_set_user_army(
     add_mode: bool = False,
 ) -> Tuple[bool, str]:
     """Admin tomonidan o'yinchi armiyasini belgilash yoki qo'shish"""
-    user = await session.get(models.User, user_id)
-    if not user:
-        user = await get_user_by_telegram_id(session, user_id)
+    user = await get_user_any(session, user_id)
     if not user:
         return False, "❌ Foydalanuvchi topilmadi."
 
@@ -1173,9 +1193,7 @@ async def send_castle_reinforcements(
     spearmen: int,
 ) -> Tuple[bool, str]:
     """Ittifoqchi qal'aga mudofaa uchun qo'shin (garnizon) yordami yuborish"""
-    user = await session.get(models.User, user_id)
-    if not user:
-        user = await get_user_by_telegram_id(session, user_id)
+    user = await get_user_any(session, user_id)
     territory = await session.get(models.Territory, target_territory_id)
     if not user or not territory:
         return False, "Foydalanuvchi yoki qal'a topilmadi."
@@ -1219,9 +1237,7 @@ async def send_castle_reinforcements_proportional(
     send_all: bool = False,
 ) -> Tuple[bool, str, Dict[str, int]]:
     """O'yinchi armiyasidan mutanosib ravishda qal'a garnizoniga askar joylashtirish"""
-    user = await session.get(models.User, user_id)
-    if not user:
-        user = await get_user_by_telegram_id(session, user_id)
+    user = await get_user_any(session, user_id)
     territory = await session.get(models.Territory, target_territory_id)
     if not user or not territory:
         return False, "Foydalanuvchi yoki qal'a topilmadi.", {}
@@ -1315,9 +1331,7 @@ async def withdraw_castle_reinforcements(
     withdraw_all: bool = False,
 ) -> Tuple[bool, str, Dict[str, int]]:
     """Qal'a garnizonidan askarlarni mutanosib ravishda o'yinchining shaxsiy armiyasiga qaytarib olish"""
-    user = await session.get(models.User, user_id)
-    if not user:
-        user = await get_user_by_telegram_id(session, user_id)
+    user = await get_user_any(session, user_id)
     territory = await session.get(models.Territory, territory_id)
     if not user or not territory:
         return False, "Foydalanuvchi yoki qal'a topilmadi.", {}
@@ -1410,9 +1424,7 @@ async def withdraw_castle_reinforcements(
 
 async def station_dragon_in_castle(session: AsyncSession, user_id: int, territory_id: int) -> Tuple[bool, str]:
     """Ajdarni qal'a mudofaasiga joylashtirish"""
-    user = await session.get(models.User, user_id)
-    if not user:
-        user = await get_user_by_telegram_id(session, user_id)
+    user = await get_user_any(session, user_id)
     territory = await session.get(models.Territory, territory_id)
     if not user or not territory:
         return False, "Foydalanuvchi yoki qal'a topilmadi."
@@ -1458,9 +1470,7 @@ async def station_dragon_in_castle(session: AsyncSession, user_id: int, territor
 
 async def recall_dragon_from_castle(session: AsyncSession, user_id: int, territory_id: int) -> Tuple[bool, str]:
     """Ajdarni qal'a mudofaasidan o'z uyasiga qaytarish"""
-    user = await session.get(models.User, user_id)
-    if not user:
-        user = await get_user_by_telegram_id(session, user_id)
+    user = await get_user_any(session, user_id)
     territory = await session.get(models.Territory, territory_id)
     if not user or not territory:
         return False, "Foydalanuvchi yoki qal'a topilmadi."
@@ -1512,9 +1522,7 @@ async def donate_to_house_treasury(
     iron: int = 0,
 ) -> Tuple[bool, str]:
     """Xonadon umumiy g'aznasiga shaxsiy resurslarni ehson qilish"""
-    user = await session.get(models.User, user_id)
-    if not user:
-        user = await get_user_by_telegram_id(session, user_id)
+    user = await get_user_any(session, user_id)
     if not user or not user.house_id:
         return False, "Siz hali xonadonga a'zo emassiz."
 
@@ -1587,9 +1595,7 @@ async def withdraw_house_treasury(
     iron: int = 0,
 ) -> Tuple[bool, str]:
     """Lord xonadon umumiy g'aznasidan shaxsiy hisobiga mablag' yechib olishi"""
-    user = await session.get(models.User, user_id)
-    if not user:
-        user = await get_user_by_telegram_id(session, user_id)
+    user = await get_user_any(session, user_id)
     house = await session.get(models.House, house_id)
     if not user or not house:
         return False, "Foydalanuvchi yoki xonadon topilmadi."
@@ -1633,9 +1639,7 @@ async def distribute_house_treasury(
     iron: int = 0,
 ) -> Tuple[bool, str, int]:
     """Lord xonadon umumiy g'aznasidan barcha a'zolarga teng miqdorda ulashishi"""
-    user = await session.get(models.User, user_id)
-    if not user:
-        user = await get_user_by_telegram_id(session, user_id)
+    user = await get_user_any(session, user_id)
     house = await session.get(models.House, house_id)
     if not user or not house:
         return False, "Foydalanuvchi yoki xonadon topilmadi.", 0
@@ -1679,9 +1683,7 @@ async def distribute_house_treasury(
 
 async def get_user_dragons(session: AsyncSession, user_id: int) -> List[models.Dragon]:
     """Foydalanuvchining barcha ajdarlarini olish (maksimal 3 ta)"""
-    user = await session.get(models.User, user_id)
-    if not user:
-        user = await get_user_by_telegram_id(session, user_id)
+    user = await get_user_any(session, user_id)
     actual_user_id = user.id if user else user_id
 
     res = await session.execute(
@@ -1692,9 +1694,7 @@ async def get_user_dragons(session: AsyncSession, user_id: int) -> List[models.D
 
 async def get_user_dragon(session: AsyncSession, user_id: int, dragon_id: Optional[int] = None) -> Optional[models.Dragon]:
     """Foydalanuvchining asosiy yoki tanlangan ajdarini olish"""
-    user = await session.get(models.User, user_id)
-    if not user:
-        user = await get_user_by_telegram_id(session, user_id)
+    user = await get_user_any(session, user_id)
     actual_user_id = user.id if user else user_id
 
     if dragon_id:
@@ -1715,9 +1715,7 @@ async def get_user_dragon(session: AsyncSession, user_id: int, dragon_id: Option
 
 async def claim_dragon_egg(session: AsyncSession, user_id: int, name: str, grade: str = "B") -> Tuple[bool, str, Optional[models.Dragon]]:
     """Yangi ajdar tuxumini xarid qilish (Maksimal 3 ta ajdar)"""
-    user = await session.get(models.User, user_id)
-    if not user:
-        user = await get_user_by_telegram_id(session, user_id)
+    user = await get_user_any(session, user_id)
     if not user:
         return False, "Foydalanuvchi topilmadi.", None
 
@@ -1754,9 +1752,7 @@ async def claim_dragon_egg(session: AsyncSession, user_id: int, name: str, grade
 
 async def hatch_dragon(session: AsyncSession, user_id: int, dragon_id: Optional[int] = None) -> Tuple[bool, str]:
     """Ajdar tuxumini ochirish"""
-    user = await session.get(models.User, user_id)
-    if not user:
-        user = await get_user_by_telegram_id(session, user_id)
+    user = await get_user_any(session, user_id)
     if not user:
         return False, "Foydalanuvchi topilmadi."
 
@@ -1789,9 +1785,7 @@ async def hatch_dragon(session: AsyncSession, user_id: int, dragon_id: Optional[
 
 async def feed_dragon(session: AsyncSession, user_id: int, dragon_id: Optional[int] = None) -> Tuple[bool, str]:
     """Ajdarni boqish (350 oziq-ovqat talab etiladi)"""
-    user = await session.get(models.User, user_id)
-    if not user:
-        user = await get_user_by_telegram_id(session, user_id)
+    user = await get_user_any(session, user_id)
     if not user:
         return False, "Foydalanuvchi topilmadi."
 
@@ -1830,9 +1824,7 @@ def get_dragon_upgrade_cost(dragon: models.Dragon) -> Dict[str, int]:
 
 async def train_dragon(session: AsyncSession, user_id: int, dragon_id: Optional[int] = None) -> Tuple[bool, str]:
     """Ajdarni parvoz va olovga mashq qildirish (Maksimal 20-daraja, qiyin va qimmat)"""
-    user = await session.get(models.User, user_id)
-    if not user:
-        user = await get_user_by_telegram_id(session, user_id)
+    user = await get_user_any(session, user_id)
     if not user:
         return False, "Foydalanuvchi topilmadi."
 
@@ -1880,9 +1872,7 @@ async def train_dragon(session: AsyncSession, user_id: int, dragon_id: Optional[
 
 async def dragon_lay_egg(session: AsyncSession, user_id: int, dragon_id: int) -> Tuple[bool, str]:
     """Ulg'aygan 10-darajali ajdarning tuxum qo'yishi va ikkinchi ajdarga ega bo'lish"""
-    user = await session.get(models.User, user_id)
-    if not user:
-        user = await get_user_by_telegram_id(session, user_id)
+    user = await get_user_any(session, user_id)
     if not user:
         return False, "Foydalanuvchi topilmadi."
 
@@ -1933,9 +1923,7 @@ async def dragon_lay_egg(session: AsyncSession, user_id: int, dragon_id: int) ->
 
 async def equip_dragon_artifact(session: AsyncSession, user_id: int, dragon_id: int, artifact_code: str) -> Tuple[bool, str]:
     """Ajdarga maxsus artefakt sotib olib taqish"""
-    user = await session.get(models.User, user_id)
-    if not user:
-        user = await get_user_by_telegram_id(session, user_id)
+    user = await get_user_any(session, user_id)
     if not user:
         return False, "Foydalanuvchi topilmadi."
 
@@ -1967,9 +1955,7 @@ async def equip_dragon_artifact(session: AsyncSession, user_id: int, dragon_id: 
 
 async def collect_castle_tax(session: AsyncSession, user_id: int, territory_id: int) -> Tuple[bool, str, Dict[str, int]]:
     """Qal'adan 4 soatlik to'plangan o'lponni yig'ib olish"""
-    user = await session.get(models.User, user_id)
-    if not user:
-        user = await get_user_by_telegram_id(session, user_id)
+    user = await get_user_any(session, user_id)
     terr = await session.get(models.Territory, territory_id)
     if not user or not terr:
         return False, "Ma'lumot topilmadi.", {}
@@ -2039,7 +2025,7 @@ async def equip_artifact(session: AsyncSession, user_id: int, artifact_id: int) 
         return False, "Artefakt topilmadi."
 
     target_art.is_equipped = True
-    user = await session.get(models.User, user_id)
+    user = await get_user_any(session, user_id)
     if user:
         user.equipped_artifact_id = target_art.id
     await session.commit()
@@ -2053,7 +2039,7 @@ async def buy_artifact(session: AsyncSession, user_id: int, code: str) -> Tuple[
         return False, "Noto'g'ri artefakt."
 
     art_info = ARTIFACTS_DATA[code]
-    user = await session.get(models.User, user_id)
+    user = await get_user_any(session, user_id)
     if not user:
         return False, "Foydalanuvchi topilmadi."
 
@@ -2125,7 +2111,7 @@ async def get_night_king_leaderboard(session: AsyncSession, limit: int = 10) -> 
     contribs = res.scalars().all()
     results = []
     for c in contribs:
-        u = await session.get(models.User, c.user_id)
+        u = await get_user_any(session, c.user_id)
         if u:
             char_res = await session.execute(select(models.Character.name).where(models.Character.user_id == u.id))
             char_name = char_res.scalar_one_or_none() or u.full_name
@@ -2147,9 +2133,7 @@ async def fight_ai_champion(
     player_tactic: str,
 ) -> Dict[str, Any]:
     """AI chempioni bilan 1v1 duel"""
-    user = await session.get(models.User, user_id)
-    if not user:
-        user = await get_user_by_telegram_id(session, user_id)
+    user = await get_user_any(session, user_id)
     if not user:
         return {"success": False, "error": "Foydalanuvchi topilmadi."}
 
@@ -2252,9 +2236,7 @@ async def create_pvp_duel(
     tactic: str,
 ) -> Tuple[bool, str, Optional[models.Duel], Optional[int]]:
     """O'yinchi boshqa o'yinchiga duel taklif qiladi"""
-    challenger = await session.get(models.User, challenger_tg_or_id)
-    if not challenger:
-        challenger = await get_user_by_telegram_id(session, challenger_tg_or_id)
+    challenger = await get_user_any(session, challenger_tg_or_id)
     if not challenger:
         return False, "Foydalanuvchi topilmadi.", None, None
 
@@ -2264,9 +2246,7 @@ async def create_pvp_duel(
     opponent = None
     if opponent_target.isdigit():
         target_int = int(opponent_target)
-        opponent = await session.get(models.User, target_int)
-        if not opponent:
-            opponent = await get_user_by_telegram_id(session, target_int)
+        opponent = await get_user_any(session, target_int)
     else:
         clean_user = opponent_target.lstrip("@").lower()
         res = await session.execute(select(models.User).where(func.lower(models.User.username) == clean_user))
@@ -2295,9 +2275,7 @@ async def create_pvp_duel(
 
 async def get_pending_duels_for_user(session: AsyncSession, user_tg_or_id: int) -> List[Tuple[models.Duel, str]]:
     """Foydalanuvchiga kelgan kutilayotgan duel takliflari"""
-    user = await session.get(models.User, user_tg_or_id)
-    if not user:
-        user = await get_user_by_telegram_id(session, user_tg_or_id)
+    user = await get_user_any(session, user_tg_or_id)
     if not user:
         return []
 
@@ -2321,8 +2299,8 @@ async def resolve_pvp_duel(
     if not duel or duel.status != "pending":
         return {"success": False, "error": "Duel topilmadi yoki allaqachon yakunlangan."}
 
-    challenger = await session.get(models.User, duel.challenger_id)
-    opponent = await session.get(models.User, duel.opponent_id)
+    challenger = await get_user_any(session, duel.challenger_id)
+    opponent = await get_user_any(session, duel.opponent_id)
     if not challenger or not opponent:
         return {"success": False, "error": "Jang ishtirokchilaridan biri topilmadi."}
 
@@ -2433,7 +2411,7 @@ async def reject_pvp_duel(session: AsyncSession, duel_id: int, user_tg_or_id: in
     if not duel or duel.status != "pending":
         return False, "Duel topilmadi yoki muddati o'tgan.", None
 
-    challenger = await session.get(models.User, duel.challenger_id)
+    challenger = await get_user_any(session, duel.challenger_id)
     duel.status = "rejected"
     await session.commit()
     return True, "Duel chaqirig'i rad etildi.", challenger.telegram_id if challenger else None
@@ -2451,7 +2429,7 @@ async def send_raven(
     gold: int = 0,
 ) -> Tuple[bool, str, Optional[int]]:
     """Qarg'a orqali xat va oltin jo'natish"""
-    sender = await session.get(models.User, sender_id)
+    sender = await get_user_any(session, sender_id)
     if not sender:
         return False, "Foydalanuvchi topilmadi.", None
 
@@ -2461,7 +2439,7 @@ async def send_raven(
     # Qabul qiluvchini qidirish
     recipient = None
     if recipient_username_or_id.isdigit():
-        recipient = await session.get(models.User, int(recipient_username_or_id))
+        recipient = await get_user_any(session, int(recipient_username_or_id))
         if not recipient:
             recipient = await get_user_by_telegram_id(session, int(recipient_username_or_id))
     else:
@@ -2509,7 +2487,7 @@ async def get_inbox_ravens(session: AsyncSession, user_id: int, limit: int = 5) 
 
 async def claim_daily_bonus(session: AsyncSession, user_id: int) -> Tuple[bool, str]:
     """Kunlik 24 soatlik xazina bonusi"""
-    user = await session.get(models.User, user_id)
+    user = await get_user_any(session, user_id)
     if not user:
         return False, "Foydalanuvchi topilmadi."
 
@@ -2544,7 +2522,7 @@ IRON_MARKET_PACKS = {
 
 async def upgrade_iron_mine(session: AsyncSession, user_id: int) -> Tuple[bool, str]:
     """Temir konini keyingi darajaga ko'tarish"""
-    user = await session.get(models.User, user_id)
+    user = await get_user_any(session, user_id)
     if not user:
         return False, "Foydalanuvchi topilmadi."
 
@@ -2574,7 +2552,7 @@ async def upgrade_iron_mine(session: AsyncSession, user_id: int) -> Tuple[bool, 
 
 async def buy_iron_with_gold(session: AsyncSession, user_id: int, pack_code: str) -> Tuple[bool, str]:
     """Bozordan oltin evaziga tayyor temir xarid qilish"""
-    user = await session.get(models.User, user_id)
+    user = await get_user_any(session, user_id)
     if not user:
         return False, "Foydalanuvchi topilmadi."
 
@@ -2593,7 +2571,7 @@ async def buy_iron_with_gold(session: AsyncSession, user_id: int, pack_code: str
 
 async def upgrade_grain_mill(session: AsyncSession, user_id: int) -> Tuple[bool, str]:
     """Don tegirmonini (Grain Mill) keyingi darajaga ko'tarish"""
-    user = await session.get(models.User, user_id)
+    user = await get_user_any(session, user_id)
     if not user:
         return False, "Foydalanuvchi topilmadi."
 
@@ -2623,9 +2601,7 @@ async def upgrade_grain_mill(session: AsyncSession, user_id: int) -> Tuple[bool,
 
 async def upgrade_castle_keep(session: AsyncSession, user_id: int, territory_id: int) -> Tuple[bool, str]:
     """Qal'a qasrini (Keep Tier) 1 dan 5 gacha ko'tarish"""
-    user = await session.get(models.User, user_id)
-    if not user:
-        user = await get_user_by_telegram_id(session, user_id)
+    user = await get_user_any(session, user_id)
     territory = await session.get(models.Territory, territory_id)
     if not user or not territory:
         return False, "Foydalanuvchi yoki qal'a topilmadi."
@@ -2662,20 +2638,18 @@ async def upgrade_castle_keep(session: AsyncSession, user_id: int, territory_id:
 
 
 async def release_user_dragon(session: AsyncSession, user_id: int, dragon_id: int) -> Tuple[bool, str]:
-    """Ajdardan voz kechish (ozod qilish) va uyani bo'shatish"""
-    user = await session.get(models.User, user_id)
-    if not user:
-        user = await get_user_by_telegram_id(session, user_id)
+    """Ajdardan voz kechish (tashlash) va uyani bo'shatish"""
+    user = await get_user_any(session, user_id)
     if not user:
         return False, "Foydalanuvchi topilmadi."
 
-    dragon = await session.get(models.Dragon, dragon_id)
+    dragon = await session.get(models.Dragon, dragon_id) if (dragon_id and dragon_id <= 2147483647) else None
     if not dragon or dragon.user_id != user.id:
         u_dragons = await get_user_dragons(session, user.id)
         if u_dragons:
             dragon = u_dragons[0]
         else:
-            return False, "❌ Ajdar topilmadi yoki u allaqachon ozod qilingan."
+            return False, "❌ Ajdar topilmadi yoki u allaqachon tashlangan."
 
     # Qal'alardagi qo'riqchilik ro'yxatidan tozalash
     t_res = await session.execute(select(models.Territory))

@@ -331,8 +331,8 @@ async def dragon_release_ask_callback(update: Update, context: ContextTypes.DEFA
         dragon_id = 0
 
     async with AsyncSessionLocal() as session:
-        user = await crud.get_user_with_relations(session, user_id)
-        dragon = await session.get(models.Dragon, dragon_id) if dragon_id else None
+        user = await crud.get_user_any(session, user_id)
+        dragon = await session.get(models.Dragon, dragon_id) if (dragon_id and dragon_id <= 2147483647) else None
         if (not dragon or (user and dragon.user_id != user.id)) and user:
             u_dragons = await crud.get_user_dragons(session, user.id)
             if u_dragons:
@@ -350,7 +350,7 @@ async def dragon_release_ask_callback(update: Update, context: ContextTypes.DEFA
             [InlineKeyboardButton("🗑️ Ha, Ajdarni Tashlash", callback_data=f"dragon_release_confirm_{dragon.id}")],
             [InlineKeyboardButton("❌ Bekor Qilish", callback_data="menu_dragons")],
         ]
-        dr_name = escape_md(dragon.name)
+        dr_name = dragon.name.replace("*", "").replace("_", "")
         text = (
             f"⚠️ **DIQQAT: AJDARNI TASHLASH!**\n\n"
             f"Haqiqatan ham **{dr_name}** ({dragon.grade} Toifa, {dragon.level}-daraja) ajdaringizdan voz kechib, uni tashlamoqchimisiz?\n\n"

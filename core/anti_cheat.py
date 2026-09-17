@@ -14,16 +14,17 @@ def can_attack_target(attacker: models.User, territory: models.Territory) -> Tup
         return False, "❌ O'z xonadoningizga qarashli qal'aga hujum qila olmaysiz!"
 
     # Kamida 50 ta askar kerakligini tekshirish
+    tot_army = 0
     if attacker.army:
         tot_army = (
-            attacker.army.infantry
-            + attacker.army.archers
-            + attacker.army.cavalry
-            + attacker.army.spearmen
-            + attacker.army.special_troops
+            (attacker.army.infantry or 0)
+            + (attacker.army.archers or 0)
+            + (attacker.army.cavalry or 0)
+            + (attacker.army.spearmen or 0)
+            + (attacker.army.special_troops or 0)
         )
-        if tot_army < 50:
-            return False, "❌ Harbiy yurish boshlash uchun armiyangizda kamida 50 ta askar bo'lishi kerak!"
+    if tot_army < 50:
+        return False, "❌ Harbiy yurish boshlash uchun armiyangizda kamida 50 ta askar bo'lishi kerak!"
 
     return True, "OK"
 

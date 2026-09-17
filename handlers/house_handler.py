@@ -173,7 +173,7 @@ async def house_set_rank_callback(update: Update, context: ContextTypes.DEFAULT_
 
     async with AsyncSessionLocal() as session:
         await crud.set_user_rank(session, target_user_id, new_rank)
-        target_user = await session.get(models.User, target_user_id)
+        target_user = await crud.get_user_any(session, target_user_id)
         name = target_user.full_name if target_user else "A'zo"
 
     rank_name = RANKS.get(new_rank, {}).get("name", new_rank)

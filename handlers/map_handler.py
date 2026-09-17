@@ -37,18 +37,34 @@ async def show_map(target, user_id: int, is_message: bool):
         else:
             await target.message.reply_text(text, parse_mode="Markdown", reply_markup=territories_keyboard())
     else:
+        chat_id = target.message.chat_id
+        bot = target.get_bot() if hasattr(target, "get_bot") else target.message.get_bot()
         if has_photo:
-            try:
-                if target.message.photo:
+            if getattr(target.message, "photo", None):
+                try:
                     await target.edit_message_caption(caption=text, parse_mode="Markdown", reply_markup=territories_keyboard())
-                else:
-                    await target.message.delete()
-                    with open(map_img_path, "rb") as f:
-                        await target.message.chat.send_photo(photo=f, caption=text, parse_mode="Markdown", reply_markup=territories_keyboard())
+                    return
+                except Exception:
+                    pass
+            try:
+                await target.message.delete()
             except Exception:
-                await target.edit_message_text(text, parse_mode="Markdown", reply_markup=territories_keyboard())
-        else:
+                pass
+            try:
+                with open(map_img_path, "rb") as f:
+                    await bot.send_photo(chat_id=chat_id, photo=f, caption=text, parse_mode="Markdown", reply_markup=territories_keyboard())
+                return
+            except Exception:
+                pass
+
+        try:
             await target.edit_message_text(text, parse_mode="Markdown", reply_markup=territories_keyboard())
+        except Exception:
+            try:
+                await bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown", reply_markup=territories_keyboard())
+            except Exception:
+                clean_text = text.replace("*", "").replace("_", "")
+                await bot.send_message(chat_id=chat_id, text=clean_text, reply_markup=territories_keyboard())
 
 
 async def view_territory_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -67,7 +83,7 @@ async def view_territory_callback(update: Update, context: ContextTypes.DEFAULT_
             await query.answer("Hudud topilmadi.", show_alert=True)
             return
 
-        user = await crud.get_user_with_relations(session, user_id)
+        user = await crud.get_user_any(session, user_id)
         is_own = user and user.house_id and user.house_id == terr.owner_house_id
 
         # Ittifoqchi qal'asi ekanligini tekshirish
@@ -87,6 +103,7 @@ async def view_territory_callback(update: Update, context: ContextTypes.DEFAULT_
                 alliance_type_str = " (💍 To'y Ittifoqchimiz)" if al.type == "marriage" else " (⚔️ Harbiy Ittifoqchimiz)"
 
         owner_name = f"{terr.owner_house.emoji} {terr.owner_house.name}" if terr.owner_house else "Egaliksiz (Qaroqchilar)"
+        clean_owner = owner_name.replace("*", "").replace("_", "").replace("`", "")
 
         dragon_info_str = "Mavjud emas"
         st_dragon = crud.get_stationed_dragon_info(terr)
@@ -99,7 +116,7 @@ async def view_territory_callback(update: Update, context: ContextTypes.DEFAULT_
             buttons.append([InlineKeyboardButton("🛡️ Qal'ani Himoya Qilish (Askar Joylash)", callback_data=f"def_rf_menu:{terr.id}")])
             buttons.append([InlineKeyboardButton("↩️ Garnizondan Askarlarni Qaytarish", callback_data=f"def_withdraw_rf:{terr.id}")])
             if st_dragon:
-                if st_dragon.get("user_id") == user.id or (user.house and user.house.lord_user_id == user.telegram_id):
+                if (user and st_dragon.get("user_id") == user.id) or (user and user.house and user.house.lord_user_id == user.telegram_id):
                     buttons.append([InlineKeyboardButton("🚫 Ajdarni Qal'adan Qaytarish", callback_data=f"def_recall_dragon:{terr.id}")])
                 else:
                     buttons.append([InlineKeyboardButton("🐉 Ajdar Qo'riqlamoqda", callback_data="terr_dragon_info")])
@@ -129,34 +146,56 @@ async def view_territory_callback(update: Update, context: ContextTypes.DEFAULT_
         else:
             footer_text = "Ushbu hududni egallash xonadoningizga doimiy daromad va shon-sharaf keltiradi!"
 
+        g_inf = terr.garrison_infantry or 0
+        g_arc = terr.garrison_archers or 0
+        g_cav = terr.garrison_cavalry or 0
+        g_sp = terr.garrison_spearmen or 0
+        pop = terr.population or 0
+        g_inc = terr.gold_income or 0
+        f_inc = terr.food_income or 0
+        i_inc = terr.iron_income or 0
+        def_val = terr.defense or 0
+        c_name = terr.castle_name or terr.name or "Qal'a"
+        t_name = terr.name or "Hudud"
+        reg = terr.region or "Vesteros"
+
         text = (
-            f"🏰 **{terr.name.upper()} — {terr.castle_name}**\n\n"
-            f"📍 Mintaqa: **{terr.region}**\n"
-            f"👑 Hukmron Xonadon: **{escape_md(owner_name)}**{ally_tag}\n"
-            f"👥 Aholi: **{terr.population:,}**\n\n"
+            f"🏰 **{t_name.upper()} — {c_name}**\n\n"
+            f"📍 Mintaqa: **{reg}**\n"
+            f"👑 Hukmron Xonadon: **{clean_owner}**{ally_tag}\n"
+            f"👥 Aholi: **{pop:,}**\n\n"
             f"💰 **SOATLIK DAROMAD:**\n"
-            f"🪙 +{terr.gold_income} oltin | 🌾 +{terr.food_income} oziq-ovqat | ⛓️ +{terr.iron_income} temir\n\n"
-            f"🛡️ **QAL'A MUDOFAASI:** {terr.defense} ball\n"
+            f"🪙 +{g_inc} oltin | 🌾 +{f_inc} oziq-ovqat | ⛓️ +{i_inc} temir\n\n"
+            f"🛡️ **QAL'A MUDOFAASI:** {def_val} ball\n"
             f"🐉 **MUDOFAADAGI AJDAR:** {dragon_info_str}\n\n"
             f"⚔️ **GARNIZON KUCHLARI:**\n"
-            f"• 🛡️ Piyoda: {terr.garrison_infantry:,}\n"
-            f"• 🏹 Kamonchi: {terr.garrison_archers:,}\n"
-            f"• 🐎 Otliq: {terr.garrison_cavalry:,}\n"
-            f"• 🗡️ Nayzachi: {terr.garrison_spearmen:,}\n\n"
+            f"• 🛡️ Piyoda: {g_inf:,}\n"
+            f"• 🏹 Kamonchi: {g_arc:,}\n"
+            f"• 🐎 Otliq: {g_cav:,}\n"
+            f"• 🗡️ Nayzachi: {g_sp:,}\n\n"
             f"{footer_text}"
         )
 
-        try:
-            if query.message.photo:
+        chat_id = query.message.chat_id
+        if getattr(query.message, "photo", None):
+            try:
                 await query.message.delete()
-                await query.message.chat.send_message(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
-            else:
+            except Exception:
+                pass
+            try:
+                await context.bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+            except Exception:
+                clean_text = text.replace("*", "").replace("_", "").replace("`", "")
+                await context.bot.send_message(chat_id=chat_id, text=clean_text, reply_markup=InlineKeyboardMarkup(buttons))
+        else:
+            try:
                 await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
-        except Exception:
-            if query.message.photo:
-                await query.message.chat.send_message(text, parse_mode=None, reply_markup=InlineKeyboardMarkup(buttons))
-            else:
-                await query.edit_message_text(text, parse_mode=None, reply_markup=InlineKeyboardMarkup(buttons))
+            except Exception:
+                clean_text = text.replace("*", "").replace("_", "").replace("`", "")
+                try:
+                    await query.edit_message_text(clean_text, reply_markup=InlineKeyboardMarkup(buttons))
+                except Exception:
+                    await context.bot.send_message(chat_id=chat_id, text=clean_text, reply_markup=InlineKeyboardMarkup(buttons))
 
 
 async def terr_own_info_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -495,8 +534,12 @@ async def show_garrison_withdraw_menu(target, user_id: int, terr_id: int):
         try:
             await target.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
         except Exception:
-            if hasattr(target, "message") and target.message:
-                await target.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+            clean_text = text.replace("*", "").replace("_", "")
+            try:
+                await target.edit_message_text(clean_text, reply_markup=InlineKeyboardMarkup(buttons))
+            except Exception:
+                if hasattr(target, "message") and target.message:
+                    await target.message.reply_text(clean_text, reply_markup=InlineKeyboardMarkup(buttons))
 
 
 async def def_withdraw_rf_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):

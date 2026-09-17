@@ -152,7 +152,7 @@ async def admin_user_detail_callback(update: Update, context: ContextTypes.DEFAU
     user_id = int(query.data.split(":")[1])
 
     async with AsyncSessionLocal() as session:
-        user = await session.get(models.User, user_id)
+        user = await crud.get_user_any(session, user_id)
         if not user:
             await query.edit_message_text("❌ O'yinchi topilmadi.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Orqaga", callback_data="admin_users_list:0")]]))
             return
@@ -234,7 +234,7 @@ async def admin_user_action_callback(update: Update, context: ContextTypes.DEFAU
     val = parts[3]
 
     async with AsyncSessionLocal() as session:
-        user = await session.get(models.User, user_id)
+        user = await crud.get_user_any(session, user_id)
         if not user:
             await query.answer("O'yinchi topilmadi.", show_alert=True)
             return
@@ -308,7 +308,7 @@ async def admin_user_house_pick_callback(update: Update, context: ContextTypes.D
 
     page_size = 8
     async with AsyncSessionLocal() as session:
-        user = await session.get(models.User, user_id)
+        user = await crud.get_user_any(session, user_id)
         if not user:
             await query.answer("O'yinchi topilmadi!", show_alert=True)
             return
@@ -361,7 +361,7 @@ async def admin_user_house_do_callback(update: Update, context: ContextTypes.DEF
     async with AsyncSessionLocal() as session:
         ok, msg = await crud.admin_transfer_user_house(session, user_id, new_house_id)
         if ok:
-            user = await session.get(models.User, user_id)
+            user = await crud.get_user_any(session, user_id)
             house = await session.get(models.House, new_house_id)
             if user and house:
                 try:
@@ -413,7 +413,7 @@ async def admin_user_army_menu_callback(update: Update, context: ContextTypes.DE
 
     user_id = int(query.data.split(":")[1])
     async with AsyncSessionLocal() as session:
-        user = await session.get(models.User, user_id)
+        user = await crud.get_user_any(session, user_id)
         if not user:
             await query.answer("O'yinchi topilmadi!", show_alert=True)
             return
@@ -876,7 +876,7 @@ async def admin_conf_lord_callback(update: Update, context: ContextTypes.DEFAULT
 
     async with AsyncSessionLocal() as session:
         house = await session.get(models.House, house_id)
-        user = await session.get(models.User, target_user_id)
+        user = await crud.get_user_any(session, target_user_id)
         if not house or not user:
             try:
                 await query.answer("Ma'lumot topilmadi!", show_alert=True)
@@ -916,7 +916,7 @@ async def admin_do_lord_callback(update: Update, context: ContextTypes.DEFAULT_T
     async with AsyncSessionLocal() as session:
         ok, msg = await crud.admin_appoint_house_lord(session, house_id, target_user_id)
         if ok:
-            user = await session.get(models.User, target_user_id)
+            user = await crud.get_user_any(session, target_user_id)
             house = await session.get(models.House, house_id)
             if user and house:
                 try:
@@ -1134,7 +1134,7 @@ async def handle_give_resource_command(update: Update, context: ContextTypes.DEF
         # User topish
         u = None
         if target.isdigit():
-            u = await session.get(models.User, int(target))
+            u = await crud.get_user_any(session, int(target))
             if not u:
                 u = await crud.get_user_by_telegram_id(session, int(target))
         else:
@@ -1275,7 +1275,7 @@ async def set_lord_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if user_arg.isdigit():
             target_user = await crud.get_user_by_telegram_id(session, int(user_arg))
             if not target_user:
-                target_user = await session.get(models.User, int(user_arg))
+                target_user = await crud.get_user_any(session, int(user_arg))
         if not target_user:
             clean_username = user_arg.lstrip("@")
             res = await session.execute(select(models.User).where(models.User.username.ilike(clean_username)))
@@ -1578,7 +1578,7 @@ async def admin_dragons_list_callback(update: Update, context: ContextTypes.DEFA
 
         buttons = []
         for d in dragons:
-            u = await session.get(models.User, d.user_id) if d.user_id else None
+            u = await crud.get_user_any(session, d.user_id) if d.user_id else None
             u_name = u.full_name[:12] if u else "Egasi yo'q"
             stage_icon = "🥚" if d.stage == "egg" else "🐉"
             buttons.append([InlineKeyboardButton(
@@ -1615,7 +1615,7 @@ async def show_admin_dragon_detail(query, drg_id: int):
                 pass
             return
 
-        user = await session.get(models.User, dragon.user_id) if dragon.user_id else None
+        user = await crud.get_user_any(session, dragon.user_id) if dragon.user_id else None
         u_name = f"{user.full_name} (ID: `{user.telegram_id}`)" if user else "❌ Mavjud emas"
 
         from data.artifacts_data import ARTIFACTS_DATA
@@ -1829,7 +1829,7 @@ async def admin_search_command(update: Update, context: ContextTypes.DEFAULT_TYP
         if clean_query.isdigit():
             u = await crud.get_user_by_telegram_id(session, int(clean_query))
             if not u:
-                u = await session.get(models.User, int(clean_query))
+                u = await crud.get_user_any(session, int(clean_query))
             if u:
                 matched_users.append(u)
 
@@ -1882,7 +1882,7 @@ async def set_house_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if target_str.isdigit():
             target_user = await crud.get_user_by_telegram_id(session, int(target_str))
             if not target_user:
-                target_user = await session.get(models.User, int(target_str))
+                target_user = await crud.get_user_any(session, int(target_str))
         else:
             target_user = await crud.get_user_by_username(session, target_str)
 
@@ -1933,7 +1933,7 @@ async def give_army_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if target_str.isdigit():
             target_user = await crud.get_user_by_telegram_id(session, int(target_str))
             if not target_user:
-                target_user = await session.get(models.User, int(target_str))
+                target_user = await crud.get_user_any(session, int(target_str))
         else:
             target_user = await crud.get_user_by_username(session, target_str)
 

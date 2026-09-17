@@ -235,13 +235,29 @@ async def render_march_prep(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     user_id = update.effective_user.id
 
     async with AsyncSessionLocal() as session:
-        user = await crud.get_user_with_relations(session, user_id)
+        user = await crud.get_user_any(session, user_id)
         terr = await crud.get_territory_by_id(session, terr_id)
 
         if not user or not terr:
             if query:
                 await query.answer("Hudud topilmadi.", show_alert=True)
             return
+
+        if not user.army:
+            user.army = models.Army(
+                user_id=user.id,
+                infantry=0,
+                archers=0,
+                cavalry=0,
+                spearmen=0,
+                special_troops=0
+            )
+            session.add(user.army)
+            await session.commit()
+            await session.refresh(user.army)
+
+        if not user.house and user.house_id:
+            user.house = await session.get(models.House, user.house_id)
 
         is_allowed, err_msg = can_attack_target(user, terr)
         if not is_allowed:
@@ -269,13 +285,12 @@ async def render_march_prep(update: Update, context: ContextTypes.DEFAULT_TYPE, 
                     )
                 return
 
-        total_army = (
-            user.army.infantry
-            + user.army.archers
-            + user.army.cavalry
-            + user.army.spearmen
-            + user.army.special_troops
-        )
+        u_inf = user.army.infantry or 0
+        u_arc = user.army.archers or 0
+        u_cav = user.army.cavalry or 0
+        u_sp = user.army.spearmen or 0
+        u_spc = user.army.special_troops or 0
+        total_army = u_inf + u_arc + u_cav + u_sp + u_spc
 
         if total_army < 50:
             msg = (
@@ -300,20 +315,20 @@ async def render_march_prep(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         draft_key = f"march_{terr.id}"
         if draft_key not in context.user_data:
             context.user_data[draft_key] = {
-                "infantry": user.army.infantry,
-                "archers": user.army.archers,
-                "cavalry": user.army.cavalry,
-                "spearmen": user.army.spearmen,
-                "special": user.army.special_troops,
+                "infantry": u_inf,
+                "archers": u_arc,
+                "cavalry": u_cav,
+                "spearmen": u_sp,
+                "special": u_spc,
                 "dragon_tactic": "balanced" if can_use_dragon else "none",
             }
 
         draft = context.user_data[draft_key]
-        draft["infantry"] = max(0, min(draft.get("infantry", user.army.infantry), user.army.infantry))
-        draft["archers"] = max(0, min(draft.get("archers", user.army.archers), user.army.archers))
-        draft["cavalry"] = max(0, min(draft.get("cavalry", user.army.cavalry), user.army.cavalry))
-        draft["spearmen"] = max(0, min(draft.get("spearmen", user.army.spearmen), user.army.spearmen))
-        draft["special"] = max(0, min(draft.get("special", user.army.special_troops), user.army.special_troops))
+        draft["infantry"] = max(0, min(draft.get("infantry", u_inf) or 0, u_inf))
+        draft["archers"] = max(0, min(draft.get("archers", u_arc) or 0, u_arc))
+        draft["cavalry"] = max(0, min(draft.get("cavalry", u_cav) or 0, u_cav))
+        draft["spearmen"] = max(0, min(draft.get("spearmen", u_sp) or 0, u_sp))
+        draft["special"] = max(0, min(draft.get("special", u_spc) or 0, u_spc))
         if not can_use_dragon:
             draft["dragon_tactic"] = "none"
 
@@ -342,16 +357,20 @@ async def render_march_prep(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         elif dragon:
             dragon_info = f"⚠️ *Ajdaringiz ({dragon.name}) och yoki tuxumda bo'lgani uchun qatnashmaydi.*\n\n"
 
+        t_name = (terr.name or "Hudud").upper()
+        c_name = terr.castle_name or terr.name or "Qal'a"
+        reg = terr.region or "Vesteros"
+
         text = (
-            f"⚔️ **HARBIY YURISH REJASI: {terr.name.upper()}**\n\n"
-            f"🏰 Nishon: **{terr.castle_name}** ({terr.region})\n"
+            f"⚔️ **HARBIY YURISH REJASI: {t_name}**\n\n"
+            f"🏰 Nishon: **{c_name}** ({reg})\n"
             f"⏱️ Yurish vaqti: **{BASE_MARCH_MINUTES} daqiqa**\n\n"
             f"📊 **QO'SHIN TARKIBI (Tanlangan / Mavjud):**\n"
-            f"• 🛡️ Piyoda: **{sel_inf:,}** / {user.army.infantry:,}\n"
-            f"• 🏹 Kamonchi: **{sel_arc:,}** / {user.army.archers:,}\n"
-            f"• 🐎 Otliq: **{sel_cav:,}** / {user.army.cavalry:,}\n"
-            f"• 🗡️ Nayzachi: **{sel_sp:,}** / {user.army.spearmen:,}\n"
-            f"• 🔥 {special_name}: **{sel_spc:,}** / {user.army.special_troops:,}\n\n"
+            f"• 🛡️ Piyoda: **{sel_inf:,}** / {u_inf:,}\n"
+            f"• 🏹 Kamonchi: **{sel_arc:,}** / {u_arc:,}\n"
+            f"• 🐎 Otliq: **{sel_cav:,}** / {u_cav:,}\n"
+            f"• 🗡️ Nayzachi: **{sel_sp:,}** / {u_sp:,}\n"
+            f"• 🔥 {special_name}: **{sel_spc:,}** / {u_spc:,}\n\n"
             f"🎯 **Jami safarbar etilmoqda:** **{total_selected:,}** ta askar\n\n"
             f"{dragon_info}"
             f"⚠️ *Hujum boshlangach, 3 kunlik Tinchlik Qalqoningiz bekor bo'ladi!*\n\n"
@@ -412,14 +431,35 @@ async def render_march_prep(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         ])
 
         reply_markup = InlineKeyboardMarkup(buttons)
-        if query:
-            try:
-                await query.edit_message_text(text, parse_mode="Markdown", reply_markup=reply_markup)
-            except Exception as e:
-                if "Message is not modified" not in str(e):
+        chat_id = query.message.chat_id if (query and query.message) else (update.effective_chat.id if update.effective_chat else user_id)
+
+        if query and query.message:
+            if getattr(query.message, "photo", None):
+                try:
+                    await query.message.delete()
+                except Exception:
                     pass
+                try:
+                    await context.bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown", reply_markup=reply_markup)
+                except Exception:
+                    clean_text = text.replace("*", "").replace("_", "")
+                    await context.bot.send_message(chat_id=chat_id, text=clean_text, reply_markup=reply_markup)
+            else:
+                try:
+                    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=reply_markup)
+                except Exception as e:
+                    if "Message is not modified" not in str(e):
+                        clean_text = text.replace("*", "").replace("_", "")
+                        try:
+                            await query.edit_message_text(clean_text, reply_markup=reply_markup)
+                        except Exception:
+                            await context.bot.send_message(chat_id=chat_id, text=clean_text, reply_markup=reply_markup)
         elif update.message:
-            await update.message.reply_text(text, parse_mode="Markdown", reply_markup=reply_markup)
+            try:
+                await update.message.reply_text(text, parse_mode="Markdown", reply_markup=reply_markup)
+            except Exception:
+                clean_text = text.replace("*", "").replace("_", "")
+                await update.message.reply_text(clean_text, reply_markup=reply_markup)
 
 
 async def march_prep_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -446,11 +486,11 @@ async def march_adj_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return
 
         unit_max_map = {
-            "inf": user.army.infantry,
-            "arc": user.army.archers,
-            "cav": user.army.cavalry,
-            "sp": user.army.spearmen,
-            "spc": user.army.special_troops,
+            "inf": (user.army.infantry if user.army else 0) or 0,
+            "arc": (user.army.archers if user.army else 0) or 0,
+            "cav": (user.army.cavalry if user.army else 0) or 0,
+            "sp": (user.army.spearmen if user.army else 0) or 0,
+            "spc": (user.army.special_troops if user.army else 0) or 0,
         }
         unit_key_map = {
             "inf": "infantry",
@@ -595,22 +635,28 @@ async def send_custom_march_callback(update: Update, context: ContextTypes.DEFAU
                 await query.answer("❌ Ushbu qal'a rasmiy ittifoqchingizga qarashli!", show_alert=True)
                 return
 
+        u_inf = (user.army.infantry if user.army else 0) or 0
+        u_arc = (user.army.archers if user.army else 0) or 0
+        u_cav = (user.army.cavalry if user.army else 0) or 0
+        u_sp = (user.army.spearmen if user.army else 0) or 0
+        u_spc = (user.army.special_troops if user.army else 0) or 0
+
         draft = context.user_data.get(f"march_{terr_id}")
         if not draft:
             draft = {
-                "infantry": user.army.infantry,
-                "archers": user.army.archers,
-                "cavalry": user.army.cavalry,
-                "spearmen": user.army.spearmen,
-                "special": user.army.special_troops,
+                "infantry": u_inf,
+                "archers": u_arc,
+                "cavalry": u_cav,
+                "spearmen": u_sp,
+                "special": u_spc,
                 "dragon_tactic": "balanced",
             }
 
-        infantry = max(0, min(draft.get("infantry", 0), user.army.infantry))
-        archers = max(0, min(draft.get("archers", 0), user.army.archers))
-        cavalry = max(0, min(draft.get("cavalry", 0), user.army.cavalry))
-        spearmen = max(0, min(draft.get("spearmen", 0), user.army.spearmen))
-        special_troops = max(0, min(draft.get("special", 0), user.army.special_troops))
+        infantry = max(0, min(draft.get("infantry", 0) or 0, u_inf))
+        archers = max(0, min(draft.get("archers", 0) or 0, u_arc))
+        cavalry = max(0, min(draft.get("cavalry", 0) or 0, u_cav))
+        spearmen = max(0, min(draft.get("spearmen", 0) or 0, u_sp))
+        special_troops = max(0, min(draft.get("special", 0) or 0, u_spc))
         total_sent = infantry + archers + cavalry + spearmen + special_troops
 
         if total_sent <= 0:
@@ -734,11 +780,17 @@ async def send_march_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
                 return
 
         ratio = percent / 100.0
-        infantry = int(user.army.infantry * ratio)
-        archers = int(user.army.archers * ratio)
-        cavalry = int(user.army.cavalry * ratio)
-        spearmen = int(user.army.spearmen * ratio)
-        special = int(user.army.special_troops * ratio)
+        u_inf = (user.army.infantry if user.army else 0) or 0
+        u_arc = (user.army.archers if user.army else 0) or 0
+        u_cav = (user.army.cavalry if user.army else 0) or 0
+        u_sp = (user.army.spearmen if user.army else 0) or 0
+        u_spc = (user.army.special_troops if user.army else 0) or 0
+
+        infantry = int(u_inf * ratio)
+        archers = int(u_arc * ratio)
+        cavalry = int(u_cav * ratio)
+        spearmen = int(u_sp * ratio)
+        special = int(u_spc * ratio)
 
         total_sent = infantry + archers + cavalry + spearmen + special
         if total_sent <= 0:
