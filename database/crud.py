@@ -30,19 +30,12 @@ async def get_user_by_telegram_id(session: AsyncSession, telegram_id: int) -> Op
     return result.scalar_one_or_none()
 
 
-async def get_user_with_relations(session: AsyncSession, telegram_id: int) -> Optional[models.User]:
-    """O'yinchini xonadoni, armiyasi va personajlari bilan birga olish"""
-    result = await session.execute(
-        select(models.User).where(models.User.telegram_id == telegram_id)
-    )
-    user = result.scalar_one_or_none()
-    if user:
-        # Aloqalarni yuklash
-        await session.refresh(user, ["house", "army", "characters"])
-    return user
+async def get_user_with_relations(session: AsyncSession, identifier: int) -> Optional[models.User]:
+    """O'yinchini xonadoni, armiyasi va personajlari bilan birga olish (id yoki telegram_id qabul qiladi)"""
+    return await get_user_any(session, identifier, load_relations=True)
 
 
-async def get_user_any(session: AsyncSession, identifier: int) -> Optional[models.User]:
+async def get_user_any(session: AsyncSession, identifier: int, load_relations: bool = True) -> Optional[models.User]:
     """Foydalanuvchini id yoki telegram_id orqali xavfsiz qidirish (PostgreSQL 32-bit int chegarasi xatolaridan himoyalangan)"""
     if not identifier:
         return None
@@ -53,13 +46,21 @@ async def get_user_any(session: AsyncSession, identifier: int) -> Optional[model
 
     # Agar 32-bit int chegarasidan (2,147,483,647) katta bo'lsa, bu 100% telegram_id!
     # Uni session.get(models.User) ga berish PostgreSQL da "integer out of range" beradi.
+    user = None
     if ident_int > 2147483647:
-        return await get_user_by_telegram_id(session, ident_int)
+        user = await get_user_by_telegram_id(session, ident_int)
+    else:
+        user = await session.get(models.User, ident_int)
+        if not user:
+            user = await get_user_by_telegram_id(session, ident_int)
 
-    u = await session.get(models.User, ident_int)
-    if u:
-        return u
-    return await get_user_by_telegram_id(session, ident_int)
+    if user and load_relations:
+        try:
+            await session.refresh(user, ["house", "army", "characters"])
+        except Exception:
+            pass
+
+    return user
 
 
 async def check_and_reset_daily_limits(session: AsyncSession, user: models.User) -> None:

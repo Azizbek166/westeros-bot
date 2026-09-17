@@ -233,206 +233,9 @@ async def render_march_prep(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     """Hujumga tayyorgarlik interaktiv ekranini chizish"""
     query = update.callback_query
     user_id = update.effective_user.id
+    chat_id = query.message.chat_id if (query and query.message) else (update.effective_chat.id if update.effective_chat else user_id)
 
-    async with AsyncSessionLocal() as session:
-        user = await crud.get_user_any(session, user_id)
-        terr = await crud.get_territory_by_id(session, terr_id)
-
-        if not user or not terr:
-            if query:
-                await query.answer("Hudud topilmadi.", show_alert=True)
-            return
-
-        if not user.army:
-            user.army = models.Army(
-                user_id=user.id,
-                infantry=0,
-                archers=0,
-                cavalry=0,
-                spearmen=0,
-                special_troops=0
-            )
-            session.add(user.army)
-            await session.commit()
-            await session.refresh(user.army)
-
-        if not user.house and user.house_id:
-            user.house = await session.get(models.House, user.house_id)
-
-        is_allowed, err_msg = can_attack_target(user, terr)
-        if not is_allowed:
-            if query:
-                await query.answer(err_msg, show_alert=True)
-                await query.edit_message_text(
-                    f"{err_msg}\n\nO'z xonadoningiz qal'asiga hujum qilib bo'lmaydi. Xaritadan dushman xonadon qal'asini tanlang:",
-                    parse_mode="Markdown",
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🗺️ Xaritaga Qaytish", callback_data="menu_map")]])
-                )
-            return
-
-        # Ittifoqchi xonadonga hujum qilish taqiqlanadi
-        if user.house_id and terr.owner_house_id and user.house_id != terr.owner_house_id:
-            allies = await crud.get_active_alliances_for_house(session, user.house_id)
-            allied_ids = {a.house_a_id if a.house_b_id == user.house_id else a.house_b_id for a in allies}
-            if terr.owner_house_id in allied_ids:
-                if query:
-                    await query.answer("❌ Ushbu qal'a sizning rasmiy ittifoqchingizga tegishli! Ittifoqdoshga hujum qilib bo'lmaydi.", show_alert=True)
-                    await query.edit_message_text(
-                        "❌ **Ittifoqdosh qal'asiga hujum qilib bo'lmaydi!**\n\n"
-                        "Siz ushbu xonadon bilan sulh yoki harbiy ittifoq tuzgansiz. Faqat dushman qal'alariga yurish boshlashingiz mumkin.",
-                        parse_mode="Markdown",
-                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🗺️ Xaritaga Qaytish", callback_data="menu_map")]])
-                    )
-                return
-
-        u_inf = user.army.infantry or 0
-        u_arc = user.army.archers or 0
-        u_cav = user.army.cavalry or 0
-        u_sp = user.army.spearmen or 0
-        u_spc = user.army.special_troops or 0
-        total_army = u_inf + u_arc + u_cav + u_sp + u_spc
-
-        if total_army < 50:
-            msg = (
-                f"❌ **Yurish uchun kamida 50 ta askar kerak!**\n\n"
-                f"Sizning armiyangiz: **{total_army}** ta askar.\n"
-                f"Armiya bo'limidan askar yollang:"
-            )
-            markup = InlineKeyboardMarkup([
-                [InlineKeyboardButton("⚔️ Armiya (Askar Yollash)", callback_data="menu_army")],
-                [InlineKeyboardButton("🔙 Xaritaga Qaytish", callback_data="menu_map")]
-            ])
-            if query:
-                await query.answer("❌ Yurish uchun kamida 50 ta askar kerak!", show_alert=True)
-                await query.edit_message_text(msg, parse_mode="Markdown", reply_markup=markup)
-            return
-
-        dragon = await crud.get_user_dragon(session, user.id)
-        can_use_dragon = dragon and dragon.stage in ["baby", "adult"] and dragon.hunger >= 20
-
-        special_name = user.house.special_troop_name if user.house and user.house.special_troop_name else "Maxsus Qo'shin"
-
-        draft_key = f"march_{terr.id}"
-        if draft_key not in context.user_data:
-            context.user_data[draft_key] = {
-                "infantry": u_inf,
-                "archers": u_arc,
-                "cavalry": u_cav,
-                "spearmen": u_sp,
-                "special": u_spc,
-                "dragon_tactic": "balanced" if can_use_dragon else "none",
-            }
-
-        draft = context.user_data[draft_key]
-        draft["infantry"] = max(0, min(draft.get("infantry", u_inf) or 0, u_inf))
-        draft["archers"] = max(0, min(draft.get("archers", u_arc) or 0, u_arc))
-        draft["cavalry"] = max(0, min(draft.get("cavalry", u_cav) or 0, u_cav))
-        draft["spearmen"] = max(0, min(draft.get("spearmen", u_sp) or 0, u_sp))
-        draft["special"] = max(0, min(draft.get("special", u_spc) or 0, u_spc))
-        if not can_use_dragon:
-            draft["dragon_tactic"] = "none"
-
-        sel_inf = draft["infantry"]
-        sel_arc = draft["archers"]
-        sel_cav = draft["cavalry"]
-        sel_sp = draft["spearmen"]
-        sel_spc = draft["special"]
-        total_selected = sel_inf + sel_arc + sel_cav + sel_sp + sel_spc
-
-        tactic = draft.get("dragon_tactic", "none")
-        tactic_display = {
-            "balanced": "🔥 Yalpi Olovli Bo'ron",
-            "walls": "🔥 Devorlarni Eritish",
-            "ranged": "🔥 Merganlarni Yoqish",
-            "none": "❌ Ajdarsiz",
-        }.get(tactic, "❌ Ajdarsiz")
-
-        dragon_info = ""
-        if can_use_dragon:
-            dragon_info = (
-                f"🐉 **AJDARINGIZ JANGGA TAYYOR:**\n"
-                f"• {dragon.name} ({dragon.stage.title()}) | Kuch: **{dragon.power}**⚡ | Qorin: **{dragon.hunger}%**🍗\n"
-                f"• Drakarys taktikasi: **{tactic_display}**\n\n"
-            )
-        elif dragon:
-            dragon_info = f"⚠️ *Ajdaringiz ({dragon.name}) och yoki tuxumda bo'lgani uchun qatnashmaydi.*\n\n"
-
-        t_name = (terr.name or "Hudud").upper()
-        c_name = terr.castle_name or terr.name or "Qal'a"
-        reg = terr.region or "Vesteros"
-
-        text = (
-            f"⚔️ **HARBIY YURISH REJASI: {t_name}**\n\n"
-            f"🏰 Nishon: **{c_name}** ({reg})\n"
-            f"⏱️ Yurish vaqti: **{BASE_MARCH_MINUTES} daqiqa**\n\n"
-            f"📊 **QO'SHIN TARKIBI (Tanlangan / Mavjud):**\n"
-            f"• 🛡️ Piyoda: **{sel_inf:,}** / {u_inf:,}\n"
-            f"• 🏹 Kamonchi: **{sel_arc:,}** / {u_arc:,}\n"
-            f"• 🐎 Otliq: **{sel_cav:,}** / {u_cav:,}\n"
-            f"• 🗡️ Nayzachi: **{sel_sp:,}** / {u_sp:,}\n"
-            f"• 🔥 {special_name}: **{sel_spc:,}** / {u_spc:,}\n\n"
-            f"🎯 **Jami safarbar etilmoqda:** **{total_selected:,}** ta askar\n\n"
-            f"{dragon_info}"
-            f"⚠️ *Hujum boshlangach, 3 kunlik Tinchlik Qalqoningiz bekor bo'ladi!*\n\n"
-            f"Tugmalar orqali sonlarni o'zgartiring yoki qo'lda yozing:"
-        )
-
-        buttons = [
-            [
-                InlineKeyboardButton("⚔️ 100% (Hammasi)", callback_data=f"m_pre:{terr.id}:100"),
-                InlineKeyboardButton("🛡️ 50%", callback_data=f"m_pre:{terr.id}:50"),
-                InlineKeyboardButton("🗑️ 0 qilish", callback_data=f"m_pre:{terr.id}:0"),
-            ],
-            [
-                InlineKeyboardButton("-100", callback_data=f"m_adj:{terr.id}:inf:-100"),
-                InlineKeyboardButton(f"🛡️ Piyoda: {sel_inf:,}", callback_data=f"m_info:{terr.id}:inf"),
-                InlineKeyboardButton("+100", callback_data=f"m_adj:{terr.id}:inf:+100"),
-                InlineKeyboardButton("MAX", callback_data=f"m_adj:{terr.id}:inf:max"),
-            ],
-            [
-                InlineKeyboardButton("-100", callback_data=f"m_adj:{terr.id}:arc:-100"),
-                InlineKeyboardButton(f"🏹 Kamonchi: {sel_arc:,}", callback_data=f"m_info:{terr.id}:arc"),
-                InlineKeyboardButton("+100", callback_data=f"m_adj:{terr.id}:arc:+100"),
-                InlineKeyboardButton("MAX", callback_data=f"m_adj:{terr.id}:arc:max"),
-            ],
-            [
-                InlineKeyboardButton("-100", callback_data=f"m_adj:{terr.id}:cav:-100"),
-                InlineKeyboardButton(f"🐎 Otliq: {sel_cav:,}", callback_data=f"m_info:{terr.id}:cav"),
-                InlineKeyboardButton("+100", callback_data=f"m_adj:{terr.id}:cav:+100"),
-                InlineKeyboardButton("MAX", callback_data=f"m_adj:{terr.id}:cav:max"),
-            ],
-            [
-                InlineKeyboardButton("-100", callback_data=f"m_adj:{terr.id}:sp:-100"),
-                InlineKeyboardButton(f"🗡️ Nayzachi: {sel_sp:,}", callback_data=f"m_info:{terr.id}:sp"),
-                InlineKeyboardButton("+100", callback_data=f"m_adj:{terr.id}:sp:+100"),
-                InlineKeyboardButton("MAX", callback_data=f"m_adj:{terr.id}:sp:max"),
-            ],
-            [
-                InlineKeyboardButton("-25", callback_data=f"m_adj:{terr.id}:spc:-25"),
-                InlineKeyboardButton(f"🔥 {special_name[:14]}: {sel_spc:,}", callback_data=f"m_info:{terr.id}:spc"),
-                InlineKeyboardButton("+25", callback_data=f"m_adj:{terr.id}:spc:+25"),
-                InlineKeyboardButton("MAX", callback_data=f"m_adj:{terr.id}:spc:max"),
-            ],
-            [
-                InlineKeyboardButton("✍️ Aniq Sonlarni Qo'lda Yozish", callback_data=f"march_custom_req:{terr.id}"),
-            ],
-        ]
-
-        if can_use_dragon:
-            buttons.append([
-                InlineKeyboardButton(f"🐉 Ajdar Taktikasi: {tactic_display} 🔄", callback_data=f"m_drg:{terr.id}")
-            ])
-
-        buttons.append([
-            InlineKeyboardButton(f"🚀 HUJUMNI BOSHLASH ({total_selected:,} askar)", callback_data=f"send_custom_march:{terr.id}")
-        ])
-        buttons.append([
-            InlineKeyboardButton("🔙 Bekor Qilish", callback_data=f"view_terr:{terr.id}")
-        ])
-
-        reply_markup = InlineKeyboardMarkup(buttons)
-        chat_id = query.message.chat_id if (query and query.message) else (update.effective_chat.id if update.effective_chat else user_id)
-
+    async def safe_reply(msg_text: str, markup=None):
         if query and query.message:
             if getattr(query.message, "photo", None):
                 try:
@@ -440,33 +243,248 @@ async def render_march_prep(update: Update, context: ContextTypes.DEFAULT_TYPE, 
                 except Exception:
                     pass
                 try:
-                    await context.bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown", reply_markup=reply_markup)
+                    await context.bot.send_message(chat_id=chat_id, text=msg_text, parse_mode="Markdown", reply_markup=markup)
+                    return
                 except Exception:
-                    clean_text = text.replace("*", "").replace("_", "")
-                    await context.bot.send_message(chat_id=chat_id, text=clean_text, reply_markup=reply_markup)
-            else:
-                try:
-                    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=reply_markup)
-                except Exception as e:
-                    if "Message is not modified" not in str(e):
-                        clean_text = text.replace("*", "").replace("_", "")
-                        try:
-                            await query.edit_message_text(clean_text, reply_markup=reply_markup)
-                        except Exception:
-                            await context.bot.send_message(chat_id=chat_id, text=clean_text, reply_markup=reply_markup)
+                    clean = msg_text.replace("*", "").replace("_", "")
+                    await context.bot.send_message(chat_id=chat_id, text=clean, reply_markup=markup)
+                    return
+            try:
+                await query.edit_message_text(msg_text, parse_mode="Markdown", reply_markup=markup)
+            except Exception as e:
+                if "Message is not modified" not in str(e):
+                    clean = msg_text.replace("*", "").replace("_", "")
+                    try:
+                        await query.edit_message_text(clean, reply_markup=markup)
+                    except Exception:
+                        await context.bot.send_message(chat_id=chat_id, text=clean, reply_markup=markup)
         elif update.message:
             try:
-                await update.message.reply_text(text, parse_mode="Markdown", reply_markup=reply_markup)
+                await update.message.reply_text(msg_text, parse_mode="Markdown", reply_markup=markup)
             except Exception:
-                clean_text = text.replace("*", "").replace("_", "")
-                await update.message.reply_text(clean_text, reply_markup=reply_markup)
+                clean = msg_text.replace("*", "").replace("_", "")
+                await update.message.reply_text(clean, reply_markup=markup)
+
+    try:
+        async with AsyncSessionLocal() as session:
+            user = await crud.get_user_with_relations(session, user_id)
+            terr = await crud.get_territory_by_id(session, terr_id)
+
+            if not user or not terr:
+                if query:
+                    await query.answer("Hudud yoki o'yinchi topilmadi.", show_alert=True)
+                return
+
+            if not user.army:
+                army_res = await session.execute(select(models.Army).where(models.Army.user_id == user.id))
+                user_army = army_res.scalar_one_or_none()
+                if not user_army:
+                    user_army = models.Army(
+                        user_id=user.id,
+                        infantry=0,
+                        archers=0,
+                        cavalry=0,
+                        spearmen=0,
+                        special_troops=0
+                    )
+                    session.add(user_army)
+                    await session.commit()
+                    await session.refresh(user_army)
+                user.army = user_army
+
+            if not user.house and user.house_id:
+                user.house = await session.get(models.House, user.house_id)
+
+            is_allowed, err_msg = can_attack_target(user, terr)
+            if not is_allowed:
+                if query:
+                    await query.answer(err_msg, show_alert=True)
+                await safe_reply(
+                    f"{err_msg}\n\nO'z xonadoningiz qal'asiga hujum qilib bo'lmaydi. Xaritadan dushman xonadon qal'asini tanlang:",
+                    InlineKeyboardMarkup([[InlineKeyboardButton("🗺️ Xaritaga Qaytish", callback_data="menu_map")]])
+                )
+                return
+
+            # Ittifoqchi xonadonga hujum qilish taqiqlanadi
+            if user.house_id and terr.owner_house_id and user.house_id != terr.owner_house_id:
+                allies = await crud.get_active_alliances_for_house(session, user.house_id)
+                allied_ids = {a.house_a_id if a.house_b_id == user.house_id else a.house_b_id for a in allies}
+                if terr.owner_house_id in allied_ids:
+                    if query:
+                        await query.answer("❌ Ushbu qal'a sizning rasmiy ittifoqchingizga tegishli! Ittifoqdoshga hujum qilib bo'lmaydi.", show_alert=True)
+                    await safe_reply(
+                        "❌ **Ittifoqdosh qal'asiga hujum qilib bo'lmaydi!**\n\n"
+                        "Siz ushbu xonadon bilan sulh yoki harbiy ittifoq tuzgansiz. Faqat dushman qal'alariga yurish boshlashingiz mumkin.",
+                        InlineKeyboardMarkup([[InlineKeyboardButton("🗺️ Xaritaga Qaytish", callback_data="menu_map")]])
+                    )
+                    return
+
+            u_inf = (user.army.infantry if user.army else 0) or 0
+            u_arc = (user.army.archers if user.army else 0) or 0
+            u_cav = (user.army.cavalry if user.army else 0) or 0
+            u_sp = (user.army.spearmen if user.army else 0) or 0
+            u_spc = (user.army.special_troops if user.army else 0) or 0
+            total_army = u_inf + u_arc + u_cav + u_sp + u_spc
+
+            if total_army < 50:
+                msg = (
+                    f"❌ **Yurish uchun kamida 50 ta askar kerak!**\n\n"
+                    f"Sizning armiyangiz: **{total_army}** ta askar.\n"
+                    f"Armiya bo'limidan askar yollang:"
+                )
+                markup = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⚔️ Armiya (Askar Yollash)", callback_data="menu_army")],
+                    [InlineKeyboardButton("🔙 Xaritaga Qaytish", callback_data="menu_map")]
+                ])
+                if query:
+                    await query.answer("❌ Yurish uchun kamida 50 ta askar kerak!", show_alert=True)
+                await safe_reply(msg, markup)
+                return
+
+            dragon = await crud.get_user_dragon(session, user.id)
+            can_use_dragon = dragon and dragon.stage in ["baby", "adult"] and dragon.hunger >= 20
+
+            special_name = user.house.special_troop_name if user.house and user.house.special_troop_name else "Maxsus Qo'shin"
+
+            draft_key = f"march_{terr.id}"
+            if draft_key not in context.user_data:
+                context.user_data[draft_key] = {
+                    "infantry": u_inf,
+                    "archers": u_arc,
+                    "cavalry": u_cav,
+                    "spearmen": u_sp,
+                    "special": u_spc,
+                    "dragon_tactic": "balanced" if can_use_dragon else "none",
+                }
+
+            draft = context.user_data[draft_key]
+            draft["infantry"] = max(0, min(draft.get("infantry", u_inf) or 0, u_inf))
+            draft["archers"] = max(0, min(draft.get("archers", u_arc) or 0, u_arc))
+            draft["cavalry"] = max(0, min(draft.get("cavalry", u_cav) or 0, u_cav))
+            draft["spearmen"] = max(0, min(draft.get("spearmen", u_sp) or 0, u_sp))
+            draft["special"] = max(0, min(draft.get("special", u_spc) or 0, u_spc))
+            if not can_use_dragon:
+                draft["dragon_tactic"] = "none"
+
+            sel_inf = draft["infantry"]
+            sel_arc = draft["archers"]
+            sel_cav = draft["cavalry"]
+            sel_sp = draft["spearmen"]
+            sel_spc = draft["special"]
+            total_selected = sel_inf + sel_arc + sel_cav + sel_sp + sel_spc
+
+            tactic = draft.get("dragon_tactic", "none")
+            tactic_display = {
+                "balanced": "🔥 Yalpi Olovli Bo'ron",
+                "walls": "🔥 Devorlarni Eritish",
+                "ranged": "🔥 Merganlarni Yoqish",
+                "none": "❌ Ajdarsiz",
+            }.get(tactic, "❌ Ajdarsiz")
+
+            dragon_info = ""
+            if can_use_dragon:
+                dragon_info = (
+                    f"🐉 **AJDARINGIZ JANGGA TAYYOR:**\n"
+                    f"• {dragon.name} ({dragon.stage.title()}) | Kuch: **{dragon.power}**⚡ | Qorin: **{dragon.hunger}%**🍗\n"
+                    f"• Drakarys taktikasi: **{tactic_display}**\n\n"
+                )
+            elif dragon:
+                dragon_info = f"⚠️ *Ajdaringiz ({dragon.name}) och yoki tuxumda bo'lgani uchun qatnashmaydi.*\n\n"
+
+            t_name = (terr.name or "Hudud").upper()
+            c_name = terr.castle_name or terr.name or "Qal'a"
+            reg = terr.region or "Vesteros"
+
+            text = (
+                f"⚔️ **HARBIY YURISH REJASI: {t_name}**\n\n"
+                f"🏰 Nishon: **{c_name}** ({reg})\n"
+                f"⏱️ Yurish vaqti: **{BASE_MARCH_MINUTES} daqiqa**\n\n"
+                f"📊 **QO'SHIN TARKIBI (Tanlangan / Mavjud):**\n"
+                f"• 🛡️ Piyoda: **{sel_inf:,}** / {u_inf:,}\n"
+                f"• 🏹 Kamonchi: **{sel_arc:,}** / {u_arc:,}\n"
+                f"• 🐎 Otliq: **{sel_cav:,}** / {u_cav:,}\n"
+                f"• 🗡️ Nayzachi: **{sel_sp:,}** / {u_sp:,}\n"
+                f"• 🔥 {special_name}: **{sel_spc:,}** / {u_spc:,}\n\n"
+                f"🎯 **Jami safarbar etilmoqda:** **{total_selected:,}** ta askar\n\n"
+                f"{dragon_info}"
+                f"⚠️ *Hujum boshlangach, 3 kunlik Tinchlik Qalqoningiz bekor bo'ladi!*\n\n"
+                f"Tugmalar orqali sonlarni o'zgartiring yoki qo'lda yozing:"
+            )
+
+            buttons = [
+                [
+                    InlineKeyboardButton("⚔️ 100% (Hammasi)", callback_data=f"m_pre:{terr.id}:100"),
+                    InlineKeyboardButton("🛡️ 50%", callback_data=f"m_pre:{terr.id}:50"),
+                    InlineKeyboardButton("🗑️ 0 qilish", callback_data=f"m_pre:{terr.id}:0"),
+                ],
+                [
+                    InlineKeyboardButton("-100", callback_data=f"m_adj:{terr.id}:inf:-100"),
+                    InlineKeyboardButton(f"🛡️ Piyoda: {sel_inf:,}", callback_data=f"m_info:{terr.id}:inf"),
+                    InlineKeyboardButton("+100", callback_data=f"m_adj:{terr.id}:inf:+100"),
+                    InlineKeyboardButton("MAX", callback_data=f"m_adj:{terr.id}:inf:max"),
+                ],
+                [
+                    InlineKeyboardButton("-100", callback_data=f"m_adj:{terr.id}:arc:-100"),
+                    InlineKeyboardButton(f"🏹 Kamonchi: {sel_arc:,}", callback_data=f"m_info:{terr.id}:arc"),
+                    InlineKeyboardButton("+100", callback_data=f"m_adj:{terr.id}:arc:+100"),
+                    InlineKeyboardButton("MAX", callback_data=f"m_adj:{terr.id}:arc:max"),
+                ],
+                [
+                    InlineKeyboardButton("-100", callback_data=f"m_adj:{terr.id}:cav:-100"),
+                    InlineKeyboardButton(f"🐎 Otliq: {sel_cav:,}", callback_data=f"m_info:{terr.id}:cav"),
+                    InlineKeyboardButton("+100", callback_data=f"m_adj:{terr.id}:cav:+100"),
+                    InlineKeyboardButton("MAX", callback_data=f"m_adj:{terr.id}:cav:max"),
+                ],
+                [
+                    InlineKeyboardButton("-100", callback_data=f"m_adj:{terr.id}:sp:-100"),
+                    InlineKeyboardButton(f"🗡️ Nayzachi: {sel_sp:,}", callback_data=f"m_info:{terr.id}:sp"),
+                    InlineKeyboardButton("+100", callback_data=f"m_adj:{terr.id}:sp:+100"),
+                    InlineKeyboardButton("MAX", callback_data=f"m_adj:{terr.id}:sp:max"),
+                ],
+                [
+                    InlineKeyboardButton("-25", callback_data=f"m_adj:{terr.id}:spc:-25"),
+                    InlineKeyboardButton(f"🔥 {special_name[:14]}: {sel_spc:,}", callback_data=f"m_info:{terr.id}:spc"),
+                    InlineKeyboardButton("+25", callback_data=f"m_adj:{terr.id}:spc:+25"),
+                    InlineKeyboardButton("MAX", callback_data=f"m_adj:{terr.id}:spc:max"),
+                ],
+                [
+                    InlineKeyboardButton("✍️ Aniq Sonlarni Qo'lda Yozish", callback_data=f"march_custom_req:{terr.id}"),
+                ],
+            ]
+
+            if can_use_dragon:
+                buttons.append([
+                    InlineKeyboardButton(f"🐉 Ajdar Taktikasi: {tactic_display} 🔄", callback_data=f"m_drg:{terr.id}")
+                ])
+
+            buttons.append([
+                InlineKeyboardButton(f"🚀 HUJUMNI BOSHLASH ({total_selected:,} askar)", callback_data=f"send_custom_march:{terr.id}")
+            ])
+            buttons.append([
+                InlineKeyboardButton("🔙 Bekor Qilish", callback_data=f"view_terr:{terr.id}")
+            ])
+
+            reply_markup = InlineKeyboardMarkup(buttons)
+            await safe_reply(text, reply_markup)
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        if query:
+            try:
+                await query.answer(f"Xatolik: {str(e)[:50]}", show_alert=True)
+            except Exception:
+                pass
 
 
 async def march_prep_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Hujumga tayyorgarlik ekrani"""
     query = update.callback_query
     terr_id = int(query.data.split(":")[1])
-    await query.answer()
+    try:
+        await query.answer()
+    except Exception:
+        pass
     await render_march_prep(update, context, terr_id)
 
 
