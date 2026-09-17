@@ -78,6 +78,7 @@ async def show_admin_dashboard(target, is_message: bool):
             f"Boshqaruv bo'limini tanlang:"
         )
 
+        target_user_id = target.effective_user.id if is_message else target.from_user.id
         buttons = [
             [InlineKeyboardButton("👥 O'yinchilarni Boshqarish (User Manager)", callback_data="admin_users_list:0")],
             [InlineKeyboardButton("👑 Xonadon Lordlarini Tayinlash", callback_data="admin_lords_menu")],
@@ -89,8 +90,12 @@ async def show_admin_dashboard(target, is_message: bool):
             [InlineKeyboardButton("🔄 Barcha Kunlik Limitlarni Yangilash", callback_data="admin_reset_all_limits")],
             [InlineKeyboardButton("📢 Global E'lon (Broadcast)", callback_data="admin_broadcast_info")],
             [InlineKeyboardButton("🛡️ Adminlar Ro'yxati & Huquqlar", callback_data="admin_admins_list")],
-            [InlineKeyboardButton("🔙 Bosh Menyu", callback_data="menu_main")],
         ]
+
+        if target_user_id == OWNER_ID:
+            buttons.append([InlineKeyboardButton("⚠️ O'YINNI 0 QILISH (MAVSUM RESET)", callback_data="admin_wipe_ask")])
+
+        buttons.append([InlineKeyboardButton("🔙 Bosh Menyu", callback_data="menu_main")])
 
         if is_message:
             await target.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
@@ -1945,7 +1950,76 @@ async def give_army_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"{'✅' if ok else '❌'} {msg}")
 
 
+async def admin_wipe_ask_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """O'yinni tozalashdan oldin ogohlantirish ekrani"""
+    query = update.callback_query
+    await query.answer()
+    if query.from_user.id != OWNER_ID:
+        await query.answer("❌ Faqat Bosh Administrator (Owner) o'yinni tozalashi mumkin!", show_alert=True)
+        return
+
+    text = (
+        "⚠️ **DIQQAT: BUTUN O'YIN MA'LUMOTLARINI 0 GA TUSHIRISH!**\n\n"
+        "Haqiqatan ham barcha ma'lumotlarni o'chirib, o'yinni yangi mavsumdek 0 dan boshlamoqchimisiz?\n\n"
+        "**Nimalar sodir bo'ladi:**\n"
+        "• Barcha o'yinchilar profillari, resurslari va darajalari o'chiriladi.\n"
+        "• Barcha armiyalar, ajdarlar va qahramonlar o'chiriladi.\n"
+        "• Xonadonlar va qal'alar boshlang'ich holatiga qaytariladi.\n"
+        "• Hamma (shu jumladan siz ham) /start bosib yangidan ro'yxatdan o'tadi!\n\n"
+        "❗️ *Ushbu amalni ortga qaytarib bo'lmaydi!*"
+    )
+    buttons = [
+        [InlineKeyboardButton("⚠️ HA, BARCHASINI O'CHIRIB 0 QILISH", callback_data="admin_wipe_confirm")],
+        [InlineKeyboardButton("❌ Bekor Qilish", callback_data="admin_panel")],
+    ]
+    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def admin_wipe_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Butun o'yinni tozalashni amalga oshirish"""
+    query = update.callback_query
+    if query.from_user.id != OWNER_ID:
+        await query.answer("❌ Huquqingiz yetarli emas!", show_alert=True)
+        return
+
+    await query.answer("⏳ Baza tozalanmoqda...", show_alert=False)
+    async with AsyncSessionLocal() as session:
+        await crud.reset_entire_game(session)
+
+    text = (
+        "✅ **BUTUN O'YIN MUVAFFAQIYATLI TOZALANDI!**\n\n"
+        "• Barcha o'yinchilar va ularning ma'lumotlari bazadan to'liq o'chirildi.\n"
+        "• Barcha xonadonlar va 40 ta qal'a boshlang'ich holatiga qaytarildi.\n"
+        "• O'yin to'liq 0 dan boshlandi!\n\n"
+        "Endi /start buyrug'ini bosing va yangi saltanatingizni quring!"
+    )
+    buttons = [
+        [InlineKeyboardButton("👑 /start orqali Yangidan Boshlash", callback_data="menu_main")],
+    ]
+    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def wipe_game_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/wipe_game buyrug'i (faqat Owner uchun)"""
+    if update.effective_user.id != OWNER_ID:
+        await update.message.reply_text("❌ Faqat Bosh Administrator (Owner) ushbu buyruqni bera oladi!")
+        return
+
+    text = (
+        "⚠️ **DIQQAT: BUTUN O'YIN MA'LUMOTLARINI 0 GA TUSHIRISH!**\n\n"
+        "Barcha o'yinchilar, armiyalar, ajdarlar va yutuqlar o'chirilib, qal'alar boshlang'ich holatiga qaytariladi.\n\n"
+        "Hamma /start bosib 0 dan boshlaydi.\n\n"
+        "Tasdiqlaysizmi?"
+    )
+    buttons = [
+        [InlineKeyboardButton("⚠️ HA, BARCHASINI O'CHIRIB 0 QILISH", callback_data="admin_wipe_confirm")],
+        [InlineKeyboardButton("❌ Bekor Qilish", callback_data="menu_main")],
+    ]
+    await update.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
 def register_admin_handlers(app):
+    app.add_handler(CommandHandler("wipe_game", wipe_game_command))
     app.add_handler(CommandHandler("admin", admin_command))
     app.add_handler(CommandHandler("adminsearch", admin_search_command))
     app.add_handler(CommandHandler("sethouse", set_house_command))
@@ -1992,4 +2066,7 @@ def register_admin_handlers(app):
     app.add_handler(CallbackQueryHandler(admin_mass_gift_callback, pattern="^admin_mass_gift$"))
     app.add_handler(CallbackQueryHandler(admin_reset_all_limits_callback, pattern="^admin_reset_all_limits$"))
     app.add_handler(CallbackQueryHandler(admin_broadcast_info_callback, pattern="^admin_broadcast_info$"))
+    app.add_handler(CallbackQueryHandler(admin_wipe_ask_callback, pattern="^admin_wipe_ask$"))
+    app.add_handler(CallbackQueryHandler(admin_wipe_confirm_callback, pattern="^admin_wipe_confirm$"))
+
 

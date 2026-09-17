@@ -2670,6 +2670,68 @@ async def release_user_dragon(session: AsyncSession, user_id: int, dragon_id: in
     return True, f"🗑️ **{dragon_name}** tashlandi (ozod qilindi)! Bo'shagan o'ringa yangi ajdar xarid qilishingiz mumkin."
 
 
+async def reset_entire_game(session: AsyncSession) -> None:
+    """Butun o'yin ma'lumotlarini 0 ga tushirish (yangi mavsum / to'liq restart)"""
+    from data.houses_data import HOUSES_DATA
+    from data.map_data import TERRITORIES_DATA
+
+    # 1. Barcha o'yinchilar va ularga tegishli yozuvlarni tozalash
+    table_models = [
+        models.RavenMessage,
+        models.Duel,
+        models.Dragon,
+        models.HouseVote,
+        models.Transaction,
+        models.War,
+        models.Alliance,
+        models.QuestProgress,
+        models.BattleReport,
+        models.BattleMarch,
+        models.Building,
+        models.Artifact,
+        models.NightKingContribution,
+        models.Character,
+        models.Army,
+        models.HouseMember,
+        models.User,
+    ]
+    for tm in table_models:
+        try:
+            await session.execute(delete(tm))
+        except Exception:
+            pass
+
+    # 2. Xonadonlarni boshlang'ich holatiga qaytarish
+    houses_res = await session.execute(select(models.House))
+    all_houses = houses_res.scalars().all()
+    for h in all_houses:
+        h.lord_user_id = None
+        h.lord_elected_at = None
+        h_info = HOUSES_DATA.get(h.code, {})
+        h.gold = h_info.get("starting_gold", 5000)
+        h.food = h_info.get("starting_food", 10000)
+        h.iron = h_info.get("starting_iron", 2000)
+        h.prestige = h_info.get("prestige", 100)
+
+    # 3. Hududlarni (qal'alarni) boshlang'ich holatiga qaytarish
+    terrs_res = await session.execute(select(models.Territory))
+    all_terrs = terrs_res.scalars().all()
+    for t in all_terrs:
+        t_info = TERRITORIES_DATA.get(t.code, {})
+        t.owner_house_id = t_info.get("initial_owner_id", 1)
+        t.garrison_infantry = t_info.get("garrison_infantry", 200)
+        t.garrison_archers = t_info.get("garrison_archers", 100)
+        t.garrison_cavalry = t_info.get("garrison_cavalry", 50)
+        t.garrison_spearmen = t_info.get("garrison_spearmen", 50)
+        t.defense = t_info.get("defense", 500)
+        t.castle_level = 1
+        t.last_tax_collected_at = None
+        t.reinforcements_json = None
+
+    await session.commit()
+
+
+
 
 
 
