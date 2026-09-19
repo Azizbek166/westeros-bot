@@ -1,9 +1,11 @@
+import html
+import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CommandHandler, CallbackQueryHandler, ContextTypes
 from database import AsyncSessionLocal, crud, models
 from keyboards.menus import back_to_main_keyboard
 from config import escape_md, RANKS
-from sqlalchemy import select
+from sqlalchemy import select, func
 
 
 async def house_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -373,6 +375,15 @@ async def call_to_arms_broadcast_callback(update: Update, context: ContextTypes.
             except Exception:
                 pass
 
+        # Xonadon guruhiga ham harbiy safarbarlik signali
+        from core.notifier import notify_house_group
+        grp_bcast_text = (
+            f"📢⚔️ <b>LORDNING HARBIY SAFARBARLIK CHAQIRIG'I!</b>\n\n"
+            f"🏰 <b>{html.escape(user.house.emoji)} {html.escape(user.house.name)}</b> Lordi <b>{html.escape(lord_title)}</b> barcha a'zolarni qurol ko'tarishga chaqirmoqda!\n\n"
+            f"Buyuk g'alabalar va qal'alarni zabt etish uchun Lord armiyasiga askar safarbar qiling!"
+        )
+        asyncio.create_task(notify_house_group(context.application, user.house.id, grp_bcast_text, parse_mode="HTML"))
+
 
 async def troop_donation_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Lord armiyasiga askar yuborish menyusi"""
@@ -689,8 +700,163 @@ async def house_treasury_distribute_callback(update: Update, context: ContextTyp
     await house_treasury_manage_callback(update, context)
 
 
+async def set_house_chat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Guruhni xonadonga bog'lash: faqat guruhda xonadon Lordi yoki Admin bera oladi"""
+    chat = update.effective_chat
+    user = update.effective_user
+    if not chat or chat.type not in ("group", "supergroup"):
+        await update.message.reply_text("❌ Ushbu buyruq faqat xonadoningizning Telegram guruhida ishlatiladi!")
+        return
+
+    from config import ADMIN_IDS, OWNER_ID
+    is_admin = (user.id in ADMIN_IDS) or (user.id == OWNER_ID)
+
+    async with AsyncSessionLocal() as session:
+        db_user = await crud.get_user_with_relations(session, user.id)
+        if not db_user or not db_user.house:
+            await update.message.reply_text("❌ Siz hali biron-bir xonadonga a'zo emassiz!")
+            return
+
+        house = db_user.house
+        is_lord = (house.lord_user_id == user.id) or (db_user.rank == "king") or is_admin
+
+        if not is_lord:
+            await update.message.reply_text("❌ Guruhni bog'lash huquqi faqat Xonadon Lordi yoki Bot Administratoriga berilgan!")
+            return
+
+        # Bog'lash
+        await crud.set_house_group_chat(session, house.id, chat.id, chat.title or "Xonadon Shtabi")
+
+    bot_user = await context.bot.get_me()
+    bot_link = f"https://t.me/{bot_user.username}"
+
+    markup = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🏰 Botga Kirish / Safarbarlik", url=bot_link)],
+    ])
+
+    text = (
+        f"🏰 <b>{html.escape(house.emoji)} {html.escape(house.name)} RASMIY QARORGOHI TAYINLANDI!</b>\n\n"
+        f"Ushbu Telegram guruhi (<b>{html.escape(chat.title or 'Guruh')}</b>) endi {html.escape(house.name)} xonadonining rasmiy harbiy shtabi hisoblanadi.\n\n"
+        f"🔔 <b>GURUHGA BORUVCHI AVTOMATIK OGOHLANTIRISHLAR:</b>\n"
+        f"• 🚨 Dushman qal'alarimizga harbiy yurish boshlaganda;\n"
+        f"• ⚔️ Qal'alar jangi yakunlari va yo'qotishlar hisoboti;\n"
+        f"• 📢 Lordning umumiy safarbarlik chaqiruvlari.\n\n"
+        f"💬 <b>Guruhdagi buyruqlar:</b>\n"
+        f"• <code>/houseinfo</code> — Xonadon g'aznasi, qal'alari va qudrati\n"
+        f"• <code>/calltoarms</code> — Lordning safarbarlik signali\n"
+    )
+    await update.message.reply_text(text, parse_mode="HTML", reply_markup=markup)
+
+
+async def house_group_info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Guruhda yoki shaxsiy chatda xonadon ma'lumotlarini ko'rish"""
+    chat = update.effective_chat
+    user = update.effective_user
+
+    async with AsyncSessionLocal() as session:
+        house = None
+        if chat.type in ("group", "supergroup"):
+            house = await crud.get_house_by_group_chat_id(session, chat.id)
+
+        if not house:
+            db_user = await crud.get_user_with_relations(session, user.id)
+            if db_user and db_user.house:
+                house = db_user.house
+
+        if not house:
+            await update.message.reply_text(
+                "❌ Ushbu guruh biron-bir xonadonga bog'lanmagan.\n"
+                "Bog'lash uchun xonadon Lordi guruhda /sethousechat buyrug'ini yozishi kerak."
+            )
+            return
+
+        lord_user = await crud.get_user_by_telegram_id(session, house.lord_user_id) if house.lord_user_id else None
+        lord_name = lord_user.full_name if lord_user else "Saylanmagan"
+
+        members_count_res = await session.execute(
+            select(func.count(models.User.id)).where(models.User.house_id == house.id)
+        )
+        members_count = members_count_res.scalar() or 0
+
+        terrs_res = await session.execute(
+            select(models.Territory).where(models.Territory.owner_house_id == house.id)
+        )
+        terrs = terrs_res.scalars().all()
+        terr_names = ", ".join([t.name for t in terrs[:5]]) if terrs else "Hozircha yo'q"
+        if len(terrs) > 5:
+            terr_names += f" va yana {len(terrs)-5} ta"
+
+    bot_user = await context.bot.get_me()
+    markup = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🏰 Botda Boshqarish", url=f"https://t.me/{bot_user.username}?start=house")]
+    ])
+
+    text = (
+        f"🏰 <b>{html.escape(house.emoji)} {html.escape(house.name)} — MA'LUMOTLAR</b>\n\n"
+        f"📍 Mintaqa: <b>{html.escape(house.region)}</b>\n"
+        f"👑 Xonadon Lordi: <b>{html.escape(lord_name)}</b>\n"
+        f"👥 A'zolar soni: <b>{members_count} nafar</b>\n"
+        f"🏆 Nufuz (Prestige): <b>{house.prestige:,}</b>\n\n"
+        f"🏛️ <b>Umumiy Xonadon G'aznasi:</b>\n"
+        f"• 🪙 Oltin: <b>{house.gold:,}</b>\n"
+        f"• 🌾 Oziq-ovqat: <b>{house.food:,}</b>\n"
+        f"• ⛓️ Temir: <b>{house.iron:,}</b>\n\n"
+        f"🏯 <b>Egallangan Qal'alar ({len(terrs)} ta):</b>\n"
+        f"<i>{html.escape(terr_names)}</i>"
+    )
+    await update.message.reply_text(text, parse_mode="HTML", reply_markup=markup)
+
+
+async def house_group_call_to_arms_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Guruhda Lord tomonidan harbiy safarbarlik chaqirig'i"""
+    chat = update.effective_chat
+    user = update.effective_user
+
+    async with AsyncSessionLocal() as session:
+        house = None
+        if chat.type in ("group", "supergroup"):
+            house = await crud.get_house_by_group_chat_id(session, chat.id)
+
+        db_user = await crud.get_user_with_relations(session, user.id)
+        if not db_user:
+            await update.message.reply_text("❌ Avval botga /start bosing.")
+            return
+
+        if not house:
+            house = db_user.house
+
+        if not house:
+            await update.message.reply_text("❌ Xonadon aniqlanmadi.")
+            return
+
+        from config import ADMIN_IDS, OWNER_ID
+        is_lord = (house.lord_user_id == user.id) or (db_user.rank in ("king", "commander")) or (user.id in ADMIN_IDS) or (user.id == OWNER_ID)
+        if not is_lord:
+            await update.message.reply_text("❌ Faqat xonadon Lordi yoki Bosh Sarkardasi umumiy safarbarlik chaqirig'ini bera oladi!")
+            return
+
+        lord_name = db_user.characters[0].name if db_user.characters else db_user.full_name
+
+    bot_user = await context.bot.get_me()
+    markup = InlineKeyboardMarkup([
+        [InlineKeyboardButton("⚔️ Askar Berish / Safarbarlik", url=f"https://t.me/{bot_user.username}?start=house")],
+        [InlineKeyboardButton("🛡️ Qal'alar Mudofaasi", url=f"https://t.me/{bot_user.username}?start=castles")]
+    ])
+
+    text = (
+        f"🚨⚔️ <b>HARBIY SAFARBARLIK CHAQIRIG'I!</b>\n\n"
+        f"🏰 <b>{html.escape(house.emoji)} {html.escape(house.name)}</b> Lordi <b>{html.escape(lord_name)}</b> barcha ritsarlar va a'zolarni zudlik bilan harbiy safarbarlikka chaqirmoqda!\n\n"
+        f"Dushmanlar poytaxtimiz va qal'alarimizga xavf solmoqda. "
+        f"Barcha jangchilar botga kirib, Lord armiyasiga askar taqdim etsin yoki qal'a mudofaasini kuchaytirsin!"
+    )
+    await update.message.reply_text(text, parse_mode="HTML", reply_markup=markup)
+
+
 def register_house_handlers(app):
     app.add_handler(CommandHandler("house", house_command))
+    app.add_handler(CommandHandler(["sethousechat", "setgrouphouse"], set_house_chat_command))
+    app.add_handler(CommandHandler(["houseinfo", "groupinfo"], house_group_info_command))
+    app.add_handler(CommandHandler(["calltoarms", "safarbarlik"], house_group_call_to_arms_command))
     app.add_handler(CallbackQueryHandler(house_callback, pattern="^menu_house$"))
     app.add_handler(CallbackQueryHandler(house_members_callback, pattern="^house_members$"))
     app.add_handler(CallbackQueryHandler(house_rank_assign_menu_callback, pattern="^house_rank_assign_menu$"))
@@ -712,3 +878,4 @@ def register_house_handlers(app):
     app.add_handler(CallbackQueryHandler(house_treasury_manage_callback, pattern="^house_treasury_manage$"))
     app.add_handler(CallbackQueryHandler(house_treasury_withdraw_callback, pattern="^h_with:"))
     app.add_handler(CallbackQueryHandler(house_treasury_distribute_callback, pattern="^h_dist:"))
+

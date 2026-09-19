@@ -1,6 +1,8 @@
 import json
 import random
 import logging
+import asyncio
+import html
 from datetime import datetime
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,6 +10,7 @@ from database import models, AsyncSessionLocal, crud
 from core.battle_engine import calculate_battle
 from core.economy_engine import process_hourly_tick
 from core.leveling import check_user_level_up
+from core.notifier import notify_house_group
 from data.artifacts_data import ARTIFACTS_DATA
 
 logger = logging.getLogger(__name__)
@@ -105,6 +108,18 @@ async def process_due_marches(bot_app=None):
                 if att_art:
                     att_art_bonuses = ARTIFACTS_DATA.get(att_art.code, {})
 
+                march_catapults = getattr(march, "catapults", 0) or 0
+                march_siege_towers = getattr(march, "siege_towers", 0) or 0
+                terr_wildfire = getattr(territory, "wildfire_count", 0) or 0
+
+                att_champion = getattr(march, "champion", None)
+                if not att_champion and attacker.army:
+                    att_champion = getattr(attacker.army, "champion", None)
+
+                def_champion = None
+                if def_lord_user and def_lord_user.army:
+                    def_champion = getattr(def_lord_user.army, "champion", None)
+
                 # Jang hisoblash
                 battle_res = calculate_battle(
                     attacker_army=att_army,
@@ -115,7 +130,16 @@ async def process_due_marches(bot_app=None):
                     defender_dragon_power=def_dragon_pwr,
                     attacker_artifact_bonuses=att_art_bonuses,
                     defender_artifact_bonuses=def_art_bonuses,
+                    catapults=march_catapults,
+                    siege_towers=march_siege_towers,
+                    wildfire_count=terr_wildfire,
+                    attacker_champion=att_champion,
+                    defender_champion=def_champion,
                 )
+
+                # Wildfire ishlatilgan bo'lsa, qal'a zaxirasidan kamaytirish
+                if battle_res.get("wildfire_used", 0) > 0 and terr_wildfire > 0:
+                    territory.wildfire_count = max(0, territory.wildfire_count - 1)
 
                 # Tirik qolgan hujumchilarni qaytarish
                 army_res = await session.execute(
@@ -128,6 +152,10 @@ async def process_due_marches(bot_app=None):
                     attacker_army_obj.cavalry += battle_res["remaining_attacker"]["cavalry"]
                     attacker_army_obj.spearmen += battle_res["remaining_attacker"]["spearmen"]
                     attacker_army_obj.special_troops += battle_res["remaining_attacker"]["special_troops"]
+                    survived_cats = max(0, march_catapults - battle_res.get("catapults_lost", 0))
+                    survived_twrs = max(0, march_siege_towers - battle_res.get("siege_towers_lost", 0))
+                    attacker_army_obj.catapults = (attacker_army_obj.catapults or 0) + survived_cats
+                    attacker_army_obj.siege_towers = (attacker_army_obj.siege_towers or 0) + survived_twrs
 
                 # Garnizonni yangilash
                 territory.garrison_infantry = battle_res["remaining_defender"]["infantry"]
@@ -194,6 +222,29 @@ async def process_due_marches(bot_app=None):
                                 await bot_app.bot.send_message(chat_id=def_lord_id, text=clean_def)
                             except Exception as e:
                                 logger.warning(f"Himoyachiga xabar yuborishda xatolik: {e}")
+
+                    # Xonadon guruhlariga ham hisobot yuborish
+                    if bot_app:
+                        if old_owner_house_id and old_owner_house_id != attacker.house_id:
+                            grp_lose_text = (
+                                f"🚨💀 <b>QAL'A BOY BERILDI!</b>\n\n"
+                                f"🏰 <b>{html.escape(territory.name)}</b> ({html.escape(territory.castle_name)}) "
+                                f"dushman <b>{html.escape(att_house_name)}</b> armiyasi tomonidan zabt etildi!\n\n"
+                                f"⚔️ <i>Qal'ani qaytarib olish uchun xonadon a'zolari birlashib qarshi hujumga o'ting!</i>"
+                            )
+                            asyncio.create_task(notify_house_group(bot_app, old_owner_house_id, grp_lose_text, parse_mode="HTML"))
+
+                        if attacker.house_id:
+                            grp_win_text = (
+                                f"🏆⚔️ <b>BUYUK ZAFAR! QAL'A EGALLANDI!</b>\n\n"
+                                f"🏰 Jasur lordimiz <b>{html.escape(attacker.full_name)}</b> "
+                                f"dushmanning <b>{html.escape(territory.name)}</b> ({html.escape(territory.castle_name)}) qal'asini zabt etdi!\n\n"
+                                f"• 🪙 Oltin: <b>+{int(tot_gold * 0.3):,}</b>\n"
+                                f"• 🌾 Oziq-ovqat: <b>+{int(tot_food * 0.3):,}</b>\n"
+                                f"• ⛓️ Temir: <b>+{int(tot_iron * 0.3):,}</b>\n"
+                                f"• 🏆 Xonadon Prestige: <b>+25</b>"
+                            )
+                            asyncio.create_task(notify_house_group(bot_app, attacker.house_id, grp_win_text, parse_mode="HTML"))
                 else:
                     # Himoyachi g'alaba qozondi
                     if bot_app and def_lord_id and old_owner_house_id != attacker.house_id:
@@ -214,6 +265,14 @@ async def process_due_marches(bot_app=None):
                                 await bot_app.bot.send_message(chat_id=def_lord_id, text=clean_win)
                             except Exception as e:
                                 logger.warning(f"Himoyachiga xabar yuborishda xatolik: {e}")
+
+                    if bot_app and old_owner_house_id and old_owner_house_id != attacker.house_id:
+                        grp_def_win_text = (
+                            f"🛡️⚔️ <b>QAL'A MUDOFAASI G'ALABA BILAN YAKUNLANDI!</b>\n\n"
+                            f"🏰 <b>{html.escape(territory.name)}</b> ({html.escape(territory.castle_name)}) qal'amizga dushman "
+                            f"<b>{html.escape(att_house_name)}</b> hujumi mardonavor qaytarildi va qal'amiz omon qoldi!"
+                        )
+                        asyncio.create_task(notify_house_group(bot_app, old_owner_house_id, grp_def_win_text, parse_mode="HTML"))
 
                 # Jang hisobotini saqlash
                 report = models.BattleReport(

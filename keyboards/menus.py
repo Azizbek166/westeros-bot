@@ -50,6 +50,11 @@ def main_menu_keyboard(user_id: int = None) -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton("❄️ Oq Yuruvchilar", callback_data="menu_throne"),
+            InlineKeyboardButton("🏦 Temir Bank", callback_data="menu_bank"),
+        ],
+        [
+            InlineKeyboardButton("🌟 Mavsum & Shon-sharaf", callback_data="menu_season"),
+            InlineKeyboardButton("🎖️ Qahramonlar", callback_data="menu_champions"),
         ],
     ]
 
@@ -121,6 +126,10 @@ def recruit_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton("🗡️ +100 (200🪙)", callback_data="rec:spearmen:100"),
             InlineKeyboardButton("🔥 +25 (300🪙)", callback_data="rec:special_troops:25"),
             InlineKeyboardButton("✍️ Qo'lda Yollash", callback_data="rec_custom_menu"),
+        ],
+        [
+            InlineKeyboardButton("🏹 Qamal Ustaxonasi", callback_data="siege_workshop_menu"),
+            InlineKeyboardButton("🎖️ Bosh Qo'mondonlar", callback_data="menu_champions"),
         ],
         [
             InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")

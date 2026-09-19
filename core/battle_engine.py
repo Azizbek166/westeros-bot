@@ -14,17 +14,15 @@ def calculate_battle(
     defender_dragon_power: int = 0,
     attacker_artifact_bonuses: Dict[str, float] = None,
     defender_artifact_bonuses: Dict[str, float] = None,
+    catapults: int = 0,
+    siege_towers: int = 0,
+    wildfire_count: int = 0,
+    attacker_champion: str = None,
+    defender_champion: str = None,
 ) -> Dict[str, Any]:
     """
-    Tosh-Qaychi-Qog'oz (RPS) va Strategik Drakarys asosida jang natijasi va yo'qotishlarni hisoblash.
-    
-    Qoidalar:
-    - Otliq > Kamonchi (+40%)
-    - Nayzachi > Otliq (+40%)
-    - Kamonchi > Piyoda (+30%)
-    - Piyoda > Nayzachi (+30%)
-    - Ajdarlar jangi va Drakarys Taktikalari (devorlar, kamonchilar, old qatorlar, yalpi zarba)
-    - Afsonaviy artefaktlar bonusi (qurol, qalqon, reliklar)
+    Tosh-Qaychi-Qog'oz (RPS), Drakarys, Qamal Qurollari va Afsonaviy Qahramonlar
+    asosida jang natijasi va yo'qotishlarni hisoblash.
     """
     troop_types = ["infantry", "archers", "cavalry", "spearmen", "special_troops"]
 
@@ -39,11 +37,66 @@ def calculate_battle(
     att_art = attacker_artifact_bonuses or {}
     def_art = defender_artifact_bonuses or {}
 
+    champion_details = ""
+    champ_names = {
+        "jon_snow": "🐺 Jon Snow (Oq Bo'ri)",
+        "jaime_lannister": "🦁 Ser Jaime Lannister (Qirol Qotili)",
+        "arya_stark": "🗡️ Arya Stark (Yuzsiz Qotil)",
+        "oberyn_martell": "🐍 Shahzoda Oberyn Martell (Qizil Ilon)",
+        "brienne_tarth": "🛡️ Ser Brienne of Tarth (Qasamyod Soqchisi)",
+    }
+    if attacker_champion and attacker_champion in champ_names:
+        champion_details += f"⚔️ **Hujumchi Sarkardasi:** {champ_names[attacker_champion]} safda yetakchilik qilmoqda!\n"
+    if defender_champion and defender_champion in champ_names:
+        champion_details += f"🛡️ **Qal'a Himoyachisi Sarkardasi:** {champ_names[defender_champion]} mudofaani boshqarmoqda!\n"
+    if champion_details:
+        champion_details += "\n"
+
+    siege_details = ""
+    att_losses = {t: 0 for t in troop_types}
+    def_losses = {t: 0 for t in troop_types}
+
+    # ============================================================
+    # 0. QAMAL QUROLLARI VA YOVVOYI OLOV (WILDFIRE) ZARBASI
+    # ============================================================
+    # 0.1. Katapultalar (Devorlarni buzish)
+    if catapults > 0:
+        siege_dmg = min(int(catapults * 35 * random.uniform(0.9, 1.15)), int(castle_defense * 0.65))
+        castle_defense = max(50, castle_defense - siege_dmg)
+        siege_details += (
+            f"🏹🏰 **QAMAL TREBUSHETLARI (KATAPULTA):**\n"
+            f"{catapults} ta katapulta qal'a istehkomlariga tosh yog'dirdi: devor mustahkamligi **-{siege_dmg}** ballga yemirildi!\n\n"
+        )
+
+    # 0.2. Yovvoyi Olov (Wildfire - Himoyachilar tuzog'i)
+    wildfire_used = 0
+    if wildfire_count > 0 and total_att_count > 0:
+        wildfire_used = 1
+        wf_kills = min(int(total_att_count * random.uniform(0.15, 0.25)), 150)
+        wf_kills = max(1, wf_kills)
+        per_type = max(1, wf_kills // len(troop_types))
+        actual_wf_killed = 0
+        for t in troop_types:
+            k = min(att_troops[t], per_type)
+            att_losses[t] += k
+            att_troops[t] -= k
+            actual_wf_killed += k
+        siege_details += (
+            f"💚🔥 **ALKMOGARLAR YOVVOYI OLOVI (WILDFIRE):**\n"
+            f"Himoyachilar qal'a xandaqlarida yashil olovni yondirdi! Hujumchilarning **{actual_wf_killed}** ta askari olov domida qolib halok bo'ldi!\n\n"
+        )
+
+    # 0.3. Qamal Minoralari (Siege Towers)
+    if siege_towers > 0:
+        siege_details += (
+            f"🗼 **QAMAL MINORALARI:**\n"
+            f"{siege_towers} ta minoralar hujumchi piyodalarni devor kamonchilaridan to'sib, qal'a devorlari ustiga xavfsiz olib chiqdi!\n\n"
+        )
+
     # ============================================================
     # DRAKARYS VA AJDARLARNING STRATEGIK HUJUMI
     # ============================================================
     dragon_details = ""
-    def_losses = {t: 0 for t in troop_types}
 
     # Havoda ajdarlar to'qnashuvi (agar har ikki tomonda ajdar bo'lsa)
     eff_att_dragon = dragon_power
@@ -192,13 +245,21 @@ def calculate_battle(
                 continue
             unit_atk = UNITS_DATA[a_type]["attack"]
 
+            c_atk_mult = 1.0
+            if attacker_champion == "jaime_lannister" and a_type == "cavalry":
+                c_atk_mult = 1.25
+            elif attacker_champion == "arya_stark" and a_type in ["special_troops", "archers"]:
+                c_atk_mult = 1.20
+            elif attacker_champion == "oberyn_martell" and a_type == "spearmen":
+                c_atk_mult = 1.30
+
             # RPS multiplikatorini dominant himoyachiga nisbatan olish
             mult = 1.0
             for d_type, d_count in def_troops.items():
                 if d_count > 0 and (a_type, d_type) in RPS_ADVANTAGES:
                     mult = max(mult, RPS_ADVANTAGES[(a_type, d_type)])
 
-            att_power += a_count * unit_atk * mult
+            att_power += a_count * unit_atk * mult * c_atk_mult
 
         att_power *= att_lead_bonus
         if att_art.get("attack_bonus", 0.0) > 0:
@@ -211,27 +272,43 @@ def calculate_battle(
                 continue
             unit_def = UNITS_DATA[d_type]["defense"]
 
+            c_def_mult = 1.0
+            if defender_champion == "jon_snow" and d_type == "infantry":
+                c_def_mult = 1.20
+            elif defender_champion == "brienne_tarth":
+                c_def_mult = 1.15
+
             mult = 1.0
             for a_type, a_count in att_troops.items():
                 if a_count > 0 and (d_type, a_type) in RPS_ADVANTAGES:
                     mult = max(mult, RPS_ADVANTAGES[(d_type, a_type)])
 
-            def_power += d_count * unit_def * mult
+            def_power += d_count * unit_def * mult * c_def_mult
 
         def_power *= def_lead_bonus * castle_mult
 
         # Raunddagi yo'qotishlarni hisoblash
         # Hujumchi zarar beradi -> Himoyachi yo'qotadi
         def_loss_ratio = min(0.60, (att_power / (def_power + att_power + 1.0)) * random.uniform(0.7, 1.0))
+        def_loss_red = 0.15 if defender_champion == "brienne_tarth" else 0.0
         for t in troop_types:
-            lost = int(def_troops[t] * def_loss_ratio)
+            eff_def_ratio = def_loss_ratio * (1.0 - def_loss_red)
+            lost = int(def_troops[t] * eff_def_ratio)
             def_losses[t] += lost
             def_troops[t] = max(0, def_troops[t] - lost)
 
         # Himoyachi zarba qaytaradi -> Hujumchi yo'qotadi
         att_loss_ratio = min(0.60, (def_power / (att_power + def_power + 1.0)) * random.uniform(0.7, 1.0))
+        # Qamal minoralari piyodalarni himoya qiladi (max -35% yo'qotish)
+        inf_reduction = min(0.35, siege_towers * 0.05) if siege_towers > 0 else 0.0
+        if attacker_champion == "jon_snow":
+            inf_reduction = min(0.45, inf_reduction + 0.20)
+        att_loss_red = 0.15 if attacker_champion == "brienne_tarth" else 0.0
+
         for t in troop_types:
-            lost = int(att_troops[t] * att_loss_ratio)
+            eff_loss_ratio = att_loss_ratio * (1.0 - inf_reduction) if t == "infantry" else att_loss_ratio
+            eff_loss_ratio *= (1.0 - att_loss_red)
+            lost = int(att_troops[t] * eff_loss_ratio)
             att_losses[t] += lost
             att_troops[t] = max(0, att_troops[t] - lost)
 
@@ -239,18 +316,23 @@ def calculate_battle(
     final_att = sum(att_troops.values())
     final_def = sum(def_troops.values())
 
-    if final_att > final_def:
-        winner = "attacker"
-        loot = {
-            "gold": random.randint(300, 1200),
-            "food": random.randint(500, 2000),
-            "iron": random.randint(100, 400),
-        }
-        details = f"{dragon_details}🏆 **Hujumchilar qat'iy g'alabaga erishdi!** Qal'a egallandi."
-    else:
-        winner = "defender"
-        loot = {"gold": 0, "food": 0, "iron": 0}
-        details = f"{dragon_details}🛡️ **Himoyachilar hujumni qaytarishga muvaffaq bo'ldi!** Qal'a devorlari bardosh berdi."
+    if winner := ("attacker" if final_att > final_def else "defender"):
+        if winner == "attacker":
+            loot = {
+                "gold": random.randint(300, 1200),
+                "food": random.randint(500, 2000),
+                "iron": random.randint(100, 400),
+            }
+            cat_lost = max(0, int(catapults * random.uniform(0.1, 0.25)))
+            twr_lost = max(0, int(siege_towers * random.uniform(0.1, 0.25)))
+            win_details = "🏆 **Hujumchilar qat'iy g'alabaga erishdi!** Qal'a egallandi."
+        else:
+            loot = {"gold": 0, "food": 0, "iron": 0}
+            cat_lost = min(catapults, max(0 if catapults == 0 else 1, int(catapults * random.uniform(0.5, 0.85))))
+            twr_lost = min(siege_towers, max(0 if siege_towers == 0 else 1, int(siege_towers * random.uniform(0.5, 0.85))))
+            win_details = "🛡️ **Himoyachilar hujumni qaytarishga muvaffaq bo'ldi!** Qal'a devorlari bardosh berdi."
+
+    full_details = f"{champion_details}{siege_details}{dragon_details}{win_details}"
 
     return {
         "winner": winner,
@@ -260,5 +342,8 @@ def calculate_battle(
         "remaining_defender": def_troops,
         "loot": loot,
         "rounds": rounds,
-        "details": details,
+        "catapults_lost": cat_lost,
+        "siege_towers_lost": twr_lost,
+        "wildfire_used": wildfire_used,
+        "details": full_details,
     }

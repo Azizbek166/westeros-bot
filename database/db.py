@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timedelta
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base
 from config import DATABASE_URL
@@ -84,6 +85,17 @@ async def init_db():
                 "ALTER TABLE territories ADD COLUMN conquered_by_user_id INTEGER",
                 "ALTER TABLE battle_marches ADD COLUMN dragon_id INTEGER",
                 "ALTER TABLE users ADD COLUMN title VARCHAR(100)",
+                "ALTER TABLE users ADD COLUMN streak_count INTEGER DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN last_streak_date VARCHAR(10) DEFAULT ''",
+                "ALTER TABLE houses ADD COLUMN group_chat_id BIGINT",
+                "ALTER TABLE houses ADD COLUMN group_title VARCHAR(200)",
+                "ALTER TABLE armies ADD COLUMN catapults INTEGER DEFAULT 0",
+                "ALTER TABLE armies ADD COLUMN siege_towers INTEGER DEFAULT 0",
+                "ALTER TABLE territories ADD COLUMN wildfire_count INTEGER DEFAULT 0",
+                "ALTER TABLE battle_marches ADD COLUMN catapults INTEGER DEFAULT 0",
+                "ALTER TABLE battle_marches ADD COLUMN siege_towers INTEGER DEFAULT 0",
+                "ALTER TABLE armies ADD COLUMN champion VARCHAR(50)",
+                "ALTER TABLE battle_marches ADD COLUMN champion VARCHAR(50)",
             ]:
                 try:
                     await conn.execute(text(alter_stmt))
@@ -100,6 +112,17 @@ async def init_db():
                 "ALTER TABLE territories ADD COLUMN IF NOT EXISTS conquered_by_user_id INTEGER",
                 "ALTER TABLE battle_marches ADD COLUMN IF NOT EXISTS dragon_id INTEGER",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS title VARCHAR(100)",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS streak_count INTEGER DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_streak_date VARCHAR(10) DEFAULT ''",
+                "ALTER TABLE houses ADD COLUMN IF NOT EXISTS group_chat_id BIGINT",
+                "ALTER TABLE houses ADD COLUMN IF NOT EXISTS group_title VARCHAR(200)",
+                "ALTER TABLE armies ADD COLUMN IF NOT EXISTS catapults INTEGER DEFAULT 0",
+                "ALTER TABLE armies ADD COLUMN IF NOT EXISTS siege_towers INTEGER DEFAULT 0",
+                "ALTER TABLE territories ADD COLUMN IF NOT EXISTS wildfire_count INTEGER DEFAULT 0",
+                "ALTER TABLE battle_marches ADD COLUMN IF NOT EXISTS catapults INTEGER DEFAULT 0",
+                "ALTER TABLE battle_marches ADD COLUMN IF NOT EXISTS siege_towers INTEGER DEFAULT 0",
+                "ALTER TABLE armies ADD COLUMN IF NOT EXISTS champion VARCHAR(50)",
+                "ALTER TABLE battle_marches ADD COLUMN IF NOT EXISTS champion VARCHAR(50)",
             ]:
                 try:
                     await conn.execute(text(pg_alter))
@@ -220,6 +243,21 @@ async def init_db():
                 is_active=True,
             )
             session.add(new_ww)
+
+        # Mavsumlar (30-kunlik Seasons) tizimi boshlang'ich 1-mavsumini ishga tushirish
+        from datetime import timedelta
+        s_res = await session.execute(select(models.SeasonState).where(models.SeasonState.is_active == True))
+        active_season = s_res.scalar_one_or_none()
+        if not active_season:
+            now = datetime.utcnow()
+            season1 = models.SeasonState(
+                season_number=1,
+                start_date=now,
+                end_date=now + timedelta(days=30),
+                is_active=True,
+            )
+            session.add(season1)
+            logger.info("✅ 1-Mavsum (Season 1) muvaffaqiyatli ishga tushirildi (30 kunlik sikl).")
 
         await session.commit()
         logger.info("✅ 50 ta Xonadon va Westeros hududlari bazaga kiritildi.")

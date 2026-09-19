@@ -1,5 +1,7 @@
 import json
 import re
+import asyncio
+import html
 from datetime import datetime
 from typing import Optional, Dict, Any
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -359,6 +361,8 @@ async def render_march_prep(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             u_cav = (user.army.cavalry if user.army else 0) or 0
             u_sp = (user.army.spearmen if user.army else 0) or 0
             u_spc = (user.army.special_troops if user.army else 0) or 0
+            u_cat = (user.army.catapults if user.army else 0) or 0
+            u_tow = (user.army.siege_towers if user.army else 0) or 0
             total_army = u_inf + u_arc + u_cav + u_sp + u_spc
 
             if total_army < 50:
@@ -396,6 +400,8 @@ async def render_march_prep(update: Update, context: ContextTypes.DEFAULT_TYPE, 
                     "cavalry": u_cav,
                     "spearmen": u_sp,
                     "special": u_spc,
+                    "catapults": u_cat,
+                    "siege_towers": u_tow,
                     "dragon_id": first_free.id if first_free else None,
                     "dragon_tactic": "balanced" if first_free else "none",
                 }
@@ -406,6 +412,8 @@ async def render_march_prep(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             draft["cavalry"] = max(0, min(draft.get("cavalry", u_cav) or 0, u_cav))
             draft["spearmen"] = max(0, min(draft.get("spearmen", u_sp) or 0, u_sp))
             draft["special"] = max(0, min(draft.get("special", u_spc) or 0, u_spc))
+            draft["catapults"] = max(0, min(draft.get("catapults", u_cat) or 0, u_cat))
+            draft["siege_towers"] = max(0, min(draft.get("siege_towers", u_tow) or 0, u_tow))
 
             sel_dr_id = draft.get("dragon_id")
             active_dragon = next((d for d in free_dragons if d.id == sel_dr_id), None)
@@ -418,6 +426,8 @@ async def render_march_prep(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             sel_cav = draft["cavalry"]
             sel_sp = draft["spearmen"]
             sel_spc = draft["special"]
+            sel_cat = draft["catapults"]
+            sel_tow = draft["siege_towers"]
             total_selected = sel_inf + sel_arc + sel_cav + sel_sp + sel_spc
 
             tactic = draft.get("dragon_tactic", "none")
@@ -456,6 +466,12 @@ async def render_march_prep(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             c_name = terr.castle_name or terr.name or "Qal'a"
             reg = terr.region or "Vesteros"
 
+            siege_lines = ""
+            if u_cat > 0:
+                siege_lines += f"• 🪨 Katapulta: **{sel_cat:,}** / {u_cat:,}\n"
+            if u_tow > 0:
+                siege_lines += f"• 🪜 Qamal minorasi: **{sel_tow:,}** / {u_tow:,}\n"
+
             text = (
                 f"⚔️ **HARBIY YURISH REJASI: {t_name}**\n\n"
                 f"🏰 Nishon: **{c_name}** ({reg})\n"
@@ -465,7 +481,8 @@ async def render_march_prep(update: Update, context: ContextTypes.DEFAULT_TYPE, 
                 f"• 🏹 Kamonchi: **{sel_arc:,}** / {u_arc:,}\n"
                 f"• 🐎 Otliq: **{sel_cav:,}** / {u_cav:,}\n"
                 f"• 🗡️ Nayzachi: **{sel_sp:,}** / {u_sp:,}\n"
-                f"• 🔥 {special_name}: **{sel_spc:,}** / {u_spc:,}\n\n"
+                f"• 🔥 {special_name}: **{sel_spc:,}** / {u_spc:,}\n"
+                f"{siege_lines}\n"
                 f"🎯 **Jami safarbar etilmoqda:** **{total_selected:,}** ta askar\n\n"
                 f"{dragon_info}"
                 f"⚠️ *Hujum boshlangach, 3 kunlik Tinchlik Qalqoningiz bekor bo'ladi!*\n\n"
@@ -508,10 +525,26 @@ async def render_march_prep(update: Update, context: ContextTypes.DEFAULT_TYPE, 
                     InlineKeyboardButton("+25", callback_data=f"m_adj:{terr.id}:spc:+25"),
                     InlineKeyboardButton("MAX", callback_data=f"m_adj:{terr.id}:spc:max"),
                 ],
-                [
-                    InlineKeyboardButton("✍️ Aniq Sonlarni Qo'lda Yozish", callback_data=f"march_custom_req:{terr.id}"),
-                ],
             ]
+
+            if u_cat > 0:
+                buttons.append([
+                    InlineKeyboardButton("-5", callback_data=f"m_adj:{terr.id}:cat:-5"),
+                    InlineKeyboardButton(f"🪨 Katapulta: {sel_cat:,}", callback_data=f"m_info:{terr.id}:cat"),
+                    InlineKeyboardButton("+5", callback_data=f"m_adj:{terr.id}:cat:+5"),
+                    InlineKeyboardButton("MAX", callback_data=f"m_adj:{terr.id}:cat:max"),
+                ])
+            if u_tow > 0:
+                buttons.append([
+                    InlineKeyboardButton("-5", callback_data=f"m_adj:{terr.id}:tow:-5"),
+                    InlineKeyboardButton(f"🪜 Qamal min: {sel_tow:,}", callback_data=f"m_info:{terr.id}:tow"),
+                    InlineKeyboardButton("+5", callback_data=f"m_adj:{terr.id}:tow:+5"),
+                    InlineKeyboardButton("MAX", callback_data=f"m_adj:{terr.id}:tow:max"),
+                ])
+
+            buttons.append([
+                InlineKeyboardButton("✍️ Aniq Sonlarni Qo'lda Yozish", callback_data=f"march_custom_req:{terr.id}"),
+            ])
 
             if free_dragons:
                 sel_name = active_dragon.name if active_dragon else "❌ Ajdarsiz"
@@ -575,6 +608,8 @@ async def march_adj_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             "cav": (user.army.cavalry if user.army else 0) or 0,
             "sp": (user.army.spearmen if user.army else 0) or 0,
             "spc": (user.army.special_troops if user.army else 0) or 0,
+            "cat": (user.army.catapults if user.army else 0) or 0,
+            "tow": (user.army.siege_towers if user.army else 0) or 0,
         }
         unit_key_map = {
             "inf": "infantry",
@@ -582,6 +617,8 @@ async def march_adj_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             "cav": "cavalry",
             "sp": "spearmen",
             "spc": "special",
+            "cat": "catapults",
+            "tow": "siege_towers",
         }
 
         if unit not in unit_max_map:
@@ -597,16 +634,18 @@ async def march_adj_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             "cavalry": user.army.cavalry,
             "spearmen": user.army.spearmen,
             "special": user.army.special_troops,
+            "catapults": getattr(user.army, 'catapults', 0) or 0,
+            "siege_towers": getattr(user.army, 'siege_towers', 0) or 0,
             "dragon_tactic": "balanced",
         })
 
         curr_val = draft.get(draft_key, max_val)
 
-        if action in ["+100", "+25"]:
+        if action in ["+100", "+25", "+5"]:
             delta = int(action)
             draft[draft_key] = min(max_val, curr_val + delta)
             await query.answer(f"{action} ({draft[draft_key]}/{max_val})")
-        elif action in ["-100", "-25"]:
+        elif action in ["-100", "-25", "-5"]:
             delta = int(action[1:])
             draft[draft_key] = max(0, curr_val - delta)
             await query.answer(f"-{delta} ({draft[draft_key]}/{max_val})")
@@ -644,6 +683,8 @@ async def march_preset_callback(update: Update, context: ContextTypes.DEFAULT_TY
         draft["cavalry"] = int(user.army.cavalry * ratio)
         draft["spearmen"] = int(user.army.spearmen * ratio)
         draft["special"] = int(user.army.special_troops * ratio)
+        draft["catapults"] = int((getattr(user.army, 'catapults', 0) or 0) * ratio)
+        draft["siege_towers"] = int((getattr(user.army, 'siege_towers', 0) or 0) * ratio)
         await query.answer(f"{pct}% ga sozlandi")
 
     await render_march_prep(update, context, terr_id)
@@ -726,6 +767,8 @@ async def march_info_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         "cav": "🐎 Otliq",
         "sp": "🗡️ Nayzachi",
         "spc": "🔥 Maxsus Qo'shin",
+        "cat": "🪨 Katapulta (Devorni buzish)",
+        "tow": "🪜 Qamal minorasi (Piyodalarni asrash)",
     }
     unit_name = names.get(unit, "Qo'shin")
     await query.answer(f"{unit_name}: Sonni o'zgartirish uchun yonidagi +/- yoki MAX tugmalaridan foydalaning.", show_alert=False)
@@ -769,6 +812,8 @@ async def send_custom_march_callback(update: Update, context: ContextTypes.DEFAU
         u_cav = (user.army.cavalry if user.army else 0) or 0
         u_sp = (user.army.spearmen if user.army else 0) or 0
         u_spc = (user.army.special_troops if user.army else 0) or 0
+        u_cat = getattr(user.army, 'catapults', 0) or 0
+        u_tow = getattr(user.army, 'siege_towers', 0) or 0
 
         draft = context.user_data.get(f"march_{terr_id}")
         if not draft:
@@ -778,6 +823,8 @@ async def send_custom_march_callback(update: Update, context: ContextTypes.DEFAU
                 "cavalry": u_cav,
                 "spearmen": u_sp,
                 "special": u_spc,
+                "catapults": u_cat,
+                "siege_towers": u_tow,
                 "dragon_tactic": "balanced",
             }
 
@@ -786,6 +833,8 @@ async def send_custom_march_callback(update: Update, context: ContextTypes.DEFAU
         cavalry = max(0, min(draft.get("cavalry", 0) or 0, u_cav))
         spearmen = max(0, min(draft.get("spearmen", 0) or 0, u_sp))
         special_troops = max(0, min(draft.get("special", 0) or 0, u_spc))
+        catapults = max(0, min(draft.get("catapults", 0) or 0, u_cat))
+        siege_towers = max(0, min(draft.get("siege_towers", 0) or 0, u_tow))
         total_sent = infantry + archers + cavalry + spearmen + special_troops
 
         if total_sent <= 0:
@@ -823,6 +872,8 @@ async def send_custom_march_callback(update: Update, context: ContextTypes.DEFAU
             cavalry=cavalry,
             spearmen=spearmen,
             special_troops=special_troops,
+            catapults=catapults,
+            siege_towers=siege_towers,
             character_id=user.characters[0].id if user.characters else None,
             duration_minutes=BASE_MARCH_MINUTES,
             has_dragon=has_dragon,
@@ -861,6 +912,21 @@ async def send_custom_march_callback(update: Update, context: ContextTypes.DEFAU
                     )
                 except Exception:
                     pass
+
+            # Himoyachi xonadon Telegram guruhiga signal yuborish
+            from core.notifier import notify_house_group
+            att_h_name = user.house.name if user.house else "Dushman"
+            att_h_emoji = user.house.emoji if user.house else "⚔️"
+            dr_html = " 🔥 <b>va Jangovar Drakarys Ajdari!</b>" if has_dragon else ""
+            group_war_msg = (
+                f"🚨🚨 <b>DIQQAT! QAL'AMIZGA DUSHMAN YURISH BOSHLADI!</b> 🚨🚨\n\n"
+                f"⚔️ <b>{html.escape(att_h_emoji)} {html.escape(att_h_name)}</b> qo'shini "
+                f"<b>{html.escape(terr.name)}</b> ({html.escape(terr.castle_name)}) qal'amiz sari harakatlanmoqda!\n\n"
+                f"📊 <b>Dushman kuchi:</b> ~{total_sent:,} ta askar{dr_html}\n"
+                f"⏱️ <b>Yetib kelish vaqti:</b> {BASE_MARCH_MINUTES} daqiqa!\n\n"
+                f"🛡️ <i>Barcha xonadon a'zolari zudlik bilan botga kirib, mudofaani kuchaytirsin!</i>"
+            )
+            asyncio.create_task(notify_house_group(context.application, terr.owner_house_id, group_war_msg, parse_mode="HTML"))
 
     tactic_names = {
         "balanced": "Yalpi Olovli Bo'ron",
@@ -928,12 +994,16 @@ async def send_march_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         u_cav = (user.army.cavalry if user.army else 0) or 0
         u_sp = (user.army.spearmen if user.army else 0) or 0
         u_spc = (user.army.special_troops if user.army else 0) or 0
+        u_cat = getattr(user.army, 'catapults', 0) or 0
+        u_tow = getattr(user.army, 'siege_towers', 0) or 0
 
         infantry = int(u_inf * ratio)
         archers = int(u_arc * ratio)
         cavalry = int(u_cav * ratio)
         spearmen = int(u_sp * ratio)
         special = int(u_spc * ratio)
+        catapults = int(u_cat * ratio)
+        siege_towers = int(u_tow * ratio)
 
         total_sent = infantry + archers + cavalry + spearmen + special
         if total_sent <= 0:
@@ -964,6 +1034,8 @@ async def send_march_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             cavalry=cavalry,
             spearmen=spearmen,
             special_troops=special,
+            catapults=catapults,
+            siege_towers=siege_towers,
             character_id=user.characters[0].id if user.characters else None,
             duration_minutes=BASE_MARCH_MINUTES,
             has_dragon=has_dragon,
@@ -998,6 +1070,21 @@ async def send_march_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
                     )
                 except Exception:
                     pass
+
+            # Himoyachi xonadon Telegram guruhiga signal yuborish
+            from core.notifier import notify_house_group
+            att_h_name = user.house.name if user.house else "Dushman"
+            att_h_emoji = user.house.emoji if user.house else "⚔️"
+            dr_html = " 🔥 <b>va Jangovar Drakarys Ajdari!</b>" if has_dragon else ""
+            group_war_msg = (
+                f"🚨🚨 <b>DIQQAT! QAL'AMIZGA DUSHMAN YURISH BOSHLANDI!</b> 🚨🚨\n\n"
+                f"⚔️ <b>{html.escape(att_h_emoji)} {html.escape(att_h_name)}</b> qo'shini "
+                f"<b>{html.escape(terr.name)}</b> ({html.escape(terr.castle_name)}) qal'amiz sari harakatlanmoqda!\n\n"
+                f"📊 <b>Dushman kuchi:</b> ~{total_sent:,} ta askar{dr_html}\n"
+                f"⏱️ <b>Yetib kelish vaqti:</b> {BASE_MARCH_MINUTES} daqiqa!\n\n"
+                f"🛡️ <i>Barcha xonadon a'zolari zudlik bilan botga kirib, mudofaani kuchaytirsin!</i>"
+            )
+            asyncio.create_task(notify_house_group(context.application, terr.owner_house_id, group_war_msg, parse_mode="HTML"))
 
     dr_msg = "\n🐉 Ajdarga Drakarys buyrug'i berildi!" if has_dragon else ""
     text = (

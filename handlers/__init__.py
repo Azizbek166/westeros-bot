@@ -13,6 +13,9 @@ from handlers.dragon_handler import register_dragon_handlers
 from handlers.duel_handler import register_duel_handlers
 from handlers.raven_handler import register_raven_handlers
 from handlers.trade_handler import register_trade_handlers
+from handlers.bank_handler import register_bank_handlers
+from handlers.champion_handler import register_champion_handlers
+from handlers.season_handler import register_season_handlers
 
 def register_all_handlers(app):
     """Barcha bot handlerlarini Application ga ro'yxatdan o'tkazish"""
@@ -31,3 +34,7 @@ def register_all_handlers(app):
     register_duel_handlers(app)
     register_raven_handlers(app)
     register_trade_handlers(app)
+    register_bank_handlers(app)
+    register_champion_handlers(app)
+    register_season_handlers(app)
+

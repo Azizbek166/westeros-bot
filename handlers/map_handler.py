@@ -447,6 +447,7 @@ async def show_my_castle_detail(query, user_id: int, terr_id: int):
             f"📍 Hudud: **{terr.name}** ({terr.region})\n"
             f"🏛️ Qal'a Bosqichi: **{tier_str}**\n"
             f"🛡️ Mudofaa Devori: **{defense_val:,}** / {MAX_WALL_DEFENSE:,} ball{wall_max_str}\n"
+            f"💚 Yovvoyi Olov (Wildfire): **{getattr(terr, 'wildfire_count', 0) or 0} / 5 ta**\n"
             f"🐉 Mudofaadagi Ajdar: **{drg_str}**\n\n"
             f"⚔️ **GARNIZON KUCHLARI:**\n"
             f"• 🛡️ Piyoda: **{g_inf:,}**\n"
@@ -486,6 +487,13 @@ async def show_my_castle_detail(query, user_id: int, terr_id: int):
             buttons.append([InlineKeyboardButton(f"🛡️ Devor Mudofaasi Maksimal ({defense_val:,}/{MAX_WALL_DEFENSE:,})", callback_data=f"max_walls_alert:{terr.id}")])
         else:
             buttons.append([InlineKeyboardButton("🛡️ Devorni Kuchaytirish (-1,500🪙, -2,000⛓️)", callback_data=f"upgrade_walls:{terr.id}")])
+        curr_wf = getattr(terr, 'wildfire_count', 0) or 0
+        if is_lord:
+            if curr_wf < 5:
+                buttons.append([InlineKeyboardButton(f"💚 Yovvoyi Olov O'rnatish ({curr_wf}/5: 1.5k🪙, 800⛓️)", callback_data=f"buy_wildfire:{terr.id}")])
+            else:
+                buttons.append([InlineKeyboardButton("💚 Yovvoyi Olov Zaxirasi To'liq (5/5)", callback_data="wf_max_alert")])
+
         buttons.append([InlineKeyboardButton("🔙 Qalalarim Ro'yxati", callback_data="menu_castles")])
         buttons.append([InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")])
 
@@ -741,6 +749,21 @@ async def war_closed_notice_callback(update: Update, context: ContextTypes.DEFAU
     )
 
 
+async def buy_wildfire_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Qal'a mudofaasiga Yovvoyi Olov sotib olish (faqat Lord)"""
+    query = update.callback_query
+    terr_id = int(query.data.split(":")[1])
+    user_id = query.from_user.id
+    async with AsyncSessionLocal() as session:
+        ok, msg = await crud.buy_wildfire_defense(session, user_id, terr_id, amount=1)
+    await query.answer(msg[:150], show_alert=True)
+    await show_my_castle_detail(query, user_id, terr_id)
+
+
+async def wf_max_alert_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.callback_query.answer("💚 Qal'ada Yovvoyi Olov zaxirasi maksimal (5/5 dona)!", show_alert=True)
+
+
 def register_map_handlers(app):
     app.add_handler(CommandHandler("map", map_command))
     app.add_handler(CommandHandler("territory", map_command))
@@ -761,3 +784,5 @@ def register_map_handlers(app):
     app.add_handler(CallbackQueryHandler(terr_dragon_info_callback, pattern="^terr_dragon_info$"))
     app.add_handler(CallbackQueryHandler(war_closed_notice_callback, pattern="^war_closed_notice$"))
     app.add_handler(CallbackQueryHandler(max_walls_alert_callback, pattern="^max_walls_alert:"))
+    app.add_handler(CallbackQueryHandler(buy_wildfire_callback, pattern="^buy_wildfire:"))
+    app.add_handler(CallbackQueryHandler(wf_max_alert_callback, pattern="^wf_max_alert$"))

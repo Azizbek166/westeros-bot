@@ -41,6 +41,8 @@ async def show_army(target, user_id: int, is_message: bool):
         army = user.army
         upkeep = calculate_army_upkeep(army)
         special_name = user.house.special_troop_name if user.house else "Maxsus Qo'shin"
+        cats = getattr(army, "catapults", 0) or 0
+        twrs = getattr(army, "siege_towers", 0) or 0
 
         text = (
             f"⚔️ **ARMIYA QARORGOHI**\n"
@@ -48,6 +50,7 @@ async def show_army(target, user_id: int, is_message: bool):
             f"🛡️ Piyoda: **{army.infantry:,}** | 🏹 Kamonchi: **{army.archers:,}**\n"
             f"🐎 Otliq: **{army.cavalry:,}** | 🗡️ Nayzachi: **{army.spearmen:,}**\n"
             f"🔥 {special_name}: **{army.special_troops:,}**\n"
+            f"🏹 Qamal Katapultasi: **{cats:,} / 20 ta** | 🗼 Qamal Minorasi: **{twrs:,} / 10 ta**\n\n"
             f"💡 *Jang afzalligi: 🐎>🏹, 🗡️>🐎, 🏹>🛡️, 🛡️>🗡️*"
         )
 
@@ -363,6 +366,64 @@ async def handle_quick_recruit_command(update: Update, context: ContextTypes.DEF
             await update.message.reply_text("❌ Xatolik yuz berdi.")
 
 
+async def siege_workshop_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Qamal qurollari ustaxonasi menyusi"""
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_with_relations(session, user_id)
+        if not user:
+            return
+
+        army = user.army
+        cats = getattr(army, "catapults", 0) or 0
+        twrs = getattr(army, "siege_towers", 0) or 0
+
+        text = (
+            f"🏹🗼 **QAMAL QUROLLARI USTAXONASI (SIEGE WORKSHOP)**\n\n"
+            f"Dushman qal'alarining mustahkam devorlarini buzib kirish va o'z piyodalaringizni asrash uchun qamal mashinalarini yasang!\n\n"
+            f"💰 Hamyoningiz: <b>{user.gold:,}🪙 Oltin | {user.iron:,}⛓️ Temir | {user.food:,}🌾 Oziq</b>\n\n"
+            f"──────── <b>MAVJUD QAMAL QUROLLARI</b> ────────\n"
+            f"1. 🏹 <b>Qamal Trebusheti (Katapulta): {cats} / 20 ta</b>\n"
+            f"   • Narxi: 400🪙 Oltin | 600⛓️ Temir | 100🌾 Oziq\n"
+            f"   • Xususiyati: Jang boshlanishida qal'a devorini masofadan yemirib tashlaydi (-35 mudofaa/dona).\n\n"
+            f"2. 🗼 <b>Qamal Minorasi (Siege Tower): {twrs} / 10 ta</b>\n"
+            f"   • Narxi: 300🪙 Oltin | 500⛓️ Temir | 50🌾 Oziq\n"
+            f"   • Xususiyati: Piyodalarni devordagi kamonchilar o'qlaridan himoyalab, istehkomlar ustiga olib chiqadi (-35% talafot).\n\n"
+            f"Kerakli qurol va sonni tanlang:"
+        )
+
+        buttons = [
+            [
+                InlineKeyboardButton("🏹 +1 Katapulta (400🪙, 600⛓️)", callback_data="build_siege:catapult:1"),
+                InlineKeyboardButton("🏹 +5 Katapulta", callback_data="build_siege:catapult:5"),
+            ],
+            [
+                InlineKeyboardButton("🗼 +1 Qamal Minorasi (300🪙, 500⛓️)", callback_data="build_siege:siege_tower:1"),
+                InlineKeyboardButton("🗼 +3 Qamal Minorasi", callback_data="build_siege:siege_tower:3"),
+            ],
+            [InlineKeyboardButton("🔙 Armiyaga Qaytish", callback_data="menu_army")],
+        ]
+        await query.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def build_siege_weapon_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Qamal qurolini yasash ijrosi"""
+    query = update.callback_query
+    parts = query.data.split(":")
+    w_type = parts[1]
+    amount = int(parts[2])
+    user_id = query.from_user.id
+
+    async with AsyncSessionLocal() as session:
+        ok, msg = await crud.build_siege_weapon(session, user_id, w_type, amount)
+
+    await query.answer(msg[:150], show_alert=True)
+    await siege_workshop_menu_callback(update, context)
+
+
 def register_army_handlers(app):
     app.add_handler(CommandHandler(["army", "recruit", "askar"], army_command))
     app.add_handler(CallbackQueryHandler(army_callback, pattern="^menu_army$"))
@@ -370,3 +431,6 @@ def register_army_handlers(app):
     app.add_handler(CallbackQueryHandler(rec_custom_menu_callback, pattern="^rec_custom_menu$"))
     app.add_handler(CallbackQueryHandler(rec_custom_pick_callback, pattern="^rec_custom_pick:"))
     app.add_handler(CallbackQueryHandler(rec_do_callback, pattern="^rec_do:"))
+    app.add_handler(CallbackQueryHandler(siege_workshop_menu_callback, pattern="^siege_workshop_menu$"))
+    app.add_handler(CallbackQueryHandler(build_siege_weapon_callback, pattern="^build_siege:"))
+

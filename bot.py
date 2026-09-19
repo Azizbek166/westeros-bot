@@ -42,14 +42,15 @@ async def march_resolution_job(context: ContextTypes.DEFAULT_TYPE):
 
 
 async def hourly_economy_job(context: ContextTypes.DEFAULT_TYPE):
-    """Har 1 soatda resurslar, oziq-ovqat iste'moli va 10 kunlik Lordlik muddatini tekshirish"""
+    """Har 1 soatda resurslar, oziq-ovqat iste'moli, Lordlik muddati va 30 kunlik Mavsum yakunini tekshirish"""
     try:
         async with AsyncSessionLocal() as session:
             await process_hourly_tick(session)
+            await crud.check_and_conclude_season(session, bot_app=context.application)
         logger.info("💰 Soatlik iqtisodiyot va oziq-ovqat iste'moli hisoblandi.")
         await check_house_election_expiration(bot_app=context.application)
     except Exception as e:
-        logger.error(f"Economy / election tick xatosi: {e}")
+        logger.error(f"Economy / election / season tick xatosi: {e}")
 
 
 async def npc_tick_job(context: ContextTypes.DEFAULT_TYPE):

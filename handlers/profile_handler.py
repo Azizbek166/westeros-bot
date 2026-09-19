@@ -109,9 +109,21 @@ async def daily_bonus_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         ok, msg = await crud.claim_daily_bonus(session, user.id)
 
     if query:
-        await query.answer(msg, show_alert=True)
-        if ok:
-            await show_profile(query, user_id, is_message=False)
+        alert_title = "🎁 Kunlik Qirol Tuhfasi qabul qilindi!" if ok else "⏳ Bugungi tuhfa allaqachon olingan!"
+        try:
+            await query.answer(alert_title, show_alert=False)
+        except Exception:
+            pass
+
+        buttons = [
+            [InlineKeyboardButton("👤 Profilga Qaytish", callback_data="menu_profile")],
+            [InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")],
+        ]
+        markup = InlineKeyboardMarkup(buttons)
+        try:
+            await query.edit_message_text(msg, parse_mode="Markdown", reply_markup=markup)
+        except Exception:
+            await query.message.reply_text(msg, parse_mode="Markdown", reply_markup=markup)
     else:
         await update.message.reply_text(msg, parse_mode="Markdown")
 

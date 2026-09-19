@@ -60,6 +60,8 @@ class User(Base):
 
     # Kunlik bonus va taklif (Referral)
     last_daily_bonus = Column(DateTime, nullable=True)
+    streak_count = Column(Integer, default=0)              # 7 kunlik uzluksiz kirish (1-7)
+    last_streak_date = Column(String(10), default="")      # YYYY-MM-DD
     referred_by_id = Column(Integer, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -89,6 +91,8 @@ class House(Base):
 
     lord_user_id = Column(BigInteger, nullable=True)  # Xonadon yetakchisi
     lord_elected_at = Column(DateTime, nullable=True)  # Lord saylangan vaqt (har 10 kunda saylov yangilanadi)
+    group_chat_id = Column(BigInteger, nullable=True)  # Xonadonning Telegram guruh chat ID si
+    group_title = Column(String(200), nullable=True)   # Telegram guruh nomi
     gold = Column(BigInteger, default=5000)
     food = Column(BigInteger, default=10000)
     iron = Column(BigInteger, default=2000)
@@ -134,6 +138,9 @@ class Army(Base):
     cavalry = Column(Integer, default=25)        # Otliqlar
     spearmen = Column(Integer, default=25)       # Nayzachilar
     special_troops = Column(Integer, default=0)  # Xonadon maxsus askari
+    catapults = Column(Integer, default=0)       # Qamal katapultalari (devor yemiruvchi, max 20)
+    siege_towers = Column(Integer, default=0)    # Qamal minoralari (piyodalarni asrovchi, max 10)
+    champion = Column(String(50), nullable=True) # Afsonaviy qahramon (jon_snow, jaime, arya, oberyn, brienne)
 
     updated_at = Column(DateTime, default=datetime.utcnow)
 
@@ -191,6 +198,7 @@ class Territory(Base):
 
     is_capital = Column(Boolean, default=False)  # King's Landing, Winterfell va h.k.
     castle_level = Column(Integer, default=1)  # Qal'a istehkom darajasi (Tier 1-5)
+    wildfire_count = Column(Integer, default=0) # Alkimyogarlar Yovvoyi Olovi (Wildfire, max 5)
     last_tax_collected_at = Column(DateTime, default=datetime.utcnow)  # Oxirgi o'lpon yig'ilgan vaqt
     reinforcements_json = Column(Text, default="{}")  # Ittifoqchilar mudofaasi: {house_name: {infantry: N, ...}}
 
@@ -229,6 +237,9 @@ class BattleMarch(Base):
     cavalry = Column(Integer, default=0)
     spearmen = Column(Integer, default=0)
     special_troops = Column(Integer, default=0)
+    catapults = Column(Integer, default=0)
+    siege_towers = Column(Integer, default=0)
+    champion = Column(String(50), nullable=True) # Hujumga yetakchilik qilayotgan qahramon
     character_id = Column(Integer, nullable=True)
     has_dragon = Column(Boolean, default=False)
     dragon_id = Column(Integer, nullable=True)  # Hujumda ishtirok etayotgan aniq ajdar ID si
@@ -463,6 +474,65 @@ class HouseTrade(Base):
     seller_house = relationship("House", foreign_keys=[seller_house_id])
     buyer = relationship("User", foreign_keys=[buyer_user_id])
     buyer_house = relationship("House", foreign_keys=[buyer_house_id])
+
+
+# ============================================================
+# 22. BRAAVOS TEMIR BANKI (IRON BANK OF BRAAVOS)
+# ============================================================
+class IronBank(Base):
+    __tablename__ = "iron_bank"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False, index=True)
+
+    # Omonat (Deposit)
+    deposit_gold = Column(BigInteger, default=0)
+    deposit_updated_at = Column(DateTime, default=datetime.utcnow)
+    last_interest_claimed_at = Column(DateTime, default=datetime.utcnow)
+
+    # Qarz (Loan)
+    loan_gold = Column(BigInteger, default=0)              # Asosiy qarz miqdori
+    loan_due_at = Column(DateTime, nullable=True)          # Qarz qaytarish oxirgi muddati (5 kun)
+    loan_interest_rate = Column(Float, default=0.10)       # 10% foiz
+    is_defaulted = Column(Boolean, default=False)          # Qarz muddati o'tib ketgan
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    user = relationship("User")
+
+
+# ============================================================
+# 23. MAVSUMLAR TIZIMI (30-DAY SEASONS)
+# ============================================================
+class SeasonState(Base):
+    __tablename__ = "season_states"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    season_number = Column(Integer, default=1, unique=True)
+    start_date = Column(DateTime, default=datetime.utcnow)
+    end_date = Column(DateTime, nullable=False)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# ============================================================
+# 24. SHON-SHARAF ZALI (HALL OF FAME)
+# ============================================================
+class HallOfFame(Base):
+    __tablename__ = "hall_of_fame"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    season_number = Column(Integer, nullable=False)
+    winner_house_id = Column(Integer, ForeignKey("houses.id"), nullable=True)
+    winner_house_name = Column(String(100), nullable=False)
+    king_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    king_name = Column(String(100), nullable=True)
+    top_warrior_name = Column(String(100), nullable=True)
+    top_warrior_prestige = Column(Integer, default=0)
+    concluded_at = Column(DateTime, default=datetime.utcnow)
+
+    winner_house = relationship("House", foreign_keys=[winner_house_id])
+    king = relationship("User", foreign_keys=[king_user_id])
+
 
 
 

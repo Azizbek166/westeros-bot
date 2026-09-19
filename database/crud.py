@@ -468,17 +468,25 @@ async def create_battle_march(
     has_dragon: bool = False,
     dragon_tactic: str = "none",
     dragon_id: Optional[int] = None,
+    catapults: int = 0,
+    siege_towers: int = 0,
+    champion: Optional[str] = None,
 ) -> models.BattleMarch:
     """Yangi harbiy yurishni ro'yxatga olish"""
     # O'yinchining armiyasidan yuborilgan qismini ayirish
     army_res = await session.execute(select(models.Army).where(models.Army.user_id == attacker_user_id))
     army = army_res.scalar_one_or_none()
+    march_champ = champion
     if army:
         army.infantry = max(0, army.infantry - infantry)
         army.archers = max(0, army.archers - archers)
         army.cavalry = max(0, army.cavalry - cavalry)
         army.spearmen = max(0, army.spearmen - spearmen)
         army.special_troops = max(0, army.special_troops - special_troops)
+        army.catapults = max(0, (army.catapults or 0) - catapults)
+        army.siege_towers = max(0, (army.siege_towers or 0) - siege_towers)
+        if not march_champ:
+            march_champ = army.champion
 
     arrival_time = datetime.utcnow() + timedelta(minutes=duration_minutes)
 
@@ -495,6 +503,9 @@ async def create_battle_march(
         has_dragon=has_dragon,
         dragon_id=dragon_id,
         dragon_tactic=dragon_tactic,
+        catapults=catapults,
+        siege_towers=siege_towers,
+        champion=march_champ,
         departure_time=datetime.utcnow(),
         arrival_time=arrival_time,
         status="marching",
@@ -2738,31 +2749,204 @@ async def get_inbox_ravens(session: AsyncSession, user_id: int, limit: int = 5) 
 # ============================================================
 # DAILY BONUS & REFERRAL CRUD
 # ============================================================
+# 7-DAY DAILY STREAK RETENTION SYSTEM
+# ============================================================
+
+STREAK_REWARDS = {
+    1: {
+        "title": "1-Kun: Boshlang'ich Safarbarlik",
+        "gold": 500, "food": 1000, "iron": 200, "prestige": 25, "xp": 50,
+        "troops": {},
+        "extra_desc": ""
+    },
+    2: {
+        "title": "2-Kun: Xonadon Zaxirasi",
+        "gold": 750, "food": 1500, "iron": 350, "prestige": 35, "xp": 75,
+        "troops": {},
+        "extra_desc": ""
+    },
+    3: {
+        "title": "3-Kun: Qalqonbardorlar Kelishi",
+        "gold": 1000, "food": 2000, "iron": 500, "prestige": 50, "xp": 100,
+        "troops": {"infantry": 25},
+        "extra_desc": "🛡️ +25 ta Piyoda saflaringizga qo'shildi!"
+    },
+    4: {
+        "title": "4-Kun: Mohir Merganlar",
+        "gold": 1500, "food": 2500, "iron": 700, "prestige": 70, "xp": 150,
+        "troops": {"archers": 15},
+        "extra_desc": "🏹 +15 ta Kamonchi armiyangizga qo'shildi!"
+    },
+    5: {
+        "title": "5-Kun: Ritsarlar Hamlasi",
+        "gold": 2000, "food": 3000, "iron": 900, "prestige": 90, "xp": 200,
+        "troops": {"cavalry": 10},
+        "extra_desc": "🐎 +10 ta Og'ir Otliq bayrog'ingiz ostida!"
+    },
+    6: {
+        "title": "6-Kun: Nayzadorlar Qal'asi",
+        "gold": 2500, "food": 4000, "iron": 1200, "prestige": 120, "xp": 250,
+        "troops": {"spearmen": 10},
+        "extra_desc": "🗡️ +10 ta Safarbar Nayzachi armiyangizda!"
+    },
+    7: {
+        "title": "7-Kun: 👑 SUPER VALIRIYA TUHFASI",
+        "gold": 4000, "food": 6000, "iron": 2000, "prestige": 200, "xp": 400,
+        "troops": {"special_troops": 15},
+        "dragon_power": 50,
+        "extra_desc": "🔥 +15 ta Maxsus Gvardiya va Ajdaringizga +50 Quvvat (Ozuqa)!"
+    },
+}
+
+
+def format_streak_calendar(current_streak: int, claimed_today: bool) -> str:
+    """7 kunlik kirish taqvimini chiroyli vizual ko'rinishda shakllantirish"""
+    lines = []
+    for day in range(1, 8):
+        info = STREAK_REWARDS[day]
+        if day < current_streak or (day == current_streak and claimed_today):
+            status = "✅ [Olingan]"
+        elif day == current_streak and not claimed_today:
+            status = "🎁 [Bugun oling!]"
+        elif claimed_today and day == ((current_streak % 7) + 1):
+            status = "⏳ [Ertaga]"
+        else:
+            status = "🔒 [Kutilmoqda]"
+
+        bonus_summary = f"{info['gold']}🪙 {info['food']}🌾 {info['iron']}⛓️"
+        if info.get("troops"):
+            t_name = list(info["troops"].keys())[0]
+            t_cnt = list(info["troops"].values())[0]
+            bonus_summary += f" +{t_cnt} askar"
+        if info.get("dragon_power"):
+            bonus_summary += " +🔥Ajdar ozuqasi"
+
+        lines.append(f"• **{day}-kun:** {status} — _{bonus_summary}_")
+    return "\n".join(lines)
+
 
 async def claim_daily_bonus(session: AsyncSession, user_id: int) -> Tuple[bool, str]:
-    """Kunlik 24 soatlik xazina bonusi"""
+    """7 kunlik uzluksiz kirish (Streak) tizimi"""
     user = await get_user_any(session, user_id)
     if not user:
         return False, "Foydalanuvchi topilmadi."
 
     now = datetime.utcnow()
-    if user.last_daily_bonus:
-        diff = (now - user.last_daily_bonus).total_seconds()
-        if diff < 86400:
-            remaining_hours = int((86400 - diff) // 3600)
-            remaining_mins = int(((86400 - diff) % 3600) // 60)
-            return False, f"⏳ Kunlik bonusni oldingiz! Yangi sovg'a {remaining_hours} soat {remaining_mins} daqiqadan so'ng beriladi."
+    today_str = now.strftime("%Y-%m-%d")
+    today_date = now.date()
 
-    user.gold += 500
-    user.food += 1000
-    user.iron += 200
-    user.prestige += 25
+    # 1. Bugun allaqachon olinganmi?
+    if user.last_streak_date == today_str:
+        remaining_hours = 23 - now.hour
+        remaining_mins = 59 - now.minute
+        cal = format_streak_calendar(user.streak_count or 1, claimed_today=True)
+        msg = (
+            f"⏳ **BUGUNGI TUHFA ALLAQACHON QABUL QILINGAN!**\n\n"
+            f"🔥 Sizning ketma-ket kirish ko'rsatkichingiz: **{user.streak_count}-kun**\n"
+            f"Yangi sovg'a {remaining_hours} soat {remaining_mins} daqiqadan so'ng (ertaga) ochiladi.\n\n"
+            f"📅 **7 KUNLIK TUHFALAR TAQVIMI:**\n{cal}\n\n"
+            f"💡 _Har kuni botga kiring va 7-kunda Katta Ajdar Tuhfasini qo'lga kiriting!_"
+        )
+        return False, msg
+
+    # 2. Yangi streak hisoblash
+    streak_reset = False
+    if user.last_streak_date:
+        try:
+            last_date = datetime.strptime(user.last_streak_date, "%Y-%m-%d").date()
+            diff_days = (today_date - last_date).days
+            if diff_days == 1:
+                # Uzluksiz davom etmoqda
+                new_streak = (user.streak_count or 0) + 1
+                if new_streak > 7:
+                    new_streak = 1  # 7-kundan so'ng yangi davr boshlanadi
+            else:
+                # Orada kun o'tkazib yuborilgan - qayta boshlanadi
+                new_streak = 1
+                streak_reset = True
+        except Exception:
+            new_streak = 1
+    else:
+        new_streak = 1
+
+    reward = STREAK_REWARDS.get(new_streak, STREAK_REWARDS[1])
+
+    # 3. Resurslar va sovrinlarni taqsimlash
+    user.streak_count = new_streak
+    user.last_streak_date = today_str
     user.last_daily_bonus = now
+
+    user.gold = (user.gold or 0) + reward["gold"]
+    user.food = (user.food or 0) + reward["food"]
+    user.iron = (user.iron or 0) + reward["iron"]
+    user.prestige = (user.prestige or 0) + reward["prestige"]
+    user.xp = (user.xp or 0) + reward["xp"]
+
+    # Askarlarni qo'shish
+    troops_msg = ""
+    if reward.get("troops"):
+        army = await get_user_army(session, user.id)
+        if army:
+            for t_type, count in reward["troops"].items():
+                if hasattr(army, t_type):
+                    setattr(army, t_type, (getattr(army, t_type) or 0) + count)
+            troops_msg = f"\n{reward.get('extra_desc', '')}"
+
+    # Ajdar quvvati
+    dragon_msg = ""
+    if reward.get("dragon_power"):
+        dragons = await get_user_dragons(session, user.id)
+        if dragons:
+            best_dragon = max(dragons, key=lambda d: d.power)
+            best_dragon.power += reward["dragon_power"]
+            best_dragon.hunger = min(100, (best_dragon.hunger or 50) + 40)
+            dragon_msg = f"\n🐉 Ajdaringiz ({best_dragon.name}) to'yintirildi: +{reward['dragon_power']} quvvat!"
+
+    # Level up tekshirish
+    from core.leveling import check_user_level_up
+    lvl_up, new_lvl, lvl_msg = check_user_level_up(user)
+    extra_lvl = f"\n\n{lvl_msg}" if lvl_up else ""
+
     await session.commit()
-    return True, "🎁 **KUNLIK QIROL TUHFASI QABUL QILINDI!**\n\n+500🪙 Oltin\n+1,000🌾 Oziq-ovqat\n+200⛓️ Temir\n+25🏆 Prestige"
+
+    cal = format_streak_calendar(new_streak, claimed_today=True)
+
+    reset_note = "⚠️ _Kechagi kun o'tkazib yuborilgani sababli streak 1-kundan qayta boshlandi._\n\n" if streak_reset else ""
+
+    success_msg = (
+        f"🎁 **KUNLIK QIROL TUHFASI QABUL QILINDI!**\n\n"
+        f"{reset_note}"
+        f"🔥 **{reward['title']}** (Streak: {new_streak}/7)\n\n"
+        f"• 🪙 Oltin: **+{reward['gold']:,}**\n"
+        f"• 🌾 Oziq-ovqat: **+{reward['food']:,}**\n"
+        f"• ⛓️ Temir: **+{reward['iron']:,}**\n"
+        f"• 🏆 Nufuz: **+{reward['prestige']:,}**\n"
+        f"• ⭐ Tajriba: **+{reward['xp']:,} XP**"
+        f"{troops_msg}"
+        f"{dragon_msg}"
+        f"{extra_lvl}\n\n"
+        f"📅 **7 KUNLIK TAQVIM:**\n{cal}\n\n"
+        f"💡 _Ertaga kirib navbatdagi sovg'ani olishni unutmang!_"
+    )
+    return True, success_msg
 
 
-# ============================================================
+async def set_house_group_chat(session: AsyncSession, house_id: int, chat_id: int, chat_title: str) -> bool:
+    """Xonadon rasmiy Telegram guruhini biriktirish"""
+    house = await session.get(models.House, house_id)
+    if not house:
+        return False
+    house.group_chat_id = chat_id
+    house.group_title = chat_title
+    await session.commit()
+    return True
+
+
+async def get_house_by_group_chat_id(session: AsyncSession, chat_id: int) -> Optional[models.House]:
+    """Guruh chat ID si bo'yicha xonadonni topish"""
+    res = await session.execute(select(models.House).where(models.House.group_chat_id == chat_id))
+    return res.scalar_one_or_none()
+
 # RESOURCE MARKET (IRON & FOOD) CRUD
 # ============================================================
 
@@ -3571,6 +3755,506 @@ async def fulfill_house_trade(session: AsyncSession, buyer_user_id: int, trade_i
 
     await session.commit()
     return True, f"🎉 Bitim muvaffaqiyatli!\n\n+{trade.offer_amount:,} {res_names.get(trade.offer_resource, '')} qabul qildingiz.\n-{trade.request_amount:,} {res_names.get(trade.request_resource, '')} to'landi.\nXonadoningizga +10 Prestige! ⚖️"
+
+
+# ============================================================
+# SIEGE WEAPONS WORKSHOP CRUD
+# ============================================================
+
+SIEGE_WEAPON_CONFIG = {
+    "catapult": {
+        "name": "Qamal Trebusheti (Katapulta)",
+        "gold": 400, "iron": 600, "food": 100,
+        "max": 20,
+        "field": "catapults",
+        "desc": "Qal'a devorlarini uzoqdan yemirib tashlaydi (-35 mudofaa/dona)."
+    },
+    "siege_tower": {
+        "name": "Qamal Minorasi",
+        "gold": 300, "iron": 500, "food": 50,
+        "max": 10,
+        "field": "siege_towers",
+        "desc": "Piyodalarni devor kamonchilari o'qlaridan himoya qiladi (-35% yo'qotish)."
+    }
+}
+
+
+async def build_siege_weapon(session: AsyncSession, user_id: int, weapon_type: str, amount: int = 1) -> Tuple[bool, str]:
+    """Qamal qurolini ustaxonada yasash"""
+    if weapon_type not in SIEGE_WEAPON_CONFIG or amount <= 0:
+        return False, "Noto'g'ri qurol turi yoki miqdor."
+
+    conf = SIEGE_WEAPON_CONFIG[weapon_type]
+    user = await get_user_any(session, user_id)
+    if not user:
+        return False, "Foydalanuvchi topilmadi."
+
+    army = await get_user_army(session, user.id)
+    if not army:
+        return False, "Armiya topilmadi."
+
+    current_val = getattr(army, conf["field"], 0) or 0
+    if current_val + amount > conf["max"]:
+        return False, f"❌ Siz ko'pi bilan {conf['max']} ta {conf['name']} yasashingiz mumkin! Hozirda sizda: {current_val} ta bor."
+
+    tot_gold = conf["gold"] * amount
+    tot_iron = conf["iron"] * amount
+    tot_food = conf["food"] * amount
+
+    if user.gold < tot_gold or user.iron < tot_iron or user.food < tot_food:
+        return False, (
+            f"❌ Resurslar yetarli emas!\n\n"
+            f"{amount} ta {conf['name']} yasash uchun kerak:\n"
+            f"• 🪙 {tot_gold:,} Oltin (sizda: {user.gold:,})\n"
+            f"• ⛓️ {tot_iron:,} Temir (sizda: {user.iron:,})\n"
+            f"• 🌾 {tot_food:,} Oziq-ovqat (sizda: {user.food:,})"
+        )
+
+    user.gold -= tot_gold
+    user.iron -= tot_iron
+    user.food -= tot_food
+    setattr(army, conf["field"], current_val + amount)
+
+    await session.commit()
+    return True, (
+        f"✅ **QAMAL QUROLI MUVAFFAQIYATLI YASALDI!**\n\n"
+        f"+{amount} ta **{conf['name']}** armiyangiz safiga qo'shildi!\n"
+        f"Mavjud zaxira: **{current_val + amount} / {conf['max']} ta**\n"
+        f"💡 _{conf['desc']}_"
+    )
+
+
+async def buy_wildfire_defense(session: AsyncSession, user_id: int, territory_id: int, amount: int = 1) -> Tuple[bool, str]:
+    """Qal'aga Alkimyogarlar Yovvoyi Olovini o'rnatish (Har bir qal'ada max 5 ta)"""
+    user = await get_user_with_relations(session, user_id)
+    terr = await get_territory_by_id(session, territory_id)
+    if not user or not terr:
+        return False, "Ma'lumot topilmadi."
+
+    is_lord = (user.house and user.house.lord_user_id == user.telegram_id) or (user.rank == "king")
+    if not is_lord or terr.owner_house_id != user.house_id:
+        return False, "❌ Faqat qal'a tegishli bo'lgan xonadon Lordi Yovvoyi Olov o'rnata oladi!"
+
+    curr_wf = getattr(terr, "wildfire_count", 0) or 0
+    if curr_wf + amount > 5:
+        return False, f"❌ Ushbu qal'ada maksimal 5 ta Yovvoyi Olov saqlanishi mumkin! Hozirda: {curr_wf}/5 ta."
+
+    cost_gold = 1500 * amount
+    cost_iron = 800 * amount
+
+    if user.gold < cost_gold or user.iron < cost_iron:
+        return False, f"❌ Yovvoyi Olov tayyorlash uchun {cost_gold:,}🪙 Oltin va {cost_iron:,}⛓️ Temir kerak!"
+
+    user.gold -= cost_gold
+    user.iron -= cost_iron
+    terr.wildfire_count = curr_wf + amount
+    await session.commit()
+
+    return True, (
+        f"💚🔥 **YOVVOYI OLOV (WILDFIRE) O'RNATILDI!**\n\n"
+        f"🏰 **{terr.name}** qal'asi xandaqlariga +{amount} ta Yovvoyi Olov joylashtirildi!\n"
+        f"Mavjud zaxira: **{curr_wf + amount} / 5 ta**\n\n"
+        f"Dushman qal'aga hujum qilgan zahoti yashil olov avtomatik portlab, dushmanning ulkan qo'shinini yoqib yuboradi!"
+    )
+
+
+# ============================================================
+# BRAAVOS TEMIR BANKI (IRON BANK) CRUD
+# ============================================================
+
+MAX_BANK_DEPOSIT = 50000
+DAILY_INTEREST_RATE = 0.015  # 1.5% kunlik daromad
+LOAN_INTEREST_RATE = 0.10    # 10% kredit foizi
+LOAN_DAYS = 5                # 5 kunlik muddat
+
+
+async def get_or_create_iron_bank(session: AsyncSession, user_id: int) -> models.IronBank:
+    """Foydalanuvchining Temir Bank hisobini olish yoki yaratish"""
+    res = await session.execute(select(models.IronBank).where(models.IronBank.user_id == user_id))
+    bank = res.scalar_one_or_none()
+    if not bank:
+        bank = models.IronBank(
+            user_id=user_id,
+            deposit_gold=0,
+            deposit_updated_at=datetime.utcnow(),
+            last_interest_claimed_at=datetime.utcnow(),
+            loan_gold=0,
+            is_defaulted=False,
+        )
+        session.add(bank)
+        await session.commit()
+    return bank
+
+
+async def deposit_to_iron_bank(session: AsyncSession, user_id: int, amount: int) -> Tuple[bool, str]:
+    """Temir bankka omonat qo'yish"""
+    if amount <= 0:
+        return False, "Noto'g'ri summa."
+
+    user = await get_user_any(session, user_id)
+    if not user:
+        return False, "Foydalanuvchi topilmadi."
+
+    if user.gold < amount:
+        return False, f"❌ Sizda yetarli oltin yo'q (mavjud: {user.gold:,}🪙)."
+
+    bank = await get_or_create_iron_bank(session, user.id)
+    if bank.is_defaulted:
+        return False, "❌ Sizning qarz muddati o'tib ketgan! Avval qarzni to'lang."
+
+    if (bank.deposit_gold or 0) + amount > MAX_BANK_DEPOSIT:
+        rem_allow = max(0, MAX_BANK_DEPOSIT - (bank.deposit_gold or 0))
+        return False, f"❌ Maksimal omonat limiti: {MAX_BANK_DEPOSIT:,}🪙. Siz yana eng ko'pi bilan {rem_allow:,}🪙 qo'ya olasiz."
+
+    user.gold -= amount
+    bank.deposit_gold = (bank.deposit_gold or 0) + amount
+    bank.deposit_updated_at = datetime.utcnow()
+    await session.commit()
+
+    return True, (
+        f"🏦 **OMONAT QABUL QILINDI!**\n\n"
+        f"Braavos Temir Bankiga **+{amount:,}🪙 Oltin** topshirdingiz.\n"
+        f"Jami depozitingiz: **{bank.deposit_gold:,}🪙**\n"
+        f"Kunlik daromad: **+{int(bank.deposit_gold * DAILY_INTEREST_RATE):,}🪙** (kuniga +1.5%)"
+    )
+
+
+async def withdraw_from_iron_bank(session: AsyncSession, user_id: int, amount: int) -> Tuple[bool, str]:
+    """Temir bankdan omonatni yechish"""
+    if amount <= 0:
+        return False, "Noto'g'ri summa."
+
+    user = await get_user_any(session, user_id)
+    bank = await get_or_create_iron_bank(session, user_id)
+
+    curr_dep = bank.deposit_gold or 0
+    if curr_dep < amount:
+        return False, f"❌ Depozitingizda buncha oltin yo'q! (Mavjud: {curr_dep:,}🪙)"
+
+    bank.deposit_gold = curr_dep - amount
+    user.gold = (user.gold or 0) + amount
+    bank.deposit_updated_at = datetime.utcnow()
+    await session.commit()
+
+    return True, (
+        f"🏦 **MABLAG' YECHILDI!**\n\n"
+        f"Temir Bankdan **-{amount:,}🪙 Oltin** yechib oldingiz.\n"
+        f"Qolgan omonat: **{bank.deposit_gold:,}🪙**"
+    )
+
+
+async def claim_iron_bank_interest(session: AsyncSession, user_id: int) -> Tuple[bool, str]:
+    """Omonat bo'yicha to'plangan kunlik foizni yechib olish"""
+    user = await get_user_any(session, user_id)
+    bank = await get_or_create_iron_bank(session, user_id)
+
+    curr_dep = bank.deposit_gold or 0
+    if curr_dep <= 0:
+        return False, "❌ Sizda faol omonat mavjud emas."
+
+    now = datetime.utcnow()
+    last_claim = bank.last_interest_claimed_at or bank.deposit_updated_at or now
+    elapsed_seconds = (now - last_claim).total_seconds()
+    days_elapsed = int(elapsed_seconds // 86400)
+
+    if days_elapsed < 1:
+        rem_hours = int((86400 - (elapsed_seconds % 86400)) // 3600)
+        rem_mins = int(((86400 - (elapsed_seconds % 86400)) % 3600) // 60)
+        return False, f"⏳ Foizlar har 24 soatda hisoblanadi. Keyingi foiz olishga: {rem_hours} soat {rem_mins} daqiqa qoldi."
+
+    profit = int(curr_dep * DAILY_INTEREST_RATE * days_elapsed)
+    user.gold = (user.gold or 0) + profit
+    bank.last_interest_claimed_at = now
+    await session.commit()
+
+    return True, (
+        f"🪙 **BANK FOIZI MUVAFFAQIYATLI OLINDI!**\n\n"
+        f"Braavos Temir Banki omonatingizdan **+{profit:,}🪙 Oltin** sof foyda berdi! ({days_elapsed} kunlik 1.5% daromad)\n"
+        f"Jami oltiningiz: **{user.gold:,}🪙**"
+    )
+
+
+async def take_iron_bank_loan(session: AsyncSession, user_id: int, amount: int) -> Tuple[bool, str]:
+    """Temir Bankdan kredit (qarz) olish"""
+    user = await get_user_with_relations(session, user_id)
+    if not user:
+        return False, "Foydalanuvchi topilmadi."
+
+    is_lord = (user.house and user.house.lord_user_id == user.telegram_id) or (user.rank == "king")
+    if (user.level or 1) < 3 and not is_lord:
+        return False, "❌ Temir Bank faqat 3-darajadan yuqori ritsarlar yoki Xonadon Lordlariga qarz beradi!"
+
+    bank = await get_or_create_iron_bank(session, user.id)
+    if (bank.loan_gold or 0) > 0:
+        return False, f"❌ Sizda allaqachon to'lanmagan qarz mavjud: {bank.loan_gold:,}🪙. Yangi qarz olishdan oldin eskisini to'lang!"
+
+    max_loan = 30000 if is_lord else 10000
+    if amount <= 0 or amount > max_loan:
+        return False, f"❌ Siz ko'pi bilan {max_loan:,}🪙 qarz ola olasiz!"
+
+    now = datetime.utcnow()
+    bank.loan_gold = amount
+    bank.loan_due_at = now + timedelta(days=LOAN_DAYS)
+    bank.loan_interest_rate = LOAN_INTEREST_RATE
+    bank.is_defaulted = False
+
+    user.gold = (user.gold or 0) + amount
+    await session.commit()
+
+    repay_total = int(amount * (1.0 + LOAN_INTEREST_RATE))
+    due_str = bank.loan_due_at.strftime("%Y-%m-%d %H:%M UTC")
+
+    return True, (
+        f"🏦📜 **BRAAVOS TEMIR BANKI QARZ SHARTNOMASI IMZOLANDI!**\n\n"
+        f"Sizga **+{amount:,}🪙 Oltin** berildi.\n\n"
+        f"⚠️ **Qaytarish shartlari:**\n"
+        f"• Qaytariladigan summa: **{repay_total:,}🪙** (+10% foiz bilan)\n"
+        f"• Qaytarish muddati: **5 kun** ({due_str} gacha)\n\n"
+        f"☠️ _Qoida: 'Temir Bank o'z hisob-kitobini hech qachon unutmaydi!' Agar muddatida qaytarmasangiz, bank sizga qarshi 'Oltin Gala' yollanma armiyasini yuboradi!_"
+    )
+
+
+async def repay_iron_bank_loan(session: AsyncSession, user_id: int) -> Tuple[bool, str]:
+    """Kreditni foizi bilan to'liq qaytarish"""
+    user = await get_user_any(session, user_id)
+    bank = await get_or_create_iron_bank(session, user_id)
+
+    if (bank.loan_gold or 0) <= 0:
+        return False, "❌ Sizda to'lanishi kerak bo'lgan qarz yo'q."
+
+    total_due = int(bank.loan_gold * (1.0 + (bank.loan_interest_rate or LOAN_INTEREST_RATE)))
+    if user.gold < total_due:
+        return False, f"❌ Qarzni to'lash uchun {total_due:,}🪙 Oltin kerak! (Sizda: {user.gold:,}🪙)"
+
+    user.gold -= total_due
+    bank.loan_gold = 0
+    bank.loan_due_at = None
+    bank.is_defaulted = False
+    await session.commit()
+
+    return True, (
+        f"✅ **QARZ TO'LIQ QAYTARILDI!**\n\n"
+        f"Temir Bankka {total_due:,}🪙 Oltin to'landi va shartnoma bekor qilindi.\n"
+        f"Endi sizning bank oldidagi obro'yingiz toza! 🏛️"
+    )
+
+
+# ============================================================
+# 23. MAVSUMLAR VA SHON-SHARAF ZALI (SEASONS & HALL OF FAME)
+# ============================================================
+async def get_active_season(session: AsyncSession) -> Optional[models.SeasonState]:
+    """Faol 30 kunlik mavsum holatini olish"""
+    res = await session.execute(
+        select(models.SeasonState).where(models.SeasonState.is_active == True).order_by(models.SeasonState.season_number.desc())
+    )
+    season = res.scalar_one_or_none()
+    if not season:
+        now = datetime.utcnow()
+        season = models.SeasonState(
+            season_number=1,
+            start_date=now,
+            end_date=now + timedelta(days=30),
+            is_active=True,
+        )
+        session.add(season)
+        await session.commit()
+        await session.refresh(season)
+    return season
+
+
+async def get_hall_of_fame(session: AsyncSession, limit: int = 10) -> List[models.HallOfFame]:
+    """Shon-sharaf zalidagi g'oliblar ro'yxati"""
+    res = await session.execute(
+        select(models.HallOfFame).order_by(models.HallOfFame.season_number.desc()).limit(limit)
+    )
+    return list(res.scalars().all())
+
+
+async def check_and_conclude_season(session: AsyncSession, bot_app=None) -> Tuple[bool, Optional[str]]:
+    """
+    30 kunlik mavsum vaqti tugaganligini tekshirish va yangi mavsumga o'tish (Soft-Reset).
+    G'oliblarni Shon-sharaf zaliga yozadi va barcha xonadon guruhlariga xabar beradi.
+    """
+    season = await get_active_season(session)
+    if not season:
+        return False, None
+
+    now = datetime.utcnow()
+    if now < season.end_date:
+        return False, None  # Mavsum hali davom etmoqda
+
+    # 1. G'olib xonadon va Qirolni aniqlash
+    # King's Landing qal'asini egallab turgan xonadon yoki eng ko'p nufuzga ega xonadon
+    kl_res = await session.execute(
+        select(models.Territory).where(models.Territory.code == "kings_landing")
+    )
+    kl_terr = kl_res.scalar_one_or_none()
+
+    winner_house = None
+    if kl_terr and kl_terr.owner_house_id:
+        winner_house = await session.get(models.House, kl_terr.owner_house_id)
+
+    if not winner_house:
+        top_h_res = await session.execute(
+            select(models.House).order_by(models.House.prestige.desc()).limit(1)
+        )
+        winner_house = top_h_res.scalar_one_or_none()
+
+    winner_house_name = winner_house.name if winner_house else "Vesteros Ittifoqi"
+    winner_house_id = winner_house.id if winner_house else None
+
+    # Qirol
+    king_user = None
+    if winner_house and winner_house.lord_user_id:
+        king_user = await get_user_by_telegram_id(session, winner_house.lord_user_id)
+    king_name = king_user.full_name if king_user else (winner_house_name + " Lordi")
+    king_uid = king_user.id if king_user else None
+
+    # Eng kuchli jangchi (Mavsum bo'yicha eng yuqori prestige)
+    top_w_res = await session.execute(
+        select(models.User).order_by(models.User.prestige.desc()).limit(1)
+    )
+    top_warrior = top_w_res.scalar_one_or_none()
+    top_warrior_name = top_warrior.full_name if top_warrior else "Noma'lum Botir"
+    top_warrior_prestige = top_warrior.prestige if top_warrior else 0
+
+    # 2. Shon-sharaf zaliga yozish
+    hof_entry = models.HallOfFame(
+        season_number=season.season_number,
+        winner_house_id=winner_house_id,
+        winner_house_name=winner_house_name,
+        king_user_id=king_uid,
+        king_name=king_name,
+        top_warrior_name=top_warrior_name,
+        top_warrior_prestige=top_warrior_prestige,
+        concluded_at=now,
+    )
+    session.add(hof_entry)
+
+    # 3. Mavsumni yopish va yangi mavsum ochish
+    season.is_active = False
+    next_season = models.SeasonState(
+        season_number=season.season_number + 1,
+        start_date=now,
+        end_date=now + timedelta(days=30),
+        is_active=True,
+    )
+    session.add(next_season)
+
+    # 4. Soft-reset
+    # Qal'alarni dastlabki egalariga qaytarish, devor va olovlarni reset qilish
+    from data.map_data import TERRITORIES_DATA
+    terr_all = await session.execute(select(models.Territory))
+    for t in terr_all.scalars().all():
+        init_info = TERRITORIES_DATA.get(t.code, {})
+        t.owner_house_id = init_info.get("initial_owner_id", t.owner_house_id)
+        t.conquered_by_user_id = None
+        t.defense = 500
+        t.castle_level = 1
+        t.wildfire_count = 0
+        t.reinforcements_json = None
+
+    # Armiyalarni qisman yangilash (veteran bonus saqlanadi, progress yo'qolmaydi)
+    armies_all = await session.execute(select(models.Army))
+    for a in armies_all.scalars().all():
+        a.infantry = max(100, int(a.infantry * 0.1))
+        a.archers = max(50, int(a.archers * 0.1))
+        a.cavalry = max(25, int(a.cavalry * 0.1))
+        a.spearmen = max(25, int(a.spearmen * 0.1))
+        a.special_troops = 0
+        a.catapults = 0
+        a.siege_towers = 0
+
+    await session.commit()
+
+    announcement = (
+        f"👑🏆 **VESTEROSDA YANGI DAVR: {season.season_number}-MAVSUM YAKUNLANDI!** 🏆👑\n\n"
+        f"🏛️ **TEMIR TAXT G'OLIBI:** **{winner_house_name}** xonadoni!\n"
+        f"👑 **Yetti Qirollik Qiroli:** **{king_name}**\n"
+        f"⚔️ **Mavsumning Eng Buyuk Jangchisi:** **{top_warrior_name}** ({top_warrior_prestige:,} nufuz)\n\n"
+        f"📜 G'oliblar nomi abadiy **Shon-sharaf Zali (Hall of Fame)** solnomalariga oltin harflar bilan muhrlandi!\n\n"
+        f"🌟 **{next_season.season_number}-MAVSUM BOSHLANDI!** (30 kunlik yangi kurash)\n"
+        f"Vesteros qal'alari qayta taqsimlandi, armiyalar yangi g'alabalar uchun saflanmoqda!"
+    )
+
+    if bot_app:
+        from core.notifier import notify_house_group
+        h_res = await session.execute(select(models.House).where(models.House.group_chat_id.isnot(None)))
+        for h in h_res.scalars().all():
+            try:
+                await notify_house_group(bot_app, h.id, announcement)
+            except Exception:
+                pass
+
+    return True, announcement
+
+
+# ============================================================
+# 24. AFSONAVIY QAHRAMONLAR (LEGENDARY CHAMPIONS)
+# ============================================================
+from data.champions_data import LEGENDARY_CHAMPIONS
+
+async def get_user_champion(session: AsyncSession, user_id: int) -> Optional[dict]:
+    """Foydalanuvchi armiyasidagi faol qahramon ma'lumotlarini olish"""
+    res = await session.execute(select(models.Army).where(models.Army.user_id == user_id))
+    army = res.scalar_one_or_none()
+    if army and army.champion and army.champion in LEGENDARY_CHAMPIONS:
+        return LEGENDARY_CHAMPIONS[army.champion]
+    return None
+
+
+async def recruit_champion(session: AsyncSession, user_id: int, champion_id: str) -> Tuple[bool, str]:
+    """Afsonaviy sarkardani xizmatga tayinlash"""
+    if champion_id not in LEGENDARY_CHAMPIONS:
+        return False, "❌ Noma'lum qahramon."
+
+    champ = LEGENDARY_CHAMPIONS[champion_id]
+    user = await get_user_any(session, user_id)
+    if not user:
+        return False, "Foydalanuvchi topilmadi."
+
+    res = await session.execute(select(models.Army).where(models.Army.user_id == user_id))
+    army = res.scalar_one_or_none()
+    if not army:
+        return False, "Armiya topilmadi."
+
+    if army.champion == champion_id:
+        return False, f"❌ {champ['name']} allaqachon armiyangiz bosh qo'mondoni!"
+
+    cost_gold = champ.get("cost_gold", 10000)
+    cost_prestige = champ.get("cost_prestige", 200)
+
+    if (user.gold or 0) < cost_gold:
+        return False, f"❌ Qahramonni yollash uchun {cost_gold:,}🪙 Oltin kerak! (Sizda: {user.gold:,}🪙)"
+    if (user.prestige or 0) < cost_prestige:
+        return False, f"❌ Qahramonni yollash uchun {cost_prestige:,}🎖️ Nufuz kerak! (Sizda: {user.prestige:,}🎖️)"
+
+    user.gold -= cost_gold
+    user.prestige -= cost_prestige
+    army.champion = champion_id
+    await session.commit()
+
+    return True, (
+        f"⚔️🎖️ **QAHRAMON TAYINLANDI!**\n\n"
+        f"{champ['emoji']} **{champ['name']}** endi armiyangiz Bosh Sarkardasi!\n"
+        f"📜 _'{champ['description']}'_\n\n"
+        f"Janglarda ushbu qahramon qo'shiningizga xos ustunlik beradi!"
+    )
+
+
+async def dismiss_champion(session: AsyncSession, user_id: int) -> Tuple[bool, str]:
+    """Qahramonni vazifasidan ozod qilish"""
+    res = await session.execute(select(models.Army).where(models.Army.user_id == user_id))
+    army = res.scalar_one_or_none()
+    if not army or not army.champion:
+        return False, "❌ Sizda faol bosh sarkarda tayinlanmagan."
+
+    old_champ = LEGENDARY_CHAMPIONS.get(army.champion, {}).get("name", "Qahramon")
+    army.champion = None
+    await session.commit()
+
+    return True, f"✅ **{old_champ}** sarkardalik vazifasidan ozod etildi."
+
 
 
 
