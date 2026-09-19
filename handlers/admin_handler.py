@@ -204,12 +204,19 @@ async def admin_user_detail_callback(update: Update, context: ContextTypes.DEFAU
 
         buttons = [
             [
-                InlineKeyboardButton("💰 +5,000 Oltin", callback_data=f"adm_act:{user.id}:gold:5000"),
-                InlineKeyboardButton("💰 -2,000 Oltin", callback_data=f"adm_act:{user.id}:gold:-2000"),
+                InlineKeyboardButton("💰 +5k", callback_data=f"adm_act:{user.id}:gold:5000"),
+                InlineKeyboardButton("💰 -2k", callback_data=f"adm_act:{user.id}:gold:-2000"),
+                InlineKeyboardButton("💰 -5k", callback_data=f"adm_act:{user.id}:gold:-5000"),
             ],
             [
-                InlineKeyboardButton("🌾 +10,000 Oziq", callback_data=f"adm_act:{user.id}:food:10000"),
-                InlineKeyboardButton("⛓️ +5,000 Temir", callback_data=f"adm_act:{user.id}:iron:5000"),
+                InlineKeyboardButton("🌾 +10k", callback_data=f"adm_act:{user.id}:food:10000"),
+                InlineKeyboardButton("🌾 -5k", callback_data=f"adm_act:{user.id}:food:-5000"),
+                InlineKeyboardButton("🌾 -10k", callback_data=f"adm_act:{user.id}:food:-10000"),
+            ],
+            [
+                InlineKeyboardButton("⛓️ +5k", callback_data=f"adm_act:{user.id}:iron:5000"),
+                InlineKeyboardButton("⛓️ -2k", callback_data=f"adm_act:{user.id}:iron:-2000"),
+                InlineKeyboardButton("⛓️ -5k", callback_data=f"adm_act:{user.id}:iron:-5000"),
             ],
             [
                 InlineKeyboardButton("🆙 +1 Daraja", callback_data=f"adm_act:{user.id}:level:1"),
@@ -1368,7 +1375,7 @@ async def admin_broadcast_info_callback(update: Update, context: ContextTypes.DE
 
 
 async def handle_give_resource_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/givegold, /givefood, /giveiron @user miqdor"""
+    """/givegold, /givefood, /giveiron, /deductgold, /deductfood, /deductiron @user miqdor"""
     if not is_admin(update.effective_user.id):
         return
 
@@ -1380,6 +1387,10 @@ async def handle_give_resource_command(update: Update, context: ContextTypes.DEF
 
     target = args[0]
     amount = int(args[1]) if args[1].lstrip("-").isdigit() else 0
+
+    is_deduct = cmd.startswith("deduct") or cmd.startswith("take") or cmd.startswith("sub")
+    if is_deduct:
+        amount = -abs(amount)
 
     async with AsyncSessionLocal() as session:
         # User topish
@@ -1398,18 +1409,39 @@ async def handle_give_resource_command(update: Update, context: ContextTypes.DEF
             return
 
         if "gold" in cmd:
-            u.gold = max(0, u.gold + amount)
+            u.gold = max(0, (u.gold or 0) + amount)
             res_str = f"🪙 Oltin: {u.gold:,}"
         elif "food" in cmd:
-            u.food = max(0, u.food + amount)
+            u.food = max(0, (u.food or 0) + amount)
             res_str = f"🌾 Oziq-ovqat: {u.food:,}"
         elif "iron" in cmd:
-            u.iron = max(0, u.iron + amount)
+            u.iron = max(0, (u.iron or 0) + amount)
             res_str = f"⛓️ Temir: {u.iron:,}"
 
         await session.commit()
 
-    await update.message.reply_text(f"✅ {u.full_name} ga {amount:+,} berildi! Yangi hisob: {res_str}")
+    if amount < 0:
+        action_str = f"-{abs(amount):,} ayirildi"
+    else:
+        action_str = f"+{amount:,} berildi"
+    await update.message.reply_text(f"✅ {escape_md(u.full_name)} hisobidan {action_str}!\nYangi hisob: {res_str}")
+
+
+async def deduct_resource_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/deduct <gold|food|iron> @username <miqdor>"""
+    if not is_admin(update.effective_user.id):
+        return
+    args = context.args
+    if not args or len(args) < 3:
+        await update.message.reply_text("Foydalanish: `/deduct <gold|food|iron> @username <miqdor>`", parse_mode="Markdown")
+        return
+    res_type = args[0].lower()
+    target = args[1]
+    amt = int(args[2]) if args[2].lstrip("-").isdigit() else 0
+    amt = -abs(amt)
+    context.args = [target, str(amt)]
+    update.message.text = f"/deduct{res_type} {target} {amt}"
+    await handle_give_resource_command(update, context)
 
 
 async def admin_admins_list_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1583,7 +1615,7 @@ async def admin_castles_list_callback(update: Update, context: ContextTypes.DEFA
         for t in territories:
             h = await session.get(models.House, t.owner_house_id) if t.owner_house_id else None
             h_str = f"{h.emoji} {h.name[:10]}" if h else "Xo'jasiz"
-            tot_garr = t.garrison_infantry + t.garrison_archers + t.garrison_cavalry + t.garrison_spearmen
+            tot_garr = (t.garrison_infantry or 0) + (t.garrison_archers or 0) + (t.garrison_cavalry or 0) + (t.garrison_spearmen or 0)
             buttons.append([InlineKeyboardButton(
                 f"🏯 {t.name} ({t.castle_name or 'Qal\'a'}) — {h_str} ({tot_garr:,})",
                 callback_data=f"adm_c_detail:{t.id}"
@@ -1626,7 +1658,9 @@ async def admin_player_castles_callback(update: Update, context: ContextTypes.DE
         summary = await crud.get_player_conquered_castles_summary(session)
 
     players = summary.get("players", [])
-    total_terrs = summary.get("total_territories", 40)
+    conquerors = summary.get("conquerors", [])
+    direct_conquests_total = summary.get("direct_conquests_total", 0)
+    total_terrs = summary.get("total_territories", 43)
     player_terrs = summary.get("player_controlled", 0)
     npc_terrs = summary.get("npc_controlled", 0)
 
@@ -1639,49 +1673,68 @@ async def admin_player_castles_callback(update: Update, context: ContextTypes.DE
     current_page_players = active_players[offset : offset + PAGE_SIZE]
 
     text = (
-        f"🏆 **VESTEROS QAL'ALARI — O'YINCHILAR HISOBOTI**\n\n"
+        f"🏆 **VESTEROS QAL'ALARI — EGALLANGAN VA XONADON QAL'ALARI**\n\n"
         f"📊 **UMUMIY STATISTIKA:**\n"
         f"• 🏯 Jami Qal'alar: **{total_terrs}** ta\n"
-        f"• 👑 O'yinchilar Tasarrufida: **{player_terrs}** ta qal'a\n"
+        f"• ⚔️ Jangda Bosib Olinganlar: **{direct_conquests_total}** ta qal'a\n"
+        f"• 👑 Lordlar Tasarrufida: **{player_terrs}** ta qal'a\n"
         f"• 🤖 NPC Xonadonlar Nazoratida: **{npc_terrs}** ta qal'a\n"
-        f"• 👥 Qal'aga ega O'yinchilar: **{total_players}** nafar\n\n"
+        f"• 👥 Qal'aga ega Lordlar: **{total_players}** nafar\n\n"
     )
+
+    if conquerors:
+        text += "⚔️ **JANGDA BOSIB OLINGAN QAL'ALAR (FATH ETILGANLAR):**\n"
+        for cp in conquerors:
+            cp_name = escape_md(cp['name'])
+            cp_house = escape_md(cp['house_name'])
+            text += f"• **{cp_name}** ({cp['house_emoji']} {cp_house}): **{cp['direct_conquests']} ta qal'a**\n"
+            for c in cp.get('conquered_castles', []):
+                c_n = escape_md(c['name'])
+                c_c = escape_md(c['castle_name'])
+                c_r = escape_md(c['region'])
+                text += f"   ▫️ 🏯 **{c_n}** ({c_c}) — *{c_r}* (Devor: {c['defense']})\n"
+        text += "\n"
+    else:
+        text += (
+            "⚔️ **JANGDA BOSIB OLINGAN QAL'ALAR:**\n"
+            "ℹ️ _Hozircha hech qaysi o'yinchi dushman qal'asini bosib olmagan (barcha qal'alar o'z dastlabki xonadonlari yoki NPC nazoratida)._\n\n"
+        )
 
     buttons = []
 
     if not active_players:
         text += (
-            "ℹ️ *Hozircha hech qaysi o'yinchi qal'alarni egallamagan yoki xonadonga a'zo emas.*\n\n"
-            "O'yinchilar harbiy yurish qilib qal'alarni zabt etganlarida bu yerda to'liq ro'yxat shakllanadi."
+            "ℹ️ _Hozircha hech qaysi o'yinchi xonadonga a'zo bo'lmagan._\n\n"
+            "O'yinchilar xonadonlarga qo'shilib, qal'alarni egallaganlarida bu yerda to'liq ro'yxat shakllanadi."
         )
     else:
-        text += "🏰 **O'YINCHILAR VA ULARNING QAL'ALARI:**\n"
+        text += "🏰 **LORDLAR VA ULARNING BARCHA QAL'ALARI:**\n"
         text += "════════════════════════════\n\n"
 
         for idx, p in enumerate(current_page_players, start=offset + 1):
-            p_name = p['name'].replace('*', '').replace('_', ' ')
-            p_uname = f"@{p['username'].replace('_', '')}" if p.get("username") else f"ID: {p['telegram_id']}"
+            p_name = escape_md(p['name'])
+            p_uname = f"@{escape_md(p['username'])}" if p.get("username") else f"ID: `{p['telegram_id']}`"
             lord_badge = "👑 Lord" if p.get("is_lord") else f"🎖️ {str(p.get('rank', 'member')).title()}"
-            direct_str = f" (⚔️ {p['direct_conquests']} tasi jangda fath etilgan)" if p.get("direct_conquests", 0) > 0 else ""
+            direct_str = f" (⚔️ {p['direct_conquests']} tasi bosib olingan)" if p.get("direct_conquests", 0) > 0 else ""
 
             text += (
                 f"**{idx}. {p_name}** ({p_uname})\n"
-                f"• {p['house_emoji']} Xonadon: **{p['house_name']}** ({lord_badge})\n"
-                f"• 🏯 Egalikdagi Qal'alar: **{p['total_castles']} ta**{direct_str}\n"
+                f"• {p['house_emoji']} Xonadon: **{escape_md(p['house_name'])}** ({lord_badge})\n"
+                f"• 🏯 Jami Qal'alari: **{p['total_castles']} ta**{direct_str}\n"
             )
 
             if p.get("castles"):
-                text += "• Qal'alar ro'yxati:\n"
+                text += "• Qal'alar:\n"
                 for c in p.get("castles", []):
-                    c_name = c['name'].replace('*', '').replace('_', ' ')
-                    c_castle = (c['castle_name'] or "Qal'a").replace('*', '').replace('_', ' ')
+                    c_name = escape_md(c['name'])
+                    c_castle = escape_md(c['castle_name'] or "Qal'a")
                     tag = "⚔️ Fath etilgan" if c.get("is_direct_conquest") else ("👑 Poytaxt" if c.get("is_capital") else "🛡️ Xonadon qal'asi")
                     text += (
-                        f"   ▫️ 🏯 **{c_name}** ({c_castle}) — *{c['region']}*\n"
+                        f"   ▫️ 🏯 **{c_name}** ({c_castle}) — *{escape_md(c['region'])}*\n"
                         f"      ┗ 🏷️ {tag} | Devor: {c['defense']} | Garnizon: {c['garrison_total']:,} askar\n"
                     )
             else:
-                text += "• *Qal'alari yo'q*\n"
+                text += "• _Qal'alari yo'q_\n"
             text += "\n"
 
         text += "════════════════════════════\n"
@@ -1715,9 +1768,14 @@ async def admin_player_castles_callback(update: Update, context: ContextTypes.DE
 
     try:
         await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
-    except Exception:
-        clean_text = text.replace("**", "").replace("*", "").replace("`", "").replace("_", "")
-        await query.edit_message_text(clean_text, parse_mode=None, reply_markup=InlineKeyboardMarkup(buttons))
+    except Exception as e:
+        if "Message is not modified" in str(e):
+            return
+        try:
+            clean_text = text.replace("**", "").replace("*", "").replace("`", "").replace("_", "")
+            await query.edit_message_text(clean_text, parse_mode=None, reply_markup=InlineKeyboardMarkup(buttons))
+        except Exception:
+            pass
 
 
 async def admin_all_castles_overview_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2450,8 +2508,13 @@ def register_admin_handlers(app):
     app.add_handler(CommandHandler("givearmy", give_army_command))
     app.add_handler(CommandHandler("addadmin", add_admin_command))
     app.add_handler(CommandHandler("deladmin", del_admin_command))
-    app.add_handler(CommandHandler("setlord", set_lord_command))
-    app.add_handler(CommandHandler(["givegold", "givefood", "giveiron"], handle_give_resource_command))
+    app.add_handler(CommandHandler([
+        "givegold", "givefood", "giveiron",
+        "deductgold", "deductfood", "deductiron",
+        "takegold", "takefood", "takeiron",
+        "subgold", "subfood", "subiron",
+    ], handle_give_resource_command))
+    app.add_handler(CommandHandler("deduct", deduct_resource_command))
     app.add_handler(CallbackQueryHandler(admin_callback, pattern="^admin_panel$"))
     app.add_handler(CallbackQueryHandler(admin_admins_list_callback, pattern="^admin_admins_list$"))
     app.add_handler(CallbackQueryHandler(admin_lords_menu_callback, pattern="^(admin_lords_menu|adm_lords_page:)"))

@@ -6,6 +6,8 @@ from database import AsyncSessionLocal, crud, models
 from keyboards.menus import territories_keyboard, back_to_main_keyboard
 from config import escape_md
 
+MAX_WALL_DEFENSE = 2500
+
 
 async def map_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/map buyrug'i"""
@@ -136,7 +138,11 @@ async def view_territory_callback(update: Update, context: ContextTypes.DEFAULT_
                 c_cost_g = c_lvl * 3000
                 c_cost_i = c_lvl * 2500
                 buttons.append([InlineKeyboardButton(f"🏰 Qal'ani Kengaytirish (Tier {c_lvl+1}: {c_cost_g:,}🪙/{c_cost_i:,}⛓️)", callback_data=f"upgrade_castle:{terr.id}")])
-            buttons.append([InlineKeyboardButton("🛡️ Devorni Kuchaytirish (+150 Mudofaa)", callback_data=f"upgrade_walls:{terr.id}")])
+            defense_val = terr.defense or 0
+            if defense_val >= MAX_WALL_DEFENSE:
+                buttons.append([InlineKeyboardButton(f"🛡️ Devor Maksimal ({defense_val:,}/{MAX_WALL_DEFENSE:,})", callback_data=f"max_walls_alert:{terr.id}")])
+            else:
+                buttons.append([InlineKeyboardButton(f"🛡️ Devorni Kuchaytirish (+150: {defense_val:,}/{MAX_WALL_DEFENSE:,})", callback_data=f"upgrade_walls:{terr.id}")])
             buttons.append([InlineKeyboardButton("💰 Qal'a Boshqaruvi & O'lpon", callback_data=f"my_c_detail:{terr.id}")])
         elif is_ally:
             buttons.append([InlineKeyboardButton(f"🤝 Qal'a Mudofaasiga Yordam Yuborish{alliance_type_str}", callback_data=f"def_rf_menu:{terr.id}")])
@@ -433,11 +439,14 @@ async def show_my_castle_detail(query, user_id: int, terr_id: int):
         }
         tier_str = tier_names.get(c_lvl, f"Tier {c_lvl}")
 
+        defense_val = terr.defense or 0
+        wall_max_str = " (Maksimal)" if defense_val >= MAX_WALL_DEFENSE else ""
+
         text = (
             f"🏰 **QAL'A BOSHQARUVI: {c_name}**\n\n"
             f"📍 Hudud: **{terr.name}** ({terr.region})\n"
             f"🏛️ Qal'a Bosqichi: **{tier_str}**\n"
-            f"🛡️ Mudofaa Devori: **{terr.defense or 0}** ball\n"
+            f"🛡️ Mudofaa Devori: **{defense_val:,}** / {MAX_WALL_DEFENSE:,} ball{wall_max_str}\n"
             f"🐉 Mudofaadagi Ajdar: **{drg_str}**\n\n"
             f"⚔️ **GARNIZON KUCHLARI:**\n"
             f"• 🛡️ Piyoda: **{g_inf:,}**\n"
@@ -473,7 +482,10 @@ async def show_my_castle_detail(query, user_id: int, terr_id: int):
             c_cost_i = c_lvl * 2500
             buttons.append([InlineKeyboardButton(f"🏰 Qal'ani Kengaytirish (Tier {c_lvl+1}: {c_cost_g:,}🪙/{c_cost_i:,}⛓️)", callback_data=f"upgrade_castle:{terr.id}")])
 
-        buttons.append([InlineKeyboardButton("🛡️ Devorni Kuchaytirish (-1,500🪙, -2,000⛓️)", callback_data=f"upgrade_walls:{terr.id}")])
+        if defense_val >= MAX_WALL_DEFENSE:
+            buttons.append([InlineKeyboardButton(f"🛡️ Devor Mudofaasi Maksimal ({defense_val:,}/{MAX_WALL_DEFENSE:,})", callback_data=f"max_walls_alert:{terr.id}")])
+        else:
+            buttons.append([InlineKeyboardButton("🛡️ Devorni Kuchaytirish (-1,500🪙, -2,000⛓️)", callback_data=f"upgrade_walls:{terr.id}")])
         buttons.append([InlineKeyboardButton("🔙 Qalalarim Ro'yxati", callback_data="menu_castles")])
         buttons.append([InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")])
 
@@ -519,18 +531,29 @@ async def upgrade_walls_callback(update: Update, context: ContextTypes.DEFAULT_T
             await query.answer("Ma'lumot topilmadi.", show_alert=True)
             return
 
+        defense_val = terr.defense or 0
+        if defense_val >= MAX_WALL_DEFENSE:
+            await query.answer(f"❌ Qal'a devorlari maksimal mudofaa darajasiga ({MAX_WALL_DEFENSE:,} ball) yetgan! Undan ortiq kuchaytirib bo'lmaydi.", show_alert=True)
+            return
+
         if user.gold < 1500 or user.iron < 2000:
             await query.answer("❌ Devorni kuchaytirish uchun 1,500 oltin va 2,000 temir kerak!", show_alert=True)
             return
 
         user.gold -= 1500
         user.iron -= 2000
-        terr.defense = (terr.defense or 0) + 150
+        terr.defense = min(MAX_WALL_DEFENSE, defense_val + 150)
         user.prestige = (user.prestige or 0) + 50
         await session.commit()
 
     await query.answer("🏰 Qal'a devorlari mustahkamlandi! (+150 Mudofaa, +50 Prestige)", show_alert=True)
     await show_my_castle_detail(query, user_id, terr_id)
+
+
+async def max_walls_alert_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Maksimal devor mudofaasi bildirishnomasi"""
+    query = update.callback_query
+    await query.answer(f"🛡️ Ushbu qal'a devorlari eng yuqori darajada ({MAX_WALL_DEFENSE:,} ball) mustahkamlangan! Boshqa kuchaytirib bo'lmaydi.", show_alert=True)
 
 
 async def upgrade_castle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -737,3 +760,4 @@ def register_map_handlers(app):
     app.add_handler(CallbackQueryHandler(def_recall_dragon_callback, pattern="^def_recall_dragon:"))
     app.add_handler(CallbackQueryHandler(terr_dragon_info_callback, pattern="^terr_dragon_info$"))
     app.add_handler(CallbackQueryHandler(war_closed_notice_callback, pattern="^war_closed_notice$"))
+    app.add_handler(CallbackQueryHandler(max_walls_alert_callback, pattern="^max_walls_alert:"))

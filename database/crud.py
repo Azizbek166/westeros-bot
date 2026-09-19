@@ -3027,6 +3027,8 @@ async def get_player_conquered_castles_summary(session: AsyncSession) -> Dict[st
                 "is_lord": bool(h and h.lord_user_id == usr.telegram_id),
                 "total_castles": 0,
                 "direct_conquests": 0,
+                "conquered_castles": [],
+                "house_castles": [],
                 "castles": [],
             }
         return player_stats[usr.id]
@@ -3081,6 +3083,7 @@ async def get_player_conquered_castles_summary(session: AsyncSession) -> Dict[st
             entry = ensure_player_entry(conqueror_user)
             entry["total_castles"] += 1
             entry["direct_conquests"] += 1
+            entry["conquered_castles"].append(terr_dict)
             entry["castles"].append(terr_dict)
             player_castles_count += 1
             holder_name = f"{conqueror_user.full_name} (⚔️ Fath etilgan)"
@@ -3096,6 +3099,7 @@ async def get_player_conquered_castles_summary(session: AsyncSession) -> Dict[st
             if lord_user:
                 entry = ensure_player_entry(lord_user)
                 entry["total_castles"] += 1
+                entry["house_castles"].append(terr_dict)
                 entry["castles"].append(terr_dict)
                 player_castles_count += 1
                 holder_name = f"{owner_house.emoji} {owner_house.name} ({lord_user.full_name})"
@@ -3126,9 +3130,10 @@ async def get_player_conquered_castles_summary(session: AsyncSession) -> Dict[st
 
     sorted_players = sorted(
         player_stats.values(),
-        key=lambda x: (x["total_castles"], x["direct_conquests"], len(x["castles"])),
+        key=lambda x: (x["direct_conquests"], x["total_castles"], len(x["castles"])),
         reverse=True
     )
+    conquerors_list = [p for p in sorted_players if p["direct_conquests"] > 0]
 
     return {
         "total_territories": len(all_terrs),
@@ -3136,6 +3141,8 @@ async def get_player_conquered_castles_summary(session: AsyncSession) -> Dict[st
         "npc_controlled": npc_castles_count,
         "neutral_controlled": neutral_castles_count,
         "players": sorted_players,
+        "conquerors": conquerors_list,
+        "direct_conquests_total": sum(p["direct_conquests"] for p in conquerors_list),
         "castles_overview": all_castles_overview,
     }
 
