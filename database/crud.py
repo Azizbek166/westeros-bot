@@ -2272,6 +2272,79 @@ async def get_night_king_leaderboard(session: AsyncSession, limit: int = 10) -> 
     return results
 
 
+async def award_night_king_victory(session: AsyncSession, bot_app=None) -> Dict[str, Any]:
+    """Tun Qiroli yengilganda Top 1 o'yinchiga 'Shimol Najotkori' unvoni va +500 Prestige berish"""
+    res = await session.execute(
+        select(models.NightKingContribution)
+        .order_by(models.NightKingContribution.damage_dealt.desc())
+        .limit(10)
+    )
+    contribs = res.scalars().all()
+    if not contribs:
+        return {"awarded": False, "reason": "No contributions found"}
+
+    top1 = contribs[0]
+    winner = await get_user_any(session, top1.user_id)
+    if not winner:
+        return {"awarded": False, "reason": "Winner not found"}
+
+    # Top 1 ga "Shimol Najotkori" unvoni, +500 Prestige, +3000 Gold
+    winner.title = "Shimol Najotkori"
+    winner.prestige = (winner.prestige or 0) + 500
+    winner.gold = (winner.gold or 0) + 3000
+    winner.xp = (winner.xp or 0) + 1000
+
+    # Top 2 va Top 3 ga ham sovrinlar
+    if len(contribs) > 1:
+        top2_user = await get_user_any(session, contribs[1].user_id)
+        if top2_user:
+            top2_user.prestige = (top2_user.prestige or 0) + 300
+            top2_user.gold = (top2_user.gold or 0) + 1800
+
+    if len(contribs) > 2:
+        top3_user = await get_user_any(session, contribs[2].user_id)
+        if top3_user:
+            top3_user.prestige = (top3_user.prestige or 0) + 200
+            top3_user.gold = (top3_user.gold or 0) + 1000
+
+    await session.commit()
+
+    winner_name = winner.full_name or winner.username or f"Lord {winner.id}"
+    # Winner ga shaxsiy tabrik xabari
+    if bot_app and winner.telegram_id:
+        try:
+            win_msg = (
+                f"❄️👑 **TABRIKLAYMIZ, VESTEROS XALOSKORI!**\n\n"
+                f"Siz Tun Qiroli va Oq Yuruvchilar armiyasiga eng katta zarba (**{top1.damage_dealt:,}** ziyon) yetkazdingiz va reyd g'olibi bo'ldingiz!\n\n"
+                f"🎖️ **MUKOFOTLARINGIZ:**\n"
+                f"• 👑 Faxriy Unvon: **Shimol Najotkori**\n"
+                f"• 🏆 Nufuz: **+500 Prestige**\n"
+                f"• 🪙 Xazina: **+3,000 Oltin**\n"
+                f"• ⭐ Tajriba: **+1,000 XP**\n\n"
+                f"Bu unvon endi sizning profilingiz va butun Vesteros reytingida mangu aks etadi!"
+            )
+            await bot_app.bot.send_message(chat_id=winner.telegram_id, text=win_msg, parse_mode="Markdown")
+        except Exception:
+            pass
+
+    return {
+        "awarded": True,
+        "winner_id": winner.id,
+        "winner_name": winner_name,
+        "damage": top1.damage_dealt,
+    }
+
+
+async def set_user_title(session: AsyncSession, user_id: int, title: Optional[str]) -> bool:
+    """O'yinchiga maxsus faxriy unvon biriktirish yoki olib tashlash"""
+    user = await get_user_any(session, user_id)
+    if not user:
+        return False
+    user.title = title.strip() if title else None
+    await session.commit()
+    return True
+
+
 # ============================================================
 # DUEL CRUD
 # ============================================================

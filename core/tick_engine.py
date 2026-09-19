@@ -312,7 +312,7 @@ async def run_white_walkers_step():
             event = models.EventState(
                 id=1,
                 event_name="white_walkers",
-                data_json=json.dumps({"army": 250000, "stage": 1, "status": "marching"}),
+                data_json=json.dumps({"army": 500000, "hp": 500000, "max_hp": 500000, "stage": 1, "status": "marching"}),
                 is_active=True,
             )
             session.add(event)

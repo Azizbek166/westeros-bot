@@ -50,10 +50,10 @@ async def show_events_hub(target, user_id: int, is_message: bool):
         kl_owner = f"{kl_terr.owner_house.emoji} {kl_terr.owner_house.name}" if (kl_terr and kl_terr.owner_house) else "Targaryen"
 
         # Tun Qiroli holati
-        ww_event = await get_or_create_event_state(session, "white_walkers", {"hp": 250000, "max_hp": 250000, "status": "active"})
+        ww_event = await get_or_create_event_state(session, "white_walkers", {"hp": 500000, "max_hp": 500000, "status": "active"})
         ww_data = json.loads(ww_event.data_json)
-        hp = ww_data.get("hp", 250000)
-        max_hp = ww_data.get("max_hp", 250000)
+        hp = ww_data.get("hp", 500000)
+        max_hp = ww_data.get("max_hp", 500000)
         pct = max(0, int((hp / max_hp) * 100))
         bar_len = 10
         filled = int(bar_len * (pct / 100))
@@ -138,9 +138,12 @@ async def raid_night_king_callback(update: Update, context: ContextTypes.DEFAULT
 
         total_dmg = base_dmg + dragon_dmg
 
-        ww_event = await get_or_create_event_state(session, "white_walkers", {"hp": 250000, "max_hp": 250000})
+        ww_event = await get_or_create_event_state(session, "white_walkers", {"hp": 500000, "max_hp": 500000, "status": "active"})
         ww_data = json.loads(ww_event.data_json)
-        ww_data["hp"] = max(0, ww_data.get("hp", 250000) - total_dmg)
+        old_hp = ww_data.get("hp", 500000)
+        new_hp = max(0, old_hp - total_dmg)
+        ww_data["hp"] = new_hp
+        ww_data["max_hp"] = 500000
         ww_event.data_json = json.dumps(ww_data)
 
         user.daily_ww_attack_count += 1
@@ -154,6 +157,14 @@ async def raid_night_king_callback(update: Update, context: ContextTypes.DEFAULT
         user.prestige += 50
         user.xp += 180
 
+        # Agar Tun Qiroli yengilgan bo'lsa (HP == 0), Top 1 ga "Shimol Najotkori" unvoni va +500 Prestige beriladi
+        victory_awarded = False
+        if new_hp <= 0 and ww_data.get("status") != "defeated":
+            ww_data["status"] = "defeated"
+            ww_event.data_json = json.dumps(ww_data)
+            v_res = await crud.award_night_king_victory(session, bot_app=context.application)
+            victory_awarded = bool(v_res.get("awarded"))
+
         from core.leveling import check_user_level_up
         lvl_up, new_lvl, lvl_msg = check_user_level_up(user)
 
@@ -162,7 +173,11 @@ async def raid_night_king_callback(update: Update, context: ContextTypes.DEFAULT
         extra_note = f"\n{lvl_msg}" if lvl_up else ""
 
     dragon_msg = f" (🔥 Ajdar olovi: +{dragon_dmg})" if dragon_dmg > 0 else ""
-    await query.answer(f"⚔️ Zarba berildi: -{total_dmg} wight!{dragon_msg} ({user.daily_ww_attack_count}/3)", show_alert=True)
+    if victory_awarded:
+        alert_text = f"🏆 TUN QIROLI YENGILDI! Siz {total_dmg} ziyon yetkazdingiz! Top 1 jangchiga 'Shimol Najotkori' unvoni va +500 Prestige berildi!"
+    else:
+        alert_text = f"⚔️ Zarba berildi: -{total_dmg} wight!{dragon_msg} ({user.daily_ww_attack_count}/3)"
+    await query.answer(alert_text, show_alert=True)
     await show_events_hub(query, user_id, is_message=False)
 
 

@@ -34,7 +34,8 @@ async def show_ranking_hub(target, user_id: int, is_message: bool):
         for i, p in enumerate(top_players, 1):
             h_name = p.house.name if p.house else "Mustaqil"
             hero_name = p.characters[0].name if p.characters else p.full_name
-            players_text += f"{i}. **{escape_md(hero_name)}** ({escape_md(h_name)}) — {p.level}-daraja | {p.prestige:,} 🏆\n"
+            t_badge = f" [🎖️ {escape_md(p.title)}]" if getattr(p, "title", None) else ""
+            players_text += f"{i}. **{escape_md(hero_name)}**{t_badge} ({escape_md(h_name)}) — {p.level}-daraja | {p.prestige:,} 🏆\n"
 
         wealth_text = ""
         for i, w in enumerate(top_wealthy, 1):

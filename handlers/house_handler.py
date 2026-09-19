@@ -49,6 +49,7 @@ async def show_house(target, user_id: int, is_message: bool):
             [InlineKeyboardButton("💰 G'aznaga Ehson Qilish", callback_data="house_donate_menu"),
              InlineKeyboardButton("🏆 Eng Saxiylar", callback_data="house_top_donors")],
             [InlineKeyboardButton("🗳️ Lord Saylovi (Ovoz berish)", callback_data="house_election")],
+            [InlineKeyboardButton("🏰 Egallangan Qal'alarimiz", callback_data="menu_castles")],
         ]
         is_lord = (house.lord_user_id == user.telegram_id) or user.rank == "king"
         if is_lord:

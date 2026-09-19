@@ -66,10 +66,12 @@ async def show_profile(target, user_id: int, is_message: bool):
         net_food = income['food'] - int(upkeep)
         net_food_str = f"+{net_food}" if net_food >= 0 else f"{net_food}"
         art_line = f"🗡️ Artefakt: **{equipped_art.name}**\n" if equipped_art else ""
+        title_badge = f"🎖️ Sharafli Unvon: **{escape_md(user.title)}**\n" if getattr(user, 'title', None) else ""
 
         text = (
             f"👤 **LORD PROFILI**\n\n"
             f"👑 **{escape_md(hero.name if hero else user.full_name)}** | {house_str}\n"
+            f"{title_badge}"
             f"🎖️ {user.rank.title()} | ⭐ Lv.{lvl}/30 ({title}) | 🏆 {user.prestige:,} Prestige\n"
             f"📈 `[{prog_bar}]` {user.xp:,}/{next_req:,} XP ({int(progress)}%)\n"
             f"{art_line}"

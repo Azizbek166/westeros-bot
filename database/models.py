@@ -28,6 +28,7 @@ class User(Base):
 
     house_id = Column(Integer, ForeignKey("houses.id"), nullable=True, index=True)
     rank = Column(String(50), default="member")  # king, commander, knight, captain, member
+    title = Column(String(100), nullable=True)  # Faxriy / sharafli unvon (masalan: Shimol Najotkori, Qirol Qo'li)
     level = Column(Integer, default=1)
     xp = Column(Integer, default=0)
 

@@ -13,7 +13,7 @@ engine = create_async_engine(
 )
 
 # SQLite yuqori yuklamada (200-500 user) qotmasligi uchun WAL rejimi
-from sqlalchemy import event
+from sqlalchemy import event, select, text
 
 @event.listens_for(engine.sync_engine, "connect")
 def set_sqlite_pragma(dbapi_connection, connection_record):
@@ -83,6 +83,7 @@ async def init_db():
                 "ALTER TABLE territories ADD COLUMN castle_level INTEGER DEFAULT 1",
                 "ALTER TABLE territories ADD COLUMN conquered_by_user_id INTEGER",
                 "ALTER TABLE battle_marches ADD COLUMN dragon_id INTEGER",
+                "ALTER TABLE users ADD COLUMN title VARCHAR(100)",
             ]:
                 try:
                     await conn.execute(text(alter_stmt))
@@ -98,6 +99,7 @@ async def init_db():
                 "ALTER TABLE territories ADD COLUMN IF NOT EXISTS castle_level INTEGER DEFAULT 1",
                 "ALTER TABLE territories ADD COLUMN IF NOT EXISTS conquered_by_user_id INTEGER",
                 "ALTER TABLE battle_marches ADD COLUMN IF NOT EXISTS dragon_id INTEGER",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS title VARCHAR(100)",
             ]:
                 try:
                     await conn.execute(text(pg_alter))
@@ -196,6 +198,28 @@ async def init_db():
                     castle_level=1,
                 )
                 session.add(new_territory)
+
+        # Tun Qiroli (White Walkers) global eventini 500,000 HP ga yangilash
+        import json
+        ev_res = await session.execute(select(models.EventState).where(models.EventState.event_name == "white_walkers"))
+        ww_ev = ev_res.scalar_one_or_none()
+        if ww_ev:
+            try:
+                ev_data = json.loads(ww_ev.data_json or "{}")
+                if ev_data.get("max_hp", 0) < 500000:
+                    ev_data["max_hp"] = 500000
+                    if ev_data.get("hp", 0) <= 250000:
+                        ev_data["hp"] = 500000
+                    ww_ev.data_json = json.dumps(ev_data)
+            except Exception:
+                pass
+        else:
+            new_ww = models.EventState(
+                event_name="white_walkers",
+                data_json=json.dumps({"hp": 500000, "max_hp": 500000, "status": "active"}),
+                is_active=True,
+            )
+            session.add(new_ww)
 
         await session.commit()
         logger.info("✅ 50 ta Xonadon va Westeros hududlari bazaga kiritildi.")

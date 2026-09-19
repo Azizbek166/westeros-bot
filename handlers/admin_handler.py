@@ -1,4 +1,6 @@
 import json
+import html
+import logging
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CommandHandler, CallbackQueryHandler, ContextTypes
@@ -6,9 +8,15 @@ from database import AsyncSessionLocal, crud, models
 from config import ADMIN_IDS, OWNER_ID, escape_md
 from sqlalchemy import select, func, desc
 
+logger = logging.getLogger(__name__)
+
 
 def is_admin(user_id: int) -> bool:
-    return user_id in ADMIN_IDS
+    try:
+        uid = int(user_id)
+        return uid in [int(x) for x in ADMIN_IDS] or uid == int(OWNER_ID)
+    except Exception:
+        return False
 
 
 async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -62,10 +70,10 @@ async def show_admin_dashboard(target, is_message: bool):
             select(models.EventState).where(models.EventState.event_name == "white_walkers")
         )
         ww_event = ww_res.scalar_one_or_none()
-        ww_hp = "250,000"
+        ww_hp = "500,000"
         if ww_event:
             ww_data = json.loads(ww_event.data_json)
-            ww_hp = f"{ww_data.get('hp', 250000):,}"
+            ww_hp = f"{ww_data.get('hp', 500000):,}"
 
         # Urush holati
         war_st = await crud.get_war_status(session)
@@ -87,7 +95,7 @@ async def show_admin_dashboard(target, is_message: bool):
             f"• ⚔️ Faol Yurishlar: **{active_marches}** ta\n"
             f"• ⚔️ Harbiy Holat: **{war_status_str}**\n"
             f"• 🐉 Tirik Ajdarlar: **{total_dragons}** ta\n"
-            f"• ❄️ Tun Qiroli HP: **{ww_hp}** / 250,000\n\n"
+            f"• ❄️ Tun Qiroli HP: **{ww_hp}** / 500,000\n\n"
             f"Boshqaruv bo'limini tanlang:"
         )
 
@@ -183,13 +191,15 @@ async def admin_user_detail_callback(update: Update, context: ContextTypes.DEFAU
         dragon = await crud.get_user_dragon(session, user.id)
         drg_str = f"{dragon.name} ({dragon.stage})" if dragon else "Mavjud emas"
         char_name = user.characters[0].name if user.characters else user.full_name
+        title_line = f"• 🎖️ Sharafli Unvon: **{escape_md(user.title)}**\n" if user.title else "• 🎖️ Sharafli Unvon: _Biriktirilmagan_\n"
 
         text = (
             f"👤 **LORD MA'LUMOTLARI: {escape_md(char_name)}**\n\n"
             f"• Telegram ID: `{user.telegram_id}`\n"
             f"• Username: @{escape_md(user.username or 'yoq')}\n"
             f"• 🏰 Xonadon: **{escape_md(h_name)}**\n"
-            f"• 🎖️ Lavozim: **{user.rank}** | Daraja: **{user.level}**\n"
+            f"• 👑 Lavozim: **{user.rank}** | Daraja: **{user.level}**\n"
+            f"{title_line}"
             f"• 🏆 Prestige: **{user.prestige:,}** | XP: **{user.xp:,}**\n\n"
             f"💰 **RESURSLAR:**\n"
             f"• 🪙 Oltin: **{user.gold:,}**\n"
@@ -226,6 +236,9 @@ async def admin_user_detail_callback(update: Update, context: ContextTypes.DEFAU
                 InlineKeyboardButton("👑 Lord (King)", callback_data=f"adm_act:{user.id}:rank:king"),
                 InlineKeyboardButton("⚔️ Qo'mondon", callback_data=f"adm_act:{user.id}:rank:commander"),
                 InlineKeyboardButton("🛡️ Ritsar", callback_data=f"adm_act:{user.id}:rank:knight"),
+            ],
+            [
+                InlineKeyboardButton("🎖️ Sharafli Unvon Berish (Title)", callback_data=f"adm_u_titles:{user.id}"),
             ],
             [
                 InlineKeyboardButton("🏰 Xonadonni O'zgartirish", callback_data=f"adm_u_house_pick:{user.id}:0"),
@@ -1017,7 +1030,7 @@ async def admin_events_menu_callback(update: Update, context: ContextTypes.DEFAU
         "Kerakli amalni tanlang:"
     )
     buttons = [
-        [InlineKeyboardButton("❄️ Tun Qiroli HP: 250,000 ga tiklash", callback_data="adm_ev_act:nk_reset")],
+        [InlineKeyboardButton("❄️ Tun Qiroli HP: 500,000 ga tiklash", callback_data="adm_ev_act:nk_reset")],
         [InlineKeyboardButton("❄️ Tun Qiroli HP: 5,000 ga tushirish (Sinov)", callback_data="adm_ev_act:nk_low")],
         [InlineKeyboardButton("☣️ Vabo Epidemiyasini e'lon qilish", callback_data="adm_ev_act:plague")],
         [InlineKeyboardButton("🥷 Qaroqchilar Hujumini e'lon qilish", callback_data="adm_ev_act:bandits")],
@@ -1039,9 +1052,9 @@ async def admin_event_action_callback(update: Update, context: ContextTypes.DEFA
 
         if act == "nk_reset":
             if ww_event:
-                ww_event.data_json = json.dumps({"hp": 250000, "status": "active"})
+                ww_event.data_json = json.dumps({"hp": 500000, "max_hp": 500000, "status": "active"})
                 await session.commit()
-            msg = "❄️ Tun Qiroli armiyasi to'liq 250,000 ga tiklandi!"
+            msg = "❄️ Tun Qiroli armiyasi to'liq 500,000 ga tiklandi!"
         elif act == "nk_low":
             if ww_event:
                 ww_event.data_json = json.dumps({"hp": 5000, "status": "active"})
@@ -1640,23 +1653,9 @@ async def admin_castles_list_callback(update: Update, context: ContextTypes.DEFA
         await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
 
 
-async def admin_player_castles_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Admin paneli: qaysi o'yinchi nechta va qaysi qalalarni egallaganligi ro'yxati"""
-    query = update.callback_query
-    try:
-        await query.answer()
-    except Exception:
-        pass
-
-    if not is_admin(query.from_user.id):
-        return
-
-    offset = int(query.data.split(":")[1]) if ":" in query.data else 0
-    PAGE_SIZE = 3
-
-    async with AsyncSessionLocal() as session:
-        summary = await crud.get_player_conquered_castles_summary(session)
-
+async def render_player_castles_html(session, offset: int = 0, PAGE_SIZE: int = 2):
+    """Admin paneli: o'yinchilar va qal'alar ro'yxatini HTML formatda tayyorlash"""
+    summary = await crud.get_player_conquered_castles_summary(session)
     players = summary.get("players", [])
     conquerors = summary.get("conquerors", [])
     direct_conquests_total = summary.get("direct_conquests_total", 0)
@@ -1664,7 +1663,6 @@ async def admin_player_castles_callback(update: Update, context: ContextTypes.DE
     player_terrs = summary.get("player_controlled", 0)
     npc_terrs = summary.get("npc_controlled", 0)
 
-    # Faqat qal'aga ega bo'lganlar (yoki hech kim bo'lmasa barcha ro'yxatdan o'tganlar)
     active_players = [p for p in players if p.get("total_castles", 0) > 0]
     if not active_players:
         active_players = players
@@ -1673,82 +1671,74 @@ async def admin_player_castles_callback(update: Update, context: ContextTypes.DE
     current_page_players = active_players[offset : offset + PAGE_SIZE]
 
     text = (
-        f"🏆 **VESTEROS QAL'ALARI — EGALLANGAN VA XONADON QAL'ALARI**\n\n"
-        f"📊 **UMUMIY STATISTIKA:**\n"
-        f"• 🏯 Jami Qal'alar: **{total_terrs}** ta\n"
-        f"• ⚔️ Jangda Bosib Olinganlar: **{direct_conquests_total}** ta qal'a\n"
-        f"• 👑 Lordlar Tasarrufida: **{player_terrs}** ta qal'a\n"
-        f"• 🤖 NPC Xonadonlar Nazoratida: **{npc_terrs}** ta qal'a\n"
-        f"• 👥 Qal'aga ega Lordlar: **{total_players}** nafar\n\n"
+        f"🏆 <b>VESTEROS QAL'ALARI — EGALLANGAN VA XONADON QAL'ALARI</b>\n\n"
+        f"📊 <b>UMUMIY STATISTIKA:</b>\n"
+        f"• 🏯 Jami Qal'alar: <b>{total_terrs}</b> ta\n"
+        f"• ⚔️ Fath Etilgan Qal'alar: <b>{direct_conquests_total}</b> ta\n"
+        f"• 👑 Lordlar Nazoratida: <b>{player_terrs}</b> ta qal'a\n"
+        f"• 🤖 NPC Xonadonlar Nazoratida: <b>{npc_terrs}</b> ta qal'a\n"
+        f"• 👥 Qal'aga ega Lordlar: <b>{total_players}</b> nafar\n\n"
     )
 
     if conquerors:
-        text += "⚔️ **JANGDA BOSIB OLINGAN QAL'ALAR (FATH ETILGANLAR):**\n"
-        for cp in conquerors:
-            cp_name = escape_md(cp['name'])
-            cp_house = escape_md(cp['house_name'])
-            text += f"• **{cp_name}** ({cp['house_emoji']} {cp_house}): **{cp['direct_conquests']} ta qal'a**\n"
-            for c in cp.get('conquered_castles', []):
-                c_n = escape_md(c['name'])
-                c_c = escape_md(c['castle_name'])
-                c_r = escape_md(c['region'])
-                text += f"   ▫️ 🏯 **{c_n}** ({c_c}) — *{c_r}* (Devor: {c['defense']})\n"
+        text += "⚔️ <b>JANGDA BOSIB OLINGAN QAL'ALAR:</b>\n"
+        for cp in conquerors[:5]:
+            cp_name = html.escape(cp['name'])
+            cp_house = html.escape(cp['house_name'])
+            c_names = ", ".join(html.escape(c['name']) for c in cp.get('conquered_castles', []))
+            text += f"• <b>{cp_name}</b> ({cp['house_emoji']} {cp_house}): <b>{cp['direct_conquests']} ta</b> ({c_names})\n"
         text += "\n"
     else:
-        text += (
-            "⚔️ **JANGDA BOSIB OLINGAN QAL'ALAR:**\n"
-            "ℹ️ _Hozircha hech qaysi o'yinchi dushman qal'asini bosib olmagan (barcha qal'alar o'z dastlabki xonadonlari yoki NPC nazoratida)._\n\n"
-        )
-
-    buttons = []
+        text += "⚔️ <b>JANGDA BOSIB OLINGAN QAL'ALAR:</b>\n<i>Hozircha hech kim dushman qal'asini bosib olmagan.</i>\n\n"
 
     if not active_players:
-        text += (
-            "ℹ️ _Hozircha hech qaysi o'yinchi xonadonga a'zo bo'lmagan._\n\n"
-            "O'yinchilar xonadonlarga qo'shilib, qal'alarni egallaganlarida bu yerda to'liq ro'yxat shakllanadi."
-        )
+        text += "ℹ️ <i>Hozircha o'yinchilar qal'aga egalik qilmaydi.</i>"
     else:
-        text += "🏰 **LORDLAR VA ULARNING BARCHA QAL'ALARI:**\n"
-        text += "════════════════════════════\n\n"
+        text += "🏰 <b>LORDLAR VA ULARNING QAL'ALARI:</b>\n"
+        text += "────────────────────────────\n"
 
         for idx, p in enumerate(current_page_players, start=offset + 1):
-            p_name = escape_md(p['name'])
-            p_uname = f"@{escape_md(p['username'])}" if p.get("username") else f"ID: `{p['telegram_id']}`"
+            p_name = html.escape(p['name'])
+            p_uname = f"@{html.escape(p['username'])}" if p.get("username") else f"ID: <code>{p['telegram_id']}</code>"
             lord_badge = "👑 Lord" if p.get("is_lord") else f"🎖️ {str(p.get('rank', 'member')).title()}"
-            direct_str = f" (⚔️ {p['direct_conquests']} tasi bosib olingan)" if p.get("direct_conquests", 0) > 0 else ""
+            direct_str = f" (⚔️ {p['direct_conquests']} tasi fath etilgan)" if p.get("direct_conquests", 0) > 0 else ""
 
             text += (
-                f"**{idx}. {p_name}** ({p_uname})\n"
-                f"• {p['house_emoji']} Xonadon: **{escape_md(p['house_name'])}** ({lord_badge})\n"
-                f"• 🏯 Jami Qal'alari: **{p['total_castles']} ta**{direct_str}\n"
+                f"<b>{idx}. {p_name}</b> ({p_uname})\n"
+                f"• {p['house_emoji']} Xonadon: <b>{html.escape(p['house_name'])}</b> ({lord_badge})\n"
+                f"• 🏯 Jami Qal'alari: <b>{p['total_castles']} ta</b>{direct_str}\n"
             )
 
             if p.get("castles"):
                 text += "• Qal'alar:\n"
-                for c in p.get("castles", []):
-                    c_name = escape_md(c['name'])
-                    c_castle = escape_md(c['castle_name'] or "Qal'a")
-                    tag = "⚔️ Fath etilgan" if c.get("is_direct_conquest") else ("👑 Poytaxt" if c.get("is_capital") else "🛡️ Xonadon qal'asi")
+                for c in p.get("castles", [])[:6]:
+                    c_name = html.escape(c['name'])
+                    c_castle = html.escape(c['castle_name'] or "Qal'a")
+                    c_region = html.escape(c.get('region', ''))
+                    tag = "⚔️ Fath etilgan" if c.get("is_direct_conquest") else ("👑 Poytaxt" if c.get("is_capital") else "🛡️ Xonadon")
                     text += (
-                        f"   ▫️ 🏯 **{c_name}** ({c_castle}) — *{escape_md(c['region'])}*\n"
-                        f"      ┗ 🏷️ {tag} | Devor: {c['defense']} | Garnizon: {c['garrison_total']:,} askar\n"
+                        f"   ▫️ 🏯 <b>{c_name}</b> ({c_castle}) — <i>{c_region}</i>\n"
+                        f"      ┗ [{tag}] Devor: {c['defense']} | Garnizon: {c['garrison_total']:,}\n"
                     )
+                if len(p.get("castles", [])) > 6:
+                    text += f"   ▫️ <i>... va yana {len(p.get('castles', [])) - 6} ta qal'a</i>\n"
             else:
-                text += "• _Qal'alari yo'q_\n"
+                text += "• <i>Qal'alari yo'q</i>\n"
             text += "\n"
 
-        text += "════════════════════════════\n"
+        text += "────────────────────────────\n"
         total_pages = max(1, (total_players + PAGE_SIZE - 1) // PAGE_SIZE)
         curr_page = offset // PAGE_SIZE + 1
         text += f"Sahifa: {curr_page} / {total_pages}"
 
-        for p in current_page_players:
-            buttons.append([
-                InlineKeyboardButton(
-                    f"👤 {p['name'][:15]} ({p['total_castles']} qal'a)",
-                    callback_data=f"admin_u_detail:{p['user_id']}"
-                )
-            ])
+    buttons = []
+    for p in current_page_players:
+        buttons.append([
+            InlineKeyboardButton(
+                f"👤 {p['name'][:15]} ({p['total_castles']} qal'a)",
+                callback_data=f"admin_u_detail:{p['user_id']}"
+            )
+        ])
 
     nav_row = []
     if offset >= PAGE_SIZE:
@@ -1766,16 +1756,77 @@ async def admin_player_castles_callback(update: Update, context: ContextTypes.DE
         InlineKeyboardButton("🔙 Admin Panel", callback_data="admin_panel"),
     ])
 
+    if len(text) > 3900:
+        text = text[:3850] + "\n\n<i>... (Ko'proq ma'lumot keyingi sahifada)</i>"
+
+    return text, buttons
+
+
+async def admin_player_castles_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin paneli: qaysi o'yinchi nechta va qaysi qalalarni egallaganligi ro'yxati"""
+    query = update.callback_query
     try:
-        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
-    except Exception as e:
-        if "Message is not modified" in str(e):
-            return
+        await query.answer()
+    except Exception:
+        pass
+
+    user_id = query.from_user.id
+    if not is_admin(user_id):
         try:
-            clean_text = text.replace("**", "").replace("*", "").replace("`", "").replace("_", "")
-            await query.edit_message_text(clean_text, parse_mode=None, reply_markup=InlineKeyboardMarkup(buttons))
+            await query.answer("❌ Administrator huquqi yo'q!", show_alert=True)
         except Exception:
             pass
+        return
+
+    offset = 0
+    if query.data and ":" in query.data:
+        try:
+            offset = int(query.data.split(":")[1])
+        except Exception:
+            offset = 0
+
+    try:
+        async with AsyncSessionLocal() as session:
+            text, buttons = await render_player_castles_html(session, offset=offset)
+
+        markup = InlineKeyboardMarkup(buttons)
+        try:
+            await query.edit_message_text(text, parse_mode="HTML", reply_markup=markup)
+        except Exception as e_edit:
+            if "Message is not modified" in str(e_edit):
+                return
+            # Agar edit ishlamasa (masalan rasmli xabar bo'lsa), yangi xabar qilib yuborish
+            clean_text = text.replace("<b>", "").replace("</b>", "").replace("<i>", "").replace("</i>", "").replace("<code>", "").replace("</code>", "")
+            try:
+                await query.message.reply_text(text, parse_mode="HTML", reply_markup=markup)
+            except Exception:
+                await query.message.reply_text(clean_text[:3900], parse_mode=None, reply_markup=markup)
+    except Exception as err:
+        logger.error(f"admin_player_castles_callback xatosi: {err}", exc_info=True)
+        try:
+            await query.answer(f"⚠️ Xatolik: {str(err)[:100]}", show_alert=True)
+        except Exception:
+            pass
+        try:
+            await query.message.reply_text(f"⚠️ Egallangan qal'alar bo'limida xatolik yuz berdi: {err}")
+        except Exception:
+            pass
+
+
+async def admin_player_castles_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/conqueredcastles yoki /admincastles buyrug'i"""
+    user_id = update.effective_user.id
+    if not is_admin(user_id):
+        await update.message.reply_text("❌ Faqat Administrator ushbu buyruqni bera oladi!")
+        return
+
+    try:
+        async with AsyncSessionLocal() as session:
+            text, buttons = await render_player_castles_html(session, offset=0)
+        await update.message.reply_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(buttons))
+    except Exception as err:
+        logger.error(f"admin_player_castles_command xatosi: {err}", exc_info=True)
+        await update.message.reply_text(f"⚠️ Qal'alar ro'yxatini olishda xatolik: {err}")
 
 
 async def admin_all_castles_overview_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1786,58 +1837,287 @@ async def admin_all_castles_overview_callback(update: Update, context: ContextTy
     except Exception:
         pass
 
+    user_id = query.from_user.id
+    if not is_admin(user_id):
+        try:
+            await query.answer("❌ Administrator huquqi yo'q!", show_alert=True)
+        except Exception:
+            pass
+        return
+
+    offset = 0
+    if query.data and ":" in query.data:
+        try:
+            offset = int(query.data.split(":")[1])
+        except Exception:
+            offset = 0
+
+    PAGE_SIZE = 6
+
+    try:
+        async with AsyncSessionLocal() as session:
+            summary = await crud.get_player_conquered_castles_summary(session)
+
+        all_castles = summary.get("castles_overview", [])
+        total_castles = len(all_castles)
+        page_castles = all_castles[offset : offset + PAGE_SIZE]
+
+        text = (
+            f"🏯 <b>VESTEROS BARCHA QAL'ALARI VA ULARNING EGALARI</b>\n\n"
+            f"Jami qal'alar: <b>{total_castles}</b> ta | Sahifa: <b>{offset // PAGE_SIZE + 1} / {max(1, (total_castles + PAGE_SIZE - 1) // PAGE_SIZE)}</b>\n\n"
+        )
+
+        buttons = []
+        for c in page_castles:
+            status_emoji = "⚔️" if c.get("is_direct_conquest") else "🏰"
+            c_name = html.escape(c['name'])
+            c_castle = html.escape(c['castle_name'] or "Qal'a")
+            c_region = html.escape(c.get('region', ''))
+            c_holder = html.escape(c['holder_name'])
+            text += (
+                f"{status_emoji} <b>{c_name}</b> ({c_castle}) — <i>{c_region}</i>\n"
+                f"   • Egasi: <b>{c_holder}</b>\n"
+                f"   • Mudofaa: <b>{c['defense']}</b> | Garnizon: <b>{c['garrison_total']:,}</b> askar\n\n"
+            )
+            buttons.append([
+                InlineKeyboardButton(
+                    f"🏯 {c['name']} ({c['holder_name'][:18]})",
+                    callback_data=f"adm_c_detail:{c['id']}"
+                )
+            ])
+
+        nav_row = []
+        if offset >= PAGE_SIZE:
+            nav_row.append(InlineKeyboardButton("⬅️ Oldingi", callback_data=f"admin_all_castles_ov:{offset - PAGE_SIZE}"))
+        if offset + PAGE_SIZE < total_castles:
+            nav_row.append(InlineKeyboardButton("Keyingi ➡️", callback_data=f"admin_all_castles_ov:{offset + PAGE_SIZE}"))
+        if nav_row:
+            buttons.append(nav_row)
+
+        buttons.append([
+            InlineKeyboardButton("🏆 O'yinchilar Bo'yicha Ro'yxat", callback_data="admin_player_castles:0"),
+            InlineKeyboardButton("🔙 Admin Panel", callback_data="admin_panel"),
+        ])
+
+        if len(text) > 3900:
+            text = text[:3850] + "\n\n<i>... (Ko'proq ma'lumot keyingi sahifada)</i>"
+
+        markup = InlineKeyboardMarkup(buttons)
+        try:
+            await query.edit_message_text(text, parse_mode="HTML", reply_markup=markup)
+        except Exception as e_edit:
+            if "Message is not modified" in str(e_edit):
+                return
+            clean_text = text.replace("<b>", "").replace("</b>", "").replace("<i>", "").replace("</i>", "").replace("<code>", "").replace("</code>", "")
+            try:
+                await query.message.reply_text(text, parse_mode="HTML", reply_markup=markup)
+            except Exception:
+                await query.message.reply_text(clean_text[:3900], parse_mode=None, reply_markup=markup)
+    except Exception as err:
+        logger.error(f"admin_all_castles_overview_callback xatosi: {err}", exc_info=True)
+        try:
+            await query.answer(f"⚠️ Xatolik: {str(err)[:100]}", show_alert=True)
+        except Exception:
+            pass
+
+
+async def admin_user_titles_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin paneli: O'yinchiga sharafli unvon berish menyusi"""
+    query = update.callback_query
+    await query.answer()
     if not is_admin(query.from_user.id):
         return
 
-    offset = int(query.data.split(":")[1]) if ":" in query.data else 0
-    PAGE_SIZE = 6
-
+    user_id = int(query.data.split(":")[1])
     async with AsyncSessionLocal() as session:
-        summary = await crud.get_player_conquered_castles_summary(session)
+        user = await crud.get_user_any(session, user_id)
+        if not user:
+            await query.answer("O'yinchi topilmadi.", show_alert=True)
+            return
 
-    all_castles = summary.get("castles_overview", [])
-    total_castles = len(all_castles)
-    page_castles = all_castles[offset : offset + PAGE_SIZE]
+        char_name = user.characters[0].name if user.characters else user.full_name
+        current_title = user.title or "Mavjud emas"
 
-    text = (
-        f"🏯 **VESTEROS BARCHA QAL'ALARI VA ULARNING EGALARI**\n\n"
-        f"Jami qal'alar: **{total_castles}** ta | Sahifa: **{offset // PAGE_SIZE + 1} / {max(1, (total_castles + PAGE_SIZE - 1) // PAGE_SIZE)}**\n\n"
-    )
-
-    buttons = []
-
-    for c in page_castles:
-        status_emoji = "⚔️" if c.get("is_direct_conquest") else "🏰"
-        text += (
-            f"{status_emoji} **{c['name']}** ({c['castle_name']}) — *{c['region']}*\n"
-            f"   • Egasi: **{c['holder_name']}**\n"
-            f"   • Mudofaa: **{c['defense']}** | Garnizon: **{c['garrison_total']:,}** askar\n\n"
+        text = (
+            f"🎖️ <b>SHARAFLI UNVONLAR BOSHQARUVI</b>\n\n"
+            f"👤 O'yinchi: <b>{html.escape(char_name)}</b> (ID: <code>{user.telegram_id}</code>)\n"
+            f"🏷️ Hozirgi unvoni: <b>{html.escape(current_title)}</b>\n\n"
+            f"Quyidagi mashhur unvonlardan birini tanlang yoki o'zingiz istalgan unvonni yozish uchun buyruqdan foydalaning:\n"
+            f"<code>/settitle {user.telegram_id} [unvon_nomi]</code>\n\n"
+            f"Tayyor unvonlar:"
         )
+
+        preset_titles = [
+            ("❄️ Shimol Najotkori", "Shimol Najotkori"),
+            ("🖐️ Qirol Qo'li", "Qirol Qo'li"),
+            ("🛡️ Vesteros Qalqoni", "Vesteros Qalqoni"),
+            ("🐉 Ajdarlar Otasi", "Ajdarlar Otasi"),
+            ("🐉 Ajdarlar Onasi", "Ajdarlar Onasi"),
+            ("👑 Oliy Lord", "Oliy Lord"),
+            ("⚔️ Bosh Qo'mondon", "Bosh Qo'mondon"),
+            ("🗡️ Qonxo'r Qilich", "Qonxo'r Qilich"),
+            ("🏹 Kamonchilar Chempioni", "Kamonchilar Chempioni"),
+            ("🌊 Dengizlar Hukmdori", "Dengizlar Hukmdori"),
+        ]
+
+        buttons = []
+        for label, title_val in preset_titles:
+            buttons.append([
+                InlineKeyboardButton(label, callback_data=f"adm_set_title:{user.id}:{title_val}")
+            ])
+
         buttons.append([
-            InlineKeyboardButton(
-                f"🏯 {c['name']} ({c['holder_name'][:18]})",
-                callback_data=f"adm_c_detail:{c['id']}"
-            )
+            InlineKeyboardButton("❌ Unvonni Olib Tashlash", callback_data=f"adm_set_title:{user.id}:__clear__")
+        ])
+        buttons.append([
+            InlineKeyboardButton("🔙 O'yinchi Sahifasiga Qaytish", callback_data=f"admin_u_detail:{user.id}")
         ])
 
-    nav_row = []
-    if offset >= PAGE_SIZE:
-        nav_row.append(InlineKeyboardButton("⬅️ Oldingi", callback_data=f"admin_all_castles_ov:{offset - PAGE_SIZE}"))
-    if offset + PAGE_SIZE < total_castles:
-        nav_row.append(InlineKeyboardButton("Keyingi ➡️", callback_data=f"admin_all_castles_ov:{offset + PAGE_SIZE}"))
-    if nav_row:
-        buttons.append(nav_row)
+        try:
+            await query.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(buttons))
+        except Exception:
+            clean_text = text.replace("<b>", "").replace("</b>", "").replace("<i>", "").replace("</i>", "").replace("<code>", "").replace("</code>", "")
+            await query.edit_message_text(clean_text, parse_mode=None, reply_markup=InlineKeyboardMarkup(buttons))
 
-    buttons.append([
-        InlineKeyboardButton("🏆 O'yinchilar Bo'yicha Ro'yxat", callback_data="admin_player_castles:0"),
-        InlineKeyboardButton("🔙 Admin Panel", callback_data="admin_panel"),
-    ])
 
+async def admin_set_title_do_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin tanlagan unvonni o'yinchiga biriktirish"""
+    query = update.callback_query
+    if not is_admin(query.from_user.id):
+        return
+
+    parts = query.data.split(":", 2)
+    user_id = int(parts[1])
+    title_val = parts[2]
+    new_title = None if title_val == "__clear__" else title_val
+
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_any(session, user_id)
+        if not user:
+            await query.answer("O'yinchi topilmadi.", show_alert=True)
+            return
+
+        user.title = new_title
+        await session.commit()
+
+        # O'yinchiga bildirishnoma yuborish
+        if user.telegram_id:
+            try:
+                if new_title:
+                    notice = (
+                        f"🎖️ <b>SHARAFLI UNVON TOPSHIRILDI!</b>\n\n"
+                        f"Oliy Administrator tomonidan sizga <b>'{html.escape(new_title)}'</b> faxriy unvoni berildi!\n"
+                        f"Ushbu unvon endi profilingiz va reytinglarda namoyon bo'ladi."
+                    )
+                else:
+                    notice = "ℹ️ Sizdagi faxriy unvon administrator tomonidan olib tashlandi."
+                await context.bot.send_message(chat_id=user.telegram_id, text=notice, parse_mode="HTML")
+            except Exception:
+                pass
+
+    status_msg = "Unvon olib tashlandi!" if not new_title else f"Yangi unvon berildi: {new_title}"
     try:
-        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        await query.answer(f"✅ {status_msg}", show_alert=True)
     except Exception:
-        clean_text = text.replace("**", "").replace("*", "").replace("`", "").replace("_", "")
-        await query.edit_message_text(clean_text, parse_mode=None, reply_markup=InlineKeyboardMarkup(buttons))
+        pass
+
+    await show_admin_user_detail(query, user_id)
+
+
+async def set_title_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/settitle <@username | tg_id> <unvon> buyrug'i"""
+    user_id = update.effective_user.id
+    if not is_admin(user_id):
+        await update.message.reply_text("❌ Faqat Administrator ushbu buyruqni bera oladi!")
+        return
+
+    args = context.args
+    if not args or len(args) < 2:
+        text = (
+            "🎖️ <b>O'YINCHIGA UNVON BERISH BUYRUG'I</b>\n\n"
+            "Foydalanish:\n"
+            "<code>/settitle &lt;@username yoki telegram_id&gt; &lt;unvon_nomi&gt;</code>\n\n"
+            "Misollar:\n"
+            "• <code>/settitle @azizbek Shimol Najotkori</code>\n"
+            "• <code>/settitle 7689627859 Qirol Qo'li</code>\n"
+            "• <code>/settitle @shokh Vesteros Qalqoni</code>\n\n"
+            "Unvonni olib tashlash uchun: <code>/deltitle &lt;@username yoki telegram_id&gt;</code>"
+        )
+        await update.message.reply_text(text, parse_mode="HTML")
+        return
+
+    target_ident = args[0].strip()
+    title_text = " ".join(args[1:]).strip()
+
+    async with AsyncSessionLocal() as session:
+        target_user = None
+        if target_ident.startswith("@"):
+            uname = target_ident.lstrip("@").lower()
+            res = await session.execute(select(models.User).where(func.lower(models.User.username) == uname))
+            target_user = res.scalar_one_or_none()
+        elif target_ident.isdigit():
+            tg_id = int(target_ident)
+            target_user = await crud.get_user_by_telegram_id(session, tg_id)
+            if not target_user:
+                target_user = await crud.get_user_any(session, int(target_ident))
+
+        if not target_user:
+            await update.message.reply_text(f"❌ '{target_ident}' bo'yicha o'yinchi topilmadi.")
+            return
+
+        target_user.title = title_text
+        await session.commit()
+
+        # O'yinchiga bildirishnoma
+        if target_user.telegram_id:
+            try:
+                await context.bot.send_message(
+                    chat_id=target_user.telegram_id,
+                    text=f"🎖️ <b>SHARAFLI UNVON!</b>\n\nSizga Oliy Administrator tomonidan <b>'{html.escape(title_text)}'</b> faxriy unvoni berildi!",
+                    parse_mode="HTML",
+                )
+            except Exception:
+                pass
+
+        await update.message.reply_text(
+            f"✅ <b>{html.escape(target_user.full_name)}</b> (<code>{target_user.telegram_id}</code>) ga yangi unvon berildi:\n"
+            f"🎖️ <b>{html.escape(title_text)}</b>",
+            parse_mode="HTML",
+        )
+
+
+async def del_title_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/deltitle <@username | tg_id> buyrug'i"""
+    user_id = update.effective_user.id
+    if not is_admin(user_id):
+        await update.message.reply_text("❌ Faqat Administrator ushbu buyruqni bera oladi!")
+        return
+
+    args = context.args
+    if not args:
+        await update.message.reply_text("❌ Foydalanish: <code>/deltitle &lt;@username yoki telegram_id&gt;</code>", parse_mode="HTML")
+        return
+
+    target_ident = args[0].strip()
+    async with AsyncSessionLocal() as session:
+        target_user = None
+        if target_ident.startswith("@"):
+            uname = target_ident.lstrip("@").lower()
+            res = await session.execute(select(models.User).where(func.lower(models.User.username) == uname))
+            target_user = res.scalar_one_or_none()
+        elif target_ident.isdigit():
+            tg_id = int(target_ident)
+            target_user = await crud.get_user_by_telegram_id(session, tg_id)
+            if not target_user:
+                target_user = await crud.get_user_any(session, int(target_ident))
+
+        if not target_user:
+            await update.message.reply_text(f"❌ '{target_ident}' bo'yicha o'yinchi topilmadi.")
+            return
+
+        target_user.title = None
+        await session.commit()
+        await update.message.reply_text(f"✅ <b>{html.escape(target_user.full_name)}</b> ning unvoni olib tashlandi.", parse_mode="HTML")
 
 
 async def show_admin_castle_detail(query, terr_id: int):
@@ -2537,8 +2817,13 @@ def register_admin_handlers(app):
     app.add_handler(CallbackQueryHandler(admin_house_detail_callback, pattern="^adm_h_detail:"))
     app.add_handler(CallbackQueryHandler(admin_house_action_callback, pattern="^adm_h_act:"))
     app.add_handler(CallbackQueryHandler(admin_castles_list_callback, pattern="^admin_castles_list:"))
-    app.add_handler(CallbackQueryHandler(admin_player_castles_callback, pattern="^admin_player_castles:"))
-    app.add_handler(CallbackQueryHandler(admin_all_castles_overview_callback, pattern="^admin_all_castles_ov:"))
+    app.add_handler(CommandHandler(["conqueredcastles", "admincastles", "playercastles"], admin_player_castles_command))
+    app.add_handler(CallbackQueryHandler(admin_player_castles_callback, pattern="^admin_player_castles(:[0-9]+)?$"))
+    app.add_handler(CallbackQueryHandler(admin_all_castles_overview_callback, pattern="^admin_all_castles_ov(:[0-9]+)?$"))
+    app.add_handler(CallbackQueryHandler(admin_user_titles_menu_callback, pattern="^adm_u_titles:"))
+    app.add_handler(CallbackQueryHandler(admin_set_title_do_callback, pattern="^adm_set_title:"))
+    app.add_handler(CommandHandler(["settitle", "unvon"], set_title_command))
+    app.add_handler(CommandHandler(["deltitle", "remtitle"], del_title_command))
     app.add_handler(CallbackQueryHandler(admin_castle_detail_callback, pattern="^adm_c_detail:"))
     app.add_handler(CallbackQueryHandler(admin_castle_action_callback, pattern="^adm_c_act:"))
     app.add_handler(CallbackQueryHandler(admin_castle_pick_house_callback, pattern="^adm_c_pick_h:"))
