@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 from database import AsyncSessionLocal, crud, models
@@ -30,10 +31,9 @@ async def spy_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             rep_text = "\n📜 **Oxirgi hisobotlar:**\n"
             for r in reports:
                 status_emoji = "✅" if r.status == "success" else "❌"
-                t_name = f"Qal'a #{r.target_territory_id}"
-                if r.target_territory:
-                    t_name = r.target_territory.name
-                rep_text += f"• {status_emoji} *{r.mission_type.upper()}* ({t_name}) — {r.created_at.strftime('%H:%M')}\n"
+                t_name = r.target_territory.name if r.target_territory else f"Qal'a #{r.target_territory_id}"
+                t_time = (r.created_at or datetime.utcnow()).strftime('%H:%M')
+                rep_text += f"• {status_emoji} *{r.mission_type.upper()}* ({t_name}) — {t_time}\n"
 
         text = (
             "🕵️🗡️ **JOSUSLIK VA QIZIL TO'Y NIFOG'I (ESPIONAGE)**\n\n"
@@ -49,21 +49,31 @@ async def spy_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🎯 Qal'aga josus yuborish", callback_data="spy_pick_terr")],
+            [InlineKeyboardButton("🎯 Qal'aga josus yuborish", callback_data="spy_pick_page:0")],
             [InlineKeyboardButton("📜 Barcha hisobotlarim", callback_data="spy_history")],
             [InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")],
         ])
 
         if query:
-            await query.edit_message_text(text, reply_markup=keyboard, parse_mode="Markdown")
+            try:
+                await query.edit_message_text(text, reply_markup=keyboard, parse_mode="Markdown")
+            except Exception:
+                await query.edit_message_text(text, reply_markup=keyboard)
         else:
             await update.effective_message.reply_text(text, reply_markup=keyboard, parse_mode="Markdown")
 
 
 async def spy_pick_terr_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Josuslik uchun nishon hududni tanlash"""
+    """Josuslik uchun nishon hududni tanlash (sahifalangan)"""
     query = update.callback_query
     await query.answer()
+
+    offset = 0
+    if query and query.data and query.data.startswith("spy_pick_page:"):
+        try:
+            offset = int(query.data.split(":")[1])
+        except Exception:
+            offset = 0
 
     tg_user = update.effective_user
     async with AsyncSessionLocal() as session:
@@ -74,11 +84,20 @@ async def spy_pick_terr_callback(update: Update, context: ContextTypes.DEFAULT_T
         res = await session.execute(select(models.Territory).order_by(models.Territory.id))
         all_terrs = res.scalars().all()
 
-        buttons = []
-        row = []
+        eligible_terrs = []
         for t in all_terrs:
             if user.house_id and t.owner_house_id == user.house_id:
                 continue
+            if getattr(t, "conquered_by_user_id", None) == user.id:
+                continue
+            eligible_terrs.append(t)
+
+        page_size = 8
+        page_terrs = eligible_terrs[offset : offset + page_size]
+
+        buttons = []
+        row = []
+        for t in page_terrs:
             row.append(InlineKeyboardButton(f"🏰 {t.name}", callback_data=f"spy_terr:{t.id}"))
             if len(row) == 2:
                 buttons.append(row)
@@ -86,13 +105,28 @@ async def spy_pick_terr_callback(update: Update, context: ContextTypes.DEFAULT_T
         if row:
             buttons.append(row)
 
+        nav_row = []
+        if offset > 0:
+            nav_row.append(InlineKeyboardButton("⬅️ Oldingi", callback_data=f"spy_pick_page:{max(0, offset - page_size)}"))
+        if offset + page_size < len(eligible_terrs):
+            nav_row.append(InlineKeyboardButton("Keyingi ➡️", callback_data=f"spy_pick_page:{offset + page_size}"))
+        if nav_row:
+            buttons.append(nav_row)
+
         buttons.append([InlineKeyboardButton("🔙 Josuslik menyusi", callback_data="menu_espionage")])
+
+        total_pages = max(1, (len(eligible_terrs) + page_size - 1) // page_size)
+        current_page = (offset // page_size) + 1
 
         text = (
             "🎯 **JOSUSLIK UCHUN QAL'ANI TANLANG:**\n\n"
-            "Qaysi dushman qal'asiga ayg'oqchi yubormoqchisiz?"
+            f"Qaysi dushman qal'asiga ayg'oqchi yubormoqchisiz?\n"
+            f"📄 Sahifa: **{current_page}/{total_pages}** | 💰 Hamyoningiz: **{user.gold:,}** Oltin"
         )
-        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(buttons), parse_mode="Markdown")
+        try:
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(buttons), parse_mode="Markdown")
+        except Exception:
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(buttons))
 
 
 async def spy_terr_detail_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -107,9 +141,21 @@ async def spy_terr_detail_callback(update: Update, context: ContextTypes.DEFAULT
             await query.edit_message_text("❌ Qal'a topilmadi.")
             return
 
+        tg_user = update.effective_user
+        user = await crud.get_user_by_telegram_id(session, tg_user.id)
+        u_gold = user.gold if user else 0
+
+        h_name = "Mustaqil"
+        if terr.owner_house_id:
+            h = await session.get(models.House, terr.owner_house_id)
+            if h:
+                h_name = f"{h.sigil or '🛡️'} {h.name}"
+
         text = (
-            f"🏰 **QAL'A: {terr.name}** ({terr.castle_name})\n\n"
-            f"Mintaqa: {terr.region}\n"
+            f"🏰 **QAL'A: {terr.name}** ({terr.castle_name})\n"
+            f"👑 Xonadon: **{h_name}**\n"
+            f"🗺️ Mintaqa: **{terr.region}**\n"
+            f"💰 Sizdagi oltin: **{u_gold:,}** Oltin\n\n"
             f"Ushbu qal'aga qanday operatsiya uyushtirilsin?"
         )
 
@@ -117,9 +163,12 @@ async def spy_terr_detail_callback(update: Update, context: ContextTypes.DEFAULT
             [InlineKeyboardButton("🕵️ Razvedka qilish (1,000💰)", callback_data=f"spy_do:scout:{terr.id}")],
             [InlineKeyboardButton("🔥 Sabotaj uyushtirish (3,000💰)", callback_data=f"spy_do:sabotage:{terr.id}")],
             [InlineKeyboardButton("🚪 Darvozalarni ochish (5,000💰)", callback_data=f"spy_do:open_gates:{terr.id}")],
-            [InlineKeyboardButton("🔙 Qal'alar ro'yxati", callback_data="spy_pick_terr")],
+            [InlineKeyboardButton("🔙 Qal'alar ro'yxati", callback_data="spy_pick_page:0")],
         ])
-        await query.edit_message_text(text, reply_markup=keyboard, parse_mode="Markdown")
+        try:
+            await query.edit_message_text(text, reply_markup=keyboard, parse_mode="Markdown")
+        except Exception:
+            await query.edit_message_text(text, reply_markup=keyboard)
 
 
 async def spy_execute_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -146,10 +195,14 @@ async def spy_execute_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         )
 
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🎯 Boshqa Qal'a", callback_data="spy_pick_terr")],
+            [InlineKeyboardButton("🎯 Boshqa Qal'a", callback_data="spy_pick_page:0")],
+            [InlineKeyboardButton("📜 Barcha hisobotlar", callback_data="spy_history")],
             [InlineKeyboardButton("🔙 Josuslik menyusi", callback_data="menu_espionage")],
         ])
-        await query.edit_message_text(report_text, reply_markup=keyboard, parse_mode="Markdown")
+        try:
+            await query.edit_message_text(report_text, reply_markup=keyboard, parse_mode="Markdown")
+        except Exception:
+            await query.edit_message_text(report_text, reply_markup=keyboard)
 
 
 async def spy_history_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -165,30 +218,34 @@ async def spy_history_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
         reports = await crud.get_user_spy_reports(session, user.id, limit=5)
         if not reports:
-            text = "📜 Sizda hali hech qanday josuslik hisobotlari yo'q."
+            text = "📜 **JOSUSLIK HISOBOTLARI:**\n\nSizda hali hech qanday josuslik hisobotlari yo'q."
         else:
             text = "📜 **SIZNING OXIRGI 5 TA JOSUSLIK HISOBOTINGIZ:**\n\n"
             for r in reports:
                 status_icon = "🟢 Muvaffaqiyatli" if r.status == "success" else "🔴 Fosh bo'ldi"
-                t_name = f"Qal'a #{r.target_territory_id}"
-                if r.target_territory:
-                    t_name = r.target_territory.name
+                t_name = r.target_territory.name if r.target_territory else f"Qal'a #{r.target_territory_id}"
+                clean_snippet = (r.report_text or "").replace("*", "").replace("_", "").replace("`", "")[:120].strip()
+                t_time = (r.created_at or datetime.utcnow()).strftime("%d.%m %H:%M")
                 text += (
-                    f"• *{r.mission_type.upper()}* ({t_name}) — {status_icon}\n"
-                    f"_{r.report_text[:120]}..._\n\n"
+                    f"• **{r.mission_type.upper()}** ({t_name}) — {status_icon} ({t_time})\n"
+                    f"{clean_snippet}...\n\n"
                 )
 
         keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🎯 Qal'aga josus yuborish", callback_data="spy_pick_page:0")],
             [InlineKeyboardButton("🔙 Josuslik menyusi", callback_data="menu_espionage")]
         ])
-        await query.edit_message_text(text, reply_markup=keyboard, parse_mode="Markdown")
+        try:
+            await query.edit_message_text(text, reply_markup=keyboard, parse_mode="Markdown")
+        except Exception:
+            await query.edit_message_text(text, reply_markup=keyboard)
 
 
 def register_espionage_handlers(app: Application):
     """Josuslik handlerlarini ro'yxatdan o'tkazish"""
     app.add_handler(CommandHandler(["spy", "espionage"], spy_menu_callback))
     app.add_handler(CallbackQueryHandler(spy_menu_callback, pattern="^menu_espionage$"))
-    app.add_handler(CallbackQueryHandler(spy_pick_terr_callback, pattern="^spy_pick_terr$"))
+    app.add_handler(CallbackQueryHandler(spy_pick_terr_callback, pattern="^spy_pick_(terr|page:\\d+)$"))
     app.add_handler(CallbackQueryHandler(spy_terr_detail_callback, pattern="^spy_terr:\\d+$"))
     app.add_handler(CallbackQueryHandler(spy_execute_callback, pattern="^spy_do:(scout|sabotage|open_gates):\\d+$"))
     app.add_handler(CallbackQueryHandler(spy_history_callback, pattern="^spy_history$"))

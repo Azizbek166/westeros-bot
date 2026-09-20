@@ -4298,6 +4298,9 @@ async def send_spy_mission(
     if not territory:
         return False, "❌ Maqsadli hudud/qal'a topilmadi.", {}
 
+    if getattr(territory, "conquered_by_user_id", None) == user.id:
+        return False, "❌ O'zingiz egallagan qal'aga josus yubora olmaysiz!", {}
+
     if user.house_id and territory.owner_house_id == user.house_id:
         return False, "❌ O'z xonadoningiz qal'asiga josus yubora olmaysiz!", {}
 
@@ -4320,9 +4323,11 @@ async def send_spy_mission(
     report_data = {}
     now = datetime.utcnow()
 
-    # Himoyachi xonadon lordini topish
+    # Himoyachi qal'a sohibini yoki xonadon lordini topish
     defender_lord = None
-    if territory.owner_house_id:
+    if getattr(territory, "conquered_by_user_id", None):
+        defender_lord = await session.get(models.User, territory.conquered_by_user_id)
+    elif territory.owner_house_id:
         h_obj = await session.get(models.House, territory.owner_house_id)
         if h_obj and h_obj.lord_user_id:
             defender_lord = await session.get(models.User, h_obj.lord_user_id)
@@ -4375,7 +4380,11 @@ async def send_spy_mission(
         user.prestige += 10
         # Ajdar bormi?
         dr_info = get_stationed_dragon_info(territory)
-        dr_text = f"🐉 Ajdar: {dr_info['name']} (Kuch: {dr_info['power']})" if dr_info else "🐉 Ajdar: Yo'q"
+        dr_text = "🐉 Ajdar: *Qal'ada ajdar yo'q*"
+        if dr_info and isinstance(dr_info, dict):
+            dr_name = dr_info.get("name", "Noma'lum Ajdar")
+            dr_pow = dr_info.get("power", 0)
+            dr_text = f"🐉 Ajdar: **{dr_name}** (⚡ {dr_pow} quvvat)"
 
         report_text = (
             f"🕵️📜 **JOSUSLIK RAZVEDKA HISOBOTI**\n\n"
@@ -4410,7 +4419,7 @@ async def send_spy_mission(
         else:
             dmg = random.randint(60, 140)
             territory.defense = max(50, territory.defense - dmg)
-            sabotage_effect = f"🏰💥 Josuslar qal'a yog'och konstruksiyalari va mudofaa moslamalariga o't qo'ydi: devor mustahkamligi **-{dmg}** ballga tushirildi!"
+            sabotage_effect = f"🏰💥 Josuslar qal'a yog'och konstruksiyalari va mudofaa moslamalariga o't qo'ydi: devor mustahkamligi **-{dmg}** ballga tushirildi! (Hozirgi devor: **{territory.defense}**)"
 
         report_text = (
             f"🔥🕵️ **SABOTAJ MUVAFFAQIYATLI AMALGA OSHIRILDI!**\n\n"
@@ -4418,6 +4427,12 @@ async def send_spy_mission(
             f"{sabotage_effect}\n\n"
             f"🎖️ Jasorat uchun +20 Nufuz berildi."
         )
+        report_data = {
+            "status": "success",
+            "type": "sabotage",
+            "defense": territory.defense,
+            "wildfire": territory.wildfire_count,
+        }
 
         if bot_app and defender_lord and defender_lord.telegram_id:
             try:
@@ -4443,6 +4458,11 @@ async def send_spy_mission(
             f"⏱️ Muddat: **2 soat** davomida ushbu qal'aga qilingan har qanday hujumda devor himoyasi **-30%** ga pasayadi!\n"
             f"🎖️ Nufuz: +30 ball qo'shildi."
         )
+        report_data = {
+            "status": "success",
+            "type": "open_gates",
+            "gates_compromised_until": str(territory.gates_compromised_until),
+        }
 
         if bot_app and defender_lord and defender_lord.telegram_id:
             try:
@@ -4477,6 +4497,7 @@ async def get_user_spy_reports(session: AsyncSession, user_id: int, limit: int =
     res = await session.execute(
         select(models.SpyMission)
         .where(models.SpyMission.user_id == user_id)
+        .options(selectinload(models.SpyMission.target_territory))
         .order_by(desc(models.SpyMission.created_at))
         .limit(limit)
     )
