@@ -120,6 +120,16 @@ async def process_due_marches(bot_app=None):
                 if def_lord_user and def_lord_user.army:
                     def_champion = getattr(def_lord_user.army, "champion", None)
 
+                # Josus tomonidan darvoza ochilganligini tekshirish
+                gates_open = bool(
+                    getattr(territory, "gates_compromised_until", None)
+                    and territory.gates_compromised_until > datetime.utcnow()
+                )
+
+                # Ob-havoni olish
+                weather_info = await crud.get_current_weather(session)
+                weather_type = weather_info.get("weather_type", "normal")
+
                 # Jang hisoblash
                 battle_res = calculate_battle(
                     attacker_army=att_army,
@@ -135,6 +145,8 @@ async def process_due_marches(bot_app=None):
                     wildfire_count=terr_wildfire,
                     attacker_champion=att_champion,
                     defender_champion=def_champion,
+                    gates_compromised=gates_open,
+                    weather_type=weather_type,
                 )
 
                 # Wildfire ishlatilgan bo'lsa, qal'a zaxirasidan kamaytirish
@@ -454,12 +466,22 @@ async def process_npc_growth_and_raids(bot_app=None):
                     def_dr_info = crud.get_stationed_dragon_info(target_terr)
                     def_dr_pwr = def_dr_info.get("power", 0) if def_dr_info else 0
 
+                    # Josus tomonidan darvoza ochilganligini va ob-havoni olish
+                    gates_open = bool(
+                        getattr(target_terr, "gates_compromised_until", None)
+                        and target_terr.gates_compromised_until > datetime.utcnow()
+                    )
+                    cur_weather = await crud.get_current_weather(session)
+                    weather_type = cur_weather.get("weather_type", "normal")
+
                     battle_res = calculate_battle(
                         attacker_army=att_army,
                         defender_garrison=def_garrison,
                         castle_defense=target_terr.defense,
                         dragon_power=0,
                         defender_dragon_power=def_dr_pwr,
+                        gates_compromised=gates_open,
+                        weather_type=weather_type,
                     )
 
                     # Himoyachi talofatlari
@@ -675,4 +697,76 @@ async def check_war_mode_expiration(bot_app=None):
                             pass
     except Exception as e:
         logger.error(f"check_war_mode_expiration xatosi: {e}")
+
+
+async def process_due_trade_caravans(bot_app=None):
+    """
+    Manziliga eson-omon yetib borgan barcha savdo karvonlarini hisoblash va foydani egasiga berish
+    """
+    try:
+        async with AsyncSessionLocal() as session:
+            now = datetime.utcnow()
+            res = await session.execute(
+                select(models.TradeCaravan).where(
+                    models.TradeCaravan.status == "moving",
+                    models.TradeCaravan.arrival_time <= now,
+                )
+            )
+            caravans = res.scalars().all()
+            if not caravans:
+                return
+
+            for caravan in caravans:
+                caravan.status = "arrived"
+                user_res = await session.execute(
+                    select(models.User).where(models.User.id == caravan.owner_user_id)
+                )
+                owner = user_res.scalar_one_or_none()
+                if not owner:
+                    continue
+
+                # Soqchilarni armiyaga qaytarish
+                army_res = await session.execute(
+                    select(models.Army).where(models.Army.user_id == owner.id)
+                )
+                army = army_res.scalar_one_or_none()
+                if army:
+                    army.cavalry += (caravan.escort_cavalry or 0)
+                    army.infantry += (caravan.escort_infantry or 0)
+
+                # Foyda va nufuzni berish
+                gold_gain = caravan.expected_gold_reward or 2500
+                prestige_gain = 15 if caravan.resource_amount < 10000 else (30 if caravan.resource_amount < 20000 else 60)
+                owner.gold += gold_gain
+                owner.prestige += prestige_gain
+
+                dest_name = "Savdo porti"
+                dest_res = await session.get(models.Territory, caravan.destination_territory_id)
+                if dest_res:
+                    dest_name = dest_res.name
+
+                logger.info(f"🐪 Savdo karvoni #{caravan.id} ({owner.username}) manzilga ({dest_name}) yetib bordi: +{gold_gain}G, +{prestige_gain}P")
+
+                if bot_app and owner.telegram_id:
+                    msg = (
+                        f"🐪💰 **SAVDO KARVONI MANZILGA YETIB BORDI!**\n\n"
+                        f"Shahanshoh yo'llaridan o'tgan savdo karvoningiz xavfsiz ravishda **{dest_name}** savdo markaziga yetib bordi!\n\n"
+                        f"📦 Sotilgan yuk: **{caravan.resource_amount:,}** {caravan.resource_type.capitalize()}\n"
+                        f"💰 Sof daromad: **+{gold_gain:,}** Oltin\n"
+                        f"🎖️ Nufuz: **+{prestige_gain}** ball\n"
+                        f"🛡️ Qaytgan soqchilar: **{caravan.escort_cavalry}** Otliq, **{caravan.escort_infantry}** Piyoda armiyangiz safiga qaytdi."
+                    )
+                    try:
+                        await bot_app.bot.send_message(
+                            chat_id=owner.telegram_id,
+                            text=msg,
+                            parse_mode="Markdown"
+                        )
+                    except Exception:
+                        pass
+
+            await session.commit()
+    except Exception as e:
+        logger.error(f"process_due_trade_caravans xatosi: {e}")
+
 

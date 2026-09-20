@@ -56,6 +56,14 @@ def main_menu_keyboard(user_id: int = None) -> InlineKeyboardMarkup:
             InlineKeyboardButton("🌟 Mavsum & Shon-sharaf", callback_data="menu_season"),
             InlineKeyboardButton("🎖️ Qahramonlar", callback_data="menu_champions"),
         ],
+        [
+            InlineKeyboardButton("🕵️ Josuslik", callback_data="menu_espionage"),
+            InlineKeyboardButton("🏇 Turnir & Stavka", callback_data="menu_tourney"),
+        ],
+        [
+            InlineKeyboardButton("🐪 Savdo Karvoni", callback_data="menu_caravan"),
+            InlineKeyboardButton("🌤️ Ob-havo", callback_data="menu_weather"),
+        ],
     ]
 
     # Faqat bot egasi va ruxsat berilgan adminlar ko'ra oladi

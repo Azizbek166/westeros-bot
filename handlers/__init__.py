@@ -16,6 +16,10 @@ from handlers.trade_handler import register_trade_handlers
 from handlers.bank_handler import register_bank_handlers
 from handlers.champion_handler import register_champion_handlers
 from handlers.season_handler import register_season_handlers
+from handlers.espionage_handler import register_espionage_handlers
+from handlers.tourney_handler import register_tourney_handlers
+from handlers.caravan_handler import register_caravan_handlers
+from handlers.weather_handler import register_weather_handlers
 
 def register_all_handlers(app):
     """Barcha bot handlerlarini Application ga ro'yxatdan o'tkazish"""
@@ -37,4 +41,9 @@ def register_all_handlers(app):
     register_bank_handlers(app)
     register_champion_handlers(app)
     register_season_handlers(app)
+    register_espionage_handlers(app)
+    register_tourney_handlers(app)
+    register_caravan_handlers(app)
+    register_weather_handlers(app)
+
 

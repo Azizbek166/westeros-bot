@@ -13,12 +13,14 @@ from core.notifier import notify_owner
 from database import init_db, AsyncSessionLocal
 from core.tick_engine import (
     process_due_marches,
+    process_due_trade_caravans,
     process_npc_growth_and_raids,
     check_house_election_expiration,
     check_war_mode_expiration,
 )
 from core.economy_engine import process_hourly_tick
 from handlers import register_all_handlers
+from database import crud
 
 # Logging sozlamalari
 logging.basicConfig(
@@ -33,21 +35,24 @@ logger = logging.getLogger(__name__)
 # ============================================================
 
 async def march_resolution_job(context: ContextTypes.DEFAULT_TYPE):
-    """Har 10 soniyada manziliga yetgan harbiy yurishlarni hisoblash va urush muddati tugashini tekshirish"""
+    """Har 10 soniyada manziliga yetgan harbiy yurishlar va savdo karvonlarini hisoblash, urush muddati tugashini tekshirish"""
     try:
         await process_due_marches(bot_app=context.application)
+        await process_due_trade_caravans(bot_app=context.application)
         await check_war_mode_expiration(bot_app=context.application)
     except Exception as e:
-        logger.error(f"March / war job xatosi: {e}")
+        logger.error(f"March / caravan / war job xatosi: {e}")
 
 
 async def hourly_economy_job(context: ContextTypes.DEFAULT_TYPE):
-    """Har 1 soatda resurslar, oziq-ovqat iste'moli, Lordlik muddati va 30 kunlik Mavsum yakunini tekshirish"""
+    """Har 1 soatda resurslar, oziq-ovqat iste'moli, Lordlik muddati, mavsumlar, ob-havo va turnirni tekshirish"""
     try:
         async with AsyncSessionLocal() as session:
             await process_hourly_tick(session)
             await crud.check_and_conclude_season(session, bot_app=context.application)
-        logger.info("💰 Soatlik iqtisodiyot va oziq-ovqat iste'moli hisoblandi.")
+            await crud.check_and_rotate_weather(session, bot_app=context.application)
+            await crud.check_and_resolve_weekly_tournament(session, bot_app=context.application)
+        logger.info("💰 Soatlik iqtisodiyot, ob-havo va turnir hisoblandi.")
         await check_house_election_expiration(bot_app=context.application)
     except Exception as e:
         logger.error(f"Economy / election / season tick xatosi: {e}")

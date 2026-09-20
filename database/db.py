@@ -96,6 +96,7 @@ async def init_db():
                 "ALTER TABLE battle_marches ADD COLUMN siege_towers INTEGER DEFAULT 0",
                 "ALTER TABLE armies ADD COLUMN champion VARCHAR(50)",
                 "ALTER TABLE battle_marches ADD COLUMN champion VARCHAR(50)",
+                "ALTER TABLE territories ADD COLUMN gates_compromised_until DATETIME",
             ]:
                 try:
                     await conn.execute(text(alter_stmt))
@@ -119,6 +120,7 @@ async def init_db():
                 "ALTER TABLE armies ADD COLUMN IF NOT EXISTS catapults INTEGER DEFAULT 0",
                 "ALTER TABLE armies ADD COLUMN IF NOT EXISTS siege_towers INTEGER DEFAULT 0",
                 "ALTER TABLE territories ADD COLUMN IF NOT EXISTS wildfire_count INTEGER DEFAULT 0",
+                "ALTER TABLE territories ADD COLUMN IF NOT EXISTS gates_compromised_until TIMESTAMP",
                 "ALTER TABLE battle_marches ADD COLUMN IF NOT EXISTS catapults INTEGER DEFAULT 0",
                 "ALTER TABLE battle_marches ADD COLUMN IF NOT EXISTS siege_towers INTEGER DEFAULT 0",
                 "ALTER TABLE armies ADD COLUMN IF NOT EXISTS champion VARCHAR(50)",
@@ -259,5 +261,37 @@ async def init_db():
             session.add(season1)
             logger.info("✅ 1-Mavsum (Season 1) muvaffaqiyatli ishga tushirildi (30 kunlik sikl).")
 
+        # Dinamik Ob-havo (Dinamik Fasllar) boshlang'ich holati
+        weather_res = await session.execute(select(models.EventState).where(models.EventState.event_name == "world_weather"))
+        weather_ev = weather_res.scalar_one_or_none()
+        if not weather_ev:
+            init_weather = models.EventState(
+                event_name="world_weather",
+                data_json=json.dumps({
+                    "weather_type": "severe_winter",
+                    "name": "Qattiq Qish (Severe Winter)",
+                    "description": "Shimolda mudofaa +15%, askarlar oziq-ovqat sarfi +25%. Ayozli izg'irinlar esmoqda.",
+                    "expires_at": (datetime.utcnow() + timedelta(days=7)).isoformat(),
+                }),
+                is_active=True,
+            )
+            session.add(init_weather)
+            logger.info("✅ Westeros ob-havosi (Qattiq Qish) o'rnatildi.")
+
+        # Haftalik Ritsarlar Turnirini tekshirish/boshlash
+        tourney_res = await session.execute(select(models.Tournament).where(models.Tournament.status == "active"))
+        active_tourney = tourney_res.scalar_one_or_none()
+        if not active_tourney:
+            new_tourney = models.Tournament(
+                name="Qirol Qo'li Turniri #1",
+                status="active",
+                prize_pool=25000,
+                details="Qirollikning eng qudratli ritsarlari jangi! G'olibga 70% xazina va 'Qirollik Chempioni' sharafli unvoni beriladi.",
+                created_at=datetime.utcnow()
+            )
+            session.add(new_tourney)
+            logger.info("✅ Haftalik Ritsarlar Turniri #1 yaratildi.")
+
         await session.commit()
         logger.info("✅ 50 ta Xonadon va Westeros hududlari bazaga kiritildi.")
+

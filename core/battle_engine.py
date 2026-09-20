@@ -19,9 +19,11 @@ def calculate_battle(
     wildfire_count: int = 0,
     attacker_champion: str = None,
     defender_champion: str = None,
+    gates_compromised: bool = False,
+    weather_type: str = "normal",
 ) -> Dict[str, Any]:
     """
-    Tosh-Qaychi-Qog'oz (RPS), Drakarys, Qamal Qurollari va Afsonaviy Qahramonlar
+    Tosh-Qaychi-Qog'oz (RPS), Drakarys, Qamal Qurollari, Ob-Havo va Afsonaviy Qahramonlar
     asosida jang natijasi va yo'qotishlarni hisoblash.
     """
     troop_types = ["infantry", "archers", "cavalry", "spearmen", "special_troops"]
@@ -36,6 +38,32 @@ def calculate_battle(
     # Artefakt bonuslari
     att_art = attacker_artifact_bonuses or {}
     def_art = defender_artifact_bonuses or {}
+
+    # Ob-havo koeffitsiyentlari
+    weather_details = ""
+    weather_def_mult = 1.0
+    weather_catapult_mult = 1.0
+    weather_archer_mult = 1.0
+    weather_dragon_mult = 1.0
+
+    if weather_type == "severe_winter":
+        weather_def_mult = 1.15
+        weather_details = "❄️ **QATTIQ QISH:** Qor bo'roni va ayozli izg'irin himoyachilarga mudofaa ustunligi berdi (+15% mudofaa)!\n\n"
+    elif weather_type == "storm_season":
+        weather_archer_mult = 0.85
+        weather_catapult_mult = 1.10
+        weather_details = "⛈️ **BO'RON FASLI:** Kuchli shamol va shiddatli yomg'ir kamonchilar zarbini -15% pasaytirdi, ammo qamal toshlari devorlarga og'irroq talofat yetkazdi (+10%)!\n\n"
+    elif weather_type == "wild_winds":
+        weather_dragon_mult = 1.25
+        weather_details = "🌪️ **VAHSHIY SHAMOLLAR:** Bo'ronli havo oqimi ajdarlarning olov nafasi va parvoz tezligini +25% ga kuchaytirdi!\n\n"
+    elif weather_type == "summer_abundance":
+        weather_details = "☀️ **YOZGI MO'L-KO'LLIK:** Westeros uzra ochiq va barqaror ob-havo hukmron!\n\n"
+
+    # Josus tomonidan darvoza ochilganligi
+    gates_details = ""
+    if gates_compromised:
+        castle_defense = max(30, int(castle_defense * 0.70))
+        gates_details = "🚪🔓 **DARVOZALAR OCHILGAN (JOSUSLIK NIFOG'I):**\nJosus qal'a darvozasini ichkaridan ochib qo'ygan! Qal'a mudofaa devorlari -30% zaiflashdi!\n\n"
 
     champion_details = ""
     champ_names = {
@@ -61,7 +89,7 @@ def calculate_battle(
     # ============================================================
     # 0.1. Katapultalar (Devorlarni buzish)
     if catapults > 0:
-        siege_dmg = min(int(catapults * 35 * random.uniform(0.9, 1.15)), int(castle_defense * 0.65))
+        siege_dmg = min(int(catapults * 35 * random.uniform(0.9, 1.15) * weather_catapult_mult), int(castle_defense * 0.65))
         castle_defense = max(50, castle_defense - siege_dmg)
         siege_details += (
             f"🏹🏰 **QAMAL TREBUSHETLARI (KATAPULTA):**\n"
@@ -98,20 +126,24 @@ def calculate_battle(
     # ============================================================
     dragon_details = ""
 
+    # Ob-havo ajdarlarga ta'siri
+    eff_dragon_power = int(dragon_power * weather_dragon_mult)
+    eff_def_dragon_power = int(defender_dragon_power * weather_dragon_mult)
+
     # Havoda ajdarlar to'qnashuvi (agar har ikki tomonda ajdar bo'lsa)
-    eff_att_dragon = dragon_power
+    eff_att_dragon = eff_dragon_power
     if att_art.get("dragon_bonus", 0.0) > 0:
         eff_att_dragon = int(eff_att_dragon * (1.0 + att_art["dragon_bonus"]))
-    if dragon_power > 0 and defender_dragon_power > 0:
-        clash_diff = dragon_power - defender_dragon_power
+    if eff_dragon_power > 0 and eff_def_dragon_power > 0:
+        clash_diff = eff_dragon_power - eff_def_dragon_power
         if clash_diff > 0:
-            eff_att_dragon = int(dragon_power * 0.55)
+            eff_att_dragon = int(eff_dragon_power * 0.55)
             dragon_details += (
                 f"🐉⚔️ **OSMONDA AJDARLAR JANGI!**\n"
                 f"Himoyachi ajdari hujumchiga qattiq qarshilik ko'rsatdi, biroq hujumchi ajdar osmon hukmronligini qo'lga kiritdi!\n"
             )
         else:
-            eff_att_dragon = int(dragon_power * 0.20)
+            eff_att_dragon = int(eff_dragon_power * 0.20)
             dragon_details += (
                 f"🐉🛡️ **OSMONDA AJDARLAR JANGI!**\n"
                 f"Qal'a uzra uchayotgan himoyachi ajdar hujumchining olovli zarbasini jilovladi va qal'ani himoya qildi!\n"
@@ -246,6 +278,8 @@ def calculate_battle(
             unit_atk = UNITS_DATA[a_type]["attack"]
 
             c_atk_mult = 1.0
+            if a_type == "archers":
+                c_atk_mult *= weather_archer_mult
             if attacker_champion == "jaime_lannister" and a_type == "cavalry":
                 c_atk_mult = 1.25
             elif attacker_champion == "arya_stark" and a_type in ["special_troops", "archers"]:
@@ -285,7 +319,7 @@ def calculate_battle(
 
             def_power += d_count * unit_def * mult * c_def_mult
 
-        def_power *= def_lead_bonus * castle_mult
+        def_power *= def_lead_bonus * castle_mult * weather_def_mult
 
         # Raunddagi yo'qotishlarni hisoblash
         # Hujumchi zarar beradi -> Himoyachi yo'qotadi
@@ -332,7 +366,7 @@ def calculate_battle(
             twr_lost = min(siege_towers, max(0 if siege_towers == 0 else 1, int(siege_towers * random.uniform(0.5, 0.85))))
             win_details = "🛡️ **Himoyachilar hujumni qaytarishga muvaffaq bo'ldi!** Qal'a devorlari bardosh berdi."
 
-    full_details = f"{champion_details}{siege_details}{dragon_details}{win_details}"
+    full_details = f"{weather_details}{gates_details}{champion_details}{siege_details}{dragon_details}{win_details}"
 
     return {
         "winner": winner,
@@ -347,3 +381,130 @@ def calculate_battle(
         "wildfire_used": wildfire_used,
         "details": full_details,
     }
+
+
+# ============================================================
+# SAVDO KARVONLARI PISTIRMASI (CARAVAN RAID BATTLE)
+# ============================================================
+
+def calculate_caravan_raid(
+    raider_troops: Dict[str, int],
+    escort_troops: Dict[str, int],
+    raider_champion: str = None,
+) -> Dict[str, Any]:
+    """
+    Savdo karvoniga qilingan pistirma (qaroqchilik) jangini hisoblash.
+    Qaroqchilar (hujumchi) vs Karvon soqchilari (himoyachi).
+    """
+    troop_types = ["infantry", "cavalry"]
+    r_troops = {t: raider_troops.get(t, 0) for t in troop_types}
+    e_troops = {t: escort_troops.get(t, 0) for t in troop_types}
+
+    total_r = sum(r_troops.values())
+    total_e = sum(e_troops.values())
+
+    if total_r <= 0:
+        return {
+            "winner": "escorts",
+            "raider_losses": {t: 0 for t in troop_types},
+            "escort_losses": {t: 0 for t in troop_types},
+            "remaining_raider": r_troops,
+            "remaining_escort": e_troops,
+            "details": "Qaroqchilar hujumga kirmadi.",
+        }
+
+    if total_e <= 0:
+        return {
+            "winner": "raiders",
+            "raider_losses": {t: 0 for t in troop_types},
+            "escort_losses": {t: 0 for t in troop_types},
+            "remaining_raider": r_troops,
+            "remaining_escort": e_troops,
+            "details": "Karvon soqchilarsiz qoldirilgan edi! Qaroqchilar karvonni osongina egallab oldi.",
+        }
+
+    r_power = r_troops["infantry"] * 10 + r_troops["cavalry"] * 25
+    e_power = e_troops["infantry"] * 12 + e_troops["cavalry"] * 28  # Himoya pozitsiyasi bonusi
+
+    if raider_champion:
+        r_power *= 1.20
+
+    # Tasodifiy jang koeffitsiyenti
+    r_roll = r_power * random.uniform(0.85, 1.25)
+    e_roll = e_power * random.uniform(0.90, 1.20)
+
+    winner = "raiders" if r_roll > e_roll else "escorts"
+
+    if winner == "raiders":
+        r_loss_rate = min(0.40, random.uniform(0.15, 0.35))
+        e_loss_rate = min(0.85, random.uniform(0.60, 0.85))
+        details = (
+            "⚔️💥 **PISTIRMA MUVAFFAQIYATLI BO'LDI!**\n"
+            "Qaroqchilar pistirmadan to'satdan otilib chiqib, karvon soqchilarini yanchib tashladi va yuklarni talab ketdi!"
+        )
+    else:
+        r_loss_rate = min(0.85, random.uniform(0.50, 0.80))
+        e_loss_rate = min(0.35, random.uniform(0.10, 0.30))
+        details = (
+            "🛡️⚔️ **SOQCHILAR PISTIRMANI QAYTARDI!**\n"
+            "Karvonning mard soqchilari saf tortib mardonavor jang qildi va qaroqchilarni qochishga majbur qildi!"
+        )
+
+    r_losses = {t: int(r_troops[t] * r_loss_rate) for t in troop_types}
+    e_losses = {t: int(e_troops[t] * e_loss_rate) for t in troop_types}
+
+    rem_r = {t: max(0, r_troops[t] - r_losses[t]) for t in troop_types}
+    rem_e = {t: max(0, e_troops[t] - e_losses[t]) for t in troop_types}
+
+    return {
+        "winner": winner,
+        "raider_losses": r_losses,
+        "escort_losses": e_losses,
+        "remaining_raider": rem_r,
+        "remaining_escort": rem_e,
+        "details": details,
+    }
+
+
+# ============================================================
+# RITSARLAR TURNIRI DUELI (TOURNAMENT KNIGHT DUEL)
+# ============================================================
+
+def resolve_tourney_duel(f1: Dict[str, Any], f2: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Turnirdagi ikki ritsar o'rtasidagi nayza va qilich jangi (Jousting & Melee).
+    """
+    p1 = f1.get("power", 100)
+    p2 = f2.get("power", 100)
+
+    score1 = 0
+    score2 = 0
+    rounds_log = []
+
+    actions = [
+        ("Ot ustidagi Nayza zarbasi (Jousting)", 2),
+        ("Qalqon va qilich to'qnashuvi (Sword Melee)", 1),
+        ("Hal qiluvchi halqa jangi (Finisher)", 2),
+    ]
+
+    for action_name, pts in actions:
+        roll1 = p1 * random.uniform(0.80, 1.25)
+        roll2 = p2 * random.uniform(0.80, 1.25)
+        if roll1 >= roll2:
+            score1 += pts
+            rounds_log.append(f"• *{action_name}:* {f1['name']} aniq zarba bilan ustun keldi! (+{pts})")
+        else:
+            score2 += pts
+            rounds_log.append(f"• *{action_name}:* {f2['name']} raqibini egaridan surib chiqardi! (+{pts})")
+
+    winner = f1 if score1 >= score2 else f2
+    loser = f2 if score1 >= score2 else f1
+
+    return {
+        "winner": winner,
+        "loser": loser,
+        "score_winner": max(score1, score2),
+        "score_loser": min(score1, score2),
+        "log": "\n".join(rounds_log),
+    }
+

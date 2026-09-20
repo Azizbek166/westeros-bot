@@ -4256,6 +4256,886 @@ async def dismiss_champion(session: AsyncSession, user_id: int) -> Tuple[bool, s
     return True, f"✅ **{old_champ}** sarkardalik vazifasidan ozod etildi."
 
 
+# ============================================================
+# 25. JOSUSLIK VA QIZIL TO'Y (ESPIONAGE & SABOTAGE CRUD)
+# ============================================================
+
+SPY_MISSION_COSTS = {
+    "scout": 1000,
+    "sabotage": 3000,
+    "open_gates": 5000,
+}
+
+async def send_spy_mission(
+    session: AsyncSession,
+    user_id: int,
+    target_territory_id: int,
+    mission_type: str,
+    bot_app=None,
+) -> Tuple[bool, str, Dict[str, Any]]:
+    """
+    Qal'aga josus yuborish (Razvedka, Sabotaj, Darvozalarni ochish).
+    """
+    if mission_type not in SPY_MISSION_COSTS:
+        return False, "❌ Noma'lum josuslik topshirig'i.", {}
+
+    cost = SPY_MISSION_COSTS[mission_type]
+
+    user_res = await session.execute(select(models.User).where(models.User.id == user_id))
+    user = user_res.scalar_one_or_none()
+    if not user:
+        return False, "❌ O'yinchi topilmadi.", {}
+
+    if user.gold < cost:
+        return False, f"❌ Josus yollash uchun {cost:,}💰 Oltin kerak! (Sizda: {user.gold:,}💰)", {}
+
+    terr_res = await session.execute(
+        select(models.Territory).where(models.Territory.id == target_territory_id)
+    )
+    territory = terr_res.scalar_one_or_none()
+    if not territory:
+        return False, "❌ Maqsadli hudud/qal'a topilmadi.", {}
+
+    if user.house_id and territory.owner_house_id == user.house_id:
+        return False, "❌ O'z xonadoningiz qal'asiga josus yubora olmaysiz!", {}
+
+    # Oltinni yechish
+    user.gold -= cost
+
+    # Ehtimolliklar:
+    # scout: 85% success, 15% caught
+    # sabotage: 65% success, 35% caught
+    # open_gates: 55% success, 45% caught
+    success_rates = {
+        "scout": 0.85,
+        "sabotage": 0.65,
+        "open_gates": 0.55,
+    }
+
+    roll = random.random()
+    is_success = roll <= success_rates[mission_type]
+
+    report_data = {}
+    now = datetime.utcnow()
+
+    # Himoyachi xonadon lordini topish
+    defender_lord = None
+    if territory.owner_house_id:
+        h_obj = await session.get(models.House, territory.owner_house_id)
+        if h_obj and h_obj.lord_user_id:
+            defender_lord = await session.get(models.User, h_obj.lord_user_id)
+
+    if not is_success:
+        # Josus fosh bo'ldi va qatl etildi
+        penalties = {"scout": 5, "sabotage": 15, "open_gates": 25}
+        pen = penalties.get(mission_type, 10)
+        user.prestige = max(0, user.prestige - pen)
+
+        report_text = (
+            f"🕵️🚨 **JOSUS QO'LGA OLINDI VA QATL ETILDI!**\n\n"
+            f"🏰 Qal'a: **{territory.name}**\n"
+            f"Siz yuborgan ayg'oqchi devordan oshib o'tayotganda sergak soqchilar tomonidan ushlandi.\n"
+            f"Qiynoqlardan so'ng josus omma oldida dorga osildi!\n\n"
+            f"📉 Yo'qotish: -{cost:,}💰 Oltin, -{pen}🎖️ Nufuz."
+        )
+
+        mission = models.SpyMission(
+            user_id=user.id,
+            target_territory_id=territory.id,
+            mission_type=mission_type,
+            cost_gold=cost,
+            status="caught",
+            report_text=report_text,
+            created_at=now,
+        )
+        session.add(mission)
+        await session.commit()
+
+        # Himoyachiga ogohlantirish yuborish
+        if bot_app and defender_lord and defender_lord.telegram_id:
+            try:
+                await bot_app.bot.send_message(
+                    chat_id=defender_lord.telegram_id,
+                    text=(
+                        f"🛡️🚨 **QAL'ADA DUSHMAN JOSUSI USHLANDI!**\n\n"
+                        f"🏰 **{territory.name}** qal'angizga yashirincha suqilib kirmoqchi bo'lgan noma'lum josus qo'riqchilar tomonidan qo'lga olindi va qatl etildi!"
+                    ),
+                    parse_mode="Markdown"
+                )
+            except Exception:
+                pass
+
+        return False, report_text, {"status": "caught"}
+
+    # MUVAFFAQIYATLI TOPSHIRIQ
+    if mission_type == "scout":
+        # Razvedka
+        user.prestige += 10
+        # Ajdar bormi?
+        dr_info = get_stationed_dragon_info(territory)
+        dr_text = f"🐉 Ajdar: {dr_info['name']} (Kuch: {dr_info['power']})" if dr_info else "🐉 Ajdar: Yo'q"
+
+        report_text = (
+            f"🕵️📜 **JOSUSLIK RAZVEDKA HISOBOTI**\n\n"
+            f"🏰 Qal'a: **{territory.name}** ({territory.castle_name})\n"
+            f"🛡️ Devor mudofaasi: **{territory.defense}** | Istehkom Tier: **{territory.castle_level}**\n"
+            f"💚 Wildfire bochkalari: **{territory.wildfire_count}** ta\n"
+            f"{dr_text}\n\n"
+            f"👥 **GARNIZON KUCHLARI:**\n"
+            f"• 🗡️ Piyodalar: **{territory.garrison_infantry:,}**\n"
+            f"• 🏹 Kamonchilar: **{territory.garrison_archers:,}**\n"
+            f"• 🐎 Otliqlar: **{territory.garrison_cavalry:,}**\n"
+            f"• 🔱 Nayzadorlar: **{territory.garrison_spearmen:,}**\n\n"
+            f"🎖️ Nufuz: +10 ball qo'shildi."
+        )
+        report_data = {
+            "infantry": territory.garrison_infantry,
+            "archers": territory.garrison_archers,
+            "cavalry": territory.garrison_cavalry,
+            "spearmen": territory.garrison_spearmen,
+            "defense": territory.defense,
+            "wildfire": territory.wildfire_count,
+        }
+
+    elif mission_type == "sabotage":
+        # Sabotaj
+        user.prestige += 20
+        sabotage_effect = ""
+        if territory.wildfire_count > 0:
+            destroyed_wf = min(territory.wildfire_count, random.randint(1, 2))
+            territory.wildfire_count -= destroyed_wf
+            sabotage_effect = f"💚🔥 Josus yashirincha kirib, **{destroyed_wf}** bochka Yovvoyi Olovni (Wildfire) xandaqqa to'kib yoqib yubordi!"
+        else:
+            dmg = random.randint(60, 140)
+            territory.defense = max(50, territory.defense - dmg)
+            sabotage_effect = f"🏰💥 Josuslar qal'a yog'och konstruksiyalari va mudofaa moslamalariga o't qo'ydi: devor mustahkamligi **-{dmg}** ballga tushirildi!"
+
+        report_text = (
+            f"🔥🕵️ **SABOTAJ MUVAFFAQIYATLI AMALGA OSHIRILDI!**\n\n"
+            f"🏰 Qal'a: **{territory.name}**\n"
+            f"{sabotage_effect}\n\n"
+            f"🎖️ Jasorat uchun +20 Nufuz berildi."
+        )
+
+        if bot_app and defender_lord and defender_lord.telegram_id:
+            try:
+                await bot_app.bot.send_message(
+                    chat_id=defender_lord.telegram_id,
+                    text=(
+                        f"🔥🚨 **DIQQAT! QAL'ANGIZDA SABOTAJ SODIR ETILDI!**\n\n"
+                        f"🏰 **{territory.name}** qal'asiga suqilib kirgan sabotajchilar mudofaaga zarba berib, qochib ketishga ulgurdi!"
+                    ),
+                    parse_mode="Markdown"
+                )
+            except Exception:
+                pass
+
+    elif mission_type == "open_gates":
+        # Darvozalarni ochish
+        user.prestige += 30
+        territory.gates_compromised_until = now + timedelta(hours=2)
+        report_text = (
+            f"🚪🔓 **DARVOZALAR OCHILDI (QIZIL TO'Y NIFOG'I)!**\n\n"
+            f"🏰 Qal'a: **{territory.name}**\n"
+            f"Siz yuborgan josus soqchilarni chalg'itib, qal'aning temir darvoza zanjirini buzdi va ichkaridan ochib qo'ydi!\n\n"
+            f"⏱️ Muddat: **2 soat** davomida ushbu qal'aga qilingan har qanday hujumda devor himoyasi **-30%** ga pasayadi!\n"
+            f"🎖️ Nufuz: +30 ball qo'shildi."
+        )
+
+        if bot_app and defender_lord and defender_lord.telegram_id:
+            try:
+                await bot_app.bot.send_message(
+                    chat_id=defender_lord.telegram_id,
+                    text=(
+                        f"🚪⚠️ **XAVF: DARVOZALAR BUZIB OCHILDI!**\n\n"
+                        f"🏰 **{territory.name}** qal'angiz darvozalari dushman josusi tomonidan buzib ochildi! Keyingi 2 soat ichida qal'a devor himoyasi -30% zaif holatda bo'ladi!"
+                    ),
+                    parse_mode="Markdown"
+                )
+            except Exception:
+                pass
+
+    mission = models.SpyMission(
+        user_id=user.id,
+        target_territory_id=territory.id,
+        mission_type=mission_type,
+        cost_gold=cost,
+        status="success",
+        report_text=report_text,
+        created_at=now,
+    )
+    session.add(mission)
+    await session.commit()
+
+    return True, report_text, report_data
+
+
+async def get_user_spy_reports(session: AsyncSession, user_id: int, limit: int = 5) -> List[models.SpyMission]:
+    """Foydalanuvchining oxirgi josuslik hisobotlari"""
+    res = await session.execute(
+        select(models.SpyMission)
+        .where(models.SpyMission.user_id == user_id)
+        .order_by(desc(models.SpyMission.created_at))
+        .limit(limit)
+    )
+    return res.scalars().all()
+
+
+# ============================================================
+# 26. RITSARLAR TURNIRI VA STAVKALAR (TOURNAMENT & BETS CRUD)
+# ============================================================
+
+async def get_active_tournament(session: AsyncSession) -> Optional[models.Tournament]:
+    """Faol turnirni ishtirokchilari va stavkalari bilan olish"""
+    res = await session.execute(
+        select(models.Tournament)
+        .where(models.Tournament.status == "active")
+        .options(
+            selectinload(models.Tournament.participants),
+            selectinload(models.Tournament.bets),
+        )
+        .order_by(desc(models.Tournament.id))
+        .execution_options(populate_existing=True)
+    )
+    return res.scalar_one_or_none()
+
+
+async def enter_tournament(
+    session: AsyncSession,
+    user_id: int,
+    use_champion: bool = False,
+) -> Tuple[bool, str]:
+    """Turnirga qatnashish (Kirish to'lovi: 2,000 Oltin)"""
+    tourney = await get_active_tournament(session)
+    if not tourney:
+        return False, "❌ Ayni paytda faol ritsarlar turniri mavjud emas."
+
+    user_res = await session.execute(select(models.User).where(models.User.id == user_id))
+    user = user_res.scalar_one_or_none()
+    if not user:
+        return False, "❌ O'yinchi topilmadi."
+
+    # Allaqachon qatnashayotganini tekshirish
+    part_res = await session.execute(
+        select(models.TournamentParticipant).where(
+            models.TournamentParticipant.tournament_id == tourney.id,
+            models.TournamentParticipant.user_id == user.id,
+        )
+    )
+    if part_res.scalar_one_or_none():
+        return False, "❌ Siz allaqachon ushbu turnirga qatnashgansiz!"
+
+    fee = 2000
+    if user.gold < fee:
+        return False, f"❌ Turnirga kirish to'lovi uchun {fee:,}💰 Oltin kerak! (Sizda: {user.gold:,}💰)"
+
+    user.gold -= fee
+    tourney.prize_pool += fee
+
+    # Jangchi nomi va kuchi
+    fighter_name = user.username or user.first_name or f"Ritsar #{user.id}"
+    fighter_power = 120 + min(80, (user.prestige // 25))
+
+    if use_champion:
+        army_res = await session.execute(select(models.Army).where(models.Army.user_id == user.id))
+        army = army_res.scalar_one_or_none()
+        if army and army.champion and army.champion in LEGENDARY_CHAMPIONS:
+            champ_data = LEGENDARY_CHAMPIONS[army.champion]
+            fighter_name = f"{champ_data['emoji']} {champ_data['name']} (Sarkarda)"
+            champ_powers = {
+                "jaime_lannister": 240,
+                "oberyn_martell": 235,
+                "arya_stark": 230,
+                "jon_snow": 225,
+                "brienne_tarth": 220,
+            }
+            fighter_power = champ_powers.get(army.champion, 210)
+
+    part = models.TournamentParticipant(
+        tournament_id=tourney.id,
+        user_id=user.id,
+        fighter_name=fighter_name,
+        fighter_power=fighter_power,
+        joined_at=datetime.utcnow(),
+    )
+    session.add(part)
+    await session.commit()
+
+    return True, (
+        f"🏇⚔️ **TURNIRGA QO'SHILDINGIZ!**\n\n"
+        f"Jangchi: **{fighter_name}**\n"
+        f"Jang kuchi: **{fighter_power}** quvvat\n"
+        f"💰 Xazinaga +{fee:,} Oltin qo'shildi. Umumiy Jamg'arma: **{tourney.prize_pool:,}** Oltin!\n\n"
+        f"G'oliblik sari omad yor bo'lsin!"
+    )
+
+
+async def place_tournament_bet(
+    session: AsyncSession,
+    user_id: int,
+    participant_id: int,
+    bet_gold: int,
+) -> Tuple[bool, str]:
+    """Turnir ishtirokchisiga stavka tikish (500 - 5,000 Oltin)"""
+    if bet_gold < 500 or bet_gold > 5000:
+        return False, "❌ Stavka miqdori 500 dan 5,000 Oltin oralig'ida bo'lishi kerak."
+
+    tourney = await get_active_tournament(session)
+    if not tourney:
+        return False, "❌ Faol turnir topilmadi."
+
+    user_res = await session.execute(select(models.User).where(models.User.id == user_id))
+    user = user_res.scalar_one_or_none()
+    if not user:
+        return False, "❌ O'yinchi topilmadi."
+
+    if user.gold < bet_gold:
+        return False, f"❌ Stavka uchun {bet_gold:,}💰 Oltin kerak! (Sizda: {user.gold:,}💰)"
+
+    # Ishtirokchini tekshirish
+    part = await session.get(models.TournamentParticipant, participant_id)
+    if not part or part.tournament_id != tourney.id:
+        return False, "❌ Bunday ishtirokchi mavjud emas."
+
+    # Avvalgi stavka bormi?
+    existing_bet = await session.execute(
+        select(models.TournamentBet).where(
+            models.TournamentBet.tournament_id == tourney.id,
+            models.TournamentBet.user_id == user.id,
+            models.TournamentBet.participant_id == participant_id,
+        )
+    )
+    if existing_bet.scalar_one_or_none():
+        return False, "❌ Siz ushbu jangchiga allaqachon stavka tikgansiz!"
+
+    user.gold -= bet_gold
+    tourney.prize_pool += bet_gold
+
+    new_bet = models.TournamentBet(
+        tournament_id=tourney.id,
+        user_id=user.id,
+        participant_id=participant_id,
+        bet_gold=bet_gold,
+        status="placed",
+        created_at=datetime.utcnow(),
+    )
+    session.add(new_bet)
+    await session.commit()
+
+    return True, (
+        f"💰🎯 **STAVKA QABUL QILINDI!**\n\n"
+        f"Jangchi: **{part.fighter_name}**\n"
+        f"Tikilgan miqdor: **{bet_gold:,}** Oltin\n"
+        f"Kutilayotgan yutuq: **{int(bet_gold * 1.8):,}** Oltin (1.8x)\n"
+        f"Turnir jamg'armasi: **{tourney.prize_pool:,}** Oltin!"
+    )
+
+
+async def resolve_tournament(session: AsyncSession, bot_app=None) -> Tuple[bool, str]:
+    """Turnirni yakunlash va g'oliblarni taqdirlash"""
+    from core.battle_engine import resolve_tourney_duel
+
+    tourney = await get_active_tournament(session)
+    if not tourney:
+        return False, "❌ Faol turnir topilmadi."
+
+    parts = list(tourney.participants)
+
+    # Agar kamida 2 ishtirokchi bo'lmasa, turnirga afsonaviy NPC ritsarlar qo'shiladi
+    npc_knights = [
+        {"name": "🛡️ Ser Barristan Selmy (Jasur)", "power": 230},
+        {"name": "⚔️ Ser Gregor Clegane (Tog')", "power": 240},
+        {"name": "🗡️ Ser Arthur Dayne (Tong Qilichi)", "power": 250},
+        {"name": "🐎 Ser Loras Tyrell (Gullar Ritsari)", "power": 215},
+    ]
+    while len(parts) < 2:
+        npc = npc_knights.pop(0)
+        npc_part = models.TournamentParticipant(
+            tournament_id=tourney.id,
+            user_id=tourney.winner_user_id or 1,  # Tizim ishtirokchisi
+            fighter_name=npc["name"],
+            fighter_power=npc["power"],
+        )
+        session.add(npc_part)
+        tourney.prize_pool += 2000
+        parts.append(npc_part)
+
+    # Turnir duellari: barcha ishtirokchilarni juftlab saralash
+    duel_chronicle = []
+    current_round_fighters = [
+        {"id": p.id, "user_id": p.user_id, "name": p.fighter_name, "power": p.fighter_power, "obj": p}
+        for p in parts
+    ]
+
+    round_num = 1
+    while len(current_round_fighters) > 1:
+        next_round_fighters = []
+        random.shuffle(current_round_fighters)
+        duel_chronicle.append(f"\n🏆 **{round_num}-BOSQICH JANGILARI:**")
+
+        for i in range(0, len(current_round_fighters), 2):
+            if i + 1 < len(current_round_fighters):
+                f1 = current_round_fighters[i]
+                f2 = current_round_fighters[i + 1]
+                duel_res = resolve_tourney_duel(f1, f2)
+                winner = duel_res["winner"]
+                loser = duel_res["loser"]
+                duel_chronicle.append(
+                    f"⚔️ **{f1['name']}** VS **{f2['name']}**\n"
+                    f"{duel_res['log']}\n"
+                    f"🏅 G'olib: **{winner['name']}** ({duel_res['score_winner']}:{duel_res['score_loser']})\n"
+                )
+                next_round_fighters.append(winner)
+            else:
+                # Toq ishtirokchi keyingi bosqichga o'tadi
+                next_round_fighters.append(current_round_fighters[i])
+                duel_chronicle.append(f"• **{current_round_fighters[i]['name']}** qur'a bo'yicha to'g'ridan-to'g'ri o'tdi.")
+
+        current_round_fighters = next_round_fighters
+        round_num += 1
+
+    champion = current_round_fighters[0]
+    first_prize = int(tourney.prize_pool * 0.70)
+    second_prize = int(tourney.prize_pool * 0.30)
+
+    tourney.status = "completed"
+    tourney.concluded_at = datetime.utcnow()
+    tourney.winner_user_id = champion["user_id"]
+    tourney.winner_name = champion["name"]
+
+    # Chempion o'yinchiga mukofot
+    champ_user = await session.get(models.User, champion["user_id"])
+    if champ_user:
+        champ_user.gold += first_prize
+        champ_user.prestige += 100
+        champ_user.title = "Qirollik Chempioni"
+
+    # Stavkalarni to'lash
+    bets_res = await session.execute(
+        select(models.TournamentBet).where(models.TournamentBet.tournament_id == tourney.id)
+    )
+    all_bets = bets_res.scalars().all()
+    payout_summary = []
+    for bet in all_bets:
+        if bet.participant_id == champion["id"]:
+            bet.status = "won"
+            payout = int(bet.bet_gold * 1.8)
+            bet.payout_gold = payout
+            bet_user = await session.get(models.User, bet.user_id)
+            if bet_user:
+                bet_user.gold += payout
+                payout_summary.append(f"• {bet_user.username or bet_user.first_name}: +{payout:,}💰")
+        else:
+            bet.status = "lost"
+
+    payout_text = "\n".join(payout_summary) if payout_summary else "• Hech kim stavka yutib olmadi."
+
+    full_report = (
+        f"👑🏆 **QIROL QO'LI RITSARLAR TURNIRI YAKUNLANDI!**\n\n"
+        f"🥇 **QIROLLIK CHEMPIONI:** {champion['name']}\n"
+        f"💰 1-O'rin mukofoti: **+{first_prize:,}** Oltin va **+100** Nufuz!\n"
+        f"👑 Sharafli unvon: **Qirollik Chempioni**\n\n"
+        f"{''.join(duel_chronicle)}\n\n"
+        f"🎰 **YUTUQLI STAVKALAR TO'LOVI (1.8x):**\n"
+        f"{payout_text}\n\n"
+        f"Keyingi haftalik turnir e'lon qilindi!"
+    )
+    tourney.details = full_report
+
+    # Yangi turnirni darhol ochish
+    next_tourney = models.Tournament(
+        name=f"Qirol Qo'li Turniri #{tourney.id + 1}",
+        status="active",
+        prize_pool=25000,
+        details="Yangi haftalik janglar boshlandi! Ritsarlaringizni maydonga tushiring yoki omadingizni sinab stavka tiking!",
+        created_at=datetime.utcnow(),
+    )
+    session.add(next_tourney)
+    await session.commit()
+
+    if bot_app:
+        users_res = await session.execute(select(models.User.telegram_id))
+        all_ids = users_res.scalars().all()
+        for tg_id in all_ids:
+            try:
+                await bot_app.bot.send_message(
+                    chat_id=tg_id,
+                    text=full_report,
+                    parse_mode="Markdown"
+                )
+            except Exception:
+                pass
+
+    return True, full_report
+
+
+async def check_and_resolve_weekly_tournament(session: AsyncSession, bot_app=None) -> None:
+    """Turnir vaqti tugaganini tekshirish (masalan har 7 kunda avtomatik yakunlash)"""
+    tourney = await get_active_tournament(session)
+    if not tourney:
+        return
+
+    now = datetime.utcnow()
+    created = tourney.created_at or now
+    if (now - created).days >= 7:
+        await resolve_tournament(session, bot_app=bot_app)
+
+
+# ============================================================
+# 27. SAVDO KARVONLARI VA PISTIRMALAR (TRADE CARAVANS CRUD)
+# ============================================================
+
+async def dispatch_trade_caravan(
+    session: AsyncSession,
+    user_id: int,
+    origin_territory_id: int,
+    destination_territory_id: int,
+    resource_type: str,
+    amount: int,
+    escort_cav: int,
+    escort_inf: int,
+) -> Tuple[bool, str]:
+    """Savdo karvonini yo'lga chiqarish (3 daqiqalik marshrut)"""
+    if resource_type not in ["food", "iron"]:
+        return False, "❌ Karvon faqat Oziq-ovqat (food) yoki Temir (iron) tashiydi."
+
+    valid_tiers = {
+        5000: 2500,
+        10000: 5500,
+        20000: 12000,
+    }
+    if amount not in valid_tiers:
+        return False, "❌ Karvon yuki miqdori 5,000, 10,000 yoki 20,000 bo'lishi kerak."
+
+    user_res = await session.execute(select(models.User).where(models.User.id == user_id))
+    user = user_res.scalar_one_or_none()
+    if not user:
+        return False, "❌ O'yinchi topilmadi."
+
+    # Resurs yetarliligini tekshirish
+    user_res_val = getattr(user, resource_type, 0)
+    if user_res_val < amount:
+        return False, f"❌ Sizda {amount:,} ta {resource_type.capitalize()} yetarli emas! (Mavjud: {user_res_val:,})"
+
+    # Soqchilar yetarliligini tekshirish
+    army_res = await session.execute(select(models.Army).where(models.Army.user_id == user.id))
+    army = army_res.scalar_one_or_none()
+    if not army or army.cavalry < escort_cav or army.infantry < escort_inf:
+        return False, "❌ Karvonni himoya qilish uchun armiyangizda yetarli askarlar mavjud emas."
+
+    # Faol harakatdagi karvonlar soni limiti (max 2)
+    active_res = await session.execute(
+        select(models.TradeCaravan).where(
+            models.TradeCaravan.owner_user_id == user.id,
+            models.TradeCaravan.status == "moving",
+        )
+    )
+    if len(active_res.scalars().all()) >= 2:
+        return False, "❌ Sizda ayni paytda yo'lda bo'lgan 2 ta faol karvon mavjud. Yangisini chiqarishdan oldin ularning yetib borishini kuting!"
+
+    # Resurs va askarlarni yechish
+    if resource_type == "food":
+        user.food -= amount
+    else:
+        user.iron -= amount
+
+    army.cavalry -= escort_cav
+    army.infantry -= escort_inf
+
+    now = datetime.utcnow()
+    # 3 daqiqa yo'l vaqti (180 soniya)
+    arrival = now + timedelta(minutes=3)
+    reward_gold = valid_tiers[amount]
+
+    caravan = models.TradeCaravan(
+        owner_user_id=user.id,
+        owner_house_id=user.house_id or 1,
+        origin_territory_id=origin_territory_id,
+        destination_territory_id=destination_territory_id,
+        resource_type=resource_type,
+        resource_amount=amount,
+        expected_gold_reward=reward_gold,
+        escort_cavalry=escort_cav,
+        escort_infantry=escort_inf,
+        departure_time=now,
+        arrival_time=arrival,
+        status="moving",
+    )
+    session.add(caravan)
+    await session.commit()
+
+    return True, (
+        f"🐪📦 **SAVDO KARVONI YO'LGA CHIQDI!**\n\n"
+        f"📦 Yuk: **{amount:,}** {resource_type.capitalize()}\n"
+        f"🛡️ Soqchilar: **{escort_cav}** Otliq, **{escort_inf}** Piyoda\n"
+        f"💰 Manzilga yetgach kutilayotgan foyda: **+{reward_gold:,}** Oltin\n"
+        f"⏱️ Yetib borish vaqti: **3 daqiqa**\n\n"
+        f"⚠️ Eslatma: Karvoningiz yo'lda raqiblar tomonidan talanishi mumkin! Kuchli soqchilar xavfsizlik kafolatidir."
+    )
+
+
+async def get_active_trade_caravans(
+    session: AsyncSession,
+    user_id: Optional[int] = None,
+) -> List[models.TradeCaravan]:
+    """Yo'ldagi barcha faol karvonlarni olish"""
+    stmt = (
+        select(models.TradeCaravan)
+        .where(models.TradeCaravan.status == "moving")
+        .options(
+            selectinload(models.TradeCaravan.owner),
+            selectinload(models.TradeCaravan.owner_house),
+            selectinload(models.TradeCaravan.origin_territory),
+            selectinload(models.TradeCaravan.destination_territory),
+        )
+        .order_by(models.TradeCaravan.arrival_time.asc())
+    )
+    if user_id:
+        stmt = stmt.where(models.TradeCaravan.owner_user_id == user_id)
+    res = await session.execute(stmt)
+    return res.scalars().all()
+
+
+async def raid_trade_caravan(
+    session: AsyncSession,
+    user_id: int,
+    caravan_id: int,
+    raid_inf: int,
+    raid_cav: int,
+    bot_app=None,
+) -> Tuple[bool, str, Dict[str, Any]]:
+    """Karvonga qaroqchilik pistirmasi uyushtirish"""
+    from core.battle_engine import calculate_caravan_raid
+
+    if raid_inf < 10 and raid_cav < 10:
+        return False, "❌ Pistirma uchun kamida 10 ta piyoda yoki 10 ta otliq kerak!", {}
+
+    caravan = await session.get(models.TradeCaravan, caravan_id)
+    if not caravan or caravan.status != "moving":
+        return False, "❌ Ushbu karvon allaqachon manzilga yetgan yoki talangan!", {}
+
+    if caravan.owner_user_id == user_id:
+        return False, "❌ O'z karvoningizga qaroqchilik qila olmaysiz!", {}
+
+    raider_res = await session.execute(select(models.User).where(models.User.id == user_id))
+    raider = raider_res.scalar_one_or_none()
+    if not raider:
+        return False, "❌ Qaroqchi o'yinchi topilmadi.", {}
+
+    if raider.house_id and raider.house_id == caravan.owner_house_id:
+        return False, "❌ O'z xonadoningiz karvoniga hujum qila olmaysiz!", {}
+
+    army_res = await session.execute(select(models.Army).where(models.Army.user_id == raider.id))
+    army = army_res.scalar_one_or_none()
+    if not army or army.infantry < raid_inf or army.cavalry < raid_cav:
+        return False, "❌ Armiyangizda pistirma uchun yetarli askarlar yo'q!", {}
+
+    # Jangni hisoblash
+    raider_troops = {"infantry": raid_inf, "cavalry": raid_cav}
+    escort_troops = {"infantry": caravan.escort_infantry, "cavalry": caravan.escort_cavalry}
+    raider_champion = getattr(army, "champion", None)
+
+    battle_res = calculate_caravan_raid(raider_troops, escort_troops, raider_champion)
+
+    # Qaroqchi yo'qotishlari
+    army.infantry -= battle_res["raider_losses"]["infantry"]
+    army.cavalry -= battle_res["raider_losses"]["cavalry"]
+
+    # Karvon soqchilari yo'qotishlari
+    caravan.escort_infantry = battle_res["remaining_escort"]["infantry"]
+    caravan.escort_cavalry = battle_res["remaining_escort"]["cavalry"]
+
+    owner_res = await session.execute(select(models.User).where(models.User.id == caravan.owner_user_id))
+    owner = owner_res.scalar_one_or_none()
+
+    if battle_res["winner"] == "raiders":
+        # Qaroqchilar g'olib - karvon talandi
+        caravan.status = "looted"
+        caravan.raider_user_id = raider.id
+        caravan.raid_report = battle_res["details"]
+
+        stolen_res = int(caravan.resource_amount * 0.70)
+        bounty_gold = 1000
+
+        if caravan.resource_type == "food":
+            raider.food += stolen_res
+        else:
+            raider.iron += stolen_res
+
+        raider.gold += bounty_gold
+        raider.prestige += 20
+
+        msg = (
+            f"⚔️💰 **PISTIRMA MUVAFFAQIYATLI BO'LDI!**\n\n"
+            f"Siz savdo karvonini tor-mor keltirib, yuklarni talon-toroj qildingiz!\n\n"
+            f"📦 O'lja: **+{stolen_res:,}** {caravan.resource_type.capitalize()}\n"
+            f"💰 O'lja Oltin: **+{bounty_gold:,}** Oltin\n"
+            f"🎖️ Nufuz: **+20** ball\n"
+            f"📉 Yo'qotishlaringiz: -{battle_res['raider_losses']['infantry']} Piyoda, -{battle_res['raider_losses']['cavalry']} Otliq."
+        )
+
+        if bot_app and owner and owner.telegram_id:
+            try:
+                await bot_app.bot.send_message(
+                    chat_id=owner.telegram_id,
+                    text=(
+                        f"🚨🐪 **QAROQCHILIK! SAVDO KARVONINGIZ TALANDI!**\n\n"
+                        f"Vesteros yo'llarida pistirmaga tushgan karvoningiz dushman qaroqchilari tomonidan talandi!\n"
+                        f"Soqchilar halok bo'ldi yoki tarqaldi, yuklarning katta qismi o'g'irlab ketildi!"
+                    ),
+                    parse_mode="Markdown"
+                )
+            except Exception:
+                pass
+    else:
+        # Soqchilar hujumni qaytardi
+        msg = (
+            f"🛡️❌ **PISTIRMA MUVAFFAQIYATSIZ TUGADI!**\n\n"
+            f"Karvon soqchilari mohirona mudofaa tashkil qilib, hujumingizni qaytardi!\n\n"
+            f"📉 Yo'qotishlaringiz: -{battle_res['raider_losses']['infantry']} Piyoda, -{battle_res['raider_losses']['cavalry']} Otliq."
+        )
+
+    await session.commit()
+    return True, msg, battle_res
+
+
+# ============================================================
+# 28. DINAMIK FASLLAR VA OB-HAVO (DYNAMIC WEATHER CRUD)
+# ============================================================
+
+WEATHER_TYPES = {
+    "severe_winter": {
+        "name": "Qattiq Qish (Severe Winter)",
+        "emoji": "❄️",
+        "description": "Shimol qal'alari mudofaasi +15%, ammo qattiq ayoz tufayli armiyalarning oziq-ovqat sarfi +25% oshadi.",
+    },
+    "summer_abundance": {
+        "name": "Yozgi Mo'l-ko'llik (Summer Abundance)",
+        "emoji": "☀️",
+        "description": "Westeros bo'ylab serquyosh issiq. Hosildorlik +50%, shaharlar va qal'alardan tushadigan o'lpon +25% oshadi.",
+    },
+    "storm_season": {
+        "name": "Bo'ron Fasli (Storm Season)",
+        "emoji": "⛈️",
+        "description": "Kuchli yomg'ir va shiddatli shamol kamonchilar aniqligini -15% ga pasaytiradi, yurishlar +20% sekinlashadi, ammo qamal trebushetlari devorlarga +10% kuchliroq zarba beradi.",
+    },
+    "wild_winds": {
+        "name": "Vahshiy Shamollar (Wild Winds)",
+        "emoji": "🌪️",
+        "description": "Tog'lardan qadimiy qudratli bo'ron shamollari esmoqda. Ajdarlarning drakarys alangasi va parvoz quvvati +25% ga kuchayadi!",
+    },
+}
+
+async def get_current_weather(session: AsyncSession) -> Dict[str, Any]:
+    """Hozirgi Westeros ob-havosi ma'lumotlarini olish"""
+    res = await session.execute(
+        select(models.EventState).where(models.EventState.event_name == "world_weather")
+    )
+    ev = res.scalar_one_or_none()
+    if not ev or not ev.data_json:
+        return {
+            "weather_type": "severe_winter",
+            "name": "Qattiq Qish (Severe Winter)",
+            "emoji": "❄️",
+            "description": "Shimolda mudofaa +15%, oziq-ovqat sarfi +25%.",
+            "expires_at": (datetime.utcnow() + timedelta(days=7)).isoformat(),
+        }
+
+    try:
+        data = json.loads(ev.data_json)
+        w_type = data.get("weather_type", "severe_winter")
+        info = WEATHER_TYPES.get(w_type, WEATHER_TYPES["severe_winter"])
+        data["name"] = info["name"]
+        data["emoji"] = info["emoji"]
+        data["description"] = info["description"]
+        return data
+    except Exception:
+        return {
+            "weather_type": "severe_winter",
+            "name": "Qattiq Qish (Severe Winter)",
+            "emoji": "❄️",
+            "description": "Shimolda mudofaa +15%, oziq-ovqat sarfi +25%.",
+            "expires_at": (datetime.utcnow() + timedelta(days=7)).isoformat(),
+        }
+
+
+async def rotate_world_weather(
+    session: AsyncSession,
+    new_weather_type: Optional[str] = None,
+    bot_app=None,
+) -> Dict[str, Any]:
+    """Westeros ob-havosini yangilash / aylantirish"""
+    types_list = list(WEATHER_TYPES.keys())
+    if not new_weather_type or new_weather_type not in WEATHER_TYPES:
+        new_weather_type = random.choice(types_list)
+
+    now = datetime.utcnow()
+    expires = now + timedelta(days=7)
+    weather_info = WEATHER_TYPES[new_weather_type]
+
+    res = await session.execute(
+        select(models.EventState).where(models.EventState.event_name == "world_weather")
+    )
+    ev = res.scalar_one_or_none()
+    new_data = {
+        "weather_type": new_weather_type,
+        "name": weather_info["name"],
+        "description": weather_info["description"],
+        "updated_at": now.isoformat(),
+        "expires_at": expires.isoformat(),
+    }
+
+    if not ev:
+        ev = models.EventState(
+            event_name="world_weather",
+            data_json=json.dumps(new_data),
+            is_active=True,
+        )
+        session.add(ev)
+    else:
+        ev.data_json = json.dumps(new_data)
+        ev.is_active = True
+
+    await session.commit()
+
+    if bot_app:
+        announcement = (
+            f"🌤️📜 **WESTEROS OB-HAVO VA FASLI O'ZGARDI!**\n\n"
+            f"{weather_info['emoji']} Yangi Fasl: **{weather_info['name']}**\n\n"
+            f"📖 *Ta'siri:* {weather_info['description']}\n\n"
+            f"⏱️ Ushbu fasl keyingi **7 kun** davomida butun qit'a uzra hukm suradi!"
+        )
+        users_res = await session.execute(select(models.User.telegram_id))
+        all_ids = users_res.scalars().all()
+        for tg_id in all_ids:
+            try:
+                await bot_app.bot.send_message(
+                    chat_id=tg_id,
+                    text=announcement,
+                    parse_mode="Markdown"
+                )
+            except Exception:
+                pass
+
+    return new_data
+
+
+async def check_and_rotate_weather(session: AsyncSession, bot_app=None) -> None:
+    """Agar ob-havo muddati (7 kun) o'tgan bo'lsa avtomatik aylantirish"""
+    weather = await get_current_weather(session)
+    exp_str = weather.get("expires_at")
+    if not exp_str:
+        return
+
+    try:
+        exp_dt = datetime.fromisoformat(exp_str)
+        if datetime.utcnow() >= exp_dt:
+            await rotate_world_weather(session, bot_app=bot_app)
+    except Exception:
+        pass
+
+
+
 
 
 

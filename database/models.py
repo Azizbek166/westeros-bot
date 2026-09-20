@@ -199,6 +199,7 @@ class Territory(Base):
     is_capital = Column(Boolean, default=False)  # King's Landing, Winterfell va h.k.
     castle_level = Column(Integer, default=1)  # Qal'a istehkom darajasi (Tier 1-5)
     wildfire_count = Column(Integer, default=0) # Alkimyogarlar Yovvoyi Olovi (Wildfire, max 5)
+    gates_compromised_until = Column(DateTime, nullable=True) # Josus tomonidan darvoza ochilgan vaqt muddati
     last_tax_collected_at = Column(DateTime, default=datetime.utcnow)  # Oxirgi o'lpon yig'ilgan vaqt
     reinforcements_json = Column(Text, default="{}")  # Ittifoqchilar mudofaasi: {house_name: {infantry: N, ...}}
 
@@ -532,6 +533,112 @@ class HallOfFame(Base):
 
     winner_house = relationship("House", foreign_keys=[winner_house_id])
     king = relationship("User", foreign_keys=[king_user_id])
+
+
+# ============================================================
+# 25. JOSUSLIK VA QIZIL TO'Y (ESPIONAGE & INFILTRATION)
+# ============================================================
+class SpyMission(Base):
+    __tablename__ = "spy_missions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    target_territory_id = Column(Integer, ForeignKey("territories.id"), nullable=False, index=True)
+    mission_type = Column(String(50), nullable=False)  # scout, sabotage, open_gates
+    cost_gold = Column(Integer, default=1000)
+    status = Column(String(30), default="success")    # success, caught
+    report_text = Column(Text, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User")
+    target_territory = relationship("Territory")
+
+
+# ============================================================
+# 26. RITSARLAR TURNIRI VA STAVKALAR (TOURNAMENT & BETS)
+# ============================================================
+class Tournament(Base):
+    __tablename__ = "tournaments"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(100), default="Qirol Qo'li Turniri")
+    status = Column(String(30), default="active", index=True)  # active, completed
+    prize_pool = Column(BigInteger, default=10000)
+    winner_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    winner_name = Column(String(100), nullable=True)
+    details = Column(Text, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    concluded_at = Column(DateTime, nullable=True)
+
+    winner = relationship("User", foreign_keys=[winner_user_id])
+    participants = relationship("TournamentParticipant", back_populates="tournament", cascade="all, delete-orphan")
+    bets = relationship("TournamentBet", back_populates="tournament", cascade="all, delete-orphan")
+
+
+class TournamentParticipant(Base):
+    __tablename__ = "tournament_participants"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    tournament_id = Column(Integer, ForeignKey("tournaments.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    fighter_name = Column(String(100), nullable=False)
+    fighter_power = Column(Integer, default=100)
+    score = Column(Integer, default=0)
+    is_eliminated = Column(Boolean, default=False)
+    joined_at = Column(DateTime, default=datetime.utcnow)
+
+    tournament = relationship("Tournament", back_populates="participants")
+    user = relationship("User")
+
+
+class TournamentBet(Base):
+    __tablename__ = "tournament_bets"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    tournament_id = Column(Integer, ForeignKey("tournaments.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    participant_id = Column(Integer, ForeignKey("tournament_participants.id"), nullable=False, index=True)
+    bet_gold = Column(Integer, nullable=False)
+    payout_gold = Column(Integer, default=0)
+    status = Column(String(30), default="placed")  # placed, won, lost
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    tournament = relationship("Tournament", back_populates="bets")
+    user = relationship("User")
+    participant = relationship("TournamentParticipant")
+
+
+# ============================================================
+# 27. SAVDO KARVONLARI VA PISTIRMALAR (TRADE CARAVANS & RAIDS)
+# ============================================================
+class TradeCaravan(Base):
+    __tablename__ = "trade_caravans"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    owner_user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    owner_house_id = Column(Integer, ForeignKey("houses.id"), nullable=False, index=True)
+    origin_territory_id = Column(Integer, ForeignKey("territories.id"), nullable=False)
+    destination_territory_id = Column(Integer, ForeignKey("territories.id"), nullable=False)
+
+    resource_type = Column(String(20), nullable=False)      # food, iron
+    resource_amount = Column(Integer, nullable=False)      # e.g. 5000, 10000, 20000
+    expected_gold_reward = Column(Integer, default=0)
+
+    escort_cavalry = Column(Integer, default=0)
+    escort_infantry = Column(Integer, default=0)
+
+    departure_time = Column(DateTime, default=datetime.utcnow)
+    arrival_time = Column(DateTime, nullable=False, index=True)
+    status = Column(String(30), default="moving", index=True)  # moving, arrived, raided, looted
+
+    raider_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    raid_report = Column(Text, default="")
+
+    owner = relationship("User", foreign_keys=[owner_user_id])
+    owner_house = relationship("House", foreign_keys=[owner_house_id])
+    origin_territory = relationship("Territory", foreign_keys=[origin_territory_id])
+    destination_territory = relationship("Territory", foreign_keys=[destination_territory_id])
+    raider = relationship("User", foreign_keys=[raider_user_id])
 
 
 
