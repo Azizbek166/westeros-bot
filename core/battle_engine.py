@@ -69,6 +69,8 @@ def calculate_battle(
     champ_names = {
         "jon_snow": "🐺 Jon Snow (Oq Bo'ri)",
         "jaime_lannister": "🦁 Ser Jaime Lannister (Qirol Qotili)",
+        "robb_stark": "🐺 Robb Stark (Yosh Bo'ri)",
+        "stannis_baratheon": "🦌 Stannis Baratheon (Temir Iroda)",
         "arya_stark": "🗡️ Arya Stark (Yuzsiz Qotil)",
         "oberyn_martell": "🐍 Shahzoda Oberyn Martell (Qizil Ilon)",
         "brienne_tarth": "🛡️ Ser Brienne of Tarth (Qasamyod Soqchisi)",
@@ -282,6 +284,10 @@ def calculate_battle(
                 c_atk_mult *= weather_archer_mult
             if attacker_champion == "jaime_lannister" and a_type == "cavalry":
                 c_atk_mult = 1.25
+            elif attacker_champion == "robb_stark" and a_type in ["cavalry", "infantry"]:
+                c_atk_mult = 1.20
+            elif attacker_champion == "stannis_baratheon" and a_type == "infantry":
+                c_atk_mult = 1.20
             elif attacker_champion == "arya_stark" and a_type in ["special_troops", "archers"]:
                 c_atk_mult = 1.20
             elif attacker_champion == "oberyn_martell" and a_type == "spearmen":
@@ -309,6 +315,10 @@ def calculate_battle(
             c_def_mult = 1.0
             if defender_champion == "jon_snow" and d_type == "infantry":
                 c_def_mult = 1.20
+            elif defender_champion == "robb_stark":
+                c_def_mult = 1.15
+            elif defender_champion == "stannis_baratheon":
+                c_def_mult = 1.25
             elif defender_champion == "brienne_tarth":
                 c_def_mult = 1.15
 
@@ -324,7 +334,7 @@ def calculate_battle(
         # Raunddagi yo'qotishlarni hisoblash
         # Hujumchi zarar beradi -> Himoyachi yo'qotadi
         def_loss_ratio = min(0.60, (att_power / (def_power + att_power + 1.0)) * random.uniform(0.7, 1.0))
-        def_loss_red = 0.15 if defender_champion == "brienne_tarth" else 0.0
+        def_loss_red = 0.15 if defender_champion in ["brienne_tarth", "stannis_baratheon"] else 0.0
         for t in troop_types:
             eff_def_ratio = def_loss_ratio * (1.0 - def_loss_red)
             lost = int(def_troops[t] * eff_def_ratio)
@@ -337,7 +347,7 @@ def calculate_battle(
         inf_reduction = min(0.35, siege_towers * 0.05) if siege_towers > 0 else 0.0
         if attacker_champion == "jon_snow":
             inf_reduction = min(0.45, inf_reduction + 0.20)
-        att_loss_red = 0.15 if attacker_champion == "brienne_tarth" else 0.0
+        att_loss_red = 0.15 if attacker_champion in ["brienne_tarth", "stannis_baratheon"] else 0.0
 
         for t in troop_types:
             eff_loss_ratio = att_loss_ratio * (1.0 - inf_reduction) if t == "infantry" else att_loss_ratio

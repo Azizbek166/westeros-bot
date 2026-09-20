@@ -616,14 +616,22 @@ async def house_treasury_manage_callback(update: Update, context: ContextTypes.D
             f"Kerakli amaliyotni tanlang:"
         )
 
+        context.user_data.pop("awaiting_house_with_input", None)
         buttons = [
             [
-                InlineKeyboardButton("🪙 -1,000 Oltin Yechish", callback_data="h_with:gold:1000"),
-                InlineKeyboardButton("🪙 -2,500 Oltin Yechish", callback_data="h_with:gold:2500"),
+                InlineKeyboardButton("✍️ 🪙 Oltin Yechish (Qo'lda)", callback_data="h_custom_with:gold"),
             ],
             [
-                InlineKeyboardButton("🌾 -2,000 Oziq Yechish", callback_data="h_with:food:2000"),
-                InlineKeyboardButton("⛓️ -1,000 Temir Yechish", callback_data="h_with:iron:1000"),
+                InlineKeyboardButton("✍️ 🌾 Oziq Yechish (Qo'lda)", callback_data="h_custom_with:food"),
+                InlineKeyboardButton("✍️ ⛓️ Temir Yechish (Qo'lda)", callback_data="h_custom_with:iron"),
+            ],
+            [
+                InlineKeyboardButton("🪙 -1,000 Oltin", callback_data="h_with:gold:1000"),
+                InlineKeyboardButton("🪙 -2,500 Oltin", callback_data="h_with:gold:2500"),
+            ],
+            [
+                InlineKeyboardButton("🌾 -2,000 Oziq", callback_data="h_with:food:2000"),
+                InlineKeyboardButton("⛓️ -1,000 Temir", callback_data="h_with:iron:1000"),
             ],
             [
                 InlineKeyboardButton("🎁 Har Bir A'zoga +500🪙 Ulashish", callback_data="h_dist:gold:500"),
@@ -636,6 +644,45 @@ async def house_treasury_manage_callback(update: Update, context: ContextTypes.D
             ]
         ]
         await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def house_treasury_custom_with_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Lord uchun xonadon g'aznasidan qo'lda yozib resurs yechib olish so'rovi"""
+    query = update.callback_query
+    await query.answer()
+    res_type = query.data.split(":")[1]
+    user_id = query.from_user.id
+
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_with_relations(session, user_id)
+        if not user or not user.house:
+            await query.answer("Xonadon topilmadi.", show_alert=True)
+            return
+
+        house = user.house
+        is_lord = (house.lord_user_id == user.telegram_id) or user.rank == "king"
+        if not is_lord:
+            await query.answer("❌ Faqat Xonadon Lordi g'aznadan foydalanishi mumkin!", show_alert=True)
+            return
+
+        avail = getattr(house, res_type, 0) or 0
+
+    res_names = {"gold": "🪙 Oltin", "food": "🌾 Oziq-ovqat", "iron": "⛓️ Temir"}
+    r_name = res_names.get(res_type, res_type.capitalize())
+
+    context.user_data["awaiting_house_with_input"] = {"res_type": res_type}
+
+    text = (
+        f"✍️ **XONADON G'AZNASIDAN {r_name.upper()} YECHISH**\n\n"
+        f"G'aznada mavjud zaxira: **{avail:,}** {r_name}\n\n"
+        f"Shaxsiy hisobingizga qancha {r_name} yechib olmoqchisiz?\n"
+        f"Iltimos, miqdorni chatga xabar qilib yozing:\n\n"
+        f"*(Masalan: `5000` yoki butun zaxirani yechish uchun `all`)*"
+    )
+    buttons = [
+        [InlineKeyboardButton("🔙 Bekor Qilish", callback_data="house_treasury_manage")]
+    ]
+    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
 
 
 async def house_treasury_withdraw_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -876,6 +923,7 @@ def register_house_handlers(app):
     app.add_handler(CallbackQueryHandler(house_donate_action_callback, pattern="^hdonate:"))
     app.add_handler(CallbackQueryHandler(house_top_donors_callback, pattern="^house_top_donors$"))
     app.add_handler(CallbackQueryHandler(house_treasury_manage_callback, pattern="^house_treasury_manage$"))
+    app.add_handler(CallbackQueryHandler(house_treasury_custom_with_callback, pattern="^h_custom_with:"))
     app.add_handler(CallbackQueryHandler(house_treasury_withdraw_callback, pattern="^h_with:"))
     app.add_handler(CallbackQueryHandler(house_treasury_distribute_callback, pattern="^h_dist:"))
 

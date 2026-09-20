@@ -373,7 +373,13 @@ async def show_my_castles(target, user_id: int, is_message: bool):
             f"Xonadoningiz tasarrufidagi barcha qal'alar va ularning g'aznalari:\n\n"
         )
 
+        ready_count = sum(1 for c in castles if min(4, int(max(0, (now - (c.last_tax_collected_at or (now - timedelta(hours=4)))).total_seconds()) // 3600)) >= 1)
         buttons = []
+        if ready_count > 0:
+            buttons.append([InlineKeyboardButton(f"💰 Barcha Qal'alardan O'lpon Yig'ish ({ready_count} ta tayyor)", callback_data="collect_all_tax")])
+        else:
+            buttons.append([InlineKeyboardButton("💰 Barcha Qal'alardan O'lpon Yig'ish", callback_data="collect_all_tax")])
+
         for c in castles:
             tot_gar = c.garrison_infantry + c.garrison_archers + c.garrison_cavalry + c.garrison_spearmen
             last_tax = c.last_tax_collected_at or (now - timedelta(hours=4))
@@ -524,6 +530,25 @@ async def collect_tax_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
     await query.answer(msg if not ok else "✅ O'lpon muvaffaqiyatli qabul qilindi!", show_alert=True)
     await show_my_castle_detail(query, user_id, terr_id)
+
+
+async def collect_all_tax_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Barcha qal'alardan bir vaqtda o'lpon yig'ib olish"""
+    query = update.callback_query
+    user_id = query.from_user.id
+
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_with_relations(session, user_id)
+        if not user:
+            await query.answer("Foydalanuvchi topilmadi.", show_alert=True)
+            return
+        ok, msg, res = await crud.collect_all_castles_tax(session, user.id)
+
+    if ok:
+        await query.answer(f"✅ Barcha qal'alardan o'lpon yig'ildi! (+{res.get('gold', 0):,}🪙)", show_alert=True)
+    else:
+        await query.answer(msg[:150], show_alert=True)
+    await show_my_castles(query, user_id)
 
 
 async def upgrade_walls_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -772,6 +797,7 @@ def register_map_handlers(app):
     app.add_handler(CallbackQueryHandler(my_castles_callback, pattern="^menu_castles$"))
     app.add_handler(CallbackQueryHandler(my_castle_detail_callback, pattern="^my_c_detail:"))
     app.add_handler(CallbackQueryHandler(collect_tax_callback, pattern="^collect_tax:"))
+    app.add_handler(CallbackQueryHandler(collect_all_tax_callback, pattern="^collect_all_tax$"))
     app.add_handler(CallbackQueryHandler(upgrade_walls_callback, pattern="^upgrade_walls:"))
     app.add_handler(CallbackQueryHandler(upgrade_castle_callback, pattern="^upgrade_castle:"))
     app.add_handler(CallbackQueryHandler(def_withdraw_rf_callback, pattern="^def_withdraw_rf:"))

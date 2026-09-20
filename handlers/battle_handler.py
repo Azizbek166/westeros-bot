@@ -1503,6 +1503,55 @@ async def handle_battle_text_input(update: Update, context: ContextTypes.DEFAULT
         await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
         return
 
+    # 4. Xonadon g'aznasidan Lord tomonidan qo'lda kiritilgan resursni yechish
+    if "awaiting_house_with_input" in context.user_data:
+        data = context.user_data.pop("awaiting_house_with_input")
+        res_type = data.get("res_type", "gold")
+
+        async with AsyncSessionLocal() as session:
+            user = await crud.get_user_with_relations(session, user_id)
+            if not user or not user.house_id or not user.house:
+                await update.message.reply_text("❌ Xonadon topilmadi.")
+                return
+
+            house = user.house
+            is_lord = (house.lord_user_id == user.telegram_id) or user.rank == "king"
+            if not is_lord:
+                await update.message.reply_text("❌ Faqat Xonadon Lordi g'aznadan mablag' yechish huquqiga ega!")
+                return
+
+            avail = getattr(house, res_type, 0) or 0
+            if text.lower() in ["all", "hamma", "barchasi", "bori"]:
+                amount = avail
+            elif text.isdigit():
+                amount = int(text)
+            else:
+                amount = -1
+
+            if amount < 0:
+                ok, msg = False, "❌ Noto'g'ri miqdor kiritildi! Iltimos, musbat son (masalan: `5000`) yoki 'all' deb yozing."
+            elif amount == 0:
+                ok, msg = False, "❌ Xonadon g'aznasida ushbu resurs mavjud emas (0 ta) yoki 0 kiritildi."
+            else:
+                gold = amount if res_type == "gold" else 0
+                food = amount if res_type == "food" else 0
+                iron = amount if res_type == "iron" else 0
+                ok, msg = await crud.withdraw_house_treasury(
+                    session=session,
+                    house_id=user.house_id,
+                    user_id=user.id,
+                    gold=gold,
+                    food=food,
+                    iron=iron,
+                )
+
+        buttons = [
+            [InlineKeyboardButton("🏛️ G'azna Boshqaruviga Qaytish", callback_data="house_treasury_manage")],
+            [InlineKeyboardButton("🔙 Xonadon Sahifasi", callback_data="menu_house")],
+        ]
+        await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        return
+
 
 def register_battle_handlers(app):
     app.add_handler(CommandHandler("battle", battle_command))

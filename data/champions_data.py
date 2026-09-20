@@ -1,4 +1,4 @@
-﻿# ============================================================
+# ============================================================
 # AFSONAVIY QAHRAMONLAR (LEGENDARY CHAMPIONS)
 # ============================================================
 
@@ -54,5 +54,28 @@ LEGENDARY_CHAMPIONS = {
         "overall_defense_bonus": 0.15,
         "loss_reduction": 0.15,
         "emoji": "🛡️",
+    },
+    "robb_stark": {
+        "id": "robb_stark",
+        "name": "Robb Stark (Yosh Bo'ri)",
+        "title": "Shimol Qiroli va Jang Maydoni Daho Strategi",
+        "description": "Jang maydonida biror marta mag'lubiyat ko'rmagan daho sarkarda. Hujumda otliqlar va piyodalarga +20% zarba, umumiy mudofaada +15% mudofaa beradi.",
+        "cost_gold": 10000,
+        "cost_prestige": 200,
+        "cavalry_infantry_atk_bonus": 0.20,
+        "overall_def_bonus": 0.15,
+        "emoji": "🐺",
+    },
+    "stannis_baratheon": {
+        "id": "stannis_baratheon",
+        "name": "Stannis Baratheon (Temir Iroda)",
+        "title": "Ajdartoshi Hukmdori va Qonuniy Qirol",
+        "description": "Bukilmas temir iroda va temir intizom egasi. Qal'a mudofaasini +25% ga oshiradi, jangdagi askarlar talofatini 15% kamaytiradi.",
+        "cost_gold": 10000,
+        "cost_prestige": 200,
+        "infantry_atk_bonus": 0.20,
+        "overall_defense_bonus": 0.25,
+        "loss_reduction": 0.15,
+        "emoji": "🦌",
     },
 }

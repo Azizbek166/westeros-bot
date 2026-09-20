@@ -16,6 +16,8 @@ CHAMPIONS_LIST = [
     ("Oberyn Martell", "🐍 Oberyn Martell (Qizil Ilon)", "Zaharli nayza va chaqqon harakatlar ustasi"),
     ("Barristan Selmy", "👑 Ser Barristan Selmy (Jasur)", "Qirollik soqchilarining eng tajribali ritsari"),
     ("Sandor Clegane", "🐕 Sandor Clegane (Tog' Iti)", "Ayovsiz qilichboz va shafqatsiz jangchi"),
+    ("Robb Stark", "🐺 Robb Stark (Yosh Bo'ri)", "Shimol Qiroli va mag'lub bo'lmas daho sarkarda"),
+    ("Stannis Baratheon", "🦌 Stannis Baratheon (Temir Iroda)", "Ajdartoshi Hukmdori, qat'iyatli va sovuqqon sarkarda"),
     ("Bronn", "🗡️ Ser Bronn of the Blackwater", "Ayyor, tajribali va kutilmagan zarbalar ustasi"),
 ]
 

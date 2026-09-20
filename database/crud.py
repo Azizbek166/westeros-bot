@@ -2156,6 +2156,70 @@ async def collect_castle_tax(session: AsyncSession, user_id: int, territory_id: 
     ), {"gold": g_inc, "food": f_inc, "iron": i_inc, "hours": hours}
 
 
+async def collect_all_castles_tax(session: AsyncSession, user_id: int) -> Tuple[bool, str, Dict[str, int]]:
+    """Xonadonga tegishli barcha qal'alardan 1-4 soatlik to'plangan o'lponlarni bir vaqtda yig'ib olish"""
+    user = await get_user_any(session, user_id)
+    if not user:
+        return False, "Foydalanuvchi topilmadi.", {}
+
+    if not user.house_id:
+        return False, "Siz biron bir xonadonga tegishli emassiz!", {}
+
+    res = await session.execute(
+        select(models.Territory).where(models.Territory.owner_house_id == user.house_id)
+    )
+    castles = res.scalars().all()
+    if not castles:
+        return False, "Xonadoningizga tegishli birorta ham qal'a yo'q!", {}
+
+    now = datetime.utcnow()
+    tot_gold = 0
+    tot_food = 0
+    tot_iron = 0
+    collected_castles = []
+
+    for terr in castles:
+        last_tax = terr.last_tax_collected_at or (now - timedelta(hours=4))
+        elapsed_seconds = max(0, (now - last_tax).total_seconds())
+        hours = int(elapsed_seconds // 3600)
+        if hours >= 1:
+            hours = min(4, hours)
+            g_inc = (terr.gold_income or 0) * hours
+            f_inc = (terr.food_income or 0) * hours
+            i_inc = (terr.iron_income or 0) * hours
+
+            tot_gold += g_inc
+            tot_food += f_inc
+            tot_iron += i_inc
+            terr.last_tax_collected_at = now
+            collected_castles.append({
+                "name": terr.castle_name or terr.name,
+                "hours": hours,
+                "gold": g_inc,
+            })
+
+    if not collected_castles:
+        return False, "⏳ Hozirda birorta ham qal'ada o'lpon to'planmagan (kamida 1 soat o'tishi kerak).", {}
+
+    user.gold += tot_gold
+    user.food += tot_food
+    user.iron += tot_iron
+    await session.commit()
+
+    details = "\n".join([f"• 🏰 **{c['name']}**: {c['hours']} soatlik (+{c['gold']:,}🪙)" for c in collected_castles])
+    msg = (
+        f"💰 **BARCHA QAL'ALARDAN O'LPON YIG'ILDI!**\n\n"
+        f"{details}\n\n"
+        f"📊 **JAMI QABUL QILINDI ({len(collected_castles)} ta qal'a):**\n"
+        f"• 🪙 Oltin: **+{tot_gold:,}**\n"
+        f"• 🌾 Oziq-ovqat: **+{tot_food:,}**\n"
+        f"• ⛓️ Temir: **+{tot_iron:,}**\n\n"
+        f"Resurslar sizning shaxsiy xazinangizga muvaffaqiyatli qo'shildi!"
+    )
+    return True, msg, {"gold": tot_gold, "food": tot_food, "iron": tot_iron, "count": len(collected_castles)}
+
+
+
 # ============================================================
 # ARTIFACTS CRUD
 # ============================================================
@@ -4591,7 +4655,9 @@ async def enter_tournament(
             fighter_name = f"{champ_data['emoji']} {champ_data['name']} (Sarkarda)"
             champ_powers = {
                 "jaime_lannister": 240,
+                "robb_stark": 235,
                 "oberyn_martell": 235,
+                "stannis_baratheon": 230,
                 "arya_stark": 230,
                 "jon_snow": 225,
                 "brienne_tarth": 220,
