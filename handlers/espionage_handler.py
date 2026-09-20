@@ -49,6 +49,11 @@ async def spy_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await _safe_edit_or_reply(query, update, msg)
             return
 
+        await crud.check_and_reset_daily_limits(session, user)
+        scout_cnt = getattr(user, "daily_spy_scout_count", 0) or 0
+        sabotage_cnt = getattr(user, "daily_spy_sabotage_count", 0) or 0
+        gates_cnt = getattr(user, "daily_spy_gates_count", 0) or 0
+
         rep_text = ""
         try:
             reports = await crud.get_user_spy_reports(session, user.id, limit=3)
@@ -68,11 +73,11 @@ async def spy_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Vesterosda janglar faqat ochiq maydonda yutilmaydi. Yashirin xanjar, zaharlangan sharob va sotib olingan qo'riqchilar butun saltanat taqdirini hal qiladi!\n\n"
             f"💰 Hamyoningiz: **{user.gold:,}** Oltin\n"
             f"🎖️ Nufuzingiz: **{user.prestige:,}** ball\n\n"
-            "🎯 **Mavjud Operatsiyalar:**\n"
-            "1. 🕵️ **Razvedka (1,000💰):** Qal'a garnizoni, devor balandligi, wildfire va ajdarlarni aniqlash. (85% omad)\n"
-            "2. 🔥 **Sabotaj (3,000💰):** Yashil olov bochkalarini yoqish yoki devorlarni yemirib ketish. (65% omad)\n"
-            "3. 🚪 **Darvozalarni ochish (5,000💰):** Qal'a temir darvozalarini ichkaridan ochib qo'yish (-30% devor mudofaasi, 2 soat). (55% omad)\n\n"
-            "⚠️ *Eslatma: Josus qo'lga olinsa, u qatl etiladi, oltin va nufuz boy beriladi!*"
+            "🎯 **Mavjud Operatsiyalar va Kunlik Limitlar:**\n"
+            f"1. 🕵️ **Razvedka (1,000💰):** Qal'a garnizoni, devor balandligi, wildfire va ajdarlarni aniqlash. (85% omad) | Limit: **{scout_cnt}/2**\n"
+            f"2. 🔥 **Sabotaj (3,000💰):** Yashil olov bochkalarini yoqish yoki devorlarni yemirib ketish. (65% omad) | Limit: **{sabotage_cnt}/2**\n"
+            f"3. 🚪 **Darvozalarni ochish (5,000💰):** Qal'a temir darvozalarini ichkaridan ochib qo'yish (-30% devor mudofaasi, 2 soat). (55% omad) | Limit: **{gates_cnt}/2**\n\n"
+            "⚠️ *Eslatma: Har bir operatsiya uchun kuniga ko'pi bilan 2 martadan limit berilgan. Josus qo'lga olinsa, qatl etiladi, oltin va nufuz boy beriladi!*"
             f"{rep_text}"
         )
 
@@ -180,6 +185,16 @@ async def spy_terr_detail_callback(update: Update, context: ContextTypes.DEFAULT
         tg_user = update.effective_user
         user = await crud.get_user_by_telegram_id(session, tg_user.id)
         u_gold = user.gold if user else 0
+        if user:
+            await crud.check_and_reset_daily_limits(session, user)
+
+        scout_cnt = getattr(user, "daily_spy_scout_count", 0) if user else 0
+        sabotage_cnt = getattr(user, "daily_spy_sabotage_count", 0) if user else 0
+        gates_cnt = getattr(user, "daily_spy_gates_count", 0) if user else 0
+
+        scout_tag = f"({scout_cnt}/2)" if scout_cnt < 2 else "(2/2 [TO'LIQ])"
+        sabotage_tag = f"({sabotage_cnt}/2)" if sabotage_cnt < 2 else "(2/2 [TO'LIQ])"
+        gates_tag = f"({gates_cnt}/2)" if gates_cnt < 2 else "(2/2 [TO'LIQ])"
 
         h_name = "Mustaqil"
         if terr.owner_house_id:
@@ -196,9 +211,9 @@ async def spy_terr_detail_callback(update: Update, context: ContextTypes.DEFAULT
         )
 
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🕵️ Razvedka qilish (1,000💰)", callback_data=f"spy_do:scout:{terr.id}")],
-            [InlineKeyboardButton("🔥 Sabotaj uyushtirish (3,000💰)", callback_data=f"spy_do:sabotage:{terr.id}")],
-            [InlineKeyboardButton("🚪 Darvozalarni ochish (5,000💰)", callback_data=f"spy_do:open_gates:{terr.id}")],
+            [InlineKeyboardButton(f"🕵️ Razvedka {scout_tag} — 1,000💰", callback_data=f"spy_do:scout:{terr.id}")],
+            [InlineKeyboardButton(f"🔥 Sabotaj {sabotage_tag} — 3,000💰", callback_data=f"spy_do:sabotage:{terr.id}")],
+            [InlineKeyboardButton(f"🚪 Darvozalarni ochish {gates_tag} — 5,000💰", callback_data=f"spy_do:open_gates:{terr.id}")],
             [InlineKeyboardButton("🔙 Qal'alar ro'yxati", callback_data="spy_pick_page:0")],
         ])
         await _safe_edit_or_reply(query, update, text, reply_markup=keyboard)
@@ -223,13 +238,19 @@ async def spy_execute_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         if not user:
             return
 
-        success, report_text, _ = await crud.send_spy_mission(
+        success, report_text, rep_data = await crud.send_spy_mission(
             session=session,
             user_id=user.id,
             target_territory_id=terr_id,
             mission_type=mission_type,
             bot_app=context.application,
         )
+
+        if not success and not rep_data:
+            if query:
+                clean_alert = report_text.replace("❌", "").replace("*", "").strip()
+                await query.answer(f"❌ {clean_alert[:140]}", show_alert=True)
+            return
 
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("🎯 Boshqa Qal'a", callback_data="spy_pick_page:0")],

@@ -1369,6 +1369,9 @@ async def admin_reset_all_limits_callback(update: Update, context: ContextTypes.
             u.daily_secret_quest_count = 0
             u.daily_caravan_send_count = 0
             u.daily_caravan_raid_count = 0
+            u.daily_spy_scout_count = 0
+            u.daily_spy_sabotage_count = 0
+            u.daily_spy_gates_count = 0
             u.daily_bandit_count = 0
             u.daily_duel_count = 0
             u.daily_recruit_count = 0

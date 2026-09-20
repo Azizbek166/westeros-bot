@@ -99,6 +99,9 @@ async def init_db():
                 "ALTER TABLE territories ADD COLUMN gates_compromised_until DATETIME",
                 "ALTER TABLE users ADD COLUMN daily_caravan_send_count INTEGER DEFAULT 0",
                 "ALTER TABLE users ADD COLUMN daily_caravan_raid_count INTEGER DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN daily_spy_scout_count INTEGER DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN daily_spy_sabotage_count INTEGER DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN daily_spy_gates_count INTEGER DEFAULT 0",
             ]:
                 try:
                     await conn.execute(text(alter_stmt))
@@ -111,6 +114,9 @@ async def init_db():
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_recruit_count INTEGER DEFAULT 0",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_caravan_send_count INTEGER DEFAULT 0",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_caravan_raid_count INTEGER DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_spy_scout_count INTEGER DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_spy_sabotage_count INTEGER DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_spy_gates_count INTEGER DEFAULT 0",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS iron_mine_level INTEGER DEFAULT 1",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS grain_mill_level INTEGER DEFAULT 1",
                 "ALTER TABLE territories ADD COLUMN IF NOT EXISTS castle_level INTEGER DEFAULT 1",

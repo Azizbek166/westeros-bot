@@ -79,6 +79,9 @@ async def check_and_reset_daily_limits(session: AsyncSession, user: models.User)
         user.daily_recruit_count = 0
         user.daily_caravan_send_count = 0
         user.daily_caravan_raid_count = 0
+        user.daily_spy_scout_count = 0
+        user.daily_spy_sabotage_count = 0
+        user.daily_spy_gates_count = 0
         user.daily_limit_date = today_str
         await session.commit()
 
@@ -4352,6 +4355,19 @@ async def send_spy_mission(
     if not user:
         return False, "❌ O'yinchi topilmadi.", {}
 
+    await check_and_reset_daily_limits(session, user)
+
+    # Kunlik limit tekshiruvi: har biriga 2 tadan
+    if mission_type == "scout":
+        if getattr(user, "daily_spy_scout_count", 0) >= 2:
+            return False, "❌ Bugungi Razvedka limitingiz (2/2) tugagan! Ertaga yana urinib ko'rishingiz mumkin.", {}
+    elif mission_type == "sabotage":
+        if getattr(user, "daily_spy_sabotage_count", 0) >= 2:
+            return False, "❌ Bugungi Sabotaj limitingiz (2/2) tugagan! Ertaga yana urinib ko'rishingiz mumkin.", {}
+    elif mission_type == "open_gates":
+        if getattr(user, "daily_spy_gates_count", 0) >= 2:
+            return False, "❌ Bugungi Darvozalarni ochish limitingiz (2/2) tugagan! Ertaga yana urinib ko'rishingiz mumkin.", {}
+
     if user.gold < cost:
         return False, f"❌ Josus yollash uchun {cost:,}💰 Oltin kerak! (Sizda: {user.gold:,}💰)", {}
 
@@ -4368,8 +4384,19 @@ async def send_spy_mission(
     if user.house_id and territory.owner_house_id == user.house_id:
         return False, "❌ O'z xonadoningiz qal'asiga josus yubora olmaysiz!", {}
 
-    # Oltinni yechish
+    # Oltinni yechish va limitni oshirish
     user.gold -= cost
+    if mission_type == "scout":
+        user.daily_spy_scout_count = getattr(user, "daily_spy_scout_count", 0) + 1
+        limit_str = f"\n📊 Bugungi Razvedka limitingiz: **{user.daily_spy_scout_count}/2** ta"
+    elif mission_type == "sabotage":
+        user.daily_spy_sabotage_count = getattr(user, "daily_spy_sabotage_count", 0) + 1
+        limit_str = f"\n📊 Bugungi Sabotaj limitingiz: **{user.daily_spy_sabotage_count}/2** ta"
+    elif mission_type == "open_gates":
+        user.daily_spy_gates_count = getattr(user, "daily_spy_gates_count", 0) + 1
+        limit_str = f"\n📊 Bugungi Darvozalarni ochish limitingiz: **{user.daily_spy_gates_count}/2** ta"
+    else:
+        limit_str = ""
 
     # Ehtimolliklar:
     # scout: 85% success, 15% caught
@@ -4407,7 +4434,7 @@ async def send_spy_mission(
             f"🏰 Qal'a: **{territory.name}**\n"
             f"Siz yuborgan ayg'oqchi devordan oshib o'tayotganda sergak soqchilar tomonidan ushlandi.\n"
             f"Qiynoqlardan so'ng josus omma oldida dorga osildi!\n\n"
-            f"📉 Yo'qotish: -{cost:,}💰 Oltin, -{pen}🎖️ Nufuz."
+            f"📉 Yo'qotish: -{cost:,}💰 Oltin, -{pen}🎖️ Nufuz.{limit_str}"
         )
 
         mission = models.SpyMission(
@@ -4461,7 +4488,7 @@ async def send_spy_mission(
             f"• 🏹 Kamonchilar: **{territory.garrison_archers:,}**\n"
             f"• 🐎 Otliqlar: **{territory.garrison_cavalry:,}**\n"
             f"• 🔱 Nayzadorlar: **{territory.garrison_spearmen:,}**\n\n"
-            f"🎖️ Nufuz: +10 ball qo'shildi."
+            f"🎖️ Nufuz: +10 ball qo'shildi.{limit_str}"
         )
         report_data = {
             "infantry": territory.garrison_infantry,
@@ -4489,7 +4516,7 @@ async def send_spy_mission(
             f"🔥🕵️ **SABOTAJ MUVAFFAQIYATLI AMALGA OSHIRILDI!**\n\n"
             f"🏰 Qal'a: **{territory.name}**\n"
             f"{sabotage_effect}\n\n"
-            f"🎖️ Jasorat uchun +20 Nufuz berildi."
+            f"🎖️ Jasorat uchun +20 Nufuz berildi.{limit_str}"
         )
         report_data = {
             "status": "success",
@@ -4520,7 +4547,7 @@ async def send_spy_mission(
             f"🏰 Qal'a: **{territory.name}**\n"
             f"Siz yuborgan josus soqchilarni chalg'itib, qal'aning temir darvoza zanjirini buzdi va ichkaridan ochib qo'ydi!\n\n"
             f"⏱️ Muddat: **2 soat** davomida ushbu qal'aga qilingan har qanday hujumda devor himoyasi **-30%** ga pasayadi!\n"
-            f"🎖️ Nufuz: +30 ball qo'shildi."
+            f"🎖️ Nufuz: +30 ball qo'shildi.{limit_str}"
         )
         report_data = {
             "status": "success",

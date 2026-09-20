@@ -55,6 +55,9 @@ class User(Base):
     daily_recruit_count = Column(Integer, default=0)       # Kunlik yollangan askarlar soni
     daily_caravan_send_count = Column(Integer, default=0)  # Kunlik karvon jo'natish (max 2)
     daily_caravan_raid_count = Column(Integer, default=0)  # Kunlik karvonga pistirma/raid (max 2)
+    daily_spy_scout_count = Column(Integer, default=0)     # Kunlik josuslik: Razvedka (max 2)
+    daily_spy_sabotage_count = Column(Integer, default=0)  # Kunlik josuslik: Sabotaj (max 2)
+    daily_spy_gates_count = Column(Integer, default=0)     # Kunlik josuslik: Darvoza ochish (max 2)
     equipped_artifact_id = Column(Integer, nullable=True)
     iron_mine_level = Column(Integer, default=1)           # Temir koni darajasi (1-10)
     grain_mill_level = Column(Integer, default=1)          # Don tegirmoni darajasi (1-10)
