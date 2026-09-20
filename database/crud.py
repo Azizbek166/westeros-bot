@@ -4528,13 +4528,32 @@ async def get_active_tournament(session: AsyncSession) -> Optional[models.Tourna
     return res.scalar_one_or_none()
 
 
+async def get_or_create_active_tournament(session: AsyncSession) -> models.Tournament:
+    """Faol turnirni olish, agar yo'q bo'lsa avtomatik yangi turnir ochish"""
+    tourney = await get_active_tournament(session)
+    if not tourney:
+        count_res = await session.execute(select(func.count(models.Tournament.id)))
+        total = count_res.scalar() or 0
+        tourney = models.Tournament(
+            name=f"Qirol Qo'li Turniri #{total + 1}",
+            status="active",
+            prize_pool=25000,
+            details="Qirollikning eng qudratli ritsarlari jangi! G'olibga 70% xazina va 'Qirollik Chempioni' sharafli unvoni beriladi.",
+            created_at=datetime.utcnow(),
+        )
+        session.add(tourney)
+        await session.commit()
+        tourney = await get_active_tournament(session)
+    return tourney
+
+
 async def enter_tournament(
     session: AsyncSession,
     user_id: int,
     use_champion: bool = False,
 ) -> Tuple[bool, str]:
     """Turnirga qatnashish (Kirish to'lovi: 2,000 Oltin)"""
-    tourney = await get_active_tournament(session)
+    tourney = await get_or_create_active_tournament(session)
     if not tourney:
         return False, "❌ Ayni paytda faol ritsarlar turniri mavjud emas."
 
@@ -4561,7 +4580,7 @@ async def enter_tournament(
     tourney.prize_pool += fee
 
     # Jangchi nomi va kuchi
-    fighter_name = user.username or user.first_name or f"Ritsar #{user.id}"
+    fighter_name = user.username or user.full_name or f"Ritsar #{user.id}"
     fighter_power = 120 + min(80, (user.prestige // 25))
 
     if use_champion:
@@ -4608,7 +4627,7 @@ async def place_tournament_bet(
     if bet_gold < 500 or bet_gold > 5000:
         return False, "❌ Stavka miqdori 500 dan 5,000 Oltin oralig'ida bo'lishi kerak."
 
-    tourney = await get_active_tournament(session)
+    tourney = await get_or_create_active_tournament(session)
     if not tourney:
         return False, "❌ Faol turnir topilmadi."
 
@@ -4752,7 +4771,7 @@ async def resolve_tournament(session: AsyncSession, bot_app=None) -> Tuple[bool,
             bet_user = await session.get(models.User, bet.user_id)
             if bet_user:
                 bet_user.gold += payout
-                payout_summary.append(f"• {bet_user.username or bet_user.first_name}: +{payout:,}💰")
+                payout_summary.append(f"• {bet_user.username or bet_user.full_name}: +{payout:,}💰")
         else:
             bet.status = "lost"
 
@@ -4767,9 +4786,21 @@ async def resolve_tournament(session: AsyncSession, bot_app=None) -> Tuple[bool,
         f"🎰 **YUTUQLI STAVKALAR TO'LOVI (1.8x):**\n"
         f"{payout_text}\n\n"
         f"🏁 Turnir yakunlandi! Barcha mukofotlar va stavkalar topshirildi.\n"
-        f"Navbatdagi ritsarlar turniri tez orada Qirol / Admin tomonidan e'lon qilinadi!"
+        f"Yangi navbatdagi ritsarlar turniri ochildi — buyruq /tourney orqali kirishingiz mumkin!"
     )
     tourney.details = full_report
+
+    # Navbatdagi faol turnirni darhol ochish
+    count_res = await session.execute(select(func.count(models.Tournament.id)))
+    total_tourneys = count_res.scalar() or 0
+    next_tourney = models.Tournament(
+        name=f"Qirol Qo'li Turniri #{total_tourneys + 1}",
+        status="active",
+        prize_pool=25000,
+        details="Yangi ritsarlar turniri boshlandi! Ritsarlaringizni maydonga tushiring yoki omadingizni sinab stavka tiking!",
+        created_at=datetime.utcnow(),
+    )
+    session.add(next_tourney)
     await session.commit()
 
     if bot_app:
@@ -4783,7 +4814,10 @@ async def resolve_tournament(session: AsyncSession, bot_app=None) -> Tuple[bool,
                     parse_mode="Markdown"
                 )
             except Exception:
-                pass
+                try:
+                    await bot_app.bot.send_message(chat_id=tg_id, text=full_report)
+                except Exception:
+                    pass
 
     return True, full_report
 
