@@ -107,6 +107,7 @@ async def show_admin_dashboard(target, is_message: bool):
             [InlineKeyboardButton("🏯 Qalalar va Mintaqalar (Castles)", callback_data="admin_castles_list:0")],
             [InlineKeyboardButton("🏆 Egallangan Qal'alar (O'yinchilar bo'yicha)", callback_data="admin_player_castles:0")],
             [InlineKeyboardButton("⚔️ Harbiy Holat & Urush Boshqaruvi", callback_data="admin_war_control")],
+            [InlineKeyboardButton("🏇 Ritsarlar Turniri Boshqaruvi", callback_data="admin_tourney_menu")],
             [InlineKeyboardButton("🐉 Barcha Ajdarlar (Dragon Manager)", callback_data="admin_dragons_list:0")],
             [InlineKeyboardButton("❄️ Global Hodisalar & Tun Qiroli", callback_data="admin_events_menu")],
             [InlineKeyboardButton("🎁 Barchaga Ommaviy Sovg'a (+2000🪙)", callback_data="admin_mass_gift")],
@@ -1366,11 +1367,68 @@ async def admin_reset_all_limits_callback(update: Update, context: ContextTypes.
             u.daily_quiz_count = 0
             u.daily_council_count = 0
             u.daily_secret_quest_count = 0
+            u.daily_caravan_send_count = 0
+            u.daily_caravan_raid_count = 0
+            u.daily_bandit_count = 0
+            u.daily_duel_count = 0
+            u.daily_recruit_count = 0
         await session.commit()
         cnt = len(all_users)
 
     await query.answer(f"✅ Barcha {cnt} nafar o'yinchining kunlik limitlari yangilandi!", show_alert=True)
     await show_admin_dashboard(query, is_message=False)
+
+
+async def admin_tourney_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin paneldan Ritsarlar Turniri boshqaruvi"""
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+
+    async with AsyncSessionLocal() as session:
+        tourney = await crud.get_active_tournament(session)
+        if tourney:
+            p_count = len(tourney.participants or [])
+            b_count = len(tourney.bets or [])
+            text = (
+                f"🏇🏆 **RITSARLAR TURNIRI BOSHQARUVI**\n\n"
+                f"📌 Holati: 🟢 **Faol (Janglar kutilmoqda)**\n"
+                f"🏷️ Nomi: **{tourney.name}**\n"
+                f"💰 Jamg'arma: **{tourney.prize_pool:,}** Oltin\n"
+                f"🤺 Ishtirokchilar: **{p_count}** ta ritsar\n"
+                f"🎰 Tikilgan stavkalar: **{b_count}** ta\n\n"
+                f"Siz turnirni istalgan payt yakunlashingiz, duellarni o'tkazib g'olib chempionni aniqlashingiz va stavka yutuqlarini tarqatishingiz mumkin."
+            )
+            buttons = [
+                [InlineKeyboardButton("🏁 Turnirni Yakunlash (Duellarni o'tkazish)", callback_data="admin_tourney_resolve")],
+                [InlineKeyboardButton("🏇 Turnir Maydoniga O'tish", callback_data="menu_tourney")],
+                [InlineKeyboardButton("🔙 Admin Panel", callback_data="admin_panel")],
+            ]
+        else:
+            last_res = await session.execute(
+                select(models.Tournament)
+                .where(models.Tournament.status == "completed")
+                .order_by(desc(models.Tournament.id))
+                .limit(1)
+            )
+            last_t = last_res.scalar_one_or_none()
+            last_info = "Hali birorta turnir o'tkazilmagan."
+            if last_t:
+                last_info = f"'{last_t.name}' (G'olib: {last_t.winner_name or 'Noma\'lum'}, Jamg'arma: {last_t.prize_pool:,}💰)"
+
+            text = (
+                f"🏇🏆 **RITSARLAR TURNIRI BOSHQARUVI**\n\n"
+                f"📌 Holati: 🔴 **Hozirda faol turnir mavjud emas**\n"
+                f"📜 So'nggi turnir: {last_info}\n\n"
+                f"Yangi turnirni boshlash tugmasini bossangiz, turnir ochiladi va butun saltanat bo'ylab o'yinchilarga e'lon qilinadi!"
+            )
+            buttons = [
+                [InlineKeyboardButton("👑 Yangi Turnirni Boshlash (25,000💰 Jamg'arma)", callback_data="admin_tourney_start")],
+                [InlineKeyboardButton("🔙 Admin Panel", callback_data="admin_panel")],
+            ]
+
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
 
 
 async def admin_broadcast_info_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2839,6 +2897,7 @@ def register_admin_handlers(app):
     app.add_handler(CallbackQueryHandler(admin_event_action_callback, pattern="^adm_ev_act:"))
     app.add_handler(CallbackQueryHandler(admin_mass_gift_callback, pattern="^admin_mass_gift$"))
     app.add_handler(CallbackQueryHandler(admin_reset_all_limits_callback, pattern="^admin_reset_all_limits$"))
+    app.add_handler(CallbackQueryHandler(admin_tourney_menu_callback, pattern="^admin_tourney_menu$"))
     app.add_handler(CallbackQueryHandler(admin_broadcast_info_callback, pattern="^admin_broadcast_info$"))
     app.add_handler(CallbackQueryHandler(admin_wipe_ask_callback, pattern="^admin_wipe_ask$"))
     app.add_handler(CallbackQueryHandler(admin_wipe_confirm_callback, pattern="^admin_wipe_confirm$"))

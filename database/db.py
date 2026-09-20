@@ -97,6 +97,8 @@ async def init_db():
                 "ALTER TABLE armies ADD COLUMN champion VARCHAR(50)",
                 "ALTER TABLE battle_marches ADD COLUMN champion VARCHAR(50)",
                 "ALTER TABLE territories ADD COLUMN gates_compromised_until DATETIME",
+                "ALTER TABLE users ADD COLUMN daily_caravan_send_count INTEGER DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN daily_caravan_raid_count INTEGER DEFAULT 0",
             ]:
                 try:
                     await conn.execute(text(alter_stmt))
@@ -107,6 +109,8 @@ async def init_db():
             for pg_alter in [
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_duel_count INTEGER DEFAULT 0",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_recruit_count INTEGER DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_caravan_send_count INTEGER DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_caravan_raid_count INTEGER DEFAULT 0",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS iron_mine_level INTEGER DEFAULT 1",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS grain_mill_level INTEGER DEFAULT 1",
                 "ALTER TABLE territories ADD COLUMN IF NOT EXISTS castle_level INTEGER DEFAULT 1",

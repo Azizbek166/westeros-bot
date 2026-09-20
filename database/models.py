@@ -53,6 +53,8 @@ class User(Base):
     daily_plague_count = Column(Integer, default=0)        # Kunlik vabo chorasi (max 2)
     daily_duel_count = Column(Integer, default=0)          # Kunlik duel jangi (max 10)
     daily_recruit_count = Column(Integer, default=0)       # Kunlik yollangan askarlar soni
+    daily_caravan_send_count = Column(Integer, default=0)  # Kunlik karvon jo'natish (max 2)
+    daily_caravan_raid_count = Column(Integer, default=0)  # Kunlik karvonga pistirma/raid (max 2)
     equipped_artifact_id = Column(Integer, nullable=True)
     iron_mine_level = Column(Integer, default=1)           # Temir koni darajasi (1-10)
     grain_mill_level = Column(Integer, default=1)          # Don tegirmoni darajasi (1-10)

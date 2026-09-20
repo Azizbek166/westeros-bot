@@ -25,6 +25,8 @@ async def caravan_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
                 await update.effective_message.reply_text(msg)
             return
 
+        await crud.check_and_reset_daily_limits(session, user)
+
         my_caravans = await crud.get_active_trade_caravans(session, user_id=user.id)
         my_status = ""
         if my_caravans:
@@ -37,14 +39,20 @@ async def caravan_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
                 d_name = c.destination_territory.name if c.destination_territory else "Savdo shahri"
                 my_status += f"• #{c.id} 📦 {c.resource_amount:,} {c.resource_type.capitalize()} ➔ {d_name} (⏳ {rem_min}d {rem_s}s qoldi)\n"
 
+        send_cnt = getattr(user, "daily_caravan_send_count", 0)
+        raid_cnt = getattr(user, "daily_caravan_raid_count", 0)
+
         text = (
             "🐪💰 **WESTEROS SAVDO KARVONLARI VA PISTIRMALAR**\n\n"
             "Savdogarlar boylik orttirish uchun shahar va qal'alararo ulkan karvonlar yuboradilar. Ammo yo'llar xavfli — qaroqchilar va dushman xonadonlar har qadamda pistirmada kutib turadi!\n\n"
             f"🌾 Oziq-ovqat: **{user.food:,}** | ⛏️ Temir: **{user.iron:,}** | 💰 Oltin: **{user.gold:,}**\n\n"
+            f"📊 **Bugungi limitlaringiz:**\n"
+            f"• 🐪 Karvon jo'natish: **{send_cnt}/2** ta\n"
+            f"• ⚔️ Pistirma / Qaroqchilik: **{raid_cnt}/2** ta\n\n"
             "📜 **Karvon tizimi imkoniyatlari:**\n"
-            "• 5,000 resurs ➔ **+2,500** Oltin (3 daqiqa)\n"
-            "• 10,000 resurs ➔ **+5,500** Oltin (3 daqiqa)\n"
-            "• 20,000 resurs ➔ **+12,000** Oltin (3 daqiqa)\n\n"
+            "• 5,000 resurs ➔ **+2,500** Oltin (30 daqiqa)\n"
+            "• 10,000 resurs ➔ **+5,500** Oltin (30 daqiqa)\n"
+            "• 20,000 resurs ➔ **+12,000** Oltin (30 daqiqa)\n\n"
             "⚔️ **Qaroqchilik (Raid):** Yo'ldagi dushman karvonlariga hujum qilib, ularning 70% yukini va 1,000 Oltin o'ljani tortib olishingiz mumkin!"
             f"{my_status}"
         )
@@ -205,12 +213,16 @@ async def caravan_routes_callback(update: Update, context: ContextTypes.DEFAULT_
         if not user:
             return
 
+        await crud.check_and_reset_daily_limits(session, user)
+        raid_cnt = getattr(user, "daily_caravan_raid_count", 0)
+
         caravans = await crud.get_active_trade_caravans(session)
         rival_caravans = [c for c in caravans if c.owner_user_id != user.id and c.owner_house_id != user.house_id]
 
         if not rival_caravans:
             text = (
                 "🛣️ **WESTEROS SAVDO YO'LLARI:**\n\n"
+                f"📊 Bugungi pistirma limitingiz: **{raid_cnt}/2** ta\n\n"
                 "Ayni paytda yo'llarda dushman savdo karvonlari ko'rinmayapti.\n"
                 "Savdogarlar qal'alarida yangi yuk ortmoqda. Birozdan so'ng yana tekshiring!"
             )
@@ -222,7 +234,7 @@ async def caravan_routes_callback(update: Update, context: ContextTypes.DEFAULT_
             return
 
         now = datetime.utcnow()
-        text = "🛣️⚔️ **YO'LDAGI RAQIB SAVDO KARVONLARI:**\n\n"
+        text = f"🛣️⚔️ **YO'LDAGI RAQIB SAVDO KARVONLARI:**\n📊 Bugungi pistirma limitingiz: **{raid_cnt}/2** ta\n\n"
         buttons = []
         for c in rival_caravans:
             rem_sec = max(0, int((c.arrival_time - now).total_seconds()))

@@ -2,9 +2,18 @@ import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 from database import AsyncSessionLocal, crud, models
-from config import ADMIN_IDS
+from config import ADMIN_IDS, OWNER_ID
+from sqlalchemy import select, desc
 
 logger = logging.getLogger(__name__)
+
+
+def is_admin(user_id: int) -> bool:
+    try:
+        uid = int(user_id)
+        return uid in [int(x) for x in ADMIN_IDS] or uid == int(OWNER_ID)
+    except Exception:
+        return False
 
 
 async def tourney_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -26,8 +35,28 @@ async def tourney_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
         tourney = await crud.get_active_tournament(session)
         if not tourney:
-            text = "🏇🏆 **RITSARLAR TURNIRI**\n\nHozirda faol turnir mavjud emas. Yangi turnir tez orada boshlanadi!"
-            kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")]])
+            # So'nggi yakunlangan turnir ma'lumotlarini olish
+            last_res = await session.execute(
+                select(models.Tournament)
+                .where(models.Tournament.status == "completed")
+                .order_by(desc(models.Tournament.id))
+                .limit(1)
+            )
+            last_t = last_res.scalar_one_or_none()
+            last_info = ""
+            if last_t and last_t.winner_name:
+                last_info = f"\n\n🎖️ **So'nggi Turnir Chempioni:** {last_t.winner_name}\n🏆 **Turnir:** {last_t.name} (Jamg'arma: {last_t.prize_pool:,}💰)"
+
+            text = (
+                "🏇🏆 **WESTEROS RITSARLAR ARENASI**\n\n"
+                "Ayni paytda arena tinch. Navbatdagi ritsarlar turniri Qirol / Admin tomonidan tez orada e'lon qilinadi!"
+                f"{last_info}"
+            )
+            buttons = []
+            if is_admin(tg_user.id):
+                buttons.append([InlineKeyboardButton("👑 Yangi Turnirni Boshlash (Admin)", callback_data="admin_tourney_start")])
+            buttons.append([InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")])
+            kb = InlineKeyboardMarkup(buttons)
             if query:
                 await query.edit_message_text(text, reply_markup=kb, parse_mode="Markdown")
             else:
@@ -64,8 +93,8 @@ async def tourney_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
         buttons.append([InlineKeyboardButton("🎰 Stavka tikish (1.8x)", callback_data="tourney_bet_pick")])
         buttons.append([InlineKeyboardButton("📜 Qoidalar va Shartlar", callback_data="tourney_rules")])
 
-        if tg_user.id in ADMIN_IDS:
-            buttons.append([InlineKeyboardButton("⚡ Turnirni Yakunlash (Admin)", callback_data="admin_tourney_resolve")])
+        if is_admin(tg_user.id):
+            buttons.append([InlineKeyboardButton("🏁 Turnirni Yakunlash (Admin)", callback_data="admin_tourney_resolve")])
 
         buttons.append([InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")])
 
@@ -87,7 +116,8 @@ async def tourney_enter_pick_callback(update: Update, context: ContextTypes.DEFA
         if not user:
             return
 
-        army = user.army
+        army_res = await session.execute(select(models.Army).where(models.Army.user_id == user.id))
+        army = army_res.scalar_one_or_none()
         has_champ = bool(army and army.champion)
 
         buttons = [
@@ -224,13 +254,35 @@ async def admin_tourney_resolve_callback(update: Update, context: ContextTypes.D
     await query.answer("Turnir hisoblanmoqda...")
 
     tg_user = update.effective_user
-    if tg_user.id not in ADMIN_IDS:
+    if not is_admin(tg_user.id):
+        await query.answer("❌ Faqat Administrator turnirni yakunlay oladi!", show_alert=True)
         return
 
     async with AsyncSessionLocal() as session:
         ok, report = await crud.resolve_tournament(session, bot_app=context.application)
-        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Turnir maydoni", callback_data="menu_tourney")]])
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("👑 Yangi Turnir Boshlash", callback_data="admin_tourney_start")],
+            [InlineKeyboardButton("🔙 Turnir maydoni", callback_data="menu_tourney")]
+        ])
         await query.edit_message_text(report, reply_markup=keyboard, parse_mode="Markdown")
+
+
+async def admin_tourney_start_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin tomonidan yangi turnirni boshlash"""
+    query = update.callback_query
+    await query.answer("Turnir e'lon qilinmoqda...")
+
+    tg_user = update.effective_user
+    if not is_admin(tg_user.id):
+        await query.answer("❌ Faqat Administrator turnir boshlay oladi!", show_alert=True)
+        return
+
+    async with AsyncSessionLocal() as session:
+        ok, res_msg = await crud.admin_start_tournament(session, bot_app=context.application)
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🏇 Turnir maydoniga o'tish", callback_data="menu_tourney")]
+        ])
+        await query.edit_message_text(res_msg, reply_markup=keyboard, parse_mode="Markdown")
 
 
 def register_tourney_handlers(app: Application):
@@ -244,3 +296,4 @@ def register_tourney_handlers(app: Application):
     app.add_handler(CallbackQueryHandler(tourney_bet_do_callback, pattern="^tourney_bet_do:\\d+:\\d+$"))
     app.add_handler(CallbackQueryHandler(tourney_rules_callback, pattern="^tourney_rules$"))
     app.add_handler(CallbackQueryHandler(admin_tourney_resolve_callback, pattern="^admin_tourney_resolve$"))
+    app.add_handler(CallbackQueryHandler(admin_tourney_start_callback, pattern="^admin_tourney_start$"))

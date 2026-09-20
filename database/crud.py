@@ -77,6 +77,8 @@ async def check_and_reset_daily_limits(session: AsyncSession, user: models.User)
         user.daily_bandit_count = 0
         user.daily_duel_count = 0
         user.daily_recruit_count = 0
+        user.daily_caravan_send_count = 0
+        user.daily_caravan_raid_count = 0
         user.daily_limit_date = today_str
         await session.commit()
 
@@ -4738,19 +4740,10 @@ async def resolve_tournament(session: AsyncSession, bot_app=None) -> Tuple[bool,
         f"{''.join(duel_chronicle)}\n\n"
         f"🎰 **YUTUQLI STAVKALAR TO'LOVI (1.8x):**\n"
         f"{payout_text}\n\n"
-        f"Keyingi haftalik turnir e'lon qilindi!"
+        f"🏁 Turnir yakunlandi! Barcha mukofotlar va stavkalar topshirildi.\n"
+        f"Navbatdagi ritsarlar turniri tez orada Qirol / Admin tomonidan e'lon qilinadi!"
     )
     tourney.details = full_report
-
-    # Yangi turnirni darhol ochish
-    next_tourney = models.Tournament(
-        name=f"Qirol Qo'li Turniri #{tourney.id + 1}",
-        status="active",
-        prize_pool=25000,
-        details="Yangi haftalik janglar boshlandi! Ritsarlaringizni maydonga tushiring yoki omadingizni sinab stavka tiking!",
-        created_at=datetime.utcnow(),
-    )
-    session.add(next_tourney)
     await session.commit()
 
     if bot_app:
@@ -4769,16 +4762,58 @@ async def resolve_tournament(session: AsyncSession, bot_app=None) -> Tuple[bool,
     return True, full_report
 
 
-async def check_and_resolve_weekly_tournament(session: AsyncSession, bot_app=None) -> None:
-    """Turnir vaqti tugaganini tekshirish (masalan har 7 kunda avtomatik yakunlash)"""
-    tourney = await get_active_tournament(session)
-    if not tourney:
-        return
+async def admin_start_tournament(
+    session: AsyncSession,
+    name: Optional[str] = None,
+    prize_pool: int = 25000,
+    bot_app=None,
+) -> Tuple[bool, str]:
+    """Admin tomonidan yangi ritsarlar turnirini e'lon qilish va boshlash"""
+    active = await get_active_tournament(session)
+    if active:
+        return False, f"❌ Ayni paytda allaqachon faol turnir mavjud: '{active.name}'! Avval uni yakunlash lozim."
 
-    now = datetime.utcnow()
-    created = tourney.created_at or now
-    if (now - created).days >= 7:
-        await resolve_tournament(session, bot_app=bot_app)
+    count_res = await session.execute(select(func.count(models.Tournament.id)))
+    total_tourneys = count_res.scalar() or 0
+    t_name = name or f"Qirol Qo'li Turniri #{total_tourneys + 1}"
+
+    new_tourney = models.Tournament(
+        name=t_name,
+        status="active",
+        prize_pool=prize_pool,
+        details="Yangi ritsarlar turniri boshlandi! Ritsarlaringizni maydonga tushiring yoki omadingizni sinab stavka tiking!",
+        created_at=datetime.utcnow(),
+    )
+    session.add(new_tourney)
+    await session.commit()
+
+    broadcast_msg = (
+        f"🏇🏆 **QIROLNING FARMONI: YANGI RITSARLAR TURNIRI BOSHLANDI!**\n\n"
+        f"Arena: **{t_name}**\n"
+        f"💰 Boshlang'ich Jamg'arma: **{prize_pool:,}** Oltin\n\n"
+        f"Vesterosning barcha dovyurak ritsarlari va jangchilari arena maydoniga chorlanadi! Shon-sharaf, nufuz va boylik uchun kurashing!\n\n"
+        f"👉 /tourney buyrug'i orqali arenaga kiring va o'z omadingizni sinang!"
+    )
+
+    if bot_app:
+        users_res = await session.execute(select(models.User.telegram_id))
+        all_ids = users_res.scalars().all()
+        for tg_id in all_ids:
+            try:
+                await bot_app.bot.send_message(
+                    chat_id=tg_id,
+                    text=broadcast_msg,
+                    parse_mode="Markdown",
+                )
+            except Exception:
+                pass
+
+    return True, f"✅ Yangi turnir muvaffaqiyatli boshlandi: **{t_name}** (Jamg'arma: {prize_pool:,}💰) va barcha o'yinchilarga e'lon qilindi!"
+
+
+async def check_and_resolve_weekly_tournament(session: AsyncSession, bot_app=None) -> None:
+    """Turnir vaqti tugashini tekshirish (Turnir boshlanishi va yakuni faqat admin tomonidan boshqariladi)"""
+    pass
 
 
 # ============================================================
@@ -4812,6 +4847,12 @@ async def dispatch_trade_caravan(
     if not user:
         return False, "❌ O'yinchi topilmadi."
 
+    await check_and_reset_daily_limits(session, user)
+
+    # Kunlik karvon jo'natish limiti (kuniga 2 ta)
+    if getattr(user, "daily_caravan_send_count", 0) >= 2:
+        return False, "❌ Kunlik karvon jo'natish limitingiz (2/2) tugagan! Ertaga yana karvon jo'natishingiz mumkin."
+
     # Resurs yetarliligini tekshirish
     user_res_val = getattr(user, resource_type, 0)
     if user_res_val < amount:
@@ -4841,10 +4882,11 @@ async def dispatch_trade_caravan(
 
     army.cavalry -= escort_cav
     army.infantry -= escort_inf
+    user.daily_caravan_send_count = getattr(user, "daily_caravan_send_count", 0) + 1
 
     now = datetime.utcnow()
-    # 3 daqiqa yo'l vaqti (180 soniya)
-    arrival = now + timedelta(minutes=3)
+    # 30 daqiqa yo'l vaqti (1800 soniya)
+    arrival = now + timedelta(minutes=30)
     reward_gold = valid_tiers[amount]
 
     caravan = models.TradeCaravan(
@@ -4869,7 +4911,8 @@ async def dispatch_trade_caravan(
         f"📦 Yuk: **{amount:,}** {resource_type.capitalize()}\n"
         f"🛡️ Soqchilar: **{escort_cav}** Otliq, **{escort_inf}** Piyoda\n"
         f"💰 Manzilga yetgach kutilayotgan foyda: **+{reward_gold:,}** Oltin\n"
-        f"⏱️ Yetib borish vaqti: **3 daqiqa**\n\n"
+        f"⏱️ Yetib borish vaqti: **30 daqiqa**\n"
+        f"📊 Bugungi karvonlaringiz: **{user.daily_caravan_send_count}/2** ta\n\n"
         f"⚠️ Eslatma: Karvoningiz yo'lda raqiblar tomonidan talanishi mumkin! Kuchli soqchilar xavfsizlik kafolatidir."
     )
 
@@ -4907,6 +4950,17 @@ async def raid_trade_caravan(
     """Karvonga qaroqchilik pistirmasi uyushtirish"""
     from core.battle_engine import calculate_caravan_raid
 
+    raider_res = await session.execute(select(models.User).where(models.User.id == user_id))
+    raider = raider_res.scalar_one_or_none()
+    if not raider:
+        return False, "❌ Qaroqchi o'yinchi topilmadi.", {}
+
+    await check_and_reset_daily_limits(session, raider)
+
+    # Kunlik qaroqchilik/pistirma limiti (kuniga 2 ta)
+    if getattr(raider, "daily_caravan_raid_count", 0) >= 2:
+        return False, "❌ Kunlik qaroqchilik/pistirma limitingiz (2/2) tugagan! Ertaga yana urinib ko'rishingiz mumkin.", {}
+
     if raid_inf < 10 and raid_cav < 10:
         return False, "❌ Pistirma uchun kamida 10 ta piyoda yoki 10 ta otliq kerak!", {}
 
@@ -4917,11 +4971,6 @@ async def raid_trade_caravan(
     if caravan.owner_user_id == user_id:
         return False, "❌ O'z karvoningizga qaroqchilik qila olmaysiz!", {}
 
-    raider_res = await session.execute(select(models.User).where(models.User.id == user_id))
-    raider = raider_res.scalar_one_or_none()
-    if not raider:
-        return False, "❌ Qaroqchi o'yinchi topilmadi.", {}
-
     if raider.house_id and raider.house_id == caravan.owner_house_id:
         return False, "❌ O'z xonadoningiz karvoniga hujum qila olmaysiz!", {}
 
@@ -4929,6 +4978,9 @@ async def raid_trade_caravan(
     army = army_res.scalar_one_or_none()
     if not army or army.infantry < raid_inf or army.cavalry < raid_cav:
         return False, "❌ Armiyangizda pistirma uchun yetarli askarlar yo'q!", {}
+
+    # Pistirma limitini oshirish
+    raider.daily_caravan_raid_count = getattr(raider, "daily_caravan_raid_count", 0) + 1
 
     # Jangni hisoblash
     raider_troops = {"infantry": raid_inf, "cavalry": raid_cav}
@@ -4971,7 +5023,8 @@ async def raid_trade_caravan(
             f"📦 O'lja: **+{stolen_res:,}** {caravan.resource_type.capitalize()}\n"
             f"💰 O'lja Oltin: **+{bounty_gold:,}** Oltin\n"
             f"🎖️ Nufuz: **+20** ball\n"
-            f"📉 Yo'qotishlaringiz: -{battle_res['raider_losses']['infantry']} Piyoda, -{battle_res['raider_losses']['cavalry']} Otliq."
+            f"📉 Yo'qotishlaringiz: -{battle_res['raider_losses']['infantry']} Piyoda, -{battle_res['raider_losses']['cavalry']} Otliq.\n"
+            f"📊 Bugungi pistirma limitingiz: **{raider.daily_caravan_raid_count}/2** ta"
         )
 
         if bot_app and owner and owner.telegram_id:
@@ -4992,7 +5045,8 @@ async def raid_trade_caravan(
         msg = (
             f"🛡️❌ **PISTIRMA MUVAFFAQIYATSIZ TUGADI!**\n\n"
             f"Karvon soqchilari mohirona mudofaa tashkil qilib, hujumingizni qaytardi!\n\n"
-            f"📉 Yo'qotishlaringiz: -{battle_res['raider_losses']['infantry']} Piyoda, -{battle_res['raider_losses']['cavalry']} Otliq."
+            f"📉 Yo'qotishlaringiz: -{battle_res['raider_losses']['infantry']} Piyoda, -{battle_res['raider_losses']['cavalry']} Otliq.\n"
+            f"📊 Bugungi pistirma limitingiz: **{raider.daily_caravan_raid_count}/2** ta"
         )
 
     await session.commit()
