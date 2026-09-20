@@ -185,7 +185,7 @@ async def spy_terr_detail_callback(update: Update, context: ContextTypes.DEFAULT
         if terr.owner_house_id:
             h = await session.get(models.House, terr.owner_house_id)
             if h:
-                h_name = f"{h.sigil or '🛡️'} {h.name}"
+                h_name = f"{getattr(h, 'emoji', '🛡️')} {h.name}"
 
         text = (
             f"🏰 **QAL'A: {terr.name}** ({terr.castle_name})\n"
@@ -279,9 +279,9 @@ async def spy_history_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
 def register_espionage_handlers(app: Application):
     """Josuslik handlerlarini ro'yxatdan o'tkazish"""
-    app.add_handler(CommandHandler(["spy", "espionage"], spy_menu_callback))
+    app.add_handler(CommandHandler(["spy", "espionage", "josuslik", "josus"], spy_menu_callback))
     app.add_handler(CallbackQueryHandler(spy_menu_callback, pattern="^menu_espionage$"))
-    app.add_handler(CallbackQueryHandler(spy_pick_terr_callback, pattern="^spy_pick_(terr|page:\\d+)$"))
+    app.add_handler(CallbackQueryHandler(spy_pick_terr_callback, pattern="^spy_pick_"))
     app.add_handler(CallbackQueryHandler(spy_terr_detail_callback, pattern="^spy_terr:\\d+$"))
     app.add_handler(CallbackQueryHandler(spy_execute_callback, pattern="^spy_do:(scout|sabotage|open_gates):\\d+$"))
     app.add_handler(CallbackQueryHandler(spy_history_callback, pattern="^spy_history$"))

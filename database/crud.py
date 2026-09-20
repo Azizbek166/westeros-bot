@@ -4330,7 +4330,7 @@ async def send_spy_mission(
     elif territory.owner_house_id:
         h_obj = await session.get(models.House, territory.owner_house_id)
         if h_obj and h_obj.lord_user_id:
-            defender_lord = await session.get(models.User, h_obj.lord_user_id)
+            defender_lord = await get_user_by_telegram_id(session, h_obj.lord_user_id)
 
     if not is_success:
         # Josus fosh bo'ldi va qatl etildi
