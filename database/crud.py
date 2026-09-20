@@ -4619,23 +4619,9 @@ async def get_active_tournament(session: AsyncSession) -> Optional[models.Tourna
     return res.scalar_one_or_none()
 
 
-async def get_or_create_active_tournament(session: AsyncSession) -> models.Tournament:
-    """Faol turnirni olish, agar yo'q bo'lsa avtomatik yangi turnir ochish"""
-    tourney = await get_active_tournament(session)
-    if not tourney:
-        count_res = await session.execute(select(func.count(models.Tournament.id)))
-        total = count_res.scalar() or 0
-        tourney = models.Tournament(
-            name=f"Qirol Qo'li Turniri #{total + 1}",
-            status="active",
-            prize_pool=25000,
-            details="Qirollikning eng qudratli ritsarlari jangi! G'olibga 70% xazina va 'Qirollik Chempioni' sharafli unvoni beriladi.",
-            created_at=datetime.utcnow(),
-        )
-        session.add(tourney)
-        await session.commit()
-        tourney = await get_active_tournament(session)
-    return tourney
+async def get_or_create_active_tournament(session: AsyncSession) -> Optional[models.Tournament]:
+    """Faol turnirni olish"""
+    return await get_active_tournament(session)
 
 
 async def enter_tournament(
@@ -4644,9 +4630,9 @@ async def enter_tournament(
     use_champion: bool = False,
 ) -> Tuple[bool, str]:
     """Turnirga qatnashish (Kirish to'lovi: 2,000 Oltin)"""
-    tourney = await get_or_create_active_tournament(session)
+    tourney = await get_active_tournament(session)
     if not tourney:
-        return False, "❌ Ayni paytda faol ritsarlar turniri mavjud emas."
+        return False, "❌ Ayni paytda faol ritsarlar turniri mavjud emas. Yangi turnir e'lon qilinishini kuting!"
 
     user_res = await session.execute(select(models.User).where(models.User.id == user_id))
     user = user_res.scalar_one_or_none()
@@ -4720,7 +4706,7 @@ async def place_tournament_bet(
     if bet_gold < 500 or bet_gold > 5000:
         return False, "❌ Stavka miqdori 500 dan 5,000 Oltin oralig'ida bo'lishi kerak."
 
-    tourney = await get_or_create_active_tournament(session)
+    tourney = await get_active_tournament(session)
     if not tourney:
         return False, "❌ Faol turnir topilmadi."
 
@@ -4808,10 +4794,13 @@ async def resolve_tournament(session: AsyncSession, bot_app=None) -> Tuple[bool,
     ]
 
     round_num = 1
+    runner_up = None
     while len(current_round_fighters) > 1:
         next_round_fighters = []
         random.shuffle(current_round_fighters)
-        duel_chronicle.append(f"\n🏆 **{round_num}-BOSQICH JANGILARI:**")
+        is_final = (len(current_round_fighters) == 2)
+        stage_title = "FINAL JANGI" if is_final else f"{round_num}-BOSQICH JANGILARI"
+        duel_chronicle.append(f"\n🏆 **{stage_title}:**")
 
         for i in range(0, len(current_round_fighters), 2):
             if i + 1 < len(current_round_fighters):
@@ -4820,6 +4809,8 @@ async def resolve_tournament(session: AsyncSession, bot_app=None) -> Tuple[bool,
                 duel_res = resolve_tourney_duel(f1, f2)
                 winner = duel_res["winner"]
                 loser = duel_res["loser"]
+                if is_final:
+                    runner_up = loser
                 duel_chronicle.append(
                     f"⚔️ **{f1['name']}** VS **{f2['name']}**\n"
                     f"{duel_res['log']}\n"
@@ -4843,12 +4834,20 @@ async def resolve_tournament(session: AsyncSession, bot_app=None) -> Tuple[bool,
     tourney.winner_user_id = champion["user_id"]
     tourney.winner_name = champion["name"]
 
-    # Chempion o'yinchiga mukofot
+    # 1-O'rin: Chempion o'yinchiga mukofot
     champ_user = await session.get(models.User, champion["user_id"])
     if champ_user:
-        champ_user.gold += first_prize
-        champ_user.prestige += 100
+        champ_user.gold = (champ_user.gold or 0) + first_prize
+        champ_user.prestige = (champ_user.prestige or 0) + 100
         champ_user.title = "Qirollik Chempioni"
+
+    # 2-O'rin: Finalist (runner-up) o'yinchiga mukofot
+    runner_up_name = runner_up["name"] if runner_up else "Noma'lum"
+    if runner_up:
+        runner_user = await session.get(models.User, runner_up["user_id"])
+        if runner_user and runner_user.id != champion["user_id"]:
+            runner_user.gold = (runner_user.gold or 0) + second_prize
+            runner_user.prestige = (runner_user.prestige or 0) + 50
 
     # Stavkalarni to'lash
     bets_res = await session.execute(
@@ -4872,28 +4871,18 @@ async def resolve_tournament(session: AsyncSession, bot_app=None) -> Tuple[bool,
 
     full_report = (
         f"👑🏆 **QIROL QO'LI RITSARLAR TURNIRI YAKUNLANDI!**\n\n"
-        f"🥇 **QIROLLIK CHEMPIONI:** {champion['name']}\n"
-        f"💰 1-O'rin mukofoti: **+{first_prize:,}** Oltin va **+100** Nufuz!\n"
+        f"🥇 **QIROLLIK CHEMPIONI (1-O'rin):** {champion['name']}\n"
+        f"💰 Mukofot: **+{first_prize:,}** Oltin va **+100** Nufuz!\n"
         f"👑 Sharafli unvon: **Qirollik Chempioni**\n\n"
+        f"🥈 **FINALIST (2-O'rin):** {runner_up_name}\n"
+        f"💰 Mukofot: **+{second_prize:,}** Oltin va **+50** Nufuz!\n\n"
         f"{''.join(duel_chronicle)}\n\n"
         f"🎰 **YUTUQLI STAVKALAR TO'LOVI (1.8x):**\n"
         f"{payout_text}\n\n"
-        f"🏁 Turnir yakunlandi! Barcha mukofotlar va stavkalar topshirildi.\n"
-        f"Yangi navbatdagi ritsarlar turniri ochildi — buyruq /tourney orqali kirishingiz mumkin!"
+        f"🏁 Turnir muvaffaqiyatli yakunlandi! Barcha mukofotlar va stavkalar topshirildi.\n"
+        f"Yangi ritsarlar turniri Admin / Qirol tomonidan e'lon qilinadi!"
     )
     tourney.details = full_report
-
-    # Navbatdagi faol turnirni darhol ochish
-    count_res = await session.execute(select(func.count(models.Tournament.id)))
-    total_tourneys = count_res.scalar() or 0
-    next_tourney = models.Tournament(
-        name=f"Qirol Qo'li Turniri #{total_tourneys + 1}",
-        status="active",
-        prize_pool=25000,
-        details="Yangi ritsarlar turniri boshlandi! Ritsarlaringizni maydonga tushiring yoki omadingizni sinab stavka tiking!",
-        created_at=datetime.utcnow(),
-    )
-    session.add(next_tourney)
     await session.commit()
 
     if bot_app:

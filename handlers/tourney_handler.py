@@ -58,7 +58,48 @@ async def tourney_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
             await _safe_edit_or_reply(query, update, msg)
             return
 
-        tourney = await crud.get_or_create_active_tournament(session)
+        tourney = await crud.get_active_tournament(session)
+
+        # Agar faol turnir bo'lmasa, arena sukunati va so'nggi g'olibni ko'rsatish
+        if not tourney:
+            last_info = ""
+            try:
+                last_res = await session.execute(
+                    select(models.Tournament)
+                    .where(models.Tournament.status == "completed")
+                    .order_by(desc(models.Tournament.id))
+                    .limit(1)
+                )
+                last_t = last_res.scalar_one_or_none()
+                if last_t and last_t.winner_name:
+                    last_info = (
+                        f"📜 **So'nggi Turnir:** {escape_md(str(last_t.name))}\n"
+                        f"🥇 **Qirollik Chempioni:** {escape_md(str(last_t.winner_name))}\n"
+                        f"💰 **Jamg'arma bo'lgan:** {last_t.prize_pool:,} Oltin\n\n"
+                    )
+            except Exception:
+                pass
+
+            text = (
+                "🏇🏆 **QIROL QO'LI RITSARLAR TURNIRI**\n\n"
+                "🕊️ *Hozirda arena sukunatda. Navbatdagi ritsarlar turniri Qirol yoki Bosh Administrator tomonidan e'lon qilinishi kutilmoqda!*\n\n"
+                f"{last_info}"
+                f"👤 Sizning boyligingiz: **{user.gold:,}** Oltin\n\n"
+                "Yangi turnir e'lon qilinganida barcha lordlarga qarg'a xabari yuboriladi. Ungacha armiyangiz va sarkardangizni tayyorlab turing!"
+            )
+
+            buttons = [
+                [InlineKeyboardButton("📜 Turnir Qoidalari", callback_data="tourney_rules")],
+            ]
+            if is_admin(tg_user.id):
+                buttons.append([
+                    InlineKeyboardButton("👑 Yangi Turnirni E'lon Qilish (Admin)", callback_data="admin_tourney_start")
+                ])
+            buttons.append([InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")])
+
+            keyboard = InlineKeyboardMarkup(buttons)
+            await _safe_edit_or_reply(query, update, text, reply_markup=keyboard)
+            return
 
         # So'nggi yakunlangan turnir ma'lumotlarini olish (agar mavjud bo'lsa)
         last_info = ""
@@ -88,6 +129,23 @@ async def tourney_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
         user_is_entered = any(p.user_id == user.id for p in parts)
         status_label = "✅ Siz qatnashyapsiz" if user_is_entered else "❌ Qatnashmadingiz"
 
+        # Foydalanuvchining ushbu turnirdagi faol stavkalari
+        user_bet_res = await session.execute(
+            select(models.TournamentBet).where(
+                models.TournamentBet.tournament_id == tourney.id,
+                models.TournamentBet.user_id == user.id,
+            )
+        )
+        user_bets = user_bet_res.scalars().all()
+        bet_info = ""
+        if user_bets:
+            bet_lines = []
+            for b in user_bets:
+                part_match = next((p for p in parts if p.id == b.participant_id), None)
+                f_name = part_match.fighter_name if part_match else "Jangchi"
+                bet_lines.append(f"• **{escape_md(str(f_name))}** ga **{b.bet_gold:,}💰** (Kutilayotgan yutuq: **{int(b.bet_gold * 1.8):,}💰**)")
+            bet_info = "\n🎰 **Sizning faol stavkalaringiz:**\n" + "\n".join(bet_lines) + "\n"
+
         text = (
             f"🏇🏆 **{escape_md(str(tourney.name))}**\n\n"
             f"Qirollikning eng dovyurak ritsarlari nayza va qilich jangi uchun arena maydoniga yig'ilmoqda!\n\n"
@@ -98,6 +156,7 @@ async def tourney_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
             f"👤 Sizning holatingiz: **{status_label}**\n"
             f"💰 Oltiningiz: **{user.gold:,}** Oltin"
             f"{last_info}"
+            f"{bet_info}"
             f"{parts_list}"
         )
 
@@ -109,8 +168,7 @@ async def tourney_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
         if is_admin(tg_user.id):
             buttons.append([
-                InlineKeyboardButton("🏁 Turnirni Yakunlash (Admin)", callback_data="admin_tourney_resolve"),
-                InlineKeyboardButton("👑 Yangi Turnir (Admin)", callback_data="admin_tourney_start")
+                InlineKeyboardButton("🏁 Turnirni Yakunlash / Duellar (Admin)", callback_data="admin_tourney_resolve"),
             ])
 
         buttons.append([InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")])
@@ -130,6 +188,15 @@ async def tourney_enter_pick_callback(update: Update, context: ContextTypes.DEFA
 
     tg_user = update.effective_user
     async with AsyncSessionLocal() as session:
+        tourney = await crud.get_active_tournament(session)
+        if not tourney:
+            await _safe_edit_or_reply(
+                query, update,
+                "❌ Hozirda faol ritsarlar turniri mavjud emas.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Turnir maydoni", callback_data="menu_tourney")]])
+            )
+            return
+
         user = await crud.get_user_by_telegram_id(session, tg_user.id)
         if not user:
             return
@@ -188,8 +255,15 @@ async def tourney_bet_pick_callback(update: Update, context: ContextTypes.DEFAUL
             pass
 
     async with AsyncSessionLocal() as session:
-        tourney = await crud.get_or_create_active_tournament(session)
-        if not tourney or not tourney.participants:
+        tourney = await crud.get_active_tournament(session)
+        if not tourney:
+            await _safe_edit_or_reply(
+                query, update,
+                "❌ Hozirda faol ritsarlar turniri mavjud emas.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Turnir maydoni", callback_data="menu_tourney")]])
+            )
+            return
+        if not tourney.participants:
             await _safe_edit_or_reply(
                 query, update,
                 "❌ Hozircha turnirda ishtirokchi jangchilar yo'q. Avval jangchilar maydonga tushishi kerak.",

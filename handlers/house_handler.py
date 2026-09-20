@@ -511,9 +511,40 @@ async def house_donate_menu_callback(update: Update, context: ContextTypes.DEFAU
                 InlineKeyboardButton("⛓️ 10k", callback_data="hdonate:iron:10000"),
             ],
             [InlineKeyboardButton("✨ Katta Karvon (1k🪙 + 2k🌾 + 1k⛓️)", callback_data="hdonate:combo:1")],
+            [
+                InlineKeyboardButton("✍️ 🪙 Oltin (Qo'lda)", callback_data="h_custom_donate:gold"),
+                InlineKeyboardButton("✍️ 🌾 Oziq (Qo'lda)", callback_data="h_custom_donate:food"),
+                InlineKeyboardButton("✍️ ⛓️ Temir (Qo'lda)", callback_data="h_custom_donate:iron"),
+            ],
             [InlineKeyboardButton("🔙 Xonadonga Qaytish", callback_data="menu_house")],
         ]
         await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def house_custom_donate_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Xonadon g'aznasiga qo'lda kiritilgan miqdorda ehson qilish so'rovi"""
+    query = update.callback_query
+    await query.answer()
+    res_type = query.data.split(":")[1]
+    context.user_data["awaiting_house_donate_input"] = {"res_type": res_type}
+
+    res_names = {
+        "gold": "🪙 Oltin",
+        "food": "🌾 Oziq-ovqat",
+        "iron": "⛓️ Temir",
+    }
+    r_name = res_names.get(res_type, res_type)
+
+    buttons = [
+        [InlineKeyboardButton("🔙 Bekor Qilish", callback_data="house_donate_menu")],
+    ]
+    text = (
+        f"✍️ **XONADON G'AZNASIGA EHSON: {r_name.upper()}**\n\n"
+        f"G'aznaga qancha **{r_name}** ehson qilmoqchisiz?\n"
+        f"Iltimos, miqdorni xabar sifatida yozib yuboring:\n\n"
+        f"*(Masalan: `5000`, `25000` yoki borini ehson qilish uchun `all` deb yozing)*"
+    )
+    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
 
 
 async def house_donate_action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -920,6 +951,7 @@ def register_house_handlers(app):
     app.add_handler(CallbackQueryHandler(troop_donation_menu_callback, pattern="^troop_donation_menu$"))
     app.add_handler(CallbackQueryHandler(troop_donation_action_callback, pattern="^donate_troop:"))
     app.add_handler(CallbackQueryHandler(house_donate_menu_callback, pattern="^house_donate_menu$"))
+    app.add_handler(CallbackQueryHandler(house_custom_donate_callback, pattern="^h_custom_donate:"))
     app.add_handler(CallbackQueryHandler(house_donate_action_callback, pattern="^hdonate:"))
     app.add_handler(CallbackQueryHandler(house_top_donors_callback, pattern="^house_top_donors$"))
     app.add_handler(CallbackQueryHandler(house_treasury_manage_callback, pattern="^house_treasury_manage$"))

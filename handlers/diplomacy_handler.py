@@ -335,17 +335,31 @@ async def reinforce_pick_callback(update: Update, context: ContextTypes.DEFAULT_
         )
         castles = allied_castles_res.scalars().all()
 
-        buttons = []
-        for c in castles:
-            buttons.append([InlineKeyboardButton(f"🛡️ {c.name} ({c.castle_name})", callback_data=f"diplo_send_rf:{c.id}")])
+        if not allied_house_ids:
+            text = (
+                "🛡️ **QAL'AGA QO'SHIN YORDAMI (REINFORCEMENTS)**\n\n"
+                "❌ Sizning xonadoningiz hozirda hech qaysi xonadon bilan faol ittifoqqa ega emas.\n"
+                "Ittifoqchilar qal'asini himoya qilish uchun avval boshqa xonadon bilan ittifoq shartnomasini imzolang!"
+            )
+            buttons = [[InlineKeyboardButton("🔙 Diplomatiyaga Qaytish", callback_data="menu_diplomacy")]]
+        elif not castles:
+            text = (
+                "🛡️ **QAL'AGA QO'SHIN YORDAMI (REINFORCEMENTS)**\n\n"
+                "❌ Hozirda rasmiy ittifoqchilaringizga qarashli qal'alar mavjud emas.\n"
+                "Ittifoqchilaringiz xaritadagi qal'alarni egallaganlarida, ularga ushbu bo'lim orqali harbiy yordam yubora olasiz."
+            )
+            buttons = [[InlineKeyboardButton("🔙 Diplomatiyaga Qaytish", callback_data="menu_diplomacy")]]
+        else:
+            buttons = []
+            for c in castles:
+                buttons.append([InlineKeyboardButton(f"🛡️ {c.name} ({c.castle_name})", callback_data=f"def_rf_menu:{c.id}")])
+            buttons.append([InlineKeyboardButton("🔙 Diplomatiyaga Qaytish", callback_data="menu_diplomacy")])
 
-        buttons.append([InlineKeyboardButton("🔙 Diplomatiyaga Qaytish", callback_data="menu_diplomacy")])
-
-        text = (
-            f"🛡️ **QAL'AGA QO'SHIN YORDAMI (REINFORCEMENTS)**\n\n"
-            f"Ittifoqchilaringizni dushman qamalidan himoya qilish uchun ularning qal'asiga garnizon qo'shinlarini yuborishingiz mumkin.\n"
-            f"Himoyalash uchun qal'ani tanlang:"
-        )
+            text = (
+                f"🛡️ **QAL'AGA QO'SHIN YORDAMI (REINFORCEMENTS)**\n\n"
+                f"Ittifoqchilaringizni dushman qamalidan himoya qilish uchun ularning qal'asiga garnizon qo'shinlarini yuborishingiz mumkin.\n"
+                f"Himoyalash uchun qal'ani tanlang:"
+            )
         try:
             await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
         except Exception:
@@ -353,30 +367,13 @@ async def reinforce_pick_callback(update: Update, context: ContextTypes.DEFAULT_
 
 
 async def send_rf_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Qal'aga harbiy yordamni tasdiqlash va jo'natish"""
+    """Qal'aga harbiy yordam menyusiga yo'naltirish"""
     query = update.callback_query
-    await query.answer()
-
     castle_id = int(query.data.split(":")[1])
-    user_id = query.from_user.id
-
-    # Yuboriladigan qo'shin miqdori (yengil standart otryad: 20 piyoda, 10 kamonchi, 5 otliq, 5 nayzachi)
-    async with AsyncSessionLocal() as session:
-        success, msg = await crud.send_castle_reinforcements(
-            session=session,
-            user_id=user_id,
-            target_territory_id=castle_id,
-            infantry=20,
-            archers=10,
-            cavalry=5,
-            spearmen=5,
-        )
-
-    try:
-        await query.answer(msg, show_alert=True)
-    except Exception:
-        pass
-    await show_diplomacy_hub(query, user_id, is_message=False)
+    # To'g'ridan-to'g'ri umumiy garnizon menyusiga o'tish
+    query.data = f"def_rf_menu:{castle_id}"
+    from handlers.battle_handler import def_rf_menu_callback
+    await def_rf_menu_callback(update, context)
 
 
 async def diplo_break_prompt_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
