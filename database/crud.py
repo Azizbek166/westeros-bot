@@ -3937,18 +3937,24 @@ LOAN_INTEREST_RATE = 0.10    # 10% kredit foizi
 LOAN_DAYS = 5                # 5 kunlik muddat
 
 
-async def get_or_create_iron_bank(session: AsyncSession, user_id: int) -> models.IronBank:
-    """Foydalanuvchining Temir Bank hisobini olish yoki yaratish"""
-    res = await session.execute(select(models.IronBank).where(models.IronBank.user_id == user_id))
+async def get_or_create_iron_bank(session: AsyncSession, user_id: int) -> Optional[models.IronBank]:
+    """Foydalanuvchining Temir Bank hisobini olish yoki yaratish (har doim to'g'ri user.id ga bog'lanadi)"""
+    user = await get_user_any(session, user_id)
+    if not user:
+        return None
+
+    res = await session.execute(select(models.IronBank).where(models.IronBank.user_id == user.id))
     bank = res.scalar_one_or_none()
     if not bank:
+        now = datetime.utcnow()
         bank = models.IronBank(
-            user_id=user_id,
+            user_id=user.id,
             deposit_gold=0,
-            deposit_updated_at=datetime.utcnow(),
-            last_interest_claimed_at=datetime.utcnow(),
+            deposit_updated_at=now,
+            last_interest_claimed_at=now,
             loan_gold=0,
             is_defaulted=False,
+            created_at=now,
         )
         session.add(bank)
         await session.commit()
@@ -3958,64 +3964,109 @@ async def get_or_create_iron_bank(session: AsyncSession, user_id: int) -> models
 async def deposit_to_iron_bank(session: AsyncSession, user_id: int, amount: int) -> Tuple[bool, str]:
     """Temir bankka omonat qo'yish"""
     if amount <= 0:
-        return False, "Noto'g'ri summa."
+        return False, "❌ Omonat miqdori 0 dan katta bo'lishi kerak."
 
     user = await get_user_any(session, user_id)
     if not user:
-        return False, "Foydalanuvchi topilmadi."
+        return False, "❌ Foydalanuvchi topilmadi."
 
     if user.gold < amount:
         return False, f"❌ Sizda yetarli oltin yo'q (mavjud: {user.gold:,}🪙)."
 
     bank = await get_or_create_iron_bank(session, user.id)
+    if not bank:
+        return False, "❌ Bank hisobi topilmadi."
+
     if bank.is_defaulted:
         return False, "❌ Sizning qarz muddati o'tib ketgan! Avval qarzni to'lang."
 
-    if (bank.deposit_gold or 0) + amount > MAX_BANK_DEPOSIT:
-        rem_allow = max(0, MAX_BANK_DEPOSIT - (bank.deposit_gold or 0))
+    curr_dep = bank.deposit_gold or 0
+    if curr_dep + amount > MAX_BANK_DEPOSIT:
+        rem_allow = max(0, MAX_BANK_DEPOSIT - curr_dep)
         return False, f"❌ Maksimal omonat limiti: {MAX_BANK_DEPOSIT:,}🪙. Siz yana eng ko'pi bilan {rem_allow:,}🪙 qo'ya olasiz."
 
+    now = datetime.utcnow()
+    # Agar avvalgi omonatdan foiz yig'ilgan bo'lsa, yangi mablag' qo'shilishidan oldin uni foydalanuvchiga to'laymiz
+    accrued_note = ""
+    if curr_dep > 0:
+        last_claim = bank.last_interest_claimed_at or bank.deposit_updated_at or now
+        elapsed_sec = max(0, (now - last_claim).total_seconds())
+        hours_elapsed = int(elapsed_sec // 3600)
+        if hours_elapsed >= 1:
+            accrued = int(curr_dep * (DAILY_INTEREST_RATE / 24.0) * hours_elapsed)
+            if accrued > 0:
+                user.gold = (user.gold or 0) + accrued
+                accrued_note = f"\n🪙 Avvalgi depozitingizdan to'plangan **+{accrued:,}🪙** foiz hamyoningizga o'tkazildi!"
+
     user.gold -= amount
-    bank.deposit_gold = (bank.deposit_gold or 0) + amount
-    bank.deposit_updated_at = datetime.utcnow()
+    bank.deposit_gold = curr_dep + amount
+    bank.deposit_updated_at = now
+    bank.last_interest_claimed_at = now
     await session.commit()
 
+    daily_yield = int(bank.deposit_gold * DAILY_INTEREST_RATE)
     return True, (
         f"🏦 **OMONAT QABUL QILINDI!**\n\n"
-        f"Braavos Temir Bankiga **+{amount:,}🪙 Oltin** topshirdingiz.\n"
-        f"Jami depozitingiz: **{bank.deposit_gold:,}🪙**\n"
-        f"Kunlik daromad: **+{int(bank.deposit_gold * DAILY_INTEREST_RATE):,}🪙** (kuniga +1.5%)"
+        f"Braavos Temir Bankiga **+{amount:,}🪙 Oltin** topshirdingiz.{accrued_note}\n"
+        f"Jami omonatingiz: **{bank.deposit_gold:,}🪙**\n"
+        f"Kunlik daromad: **+{daily_yield:,}🪙/kun** (kuniga +1.5%)\n"
+        f"Hamyoningizda qoldi: **{user.gold:,}🪙**"
     )
 
 
 async def withdraw_from_iron_bank(session: AsyncSession, user_id: int, amount: int) -> Tuple[bool, str]:
     """Temir bankdan omonatni yechish"""
     if amount <= 0:
-        return False, "Noto'g'ri summa."
+        return False, "❌ Yechiladigan miqdor 0 dan katta bo'lishi kerak."
 
     user = await get_user_any(session, user_id)
-    bank = await get_or_create_iron_bank(session, user_id)
+    if not user:
+        return False, "❌ Foydalanuvchi topilmadi."
+
+    bank = await get_or_create_iron_bank(session, user.id)
+    if not bank:
+        return False, "❌ Bank hisobi topilmadi."
 
     curr_dep = bank.deposit_gold or 0
     if curr_dep < amount:
         return False, f"❌ Depozitingizda buncha oltin yo'q! (Mavjud: {curr_dep:,}🪙)"
 
+    now = datetime.utcnow()
+    # Yechishdan oldin to'plangan foizni hisoblab beramiz
+    accrued_note = ""
+    if curr_dep > 0:
+        last_claim = bank.last_interest_claimed_at or bank.deposit_updated_at or now
+        elapsed_sec = max(0, (now - last_claim).total_seconds())
+        hours_elapsed = int(elapsed_sec // 3600)
+        if hours_elapsed >= 1:
+            accrued = int(curr_dep * (DAILY_INTEREST_RATE / 24.0) * hours_elapsed)
+            if accrued > 0:
+                user.gold = (user.gold or 0) + accrued
+                accrued_note = f"\n🪙 Omonatdan to'plangan **+{accrued:,}🪙** foiz ham hamyoningizga qo'shildi!"
+
     bank.deposit_gold = curr_dep - amount
     user.gold = (user.gold or 0) + amount
-    bank.deposit_updated_at = datetime.utcnow()
+    bank.deposit_updated_at = now
+    bank.last_interest_claimed_at = now
     await session.commit()
 
     return True, (
         f"🏦 **MABLAG' YECHILDI!**\n\n"
-        f"Temir Bankdan **-{amount:,}🪙 Oltin** yechib oldingiz.\n"
-        f"Qolgan omonat: **{bank.deposit_gold:,}🪙**"
+        f"Temir Bankdan **-{amount:,}🪙 Oltin** yechib oldingiz.{accrued_note}\n"
+        f"Qolgan omonat: **{bank.deposit_gold:,}🪙**\n"
+        f"Hamyoningizda jami: **{user.gold:,}🪙**"
     )
 
 
 async def claim_iron_bank_interest(session: AsyncSession, user_id: int) -> Tuple[bool, str]:
-    """Omonat bo'yicha to'plangan kunlik foizni yechib olish"""
+    """Omonat bo'yicha to'plangan foizni yechib olish"""
     user = await get_user_any(session, user_id)
-    bank = await get_or_create_iron_bank(session, user_id)
+    if not user:
+        return False, "❌ Foydalanuvchi topilmadi."
+
+    bank = await get_or_create_iron_bank(session, user.id)
+    if not bank:
+        return False, "❌ Bank hisobi topilmadi."
 
     curr_dep = bank.deposit_gold or 0
     if curr_dep <= 0:
@@ -4023,23 +4074,30 @@ async def claim_iron_bank_interest(session: AsyncSession, user_id: int) -> Tuple
 
     now = datetime.utcnow()
     last_claim = bank.last_interest_claimed_at or bank.deposit_updated_at or now
-    elapsed_seconds = (now - last_claim).total_seconds()
-    days_elapsed = int(elapsed_seconds // 86400)
+    elapsed_seconds = max(0, (now - last_claim).total_seconds())
+    hours_elapsed = int(elapsed_seconds // 3600)
 
-    if days_elapsed < 1:
-        rem_hours = int((86400 - (elapsed_seconds % 86400)) // 3600)
-        rem_mins = int(((86400 - (elapsed_seconds % 86400)) % 3600) // 60)
-        return False, f"⏳ Foizlar har 24 soatda hisoblanadi. Keyingi foiz olishga: {rem_hours} soat {rem_mins} daqiqa qoldi."
+    if hours_elapsed < 1:
+        rem_mins = max(1, int((3600 - (elapsed_seconds % 3600)) // 60))
+        return False, f"⏳ Foizlar har soatda to'planadi (kuniga 1.5%). Keyingi soatlik foizga: {rem_mins} daqiqa qoldi."
 
-    profit = int(curr_dep * DAILY_INTEREST_RATE * days_elapsed)
+    profit = int(curr_dep * (DAILY_INTEREST_RATE / 24.0) * hours_elapsed)
+    if profit <= 0:
+        return False, "⏳ Hozircha foiz miqdori yetarli emas. Birozdan so'ng qayta tekshiring."
+
     user.gold = (user.gold or 0) + profit
-    bank.last_interest_claimed_at = now
+    # Keyingi hisob uchun olingan soatlar miqdorini siljitamiz (qolgan daqiqalar saqlanadi)
+    bank.last_interest_claimed_at = last_claim + timedelta(hours=hours_elapsed)
     await session.commit()
+
+    days_str = f"{hours_elapsed // 24} kun " if hours_elapsed >= 24 else ""
+    hours_str = f"{hours_elapsed % 24} soatlik" if hours_elapsed >= 24 else f"{hours_elapsed} soatlik"
+    period_str = f"{days_str}{hours_str}"
 
     return True, (
         f"🪙 **BANK FOIZI MUVAFFAQIYATLI OLINDI!**\n\n"
-        f"Braavos Temir Banki omonatingizdan **+{profit:,}🪙 Oltin** sof foyda berdi! ({days_elapsed} kunlik 1.5% daromad)\n"
-        f"Jami oltiningiz: **{user.gold:,}🪙**"
+        f"Braavos Temir Banki omonatingizdan **+{profit:,}🪙 Oltin** sof foyda berdi! ({period_str} 1.5% daromad)\n"
+        f"Hamyoningizdagi jami oltin: **{user.gold:,}🪙**"
     )
 
 
@@ -4054,6 +4112,8 @@ async def take_iron_bank_loan(session: AsyncSession, user_id: int, amount: int) 
         return False, "❌ Temir Bank faqat 3-darajadan yuqori ritsarlar yoki Xonadon Lordlariga qarz beradi!"
 
     bank = await get_or_create_iron_bank(session, user.id)
+    if not bank:
+        return False, "❌ Bank hisobi topilmadi."
     if (bank.loan_gold or 0) > 0:
         return False, f"❌ Sizda allaqachon to'lanmagan qarz mavjud: {bank.loan_gold:,}🪙. Yangi qarz olishdan oldin eskisini to'lang!"
 
@@ -4086,7 +4146,12 @@ async def take_iron_bank_loan(session: AsyncSession, user_id: int, amount: int) 
 async def repay_iron_bank_loan(session: AsyncSession, user_id: int) -> Tuple[bool, str]:
     """Kreditni foizi bilan to'liq qaytarish"""
     user = await get_user_any(session, user_id)
-    bank = await get_or_create_iron_bank(session, user_id)
+    if not user:
+        return False, "❌ Foydalanuvchi topilmadi."
+
+    bank = await get_or_create_iron_bank(session, user.id)
+    if not bank:
+        return False, "❌ Bank hisobi topilmadi."
 
     if (bank.loan_gold or 0) <= 0:
         return False, "❌ Sizda to'lanishi kerak bo'lgan qarz yo'q."

@@ -33,12 +33,22 @@ async def show_bank_hub(target, user_id: int, is_message: bool = False):
         dep_gold = bank.deposit_gold or 0
         daily_yield = int(dep_gold * 0.015)
 
-        # Foiz olish vaqti
+        # Foiz olish vaqti (soatbay hisoblanadi, kuniga 1.5%)
         now = datetime.utcnow()
         last_claim = bank.last_interest_claimed_at or bank.deposit_updated_at or now
-        elapsed_sec = (now - last_claim).total_seconds()
-        days_ready = int(elapsed_sec // 86400)
-        accumulated_interest = int(dep_gold * 0.015 * days_ready) if days_ready >= 1 else 0
+        elapsed_sec = max(0, (now - last_claim).total_seconds())
+        hours_ready = int(elapsed_sec // 3600)
+        accumulated_interest = int(dep_gold * (0.015 / 24.0) * hours_ready) if hours_ready >= 1 else 0
+        mins_left = max(1, int((3600 - (elapsed_sec % 3600)) // 60))
+
+        if dep_gold > 0:
+            if hours_ready >= 1:
+                hours_str = f"{hours_ready // 24} kun {hours_ready % 24} soatlik" if hours_ready >= 24 else f"{hours_ready} soatlik"
+                interest_status_str = f"<b>+{accumulated_interest:,}🪙</b> ({hours_str})"
+            else:
+                interest_status_str = f"<b>0🪙</b> <i>(keyingi foiz: ~{mins_left} daq)</i>"
+        else:
+            interest_status_str = "<b>0🪙</b>"
 
         # Qarz hisobi
         loan_gold = bank.loan_gold or 0
@@ -64,7 +74,7 @@ async def show_bank_hub(target, user_id: int, is_message: bool = False):
             f"──────── <b>OMONAT BO'LIMI</b> ────────\n"
             f"• Saqlanayotgan oltin: <b>{dep_gold:,} / 50,000🪙</b>\n"
             f"• Kunlik daromad: <b>+{daily_yield:,}🪙/kun</b> (+1.5%)\n"
-            f"• Yig'ilgan tayyor foiz: <b>{accumulated_interest:,}🪙</b> ({days_ready} kunlik)\n\n"
+            f"• Yig'ilgan tayyor foiz: {interest_status_str}\n\n"
             f"──────── <b>KREDIT (QARZ) BO'LIMI</b> ────────\n"
             f"• Asosiy qarz: <b>{loan_gold:,}🪙</b>\n"
             f"• Qaytarilishi kerak: <b>{total_loan_due:,}🪙</b> (+10% foiz)\n"
@@ -85,6 +95,8 @@ async def show_bank_hub(target, user_id: int, is_message: bool = False):
 
         if accumulated_interest > 0:
             buttons.append([InlineKeyboardButton(f"🪙 Foizni Yechib Olish (+{accumulated_interest:,}🪙)", callback_data="bank_claim_int")])
+        elif dep_gold > 0:
+            buttons.append([InlineKeyboardButton(f"⏳ Foiz to'planmoqda (~{mins_left} daqiqa)", callback_data="bank_int_wait_info")])
 
         # Qarz tugmalari
         if loan_gold <= 0:
@@ -110,10 +122,15 @@ async def bank_dep_menu_callback(update: Update, context: ContextTypes.DEFAULT_T
 
     async with AsyncSessionLocal() as session:
         user = await crud.get_user_any(session, user_id)
-        bank = await crud.get_or_create_iron_bank(session, user_id)
+        if not user:
+            return
+        bank = await crud.get_or_create_iron_bank(session, user.id)
 
     curr_dep = bank.deposit_gold or 0
     max_add = max(0, 50000 - curr_dep)
+    if max_add <= 0:
+        await query.answer("❌ Omonat limiti to'lgan (Maksimal: 50,000🪙)!", show_alert=True)
+        return
 
     text = (
         f"📥 <b>BRAAVOS TEMIR BANKIGA OMONAT QO'YISH</b>\n\n"
@@ -123,6 +140,8 @@ async def bank_dep_menu_callback(update: Update, context: ContextTypes.DEFAULT_T
         f"Qancha oltin omonatga qo'ymoqchisiz?"
     )
 
+    max_can_dep = min(user.gold or 0, max_add)
+
     buttons = [
         [
             InlineKeyboardButton("🪙 1,000", callback_data="bank_dep_do:1000"),
@@ -131,9 +150,54 @@ async def bank_dep_menu_callback(update: Update, context: ContextTypes.DEFAULT_T
         ],
         [
             InlineKeyboardButton("🪙 25,000", callback_data="bank_dep_do:25000"),
-            InlineKeyboardButton("🪙 Hammasi (MAX)", callback_data=f"bank_dep_do:{min(user.gold, max_add)}"),
+            InlineKeyboardButton(
+                "🪙 Hammasi (MAX)", 
+                callback_data=f"bank_dep_do:{max_can_dep}" if max_can_dep > 0 else "bank_dep_empty_alert"
+            ),
+        ],
+        [
+            InlineKeyboardButton("✍️ Qo'lda Yozib Qo'yish", callback_data="bank_custom_dep"),
         ],
         [InlineKeyboardButton("🔙 Bank Zaliga Qaytish", callback_data="menu_bank")],
+    ]
+    await query.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def bank_dep_empty_alert_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Omonat qo'yish uchun oltin yetarli emasligi haqida ogohlantirish"""
+    query = update.callback_query
+    await query.answer("❌ Hamyoningizda omonatga qo'yish uchun yetarli oltin yo'q!", show_alert=True)
+
+
+async def bank_custom_dep_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Qo'lda kiritish orqali omonat qo'yish so'rovi"""
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_any(session, user_id)
+        if not user:
+            return
+        bank = await crud.get_or_create_iron_bank(session, user.id)
+
+    curr_dep = bank.deposit_gold or 0
+    max_add = max(0, 50000 - curr_dep)
+    if max_add <= 0:
+        await query.answer("❌ Maksimal depozit limitiga yetgansiz (50,000🪙)!", show_alert=True)
+        return
+
+    context.user_data["awaiting_bank_dep_input"] = True
+
+    text = (
+        f"✍️ <b>OMONATGA QO'YISH (QO'LDA KIRITISH)</b>\n\n"
+        f"💰 Hamyoningizda: <b>{user.gold:,}🪙 Oltin</b>\n"
+        f"🏛️ Hozirgi depozitingiz: <b>{curr_dep:,} / 50,000🪙</b>\n"
+        f"📥 Qo'yishingiz mumkin bo'lgan maksimal miqdor: <b>{min(user.gold, max_add):,}🪙</b>\n\n"
+        f"Qancha oltin omonatga qo'ymoqchisiz? Quyida sonni yozing (masalan: <code>3500</code>) yoki barchasini qo'yish uchun <code>all</code> deb yuboring:"
+    )
+    buttons = [
+        [InlineKeyboardButton("🔙 Bekor Qilish", callback_data="bank_dep_menu")]
     ]
     await query.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(buttons))
 
@@ -141,8 +205,17 @@ async def bank_dep_menu_callback(update: Update, context: ContextTypes.DEFAULT_T
 async def bank_dep_do_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Omonat qo'yish ijrosi"""
     query = update.callback_query
-    amount = int(query.data.split(":")[1])
+    raw_val = query.data.split(":")[1]
+    try:
+        amount = int(raw_val)
+    except ValueError:
+        amount = 0
+
     user_id = query.from_user.id
+
+    if amount <= 0:
+        await query.answer("❌ Noto'g'ri summa yoki hamyoningizda yetarli oltin yo'q!", show_alert=True)
+        return
 
     async with AsyncSessionLocal() as session:
         ok, msg = await crud.deposit_to_iron_bank(session, user_id, amount)
@@ -158,9 +231,16 @@ async def bank_with_menu_callback(update: Update, context: ContextTypes.DEFAULT_
     user_id = query.from_user.id
 
     async with AsyncSessionLocal() as session:
-        bank = await crud.get_or_create_iron_bank(session, user_id)
+        user = await crud.get_user_any(session, user_id)
+        if not user:
+            return
+        bank = await crud.get_or_create_iron_bank(session, user.id)
 
     curr_dep = bank.deposit_gold or 0
+    if curr_dep <= 0:
+        await query.answer("❌ Bankda faol omonatingiz mavjud emas!", show_alert=True)
+        return
+
     text = (
         f"📤 <b>OMONATNI YECHIB OLISH</b>\n\n"
         f"Temir Bankdagi depozitingiz: <b>{curr_dep:,}🪙 Oltin</b>\n\n"
@@ -174,9 +254,42 @@ async def bank_with_menu_callback(update: Update, context: ContextTypes.DEFAULT_
             InlineKeyboardButton("🪙 10,000", callback_data="bank_with_do:10000"),
         ],
         [
-            InlineKeyboardButton("🪙 Barchasini Yechish", callback_data=f"bank_with_do:{curr_dep}"),
+            InlineKeyboardButton("🪙 Barchasini Yechish", callback_data="bank_with_do:all"),
+        ],
+        [
+            InlineKeyboardButton("✍️ Qo'lda Yozib Yechish", callback_data="bank_custom_with"),
         ],
         [InlineKeyboardButton("🔙 Bank Zaliga Qaytish", callback_data="menu_bank")],
+    ]
+    await query.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def bank_custom_with_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Qo'lda kiritish orqali omonatni yechish so'rovi"""
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_any(session, user_id)
+        if not user:
+            return
+        bank = await crud.get_or_create_iron_bank(session, user.id)
+
+    curr_dep = bank.deposit_gold or 0
+    if curr_dep <= 0:
+        await query.answer("❌ Bankda faol omonatingiz mavjud emas!", show_alert=True)
+        return
+
+    context.user_data["awaiting_bank_with_input"] = True
+
+    text = (
+        f"✍️ <b>OMONATNI YECHISH (QO'LDA KIRITISH)</b>\n\n"
+        f"🏛️ Bankdagi depozitingiz: <b>{curr_dep:,}🪙 Oltin</b>\n\n"
+        f"Qancha oltin yechib olmoqchisiz? Quyida sonni yozing (masalan: <code>2500</code>) yoki barchasini yechish uchun <code>all</code> deb yuboring:"
+    )
+    buttons = [
+        [InlineKeyboardButton("🔙 Bekor Qilish", callback_data="bank_with_menu")]
     ]
     await query.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(buttons))
 
@@ -184,10 +297,26 @@ async def bank_with_menu_callback(update: Update, context: ContextTypes.DEFAULT_
 async def bank_with_do_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Omonatni yechish ijrosi"""
     query = update.callback_query
-    amount = int(query.data.split(":")[1])
+    raw_val = query.data.split(":")[1]
     user_id = query.from_user.id
 
     async with AsyncSessionLocal() as session:
+        if raw_val == "all":
+            user = await crud.get_user_any(session, user_id)
+            if not user:
+                return
+            bank = await crud.get_or_create_iron_bank(session, user.id)
+            amount = bank.deposit_gold or 0
+        else:
+            try:
+                amount = int(raw_val)
+            except ValueError:
+                amount = 0
+
+        if amount <= 0:
+            await query.answer("❌ Omonatda yechish uchun mablag' yo'q!", show_alert=True)
+            return
+
         ok, msg = await crud.withdraw_from_iron_bank(session, user_id, amount)
 
     await query.answer(msg[:150], show_alert=True)
@@ -195,7 +324,7 @@ async def bank_with_do_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def bank_claim_int_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Kunlik to'plangan foizni olish"""
+    """Kunlik / soatlik to'plangan foizni olish"""
     query = update.callback_query
     user_id = query.from_user.id
 
@@ -204,6 +333,27 @@ async def bank_claim_int_callback(update: Update, context: ContextTypes.DEFAULT_
 
     await query.answer(msg[:150], show_alert=True)
     await show_bank_hub(query, user_id, is_message=False)
+
+
+async def bank_int_wait_info_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Foiz to'planishi haqida ma'lumot beruvchi bildirishnoma"""
+    query = update.callback_query
+    user_id = query.from_user.id
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_any(session, user_id)
+        if not user:
+            await query.answer()
+            return
+        bank = await crud.get_or_create_iron_bank(session, user.id)
+
+    now = datetime.utcnow()
+    last_claim = bank.last_interest_claimed_at or bank.deposit_updated_at or now
+    elapsed_sec = max(0, (now - last_claim).total_seconds())
+    rem_mins = max(1, int((3600 - (elapsed_sec % 3600)) // 60))
+    await query.answer(
+        f"⏳ Omonat foizlari har 1 soatda to'planadi (kuniga +1.5%).\nKeyingi foiz tushishiga taxminan {rem_mins} daqiqa qoldi!",
+        show_alert=True
+    )
 
 
 async def bank_loan_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -273,10 +423,14 @@ def register_bank_handlers(app):
     app.add_handler(CommandHandler(["bank", "ironbank"], bank_command))
     app.add_handler(CallbackQueryHandler(bank_callback, pattern="^menu_bank$"))
     app.add_handler(CallbackQueryHandler(bank_dep_menu_callback, pattern="^bank_dep_menu$"))
+    app.add_handler(CallbackQueryHandler(bank_dep_empty_alert_callback, pattern="^bank_dep_empty_alert$"))
+    app.add_handler(CallbackQueryHandler(bank_custom_dep_callback, pattern="^bank_custom_dep$"))
     app.add_handler(CallbackQueryHandler(bank_dep_do_callback, pattern="^bank_dep_do:"))
     app.add_handler(CallbackQueryHandler(bank_with_menu_callback, pattern="^bank_with_menu$"))
+    app.add_handler(CallbackQueryHandler(bank_custom_with_callback, pattern="^bank_custom_with$"))
     app.add_handler(CallbackQueryHandler(bank_with_do_callback, pattern="^bank_with_do:"))
     app.add_handler(CallbackQueryHandler(bank_claim_int_callback, pattern="^bank_claim_int$"))
+    app.add_handler(CallbackQueryHandler(bank_int_wait_info_callback, pattern="^bank_int_wait_info$"))
     app.add_handler(CallbackQueryHandler(bank_loan_menu_callback, pattern="^bank_loan_menu$"))
     app.add_handler(CallbackQueryHandler(bank_loan_do_callback, pattern="^bank_loan_do:"))
     app.add_handler(CallbackQueryHandler(bank_repay_loan_callback, pattern="^bank_repay_loan$"))

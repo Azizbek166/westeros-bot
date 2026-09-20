@@ -1678,6 +1678,76 @@ async def handle_battle_text_input(update: Update, context: ContextTypes.DEFAULT
         await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
         return
 
+    # 6. Temir Bankka omonat qo'yish (qo'lda kiritish)
+    if "awaiting_bank_dep_input" in context.user_data:
+        context.user_data.pop("awaiting_bank_dep_input", None)
+
+        async with AsyncSessionLocal() as session:
+            user = await crud.get_user_any(session, user_id)
+            if not user:
+                await update.message.reply_text("❌ Foydalanuvchi topilmadi.")
+                return
+
+            bank = await crud.get_or_create_iron_bank(session, user.id)
+            curr_dep = bank.deposit_gold or 0
+            max_add = max(0, 50000 - curr_dep)
+            avail = user.gold or 0
+
+            if text.lower() in ["all", "hamma", "barchasi", "bori", "max"]:
+                amount = min(avail, max_add)
+            elif text.isdigit():
+                amount = int(text)
+            else:
+                amount = -1
+
+            if amount < 0:
+                ok, msg = False, "❌ Noto'g'ri miqdor kiritildi! Iltimos, musbat son (masalan: `3500`) yoki 'all' deb yozing."
+            elif amount == 0:
+                ok, msg = False, "❌ Omonatga qo'yish uchun sizda yetarli oltin yo'q yoki 0 kiritildi."
+            else:
+                ok, msg = await crud.deposit_to_iron_bank(session, user.id, amount)
+
+        buttons = [
+            [InlineKeyboardButton("🏛️ Temir Bankga Qaytish", callback_data="menu_bank")],
+            [InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")],
+        ]
+        await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        return
+
+    # 7. Temir Bankdan omonatni yechish (qo'lda kiritish)
+    if "awaiting_bank_with_input" in context.user_data:
+        context.user_data.pop("awaiting_bank_with_input", None)
+
+        async with AsyncSessionLocal() as session:
+            user = await crud.get_user_any(session, user_id)
+            if not user:
+                await update.message.reply_text("❌ Foydalanuvchi topilmadi.")
+                return
+
+            bank = await crud.get_or_create_iron_bank(session, user.id)
+            curr_dep = bank.deposit_gold or 0
+
+            if text.lower() in ["all", "hamma", "barchasi", "bori", "max"]:
+                amount = curr_dep
+            elif text.isdigit():
+                amount = int(text)
+            else:
+                amount = -1
+
+            if amount < 0:
+                ok, msg = False, "❌ Noto'g'ri miqdor kiritildi! Iltimos, musbat son (masalan: `2500`) yoki 'all' deb yozing."
+            elif amount == 0:
+                ok, msg = False, "❌ Yechish uchun bankda mablag'ingiz mavjud emas yoki 0 kiritildi."
+            else:
+                ok, msg = await crud.withdraw_from_iron_bank(session, user.id, amount)
+
+        buttons = [
+            [InlineKeyboardButton("🏛️ Temir Bankga Qaytish", callback_data="menu_bank")],
+            [InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")],
+        ]
+        await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        return
+
 
 def register_battle_handlers(app):
     app.add_handler(CommandHandler("battle", battle_command))
