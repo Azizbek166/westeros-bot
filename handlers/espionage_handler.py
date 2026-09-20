@@ -8,32 +8,60 @@ from sqlalchemy import select
 logger = logging.getLogger(__name__)
 
 
+async def _safe_edit_or_reply(query, update, text: str, reply_markup: InlineKeyboardMarkup = None, parse_mode: str = "Markdown"):
+    """Xabarni xavfsiz tahrirlash yoki yuborish (photo xabarlar va parse xatolariga chidamli)"""
+    if query:
+        msg = query.message
+        if getattr(msg, "photo", None):
+            try:
+                await msg.delete()
+            except Exception:
+                pass
+            return await msg.chat.send_message(text, reply_markup=reply_markup, parse_mode=parse_mode)
+        try:
+            return await query.edit_message_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+        except Exception:
+            try:
+                return await query.edit_message_text(text, reply_markup=reply_markup)
+            except Exception:
+                return await msg.reply_text(text, reply_markup=reply_markup)
+    elif update and update.effective_message:
+        try:
+            return await update.effective_message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+        except Exception:
+            return await update.effective_message.reply_text(text, reply_markup=reply_markup)
+
+
 async def spy_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Josuslik asosiy menyusi"""
     query = update.callback_query
     if query:
-        await query.answer()
+        try:
+            await query.answer()
+        except Exception:
+            pass
 
     tg_user = update.effective_user
     async with AsyncSessionLocal() as session:
         user = await crud.get_user_by_telegram_id(session, tg_user.id)
         if not user:
             msg = "❌ Siz hali ro'yxatdan o'tmagansiz. /start bosing."
-            if query:
-                await query.edit_message_text(msg)
-            else:
-                await update.effective_message.reply_text(msg)
+            await _safe_edit_or_reply(query, update, msg)
             return
 
-        reports = await crud.get_user_spy_reports(session, user.id, limit=3)
         rep_text = ""
-        if reports:
-            rep_text = "\n📜 **Oxirgi hisobotlar:**\n"
-            for r in reports:
-                status_emoji = "✅" if r.status == "success" else "❌"
-                t_name = r.target_territory.name if r.target_territory else f"Qal'a #{r.target_territory_id}"
-                t_time = (r.created_at or datetime.utcnow()).strftime('%H:%M')
-                rep_text += f"• {status_emoji} *{r.mission_type.upper()}* ({t_name}) — {t_time}\n"
+        try:
+            reports = await crud.get_user_spy_reports(session, user.id, limit=3)
+            if reports:
+                rep_text = "\n📜 **Oxirgi hisobotlar:**\n"
+                for r in reports:
+                    status_emoji = "✅" if r.status == "success" else "❌"
+                    t_name = r.target_territory.name if (r.target_territory and getattr(r.target_territory, "name", None)) else f"Qal'a #{r.target_territory_id}"
+                    t_time = (r.created_at or datetime.utcnow()).strftime('%H:%M')
+                    m_type = (r.mission_type or "scout").upper()
+                    rep_text += f"• {status_emoji} *{m_type}* ({t_name}) — {t_time}\n"
+        except Exception as e:
+            logger.warning(f"Oxirgi josuslik hisobotlarini olishda xatolik: {e}")
 
         text = (
             "🕵️🗡️ **JOSUSLIK VA QIZIL TO'Y NIFOG'I (ESPIONAGE)**\n\n"
@@ -54,19 +82,17 @@ async def spy_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")],
         ])
 
-        if query:
-            try:
-                await query.edit_message_text(text, reply_markup=keyboard, parse_mode="Markdown")
-            except Exception:
-                await query.edit_message_text(text, reply_markup=keyboard)
-        else:
-            await update.effective_message.reply_text(text, reply_markup=keyboard, parse_mode="Markdown")
+        await _safe_edit_or_reply(query, update, text, reply_markup=keyboard)
 
 
 async def spy_pick_terr_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Josuslik uchun nishon hududni tanlash (sahifalangan)"""
     query = update.callback_query
-    await query.answer()
+    if query:
+        try:
+            await query.answer()
+        except Exception:
+            pass
 
     offset = 0
     if query and query.data and query.data.startswith("spy_pick_page:"):
@@ -91,6 +117,15 @@ async def spy_pick_terr_callback(update: Update, context: ContextTypes.DEFAULT_T
             if getattr(t, "conquered_by_user_id", None) == user.id:
                 continue
             eligible_terrs.append(t)
+
+        if not eligible_terrs:
+            text = (
+                "🎯 **JOSUSLIK UCHUN QAL'ALAR:**\n\n"
+                "Hozirda josus yuborish uchun dushman qal'alari mavjud emas. Barcha qal'alar sizga yoki xonadoningizga tegishli!"
+            )
+            buttons = [[InlineKeyboardButton("🔙 Josuslik menyusi", callback_data="menu_espionage")]]
+            await _safe_edit_or_reply(query, update, text, reply_markup=InlineKeyboardMarkup(buttons))
+            return
 
         page_size = 8
         page_terrs = eligible_terrs[offset : offset + page_size]
@@ -123,22 +158,23 @@ async def spy_pick_terr_callback(update: Update, context: ContextTypes.DEFAULT_T
             f"Qaysi dushman qal'asiga ayg'oqchi yubormoqchisiz?\n"
             f"📄 Sahifa: **{current_page}/{total_pages}** | 💰 Hamyoningiz: **{user.gold:,}** Oltin"
         )
-        try:
-            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(buttons), parse_mode="Markdown")
-        except Exception:
-            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+        await _safe_edit_or_reply(query, update, text, reply_markup=InlineKeyboardMarkup(buttons))
 
 
 async def spy_terr_detail_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Tanlangan qal'a bo'yicha operatsiyani tanlash"""
     query = update.callback_query
-    await query.answer()
+    if query:
+        try:
+            await query.answer()
+        except Exception:
+            pass
 
     terr_id = int(query.data.split(":")[1])
     async with AsyncSessionLocal() as session:
         terr = await session.get(models.Territory, terr_id)
         if not terr:
-            await query.edit_message_text("❌ Qal'a topilmadi.")
+            await _safe_edit_or_reply(query, update, "❌ Qal'a topilmadi.")
             return
 
         tg_user = update.effective_user
@@ -165,16 +201,17 @@ async def spy_terr_detail_callback(update: Update, context: ContextTypes.DEFAULT
             [InlineKeyboardButton("🚪 Darvozalarni ochish (5,000💰)", callback_data=f"spy_do:open_gates:{terr.id}")],
             [InlineKeyboardButton("🔙 Qal'alar ro'yxati", callback_data="spy_pick_page:0")],
         ])
-        try:
-            await query.edit_message_text(text, reply_markup=keyboard, parse_mode="Markdown")
-        except Exception:
-            await query.edit_message_text(text, reply_markup=keyboard)
+        await _safe_edit_or_reply(query, update, text, reply_markup=keyboard)
 
 
 async def spy_execute_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Josuslik operatsiyasini ijro etish"""
     query = update.callback_query
-    await query.answer("Operatsiya bajarilmoqda...")
+    if query:
+        try:
+            await query.answer("Operatsiya bajarilmoqda...")
+        except Exception:
+            pass
 
     parts = query.data.split(":")
     mission_type = parts[1]
@@ -199,16 +236,17 @@ async def spy_execute_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             [InlineKeyboardButton("📜 Barcha hisobotlar", callback_data="spy_history")],
             [InlineKeyboardButton("🔙 Josuslik menyusi", callback_data="menu_espionage")],
         ])
-        try:
-            await query.edit_message_text(report_text, reply_markup=keyboard, parse_mode="Markdown")
-        except Exception:
-            await query.edit_message_text(report_text, reply_markup=keyboard)
+        await _safe_edit_or_reply(query, update, report_text, reply_markup=keyboard)
 
 
 async def spy_history_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Barcha josuslik hisobotlarini ko'rish"""
     query = update.callback_query
-    await query.answer()
+    if query:
+        try:
+            await query.answer()
+        except Exception:
+            pass
 
     tg_user = update.effective_user
     async with AsyncSessionLocal() as session:
@@ -223,11 +261,12 @@ async def spy_history_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             text = "📜 **SIZNING OXIRGI 5 TA JOSUSLIK HISOBOTINGIZ:**\n\n"
             for r in reports:
                 status_icon = "🟢 Muvaffaqiyatli" if r.status == "success" else "🔴 Fosh bo'ldi"
-                t_name = r.target_territory.name if r.target_territory else f"Qal'a #{r.target_territory_id}"
+                t_name = r.target_territory.name if (r.target_territory and getattr(r.target_territory, "name", None)) else f"Qal'a #{r.target_territory_id}"
                 clean_snippet = (r.report_text or "").replace("*", "").replace("_", "").replace("`", "")[:120].strip()
                 t_time = (r.created_at or datetime.utcnow()).strftime("%d.%m %H:%M")
+                m_type = (r.mission_type or "scout").upper()
                 text += (
-                    f"• **{r.mission_type.upper()}** ({t_name}) — {status_icon} ({t_time})\n"
+                    f"• **{m_type}** ({t_name}) — {status_icon} ({t_time})\n"
                     f"{clean_snippet}...\n\n"
                 )
 
@@ -235,10 +274,7 @@ async def spy_history_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             [InlineKeyboardButton("🎯 Qal'aga josus yuborish", callback_data="spy_pick_page:0")],
             [InlineKeyboardButton("🔙 Josuslik menyusi", callback_data="menu_espionage")]
         ])
-        try:
-            await query.edit_message_text(text, reply_markup=keyboard, parse_mode="Markdown")
-        except Exception:
-            await query.edit_message_text(text, reply_markup=keyboard)
+        await _safe_edit_or_reply(query, update, text, reply_markup=keyboard)
 
 
 def register_espionage_handlers(app: Application):

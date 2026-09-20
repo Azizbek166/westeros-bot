@@ -4494,14 +4494,19 @@ async def send_spy_mission(
 
 async def get_user_spy_reports(session: AsyncSession, user_id: int, limit: int = 5) -> List[models.SpyMission]:
     """Foydalanuvchining oxirgi josuslik hisobotlari"""
-    res = await session.execute(
-        select(models.SpyMission)
-        .where(models.SpyMission.user_id == user_id)
-        .options(selectinload(models.SpyMission.target_territory))
-        .order_by(desc(models.SpyMission.created_at))
-        .limit(limit)
-    )
-    return res.scalars().all()
+    try:
+        res = await session.execute(
+            select(models.SpyMission)
+            .where(models.SpyMission.user_id == user_id)
+            .options(selectinload(models.SpyMission.target_territory))
+            .order_by(desc(models.SpyMission.created_at))
+            .limit(limit)
+        )
+        return res.scalars().all()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"get_user_spy_reports xatosi: {e}")
+        return []
 
 
 # ============================================================

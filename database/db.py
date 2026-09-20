@@ -135,6 +135,37 @@ async def init_db():
                 except Exception:
                     pass
 
+        # spy_missions jadvali mavjudligini kafolatlash
+        try:
+            if "sqlite" in engine.url.drivername:
+                await conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS spy_missions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER NOT NULL,
+                        target_territory_id INTEGER NOT NULL,
+                        mission_type VARCHAR(50) NOT NULL,
+                        cost_gold INTEGER DEFAULT 1000,
+                        status VARCHAR(30) DEFAULT 'success',
+                        report_text TEXT DEFAULT '',
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+            else:
+                await conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS spy_missions (
+                        id SERIAL PRIMARY KEY,
+                        user_id INTEGER NOT NULL,
+                        target_territory_id INTEGER NOT NULL,
+                        mission_type VARCHAR(50) NOT NULL,
+                        cost_gold INTEGER DEFAULT 1000,
+                        status VARCHAR(30) DEFAULT 'success',
+                        report_text TEXT DEFAULT '',
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+        except Exception as e:
+            logger.warning(f"spy_missions table check: {e}")
+
         # Check if dragons table in SQLite has obsolete UNIQUE constraint on user_id
         if "sqlite" in engine.url.drivername:
             try:

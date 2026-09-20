@@ -86,7 +86,21 @@ async def show_duel_hub(target, user_id: int, is_message: bool):
         if is_message:
             await target.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
         else:
-            await target.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+            msg = target.message
+            if getattr(msg, "photo", None):
+                try:
+                    await msg.delete()
+                except Exception:
+                    pass
+                await msg.chat.send_message(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+            else:
+                try:
+                    await target.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+                except Exception:
+                    try:
+                        await target.edit_message_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+                    except Exception:
+                        await msg.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
 
 
 # ============================================================

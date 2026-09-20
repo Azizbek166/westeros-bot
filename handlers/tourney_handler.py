@@ -16,21 +16,45 @@ def is_admin(user_id: int) -> bool:
         return False
 
 
+async def _safe_edit_or_reply(query, update, text: str, reply_markup: InlineKeyboardMarkup = None, parse_mode: str = "Markdown"):
+    """Xabarni xavfsiz tahrirlash yoki yuborish (photo xabarlar va parse xatolariga chidamli)"""
+    if query:
+        msg = query.message
+        if getattr(msg, "photo", None):
+            try:
+                await msg.delete()
+            except Exception:
+                pass
+            return await msg.chat.send_message(text, reply_markup=reply_markup, parse_mode=parse_mode)
+        try:
+            return await query.edit_message_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+        except Exception:
+            try:
+                return await query.edit_message_text(text, reply_markup=reply_markup)
+            except Exception:
+                return await msg.reply_text(text, reply_markup=reply_markup)
+    elif update and update.effective_message:
+        try:
+            return await update.effective_message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+        except Exception:
+            return await update.effective_message.reply_text(text, reply_markup=reply_markup)
+
+
 async def tourney_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Ritsarlar turniri va stavkalar asosiy menyusi"""
     query = update.callback_query
     if query:
-        await query.answer()
+        try:
+            await query.answer()
+        except Exception:
+            pass
 
     tg_user = update.effective_user
     async with AsyncSessionLocal() as session:
         user = await crud.get_user_by_telegram_id(session, tg_user.id)
         if not user:
             msg = "❌ Siz hali ro'yxatdan o'tmagansiz. /start bosing."
-            if query:
-                await query.edit_message_text(msg)
-            else:
-                await update.effective_message.reply_text(msg)
+            await _safe_edit_or_reply(query, update, msg)
             return
 
         tourney = await crud.get_active_tournament(session)
@@ -99,10 +123,7 @@ async def tourney_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
         buttons.append([InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")])
 
         keyboard = InlineKeyboardMarkup(buttons)
-        if query:
-            await query.edit_message_text(text, reply_markup=keyboard, parse_mode="Markdown")
-        else:
-            await update.effective_message.reply_text(text, reply_markup=keyboard, parse_mode="Markdown")
+        await _safe_edit_or_reply(query, update, text, reply_markup=keyboard)
 
 
 async def tourney_enter_pick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
