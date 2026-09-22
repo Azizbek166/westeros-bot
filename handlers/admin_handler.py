@@ -1,3 +1,4 @@
+import asyncio
 import json
 import html
 import logging
@@ -1026,17 +1027,34 @@ async def admin_events_menu_callback(update: Update, context: ContextTypes.DEFAU
     if not is_admin(query.from_user.id):
         return
 
+    async with AsyncSessionLocal() as session:
+        res = await session.execute(
+            select(models.EventState).where(models.EventState.event_name == "plague")
+        )
+        plague_ev = res.scalar_one_or_none()
+        plague_active = plague_ev.is_active if plague_ev else True
+
+    plague_status_text = "🟢 Faol (Westeros bo'ylab tarqalmoqda)" if plague_active else "🔴 To'xtatilgan (Nofaol)"
+
     text = (
         "❄️ **GLOBAL HODISALAR VA BOSSLAR BOSHQARUVI**\n\n"
+        f"☣️ **Vabo Epidemiyasi:** {plague_status_text}\n\n"
         "Kerakli amalni tanlang:"
     )
     buttons = [
         [InlineKeyboardButton("❄️ Tun Qiroli HP: 500,000 ga tiklash", callback_data="adm_ev_act:nk_reset")],
         [InlineKeyboardButton("❄️ Tun Qiroli HP: 5,000 ga tushirish (Sinov)", callback_data="adm_ev_act:nk_low")],
-        [InlineKeyboardButton("☣️ Vabo Epidemiyasini e'lon qilish", callback_data="adm_ev_act:plague")],
-        [InlineKeyboardButton("🥷 Qaroqchilar Hujumini e'lon qilish", callback_data="adm_ev_act:bandits")],
-        [InlineKeyboardButton("🔙 Admin Panel", callback_data="admin_panel")],
     ]
+
+    if plague_active:
+        buttons.append([InlineKeyboardButton("🛑 Vabo Epidemiyasini To'xtatish", callback_data="adm_ev_act:plague_stop")])
+        buttons.append([InlineKeyboardButton("📢 Vabo haqida e'lon yuborish", callback_data="adm_ev_act:plague_bcast")])
+    else:
+        buttons.append([InlineKeyboardButton("☣️ Vabo Epidemiyasini Boshlash", callback_data="adm_ev_act:plague_start")])
+
+    buttons.append([InlineKeyboardButton("🥷 Qaroqchilar Hujumini e'lon qilish", callback_data="adm_ev_act:bandits")])
+    buttons.append([InlineKeyboardButton("🔙 Admin Panel", callback_data="admin_panel")])
+
     await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
 
 
@@ -1051,6 +1069,11 @@ async def admin_event_action_callback(update: Update, context: ContextTypes.DEFA
         )
         ww_event = res.scalar_one_or_none()
 
+        plague_res = await session.execute(
+            select(models.EventState).where(models.EventState.event_name == "plague")
+        )
+        plague_ev = plague_res.scalar_one_or_none()
+
         if act == "nk_reset":
             if ww_event:
                 ww_event.data_json = json.dumps({"hp": 500000, "max_hp": 500000, "status": "active"})
@@ -1061,20 +1084,54 @@ async def admin_event_action_callback(update: Update, context: ContextTypes.DEFA
                 ww_event.data_json = json.dumps({"hp": 5000, "status": "active"})
                 await session.commit()
             msg = "❄️ Tun Qiroli armiyasi 5,000 HP ga tushirildi!"
-        elif act == "plague":
-            msg = "☣️ Vabo epidemiyasi boshlandi va barcha lordlarga xabar yuborildi!"
+        elif act in ["plague", "plague_start"]:
+            if not plague_ev:
+                plague_ev = models.EventState(event_name="plague", data_json=json.dumps({"status": "active", "severity": "heavy"}), is_active=True)
+                session.add(plague_ev)
+            else:
+                plague_ev.is_active = True
+                plague_ev.started_at = datetime.utcnow()
+            await session.commit()
+            msg = "☣️ Mintaqaviy vabo epidemiyasi boshlandi va barcha lordlarga xabar yuborildi!"
             users_res = await session.execute(select(models.User.telegram_id))
             all_ids = users_res.scalars().all()
             bcast_text = (
                 "☣️ **OGOHLANTIRISH: WESTEROS BO'YLAB VABO EPIDEMIYASI BOSHLANDI!**\n\n"
-                "Qalalar, qishloqlar va bozorlarda qora o'lat tarqaldi!\n"
+                "Qal'alar, qishloqlar va bozorlarda qora o'lat tarqaldi!\n"
                 "Barcha Lordlar va jangchilar ehtiyot choralarini ko'rsin. Har bir o'yinchi kuniga 2 martagacha tabiblar yordamida o'z xalqini davolashi mumkin!"
             )
-            for tg_id in all_ids:
-                try:
-                    await context.bot.send_message(chat_id=tg_id, text=bcast_text, parse_mode="Markdown")
-                except Exception:
-                    pass
+            async def _bg_plague_bcast(bot, ids, txt):
+                for tg_id in ids:
+                    try:
+                        await bot.send_message(chat_id=tg_id, text=txt, parse_mode="Markdown")
+                        await asyncio.sleep(0.04)
+                    except Exception:
+                        pass
+            asyncio.create_task(_bg_plague_bcast(context.bot, all_ids, bcast_text))
+        elif act == "plague_stop":
+            if not plague_ev:
+                plague_ev = models.EventState(event_name="plague", data_json=json.dumps({"status": "stopped"}), is_active=False)
+                session.add(plague_ev)
+            else:
+                plague_ev.is_active = False
+            await session.commit()
+            msg = "🛑 Vabo epidemiyasi to'xtatildi!"
+        elif act == "plague_bcast":
+            msg = "📢 Vabo haqidagi ogohlantirish barcha o'yinchilarga jo'natilmoqda!"
+            users_res = await session.execute(select(models.User.telegram_id))
+            all_ids = users_res.scalars().all()
+            bcast_text = (
+                "☣️ **OGOHLANTIRISH: WESTEROS BO'YLAB VABO EPIDEMIYASI DAVOM ETMOQDA!**\n\n"
+                "Mintaqangizni qora o'latdan asrang. Maesterlar yordamida dorilar tayyorlang yoki karantin joriy qiling!"
+            )
+            async def _bg_plague_reminder(bot, ids, txt):
+                for tg_id in ids:
+                    try:
+                        await bot.send_message(chat_id=tg_id, text=txt, parse_mode="Markdown")
+                        await asyncio.sleep(0.04)
+                    except Exception:
+                        pass
+            asyncio.create_task(_bg_plague_reminder(context.bot, all_ids, bcast_text))
         elif act == "bandits":
             msg = "🥷 Qaroqchilar hujumi boshlandi va barcha lordlarga xabar yuborildi!"
             users_res = await session.execute(select(models.User.telegram_id))
@@ -1084,17 +1141,22 @@ async def admin_event_action_callback(update: Update, context: ContextTypes.DEFA
                 "Westerosning barcha savdo karvonlari va qal'alari xavf ostida!\n"
                 "Qal'angiz garnizonini mustahkamlang va qaroqchilarga qarshi pistirma uyushtiring!"
             )
-            for tg_id in all_ids:
-                try:
-                    await context.bot.send_message(chat_id=tg_id, text=bcast_text, parse_mode="Markdown")
-                except Exception:
-                    pass
+            async def _bg_bandits_bcast(bot, ids, txt):
+                for tg_id in ids:
+                    try:
+                        await bot.send_message(chat_id=tg_id, text=txt, parse_mode="Markdown")
+                        await asyncio.sleep(0.04)
+                    except Exception:
+                        pass
+            asyncio.create_task(_bg_bandits_bcast(context.bot, all_ids, bcast_text))
+        else:
+            msg = "Amal bajarildi."
 
     try:
         await query.answer(f"✅ {msg}", show_alert=True)
     except Exception:
         pass
-    await show_admin_dashboard(query, is_message=False)
+    await admin_events_menu_callback(update, context)
 
 
 # ============================================================

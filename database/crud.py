@@ -82,6 +82,7 @@ async def check_and_reset_daily_limits(session: AsyncSession, user: models.User)
         user.daily_spy_scout_count = 0
         user.daily_spy_sabotage_count = 0
         user.daily_spy_gates_count = 0
+        user.daily_plague_count = 0
         user.daily_limit_date = today_str
         await session.commit()
 

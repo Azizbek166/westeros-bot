@@ -60,6 +60,8 @@ async def show_events_hub(target, user_id: int, is_message: bool):
         progress_bar = "█" * filled + "░" * (bar_len - filled)
 
         ww_count = user.daily_ww_attack_count if user else 0
+        plague_count = getattr(user, "daily_plague_count", 0) if user else 0
+        bandit_count = getattr(user, "daily_bandit_count", 0) if user else 0
 
         text = (
             f"👑 **WESTEROS GLOBAL VOQEALARI VA TEMIR TAXT**\n\n"
@@ -77,8 +79,8 @@ async def show_events_hub(target, user_id: int, is_message: bool):
         buttons = [
             [InlineKeyboardButton(f"⚔️ Tun Qiroliga Zarba Berish ({ww_count}/3)", callback_data="raid_night_king")],
             [InlineKeyboardButton("🏆 Tun Qiroli Ziyon Reytingi (Top 10)", callback_data="night_king_leaderboard")],
-            [InlineKeyboardButton("☣️ Mintaqaviy Vabo Epidemiyasi", callback_data="event_plague")],
-            [InlineKeyboardButton("🥷 Qaroqchilar Pistirmasiga Hujum", callback_data="event_bandits")],
+            [InlineKeyboardButton(f"☣️ Mintaqaviy Vabo Epidemiyasi ({plague_count}/2)", callback_data="event_plague")],
+            [InlineKeyboardButton(f"🥷 Qaroqchilar Pistirmasiga Hujum ({bandit_count}/3)", callback_data="event_bandits")],
             [InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")],
         ]
 
@@ -91,17 +93,23 @@ async def show_events_hub(target, user_id: int, is_message: bool):
 async def raid_night_king_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Tun Qiroliga zarba berish (Kunlik limit: 3 ta)"""
     query = update.callback_query
-    await query.answer()
     user_id = query.from_user.id
 
     async with AsyncSessionLocal() as session:
         user = await crud.get_user_with_relations(session, user_id)
         if not user:
+            try:
+                await query.answer("Foydalanuvchi topilmadi!", show_alert=True)
+            except Exception:
+                pass
             return
 
         await crud.check_and_reset_daily_limits(session, user)
         if user.daily_ww_attack_count >= 3:
-            await query.answer("❌ Bugungi 3 ta Oq yuruvchilarga qarshi hujum limitingiz tugagan! Ertaga yana reyd qilishingiz mumkin.", show_alert=True)
+            try:
+                await query.answer("❌ Bugungi 3 ta Oq yuruvchilarga qarshi hujum limitingiz tugagan! Ertaga yana reyd qilishingiz mumkin.", show_alert=True)
+            except Exception:
+                pass
             return
 
         army_res = await session.execute(select(models.Army).where(models.Army.user_id == user.id))
@@ -109,7 +117,10 @@ async def raid_night_king_callback(update: Update, context: ContextTypes.DEFAULT
         total_troops = (army.infantry + army.archers + army.cavalry + army.spearmen) if army else 0
 
         if total_troops < 25:
-            await query.answer("❌ Tun Qiroliga reyd qilish uchun kamida 25 ta askar kerak!", show_alert=True)
+            try:
+                await query.answer("❌ Tun Qiroliga reyd qilish uchun kamida 25 ta askar kerak!", show_alert=True)
+            except Exception:
+                pass
             return
 
         # Zarba berish va talafot (5 askar yo'qotiladi, Tun Qiroli HP si kamayadi)
@@ -177,7 +188,10 @@ async def raid_night_king_callback(update: Update, context: ContextTypes.DEFAULT
         alert_text = f"🏆 TUN QIROLI YENGILDI! Siz {total_dmg} ziyon yetkazdingiz! Top 1 jangchiga 'Shimol Najotkori' unvoni va +500 Prestige berildi!"
     else:
         alert_text = f"⚔️ Zarba berildi: -{total_dmg} wight!{dragon_msg} ({user.daily_ww_attack_count}/3)"
-    await query.answer(alert_text, show_alert=True)
+    try:
+        await query.answer(alert_text, show_alert=True)
+    except Exception:
+        pass
     await show_events_hub(query, user_id, is_message=False)
 
 
@@ -223,6 +237,74 @@ async def night_king_leaderboard_callback(update: Update, context: ContextTypes.
     await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
 
 
+# ============================================================
+# MINTAQAVIY VABO EPIDEMIYASI
+# ============================================================
+
+async def render_plague_screen(session, user: models.User, last_action_msg: str = None) -> tuple[str, InlineKeyboardMarkup]:
+    """Mintaqaviy vabo ekrani matni va tugmalarini tayyorlash"""
+    await crud.check_and_reset_daily_limits(session, user)
+
+    # Agar user.house yuklanmagan bo'lsa
+    if user.house_id and not user.house:
+        user.house = await session.get(models.House, user.house_id)
+
+    from data.map_data import REGIONS_DATA
+    if user.house and user.house.region:
+        reg_name = user.house.region
+        reg_info = REGIONS_DATA.get(reg_name, {})
+        reg_emoji = reg_info.get("emoji", "📍")
+        reg_display = f"{reg_emoji} **{reg_name}** ({user.house.emoji} {user.house.name})"
+        desc = reg_info.get("description", "Vesterosning aholi zich joylashgan hududi.")
+    else:
+        reg_display = "🗺️ **Westeros Sayyohlik Qarorgohi** (Xonadonsiz)"
+        desc = "Mintaqaviy mustahkam qarorgohingiz yo'q, ammo atrofingizda qora o'lat xavfi kezmoqda."
+
+    # Armiya holati
+    army_res = await session.execute(select(models.Army).where(models.Army.user_id == user.id))
+    army = army_res.scalar_one_or_none()
+    tot_troops = ((army.infantry or 0) + (army.archers or 0) + (army.cavalry or 0) + (army.spearmen or 0)) if army else 0
+
+    plague_count = getattr(user, "daily_plague_count", 0) or 0
+    rem_actions = max(0, 2 - plague_count)
+
+    if plague_count >= 2:
+        status_str = "⚠️ **Bugungi barcha choralar ko'rildi (2/2 ta).**\nErtangi kunga qadar mintaqangiz nazorat ostida saqlanadi."
+    else:
+        status_str = f"📊 Bugungi choralar: **{plague_count}/2 ta** (Yana {rem_actions} ta chora ko'rishingiz mumkin)"
+
+    text = (
+        f"☣️ **MINTAQAVIY VABO EPIDEMIYASI**\n\n"
+        f"📍 Mintaqangiz: {reg_display}\n"
+        f"📜 _{desc}_\n"
+        f"☣️ Epidemiya holati: **Xavfli O'choq (Qora O'lat)**\n\n"
+        f"Mintaqangiz xalqi va garnizon askarlari orasida qora o'lat tarqalmoqda. "
+        f"Maesterlar shoshilinch chora ko'rishingizni so'ramoqda:\n\n"
+        f"💰 Shaxsiy hisobingiz: **{user.gold:,}**🪙 oltin, **{user.iron:,}**⛓️ temir\n"
+        f"🛡️ Garnizon askarlaringiz: **{tot_troops:,}** ta jangchi\n\n"
+        f"{status_str}\n\n"
+        f"1. 🧪 **Dorilar Tayyorlash:** Maesterlar shifobaxsh giyohlar va eliksirlar tayyorlaydi (-300🪙, -100⛓️). "
+        f"Vabo to'liq yengiladi (+40🏆 Prestige, +100⚡ XP).\n\n"
+        f"2. 🚪 **Hududni Karantin Qilish:** 0 resurs sarflanadi. Qat'iy karantin o'rnatiladi, "
+        f"ammo kasallangan 10 ta askar yo'qotiladi (+15🏆 Prestige, +40⚡ XP)."
+    )
+
+    if last_action_msg:
+        text += f"\n\n📢 **Oxirgi qaror:**\n{last_action_msg}"
+
+    buttons = []
+    if plague_count < 2:
+        buttons.append([InlineKeyboardButton("🧪 Dorilar Tayyorlash (-300🪙, -100⛓️)", callback_data="plague_cure")])
+        buttons.append([InlineKeyboardButton("🚪 Hududni Karantin Qilish (-10 askar)", callback_data="plague_quarantine")])
+    else:
+        buttons.append([InlineKeyboardButton("✅ Bugungi Barcha Choralar Ko'rildi (2/2)", callback_data="plague_done_info")])
+
+    buttons.append([InlineKeyboardButton("🔙 Voqealarga Qaytish", callback_data="menu_throne")])
+    buttons.append([InlineKeyboardButton("🏰 Asosiy Menyu", callback_data="menu_main")])
+
+    return text, InlineKeyboardMarkup(buttons)
+
+
 async def event_plague_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Vabo hodisasi menyusi (Kunlik limit 2 marta)"""
     query = update.callback_query
@@ -234,72 +316,136 @@ async def event_plague_callback(update: Update, context: ContextTypes.DEFAULT_TY
         if not user:
             return
 
-        plague_count = getattr(user, "daily_plague_count", 0)
-
-        buttons = []
-        if plague_count >= 2:
-            status_str = f"⚠️ **Bugungi limit tugagan: {plague_count}/2 ta.**\nErtangi kunga qadar yangi chora ko'rish imkoni yo'q."
-        else:
-            status_str = f"📊 Bugungi harakatlaringiz: **{plague_count}/2 ta**"
-            buttons.append([InlineKeyboardButton("🧪 Dorilar Tayyorlash (-300🪙, -100⛓️)", callback_data="plague_cure")])
-            buttons.append([InlineKeyboardButton("🚪 Shaharni Karantin Qilish (0 resurs)", callback_data="plague_quarantine")])
-
-        buttons.append([InlineKeyboardButton("🔙 Voqealarga Qaytish", callback_data="menu_throne")])
-
-        text = (
-            f"☣️ **MINTAQADA OG'IR VABO EPIDEMIYASI TARQALDI!**\n\n"
-            f"Xalqingiz va askarlaringiz orasida sirli kasallik tarqalmoqda. "
-            f"Maesterlar shoshilinch qaror qabul qilishingizni kutmoqda:\n\n"
-            f"{status_str}\n\n"
-            f"1. **Dorilar Tayyorlash:** 300 oltin va 100 temir sarflab epidemiyani yengasiz va xalq hurmatiga (+40 Prestige) sazovor bo'lasiz.\n"
-            f"2. **Karantin:** Hech narsa sarflamaysiz, ammo 10 ta askar kasallikdan nobud bo'ladi."
-        )
-        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        text, reply_markup = await render_plague_screen(session, user)
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=reply_markup)
 
 
 async def plague_action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Vabo harakati natijasi (Maksimal 2 marta)"""
     query = update.callback_query
-    await query.answer()
-
     action = query.data
     user_id = query.from_user.id
 
     async with AsyncSessionLocal() as session:
         user = await crud.get_user_with_relations(session, user_id)
         if not user:
+            try:
+                await query.answer("Foydalanuvchi topilmadi!", show_alert=True)
+            except Exception:
+                pass
             return
 
-        if getattr(user, "daily_plague_count", 0) >= 2:
-            await query.answer("❌ Bugungi vabo harakati limiti (2/2) tugagan! Ertaga qayta urinib ko'ring.", show_alert=True)
-            await show_events_hub(query, user_id, is_message=False)
+        await crud.check_and_reset_daily_limits(session, user)
+
+        plague_count = getattr(user, "daily_plague_count", 0) or 0
+        if plague_count >= 2:
+            try:
+                await query.answer("❌ Bugungi vabo harakati limitingiz (2/2) tugagan! Ertaga qayta urinib ko'ring.", show_alert=True)
+            except Exception:
+                pass
+            text, reply_markup = await render_plague_screen(session, user)
+            try:
+                await query.edit_message_text(text, parse_mode="Markdown", reply_markup=reply_markup)
+            except Exception:
+                pass
             return
+
+        from core.leveling import check_user_level_up
 
         if action == "plague_cure":
             if user.gold < 300 or user.iron < 100:
-                await query.answer("❌ Dorilar tayyorlash uchun 300 oltin va 100 temir kerak!", show_alert=True)
+                shortage = []
+                if user.gold < 300:
+                    shortage.append(f"{300 - user.gold:,}🪙 oltin")
+                if user.iron < 100:
+                    shortage.append(f"{100 - user.iron:,}⛓️ temir")
+                alert_err = f"❌ Dorilar tayyorlash uchun resurs yetarli emas! Sizga yana {', '.join(shortage)} kerak."
+                try:
+                    await query.answer(alert_err, show_alert=True)
+                except Exception:
+                    pass
+                text, reply_markup = await render_plague_screen(session, user, last_action_msg=alert_err)
+                try:
+                    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=reply_markup)
+                except Exception:
+                    pass
                 return
+
             user.gold -= 300
             user.iron -= 100
             user.prestige += 40
             user.xp += 100
-            user.daily_plague_count = getattr(user, "daily_plague_count", 0) + 1
+            user.daily_plague_count = plague_count + 1
+
+            lvl_up, new_lvl, lvl_msg = check_user_level_up(user)
             await session.commit()
-            msg = f"✅ Maesterlar dorilar tayyorladi! Vabo bartaraf etildi. (+40 Prestige, Bugungi limit: {user.daily_plague_count}/2)"
-        else:
+
+            alert_msg = f"✅ Dorilar tayyorlandi! Vabo bartaraf etildi. (+40 Prestige, +100 XP, {user.daily_plague_count}/2)"
+            result_note = f"✅ **Maesterlar dorivor giyohlar tayyorladi!**\nMintaqadagi vabo bartaraf etildi. Sizga +40🏆 Prestige va +100⚡ XP berildi."
+            if lvl_up:
+                result_note += f"\n🎉 {lvl_msg}"
+
+        elif action == "plague_quarantine":
             army_res = await session.execute(select(models.Army).where(models.Army.user_id == user.id))
             army = army_res.scalar_one_or_none()
-            if army and army.infantry >= 10:
-                army.infantry -= 10
-            elif army:
-                army.archers = max(0, army.archers - 10)
-            user.daily_plague_count = getattr(user, "daily_plague_count", 0) + 1
+
+            dead_troops = 0
+            if army:
+                to_remove = 10
+                for attr in ["infantry", "archers", "spearmen", "cavalry"]:
+                    val = getattr(army, attr, 0) or 0
+                    if val > 0:
+                        take = min(val, to_remove)
+                        setattr(army, attr, val - take)
+                        to_remove -= take
+                        dead_troops += take
+                    if to_remove <= 0:
+                        break
+
+            user.prestige += 15
+            user.xp += 40
+            user.daily_plague_count = plague_count + 1
+
+            lvl_up, new_lvl, lvl_msg = check_user_level_up(user)
             await session.commit()
-            msg = f"🚪 Qattiq karantin joriy qilindi. 10 ta askar nobud bo'ldi. (Bugungi limit: {user.daily_plague_count}/2)"
 
-    await query.answer(msg, show_alert=True)
-    await show_events_hub(query, user_id, is_message=False)
+            loss_str = f"{dead_troops} ta askar qurbon bo'ldi" if dead_troops > 0 else "harbiy talafotsiz"
+            alert_msg = f"🚪 Karantin joriy qilindi ({loss_str}). (+15 Prestige, +40 XP, {user.daily_plague_count}/2)"
+            result_note = f"🚪 **Mintaqada qat'iy harbiy karantin o'rnatildi!**\n{loss_str.capitalize()}, ammo aholi saqlab qolindi. Sizga +15🏆 Prestige va +40⚡ XP berildi."
+            if lvl_up:
+                result_note += f"\n🎉 {lvl_msg}"
 
+        else:
+            return
+
+        try:
+            await query.answer(alert_msg, show_alert=True)
+        except Exception:
+            pass
+
+        text, reply_markup = await render_plague_screen(session, user, last_action_msg=result_note)
+        try:
+            await query.edit_message_text(text, parse_mode="Markdown", reply_markup=reply_markup)
+        except Exception:
+            pass
+
+
+async def plague_done_info_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Bugungi 2 ta chora to'liq ko'rilgani haqida popup bildirishnoma"""
+    query = update.callback_query
+    try:
+        await query.answer(
+            "✅ Siz bugun o'z mintaqangizda vaboga qarshi 2 ta zaruriy chorani to'liq ko'rdingiz!\n\n"
+            "Ertangi kunga qadar mintaqangiz xavfsiz holatda saqlanadi. Ertaga yangi kunda yana chora ko'rishingiz mumkin.",
+            show_alert=True
+        )
+    except Exception:
+        pass
+
+
+# ============================================================
+# QAROQCHILAR VA ISYONCHILAR
+# ============================================================
 
 async def event_bandits_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Qaroqchilar hodisasi menyusi"""
@@ -332,14 +478,16 @@ async def event_bandits_callback(update: Update, context: ContextTypes.DEFAULT_T
 async def bandits_action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Qaroqchilar harakati natijasi"""
     query = update.callback_query
-    await query.answer()
-
     action = query.data
     user_id = query.from_user.id
 
     async with AsyncSessionLocal() as session:
         user = await crud.get_user_with_relations(session, user_id)
         if not user:
+            try:
+                await query.answer("Foydalanuvchi topilmadi!", show_alert=True)
+            except Exception:
+                pass
             return
 
         await crud.check_and_reset_daily_limits(session, user)
@@ -347,13 +495,19 @@ async def bandits_action_callback(update: Update, context: ContextTypes.DEFAULT_
         if action == "bandits_fight":
             b_cnt = getattr(user, "daily_bandit_count", 0) or 0
             if b_cnt >= 3:
-                await query.answer("❌ Bugungi 3 ta qaroqchilar pistirmasiga hujum limitingiz tugagan! Ertaga yana urinib ko'rishingiz mumkin.", show_alert=True)
+                try:
+                    await query.answer("❌ Bugungi 3 ta qaroqchilar pistirmasiga hujum limitingiz tugagan! Ertaga yana urinib ko'rishingiz mumkin.", show_alert=True)
+                except Exception:
+                    pass
                 return
 
             army_res = await session.execute(select(models.Army).where(models.Army.user_id == user.id))
             army = army_res.scalar_one_or_none()
             if not army or (army.infantry + army.archers + army.cavalry + army.spearmen) < 10:
-                await query.answer("❌ Qaroqchilarga qarshi chiqish uchun kamida 10 ta askar kerak!", show_alert=True)
+                try:
+                    await query.answer("❌ Qaroqchilarga qarshi chiqish uchun kamida 10 ta askar kerak!", show_alert=True)
+                except Exception:
+                    pass
                 return
             if army.infantry >= 5:
                 army.infantry -= 5
@@ -365,6 +519,9 @@ async def bandits_action_callback(update: Update, context: ContextTypes.DEFAULT_
             user.prestige += 35
             user.xp += 120
             user.daily_bandit_count = b_cnt + 1
+
+            from core.leveling import check_user_level_up
+            lvl_up, new_lvl, lvl_msg = check_user_level_up(user)
             await session.commit()
             msg = f"🏆 G'alaba! Qaroqchilar tor-mor etildi: +800🪙 oltin, +300🌾 oziq-ovqat, +35 Prestige! ({user.daily_bandit_count}/3)"
         else:
@@ -372,7 +529,10 @@ async def bandits_action_callback(update: Update, context: ContextTypes.DEFAULT_
             await session.commit()
             msg = "💰 200 tanga o'lpon to'landi. Qaroqchilar chekindi."
 
-    await query.answer(msg, show_alert=True)
+    try:
+        await query.answer(msg, show_alert=True)
+    except Exception:
+        pass
     await show_events_hub(query, user_id, is_message=False)
 
 
@@ -384,6 +544,7 @@ def register_events_handlers(app):
     app.add_handler(CallbackQueryHandler(raid_night_king_callback, pattern="^raid_night_king$"))
     app.add_handler(CallbackQueryHandler(night_king_leaderboard_callback, pattern="^night_king_leaderboard$"))
     app.add_handler(CallbackQueryHandler(event_plague_callback, pattern="^event_plague$"))
-    app.add_handler(CallbackQueryHandler(plague_action_callback, pattern="^plague_"))
+    app.add_handler(CallbackQueryHandler(plague_action_callback, pattern="^plague_(cure|quarantine)$"))
+    app.add_handler(CallbackQueryHandler(plague_done_info_callback, pattern="^plague_done_info$"))
     app.add_handler(CallbackQueryHandler(event_bandits_callback, pattern="^event_bandits$"))
     app.add_handler(CallbackQueryHandler(bandits_action_callback, pattern="^bandits_"))
