@@ -269,7 +269,7 @@ async def init_db():
                 )
                 session.add(new_territory)
             else:
-                if not result.conquered_by_user_id:
+                if result.owner_house_id is None and not result.conquered_by_user_id:
                     result.owner_house_id = t_info.get("initial_owner_id")
 
 

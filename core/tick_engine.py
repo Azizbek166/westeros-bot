@@ -113,13 +113,17 @@ async def process_due_marches(bot_app=None):
                 march_siege_towers = getattr(march, "siege_towers", 0) or 0
                 terr_wildfire = getattr(territory, "wildfire_count", 0) or 0
 
+                # Sarkardalar (Champion) - Async safe fetch
+                att_army_obj = await crud.get_user_army(session, attacker.id)
                 att_champion = getattr(march, "champion", None)
-                if not att_champion and attacker.army:
-                    att_champion = getattr(attacker.army, "champion", None)
+                if not att_champion and att_army_obj:
+                    att_champion = getattr(att_army_obj, "champion", None)
 
                 def_champion = None
-                if def_lord_user and def_lord_user.army:
-                    def_champion = getattr(def_lord_user.army, "champion", None)
+                if def_lord_user:
+                    def_lord_army = await crud.get_user_army(session, def_lord_user.id)
+                    if def_lord_army:
+                        def_champion = getattr(def_lord_army, "champion", None)
 
                 # Josus tomonidan darvoza ochilganligini tekshirish
                 gates_open = bool(
@@ -160,17 +164,19 @@ async def process_due_marches(bot_app=None):
                     territory.defense = max(50, territory.defense - castle_defense_dmg)
 
                 # Tirik qolgan hujumchilarni armiyaga qaytarish
-                attacker_army_obj = await crud.get_user_army(session, attacker.id)
+                attacker_army_obj = att_army_obj or (await crud.get_user_army(session, attacker.id))
                 if attacker_army_obj:
-                    attacker_army_obj.infantry += battle_res["remaining_attacker"]["infantry"]
-                    attacker_army_obj.archers += battle_res["remaining_attacker"]["archers"]
-                    attacker_army_obj.cavalry += battle_res["remaining_attacker"]["cavalry"]
-                    attacker_army_obj.spearmen += battle_res["remaining_attacker"]["spearmen"]
-                    attacker_army_obj.special_troops += battle_res["remaining_attacker"]["special_troops"]
+                    attacker_army_obj.infantry = (attacker_army_obj.infantry or 0) + battle_res["remaining_attacker"]["infantry"]
+                    attacker_army_obj.archers = (attacker_army_obj.archers or 0) + battle_res["remaining_attacker"]["archers"]
+                    attacker_army_obj.cavalry = (attacker_army_obj.cavalry or 0) + battle_res["remaining_attacker"]["cavalry"]
+                    attacker_army_obj.spearmen = (attacker_army_obj.spearmen or 0) + battle_res["remaining_attacker"]["spearmen"]
+                    attacker_army_obj.special_troops = (attacker_army_obj.special_troops or 0) + battle_res["remaining_attacker"]["special_troops"]
                     survived_cats = max(0, march_catapults - battle_res.get("catapults_lost", 0))
                     survived_twrs = max(0, march_siege_towers - battle_res.get("siege_towers_lost", 0))
                     attacker_army_obj.catapults = (attacker_army_obj.catapults or 0) + survived_cats
                     attacker_army_obj.siege_towers = (attacker_army_obj.siege_towers or 0) + survived_twrs
+                    session.add(attacker_army_obj)
+                    await session.flush()
 
                 # Garnizonni yangilash
                 territory.garrison_infantry = battle_res["remaining_defender"]["infantry"]
@@ -234,16 +240,22 @@ async def process_due_marches(bot_app=None):
                             f"{battle_res['details']}\n\n"
                             f"Qal'ani qaytarib olish uchun xonadon a'zolaringiz bilan qarshi hujum uyushtiring!"
                         )
+                        bot = getattr(bot_app, "bot", bot_app)
                         try:
-                            await bot_app.bot.send_message(
+                            send_lose = def_lose_text
+                            if len(send_lose) > 3800:
+                                send_lose = send_lose[:3750] + "\n\n*(Batafsil /battle bo'limida...)*"
+                            await bot.send_message(
                                 chat_id=def_lord_id,
-                                text=def_lose_text,
+                                text=send_lose,
                                 parse_mode="Markdown",
                             )
                         except Exception as e_md:
                             try:
                                 clean_def = def_lose_text.replace("**", "").replace("*", "").replace("`", "")
-                                await bot_app.bot.send_message(chat_id=def_lord_id, text=clean_def)
+                                if len(clean_def) > 3800:
+                                    clean_def = clean_def[:3750] + "\n\n(Batafsil /battle bo'limida...)"
+                                await bot.send_message(chat_id=def_lord_id, text=clean_def, parse_mode=None)
                             except Exception as e:
                                 logger.warning(f"Himoyachiga xabar yuborishda xatolik: {e}")
 
@@ -289,16 +301,22 @@ async def process_due_marches(bot_app=None):
                             f"🏰 **{territory.name} ({territory.castle_name})** qal'angizga bo'lgan dushman hujumi jasorat bilan qaytarildi!\n\n"
                             f"{battle_res['details']}\n"
                         )
+                        bot = getattr(bot_app, "bot", bot_app)
                         try:
-                            await bot_app.bot.send_message(
+                            send_win = def_win_text
+                            if len(send_win) > 3800:
+                                send_win = send_win[:3750] + "\n\n*(Batafsil /battle bo'limida...)*"
+                            await bot.send_message(
                                 chat_id=def_lord_id,
-                                text=def_win_text,
+                                text=send_win,
                                 parse_mode="Markdown",
                             )
                         except Exception as e_md:
                             try:
                                 clean_win = def_win_text.replace("**", "").replace("*", "").replace("`", "")
-                                await bot_app.bot.send_message(chat_id=def_lord_id, text=clean_win)
+                                if len(clean_win) > 3800:
+                                    clean_win = clean_win[:3750] + "\n\n(Batafsil /battle bo'limida...)"
+                                await bot.send_message(chat_id=def_lord_id, text=clean_win, parse_mode=None)
                             except Exception as e:
                                 logger.warning(f"Himoyachiga xabar yuborishda xatolik: {e}")
 
@@ -369,19 +387,26 @@ async def process_due_marches(bot_app=None):
                         f"🪙 +{battle_res['loot']['gold']:,} oltin | 🌾 +{battle_res['loot']['food']:,} g'alla | ⛓️ +{battle_res['loot']['iron']:,} temir\n\n"
                         f"Batafsil ma'lumot va janglar tarixini /battle bo'limida ko'rishingiz mumkin."
                     )
+                    bot = getattr(bot_app, "bot", bot_app)
                     try:
-                        await bot_app.bot.send_message(
+                        send_msg = msg
+                        if len(send_msg) > 3800:
+                            send_msg = send_msg[:3750] + "\n\n*(Batafsil /battle bo'limida...)*"
+                        await bot.send_message(
                             chat_id=attacker.telegram_id,
-                            text=msg,
+                            text=send_msg,
                             parse_mode="Markdown",
                         )
                     except Exception as e_md:
                         logger.warning(f"Markdown orqali xabar yuborishda xatolik ({e_md}), xom matn yuborilmoqda...")
                         try:
                             clean_msg = msg.replace("**", "").replace("*", "").replace("`", "")
-                            await bot_app.bot.send_message(
+                            if len(clean_msg) > 3800:
+                                clean_msg = clean_msg[:3750] + "\n\n(Batafsil /battle bo'limida...)"
+                            await bot.send_message(
                                 chat_id=attacker.telegram_id,
                                 text=clean_msg,
+                                parse_mode=None,
                             )
                         except Exception as e_final:
                             logger.error(f"Hujumchiga xabar yuborish butunlay muvaffaqiyatsiz bo'ldi: {e_final}")
@@ -402,23 +427,29 @@ async def process_due_marches(bot_app=None):
 
                 # Yurish muvaffaqiyatli yakunlandi
                 march.status = "resolved"
+                session.add(march)
+                session.add(territory)
+                await session.flush()
 
             except Exception as e:
                 logger.error(f"March {march.id} ni hisoblashda xatolik: {e}", exc_info=True)
                 try:
                     if march.status == "marching":
                         march.status = "failed"
+                        session.add(march)
                         if attacker:
                             army = await crud.get_user_army(session, attacker.id)
                             if army:
-                                army.infantry += march.infantry
-                                army.archers += march.archers
-                                army.cavalry += march.cavalry
-                                army.spearmen += march.spearmen
-                                army.special_troops += march.special_troops
+                                army.infantry = (army.infantry or 0) + (march.infantry or 0)
+                                army.archers = (army.archers or 0) + (march.archers or 0)
+                                army.cavalry = (army.cavalry or 0) + (march.cavalry or 0)
+                                army.spearmen = (army.spearmen or 0) + (march.spearmen or 0)
+                                army.special_troops = (army.special_troops or 0) + (march.special_troops or 0)
                                 army.catapults = (army.catapults or 0) + (getattr(march, "catapults", 0) or 0)
                                 army.siege_towers = (army.siege_towers or 0) + (getattr(march, "siege_towers", 0) or 0)
+                                session.add(army)
                                 logger.info(f"March {march.id} qo'shinlari o'yinchi {attacker.id} ga failsafe qaytarildi.")
+                        await session.flush()
                 except Exception as e_refund:
                     logger.error(f"March {march.id} qo'shinlarini failsafe qaytarishda xatolik: {e_refund}")
 

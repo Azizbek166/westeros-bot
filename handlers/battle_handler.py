@@ -817,13 +817,14 @@ async def send_custom_march_callback(update: Update, context: ContextTypes.DEFAU
                 )
                 return
 
-        u_inf = (user.army.infantry if user.army else 0) or 0
-        u_arc = (user.army.archers if user.army else 0) or 0
-        u_cav = (user.army.cavalry if user.army else 0) or 0
-        u_sp = (user.army.spearmen if user.army else 0) or 0
-        u_spc = (user.army.special_troops if user.army else 0) or 0
-        u_cat = getattr(user.army, 'catapults', 0) or 0
-        u_tow = getattr(user.army, 'siege_towers', 0) or 0
+        user_army = await crud.get_user_army(session, user.id)
+        u_inf = (user_army.infantry if user_army else 0) or 0
+        u_arc = (user_army.archers if user_army else 0) or 0
+        u_cav = (user_army.cavalry if user_army else 0) or 0
+        u_sp = (user_army.spearmen if user_army else 0) or 0
+        u_spc = (user_army.special_troops if user_army else 0) or 0
+        u_cat = getattr(user_army, 'catapults', 0) or 0
+        u_tow = getattr(user_army, 'siege_towers', 0) or 0
 
         draft = context.user_data.get(f"march_{terr_id}")
         if not draft:
@@ -872,6 +873,9 @@ async def send_custom_march_callback(update: Update, context: ContextTypes.DEFAU
         # Qalqonni bekor qilish
         user.peace_shield_until = None
 
+        user_chars = await crud.get_user_characters(session, user.id)
+        char_id = user_chars[0].id if user_chars else None
+
         march = await crud.create_battle_march(
             session=session,
             attacker_user_id=user.id,
@@ -884,7 +888,7 @@ async def send_custom_march_callback(update: Update, context: ContextTypes.DEFAU
             special_troops=special_troops,
             catapults=catapults,
             siege_towers=siege_towers,
-            character_id=user.characters[0].id if user.characters else None,
+            character_id=char_id,
             duration_minutes=BASE_MARCH_MINUTES,
             has_dragon=has_dragon,
             dragon_tactic=dragon_tactic,
@@ -1009,13 +1013,14 @@ async def send_march_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
                 return
 
         ratio = percent / 100.0
-        u_inf = (user.army.infantry if user.army else 0) or 0
-        u_arc = (user.army.archers if user.army else 0) or 0
-        u_cav = (user.army.cavalry if user.army else 0) or 0
-        u_sp = (user.army.spearmen if user.army else 0) or 0
-        u_spc = (user.army.special_troops if user.army else 0) or 0
-        u_cat = getattr(user.army, 'catapults', 0) or 0
-        u_tow = getattr(user.army, 'siege_towers', 0) or 0
+        user_army = await crud.get_user_army(session, user.id)
+        u_inf = (user_army.infantry if user_army else 0) or 0
+        u_arc = (user_army.archers if user_army else 0) or 0
+        u_cav = (user_army.cavalry if user_army else 0) or 0
+        u_sp = (user_army.spearmen if user_army else 0) or 0
+        u_spc = (user_army.special_troops if user_army else 0) or 0
+        u_cat = getattr(user_army, 'catapults', 0) or 0
+        u_tow = getattr(user_army, 'siege_towers', 0) or 0
 
         infantry = int(u_inf * ratio)
         archers = int(u_arc * ratio)
@@ -1044,6 +1049,9 @@ async def send_march_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
                 has_dragon = False
                 dragon_tactic = "none"
 
+        user_chars = await crud.get_user_characters(session, user.id)
+        char_id = user_chars[0].id if user_chars else None
+
         march = await crud.create_battle_march(
             session=session,
             attacker_user_id=user.id,
@@ -1056,7 +1064,7 @@ async def send_march_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             special_troops=special,
             catapults=catapults,
             siege_towers=siege_towers,
-            character_id=user.characters[0].id if user.characters else None,
+            character_id=char_id,
             duration_minutes=BASE_MARCH_MINUTES,
             has_dragon=has_dragon,
             dragon_tactic=dragon_tactic,
