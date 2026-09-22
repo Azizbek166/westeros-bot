@@ -2842,43 +2842,52 @@ async def admin_season_menu_callback(update: Update, context: ContextTypes.DEFAU
         await query.answer("❌ Faqat Administrator kirishi mumkin!", show_alert=True)
         return
 
-    async with AsyncSessionLocal() as session:
-        summary = await crud.get_season_status_summary(session)
+    try:
+        async with AsyncSessionLocal() as session:
+            summary = await crud.get_season_status_summary(session)
 
-    s_num = summary["season_number"]
-    next_s_num = s_num + 1
-    rem_str = f"{summary['rem_days']} kun {summary['rem_hours']} soat {summary['rem_mins']} daqiqa"
-    winner_h = summary["winner_house_name"]
-    winner_emoji = summary["winner_house_emoji"]
-    king_name = summary["king_name"]
+        s_num = summary["season_number"]
+        next_s_num = s_num + 1
+        rem_str = f"{summary['rem_days']} kun {summary['rem_hours']} soat {summary['rem_mins']} daqiqa"
+        winner_h = escape_md(str(summary["winner_house_name"]))
+        winner_emoji = summary["winner_house_emoji"]
+        king_name = escape_md(str(summary["king_name"]))
 
-    top3_text = ""
-    for p in summary["top3_players"]:
-        badge = "🥇" if p["rank"] == 1 else ("🥈" if p["rank"] == 2 else "🥉")
-        top3_text += f"• {badge} **{p['rank']}-o'rin:** {p['name']} ({p['house']}) — **{p['prestige']:,}🎖️** Nufuz (Daraja: {p['level']})\n"
+        top3_text = ""
+        for p in summary["top3_players"]:
+            badge = "🥇" if p["rank"] == 1 else ("🥈" if p["rank"] == 2 else "🥉")
+            p_name = escape_md(str(p['name']))
+            p_h = escape_md(str(p['house']))
+            top3_text += f"• {badge} *{p['rank']}-o'rin:* {p_name} ({p_h}) — *{p['prestige']:,}🎖️* Nufuz (Daraja: {p['level']})\n"
 
-    if not top3_text:
-        top3_text = "• *Hozircha faol o'yinchilar yo'q*\n"
+        if not top3_text:
+            top3_text = "• _Hozircha faol o'yinchilar yo'q_\n"
 
-    text = (
-        f"👑 **{s_num}-MAVSUM BOSHQARUVI & YAKUNLASH**\n\n"
-        f"⏱️ **Qolgan muddat:** {rem_str}\n"
-        f"🏰 **Amaldagi Temir Taxt Egalari:** {winner_emoji} **{winner_h}**\n"
-        f"👑 **Vesteros Qiroli:** **{king_name}**\n\n"
-        f"🏆 **JORIY MAVSUM YETAKCHILARI (TOP 3):**\n"
-        f"{top3_text}\n"
-        f"📜 **Mavsumni yakunlash oqibatlari:**\n"
-        f"1. O'yin g'olibi ({king_name}) abadiy **Shon-sharaf Zali (Hall of Fame)**ga muhrlanadi.\n"
-        f"2. Yuqoridagi TOP 3 lordlarga yangi {next_s_num}-Mavsum uchun **maxsus boshlang'ich bonuslar** (unvon, xazina, saralangan qo'shinlar) biriktiriladi.\n"
-        f"3. Barcha o'yinchilar, armiyalar va qal'alar 0 ga tushirilib, **{next_s_num}-Mavsum** rasman boshlanadi!\n\n"
-        f"Mavsumni yakunlab, yangi mavsumni boshlashni istaysizmi?"
-    )
+        text = (
+            f"👑 *{s_num}-MAVSUM BOSHQARUVI & YAKUNLASH*\n\n"
+            f"⏱️ *Qolgan muddat:* {rem_str}\n"
+            f"🏰 *Amaldagi Temir Taxt Egalari:* {winner_emoji} *{winner_h}*\n"
+            f"👑 *Vesteros Qiroli:* *{king_name}*\n\n"
+            f"🏆 *JORIY MAVSUM YETAKCHILARI (TOP 3):*\n"
+            f"{top3_text}\n"
+            f"📜 *Mavsumni yakunlash oqibatlari:*\n"
+            f"1. O'yin g'olibi ({king_name}) abadiy *Shon-sharaf Zali (Hall of Fame)*ga muhrlanadi.\n"
+            f"2. Yuqoridagi TOP 3 lordlarga yangi {next_s_num}-Mavsum uchun *maxsus boshlang'ich bonuslar* (unvon, xazina, saralangan qo'shinlar) biriktiriladi.\n"
+            f"3. Barcha o'yinchilar, armiyalar va qal'alar 0 ga tushirilib, *{next_s_num}-Mavsum* rasman boshlanadi!\n\n"
+            f"Mavsumni yakunlab, yangi mavsumni boshlashni istaysizmi?"
+        )
 
-    buttons = [
-        [InlineKeyboardButton("🏆 Mavsumni Yakunlash & Yangi Mavsum Boshlash", callback_data="admin_season_conclude_ask")],
-        [InlineKeyboardButton("🔙 Admin Panelga Qaytish", callback_data="admin_panel")],
-    ]
-    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        buttons = [
+            [InlineKeyboardButton("🏆 Mavsumni Yakunlash & Yangi Mavsum Boshlash", callback_data="admin_season_conclude_ask")],
+            [InlineKeyboardButton("🔙 Admin Panelga Qaytish", callback_data="admin_panel")],
+        ]
+        try:
+            await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        except Exception:
+            await query.edit_message_text(text, parse_mode=None, reply_markup=InlineKeyboardMarkup(buttons))
+    except Exception as e:
+        logger.error(f"admin_season_menu_callback xatosi: {e}", exc_info=True)
+        await query.answer(f"Xatolik: {e}", show_alert=True)
 
 
 async def admin_season_conclude_ask_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2890,28 +2899,36 @@ async def admin_season_conclude_ask_callback(update: Update, context: ContextTyp
         await query.answer("❌ Faqat Administrator ushbu amalni bajara oladi!", show_alert=True)
         return
 
-    async with AsyncSessionLocal() as session:
-        summary = await crud.get_season_status_summary(session)
+    try:
+        async with AsyncSessionLocal() as session:
+            summary = await crud.get_season_status_summary(session)
 
-    s_num = summary["season_number"]
-    next_s_num = s_num + 1
+        s_num = summary["season_number"]
+        next_s_num = s_num + 1
+        king_name = escape_md(str(summary['king_name']))
 
-    text = (
-        f"⚠️ **DIQQAT: {s_num}-MAVSUMNI TO'LIQ YAKUNLASH VA 0 DAN BOSHLASH!**\n\n"
-        f"Haqiqatan ham {s_num}-mavsumni yakunlab, yangi **{next_s_num}-Mavsum**ni boshlamoqchimisiz?\n\n"
-        f"**Nimalar sodir bo'ladi:**\n"
-        f"• G'olib **{summary['king_name']}** Shon-sharaf zaliga yoziladi.\n"
-        f"• TOP 3 o'yinchilariga yangi mavsumda ro'yxatdan o'tishda maxsus bonuslar saqlanadi.\n"
-        f"• Barcha o'yinchilar profillari, armiyalari va resurslari 0 ga tushiriladi.\n"
-        f"• Barcha 60 ta qal'a boshlang'ich holatiga qaytariladi.\n"
-        f"• Hamma /start orqali yangi mavsumda qaytadan boshlaydi!\n\n"
-        f"❗️ *Ushbu amalni ortga qaytarib bo'lmaydi!*"
-    )
-    buttons = [
-        [InlineKeyboardButton("👑 HA, MAVSUMNI YAKUNLASH VA 0 QILISH", callback_data="admin_season_conclude_do")],
-        [InlineKeyboardButton("❌ Bekor Qilish", callback_data="admin_season_menu")],
-    ]
-    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        text = (
+            f"⚠️ *DIQQAT: {s_num}-MAVSUMNI TO'LIQ YAKUNLASH VA 0 DAN BOSHLASH!*\n\n"
+            f"Haqiqatan ham {s_num}-mavsumni yakunlab, yangi *{next_s_num}-Mavsum*ni boshlamoqchimisiz?\n\n"
+            f"*Nimalar sodir bo'ladi:*\n"
+            f"• G'olib *{king_name}* Shon-sharaf zaliga yoziladi.\n"
+            f"• TOP 3 o'yinchilariga yangi mavsumda ro'yxatdan o'tishda maxsus bonuslar saqlanadi.\n"
+            f"• Barcha o'yinchilar profillari, armiyalari va resurslari 0 ga tushiriladi.\n"
+            f"• Barcha 60 ta qal'a boshlang'ich holatiga qaytariladi.\n"
+            f"• Hamma /start orqali yangi mavsumda qaytadan boshlaydi!\n\n"
+            f"❗️ _Ushbu amalni ortga qaytarib bo'lmaydi!_"
+        )
+        buttons = [
+            [InlineKeyboardButton("👑 HA, MAVSUMNI YAKUNLASH VA 0 QILISH", callback_data="admin_season_conclude_do")],
+            [InlineKeyboardButton("❌ Bekor Qilish", callback_data="admin_season_menu")],
+        ]
+        try:
+            await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        except Exception:
+            await query.edit_message_text(text, parse_mode=None, reply_markup=InlineKeyboardMarkup(buttons))
+    except Exception as e:
+        logger.error(f"admin_season_conclude_ask_callback xatosi: {e}", exc_info=True)
+        await query.answer(f"Xatolik: {e}", show_alert=True)
 
 
 async def admin_season_conclude_do_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2922,35 +2939,80 @@ async def admin_season_conclude_do_callback(update: Update, context: ContextType
         await query.answer("❌ Huquqingiz yetarli emas!", show_alert=True)
         return
 
-    await query.answer("⏳ Mavsum yakunlanmoqda va baza yangilanmoqda...", show_alert=False)
-    async with AsyncSessionLocal() as session:
-        ok, ann, res_info = await crud.admin_conclude_and_restart_season(session, context.application)
+    try:
+        await query.answer("⏳ Mavsum yakunlanmoqda va baza yangilanmoqda...", show_alert=False)
+    except Exception:
+        pass
 
-    if not ok:
-        await query.edit_message_text(f"❌ Xatolik yuz berdi: {ann}", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Orqaga", callback_data="admin_panel")]]))
-        return
+    try:
+        # Jarayon boshlanganini darhol ko'rsatish
+        try:
+            await query.edit_message_text(
+                "⏳ *MAVSUM YAKUNLANMOQDA...*\n\n"
+                "• G'olib Shon-sharaf zaliga muhrlanmoqda...\n"
+                "• TOP 3 o'yinchilarga bonuslar biriktirilmoqda...\n"
+                "• Barcha o'yinchilar va armiyalar 0 ga tushirilmoqda...\n"
+                "• Qal'alar boshlang'ich holatiga qaytarilmoqda...\n\n"
+                "_Iltimos, kuting..._",
+                parse_mode="Markdown"
+            )
+        except Exception:
+            pass
 
-    top3_lines = ""
-    for p in res_info.get("top3_players", []):
-        badge = "🥇" if p["rank"] == 1 else ("🥈" if p["rank"] == 2 else "🥉")
-        top3_lines += f"{badge} **{p['rank']}-o'rin:** {p['name']} ({p['prestige']:,}🎖️)\n"
+        async with AsyncSessionLocal() as session:
+            ok, ann, res_info = await crud.admin_conclude_and_restart_season(session, context.application)
 
-    text = (
-        f"👑🏆 **{res_info['season_number']}-MAVSUM MUVAFFAQIYATLI YAKUNLANDI!** 🏆👑\n\n"
-        f"🏛️ **Mavsum Chempioni:** **{res_info['winner_name']}** ({res_info['winner_house']})\n"
-        f"📜 O'yin g'olibi nomi abadiy **Shon-sharaf Zali (Hall of Fame)**ga oltin harflar bilan muhrlandi!\n\n"
-        f"🎖️ **Yangi mavsumda bonus oluvchi TOP 3 lordlar:**\n"
-        f"{top3_lines or 'Mavjud emas'}\n"
-        f"🌟 **{res_info['next_season_number']}-MAVSUM BOSHLANDI!**\n"
-        f"• Barcha o'yinchilar ma'lumotlari to'liq 0 ga tushirildi.\n"
-        f"• Qal'alar va garnizonlar boshlang'ich holatiga qaytdi.\n"
-        f"• Endi barcha o'yinchilar /start buyrug'i orqali yangi taqdirini tanlashi mumkin!"
-    )
-    buttons = [
-        [InlineKeyboardButton("👑 /start orqali Yangidan Boshlash", callback_data="menu_main")],
-        [InlineKeyboardButton("⚙️ Admin Paneli", callback_data="admin_panel")],
-    ]
-    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        if not ok:
+            text_err = f"❌ *Xatolik yuz berdi:*\n{ann}"
+            buttons_err = [[InlineKeyboardButton("🔙 Admin Panel", callback_data="admin_panel")]]
+            try:
+                await query.edit_message_text(text_err, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons_err))
+            except Exception:
+                await query.edit_message_text(text_err, parse_mode=None, reply_markup=InlineKeyboardMarkup(buttons_err))
+            return
+
+        top3_lines = ""
+        for p in res_info.get("top3_players", []):
+            badge = "🥇" if p["rank"] == 1 else ("🥈" if p["rank"] == 2 else "🥉")
+            p_name = escape_md(str(p['name']))
+            top3_lines += f"{badge} *{p['rank']}-o'rin:* {p_name} ({p['prestige']:,}🎖️)\n"
+
+        winner_name = escape_md(str(res_info.get('winner_name', 'Qirol')))
+        winner_house = escape_md(str(res_info.get('winner_house', 'Vesteros')))
+        s_num = res_info.get('season_number', 1)
+        next_s_num = res_info.get('next_season_number', 2)
+
+        text = (
+            f"👑🏆 *{s_num}-MAVSUM MUVAFFAQIYATLI YAKUNLANDI!* 🏆👑\n\n"
+            f"🏛️ *Mavsum Chempioni:* *{winner_name}* ({winner_house})\n"
+            f"📜 O'yin g'olibi nomi abadiy *Shon-sharaf Zali (Hall of Fame)*ga oltin harflar bilan muhrlandi!\n\n"
+            f"🎖️ *Yangi mavsumda bonus oluvchi TOP 3 lordlar:*\n"
+            f"{top3_lines or 'Mavjud emas'}\n"
+            f"🌟 *{next_s_num}-MAVSUM BOSHLANDI!*\n"
+            f"• Barcha o'yinchilar ma'lumotlari to'liq 0 ga tushirildi.\n"
+            f"• Qal'alar va garnizonlar boshlang'ich holatiga qaytdi.\n"
+            f"• Endi barcha o'yinchilar /start buyrug'i orqali yangi taqdirini tanlashi mumkin!"
+        )
+        buttons = [
+            [InlineKeyboardButton("👑 /start orqali Yangidan Boshlash", callback_data="menu_main")],
+            [InlineKeyboardButton("⚙️ Admin Paneli", callback_data="admin_panel")],
+        ]
+        try:
+            await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        except Exception:
+            await query.edit_message_text(text, parse_mode=None, reply_markup=InlineKeyboardMarkup(buttons))
+
+    except Exception as e:
+        logger.error(f"admin_season_conclude_do_callback xatosi: {e}", exc_info=True)
+        err_msg = f"❌ *Kutilmagan xatolik yuz berdi:*\n`{escape_md(str(e))}`"
+        err_btns = [
+            [InlineKeyboardButton("🔄 Qayta Urinish", callback_data="admin_season_conclude_ask")],
+            [InlineKeyboardButton("🔙 Admin Panel", callback_data="admin_panel")],
+        ]
+        try:
+            await query.edit_message_text(err_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(err_btns))
+        except Exception:
+            await query.edit_message_text(f"❌ Xatolik yuz berdi: {str(e)}", parse_mode=None, reply_markup=InlineKeyboardMarkup(err_btns))
 
 
 async def end_season_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2960,25 +3022,34 @@ async def end_season_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("❌ Faqat Administrator ushbu buyruqni bera oladi!")
         return
 
-    async with AsyncSessionLocal() as session:
-        summary = await crud.get_season_status_summary(session)
+    try:
+        async with AsyncSessionLocal() as session:
+            summary = await crud.get_season_status_summary(session)
 
-    s_num = summary["season_number"]
-    next_s_num = s_num + 1
+        s_num = summary["season_number"]
+        next_s_num = s_num + 1
+        king_name = escape_md(str(summary['king_name']))
 
-    text = (
-        f"⚠️ **DIQQAT: {s_num}-MAVSUMNI TO'LIQ YAKUNLASH VA 0 DAN BOSHLASH!**\n\n"
-        f"Haqiqatan ham {s_num}-mavsumni yakunlab, yangi **{next_s_num}-Mavsum**ni boshlamoqchimisiz?\n\n"
-        f"• G'olib **{summary['king_name']}** Shon-sharaf zaliga yoziladi.\n"
-        f"• TOP 3 o'yinchilariga yangi mavsumda ro'yxatdan o'tishda maxsus bonuslar saqlanadi.\n"
-        f"• Barcha o'yinchilar profillari, armiyalari va resurslari 0 ga tushiriladi.\n"
-        f"• Hamma /start orqali yangi mavsumda qaytadan boshlaydi!"
-    )
-    buttons = [
-        [InlineKeyboardButton("👑 HA, MAVSUMNI YAKUNLASH VA 0 QILISH", callback_data="admin_season_conclude_do")],
-        [InlineKeyboardButton("❌ Bekor Qilish", callback_data="menu_main")],
-    ]
-    await update.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        text = (
+            f"⚠️ *DIQQAT: {s_num}-MAVSUMNI TO'LIQ YAKUNLASH VA 0 DAN BOSHLASH!*\n\n"
+            f"Haqiqatan ham {s_num}-mavsumni yakunlab, yangi *{next_s_num}-Mavsum*ni boshlamoqchimisiz?\n\n"
+            f"• G'olib *{king_name}* Shon-sharaf zaliga yoziladi.\n"
+            f"• TOP 3 o'yinchilariga yangi mavsumda ro'yxatdan o'tishda maxsus bonuslar saqlanadi.\n"
+            f"• Barcha o'yinchilar profillari, armiyalari va resurslari 0 ga tushiriladi.\n"
+            f"• Hamma /start orqali yangi mavsumda qaytadan boshlaydi!"
+        )
+        buttons = [
+            [InlineKeyboardButton("👑 HA, MAVSUMNI YAKUNLASH VA 0 QILISH", callback_data="admin_season_conclude_do")],
+            [InlineKeyboardButton("❌ Bekor Qilish", callback_data="menu_main")],
+        ]
+        try:
+            await update.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        except Exception:
+            await update.message.reply_text(text, parse_mode=None, reply_markup=InlineKeyboardMarkup(buttons))
+    except Exception as e:
+        logger.error(f"end_season_command xatosi: {e}", exc_info=True)
+        await update.message.reply_text(f"❌ Xatolik yuz berdi: {str(e)}")
+
 
 
 async def admin_wipe_ask_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):

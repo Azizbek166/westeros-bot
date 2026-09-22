@@ -38,12 +38,22 @@ async def notify_house_group(bot_app, house_id: int, text: str, parse_mode: str 
             chat_id = house.group_chat_id
 
         bot = getattr(bot_app, "bot", bot_app)
-        await bot.send_message(
-            chat_id=chat_id,
-            text=text,
-            parse_mode=parse_mode,
-        )
-        return True
+        try:
+            await bot.send_message(
+                chat_id=chat_id,
+                text=text,
+                parse_mode=parse_mode,
+            )
+            return True
+        except Exception as pe:
+            logger.warning(f"notify_house_group parse_mode error: {pe}, retrying without parse_mode")
+            await bot.send_message(
+                chat_id=chat_id,
+                text=text,
+                parse_mode=None,
+            )
+            return True
     except Exception as e:
         logger.warning(f"notify_house_group xatosi (house_id={house_id}): {e}")
         return False
+

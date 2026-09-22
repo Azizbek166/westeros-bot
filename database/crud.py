@@ -3338,49 +3338,7 @@ async def reset_entire_game(session: AsyncSession) -> None:
     from data.houses_data import HOUSES_DATA
     from data.map_data import TERRITORIES_DATA
 
-    # 1. Barcha o'yinchilar va ularga tegishli yozuvlarni tozalash
-    table_models = [
-        models.RavenMessage,
-        models.Duel,
-        models.Dragon,
-        models.HouseVote,
-        models.Transaction,
-        models.War,
-        models.Alliance,
-        models.QuestProgress,
-        models.BattleReport,
-        models.BattleMarch,
-        models.Building,
-        models.Artifact,
-        models.NightKingContribution,
-        models.Character,
-        models.Army,
-        models.HouseMember,
-        models.SpyMission,
-        models.TournamentParticipant,
-        models.Tournament,
-        models.IronBank,
-        models.User,
-    ]
-    for tm in table_models:
-        try:
-            await session.execute(delete(tm))
-        except Exception:
-            pass
-
-    # 2. Xonadonlarni boshlang'ich holatiga qaytarish
-    houses_res = await session.execute(select(models.House))
-    all_houses = houses_res.scalars().all()
-    for h in all_houses:
-        h.lord_user_id = None
-        h.lord_elected_at = None
-        h_info = HOUSES_DATA.get(h.code, {})
-        h.gold = h_info.get("starting_gold", 5000)
-        h.food = h_info.get("starting_food", 10000)
-        h.iron = h_info.get("starting_iron", 2000)
-        h.prestige = h_info.get("prestige", 100)
-
-    # 3. Hududlarni (qal'alarni) boshlang'ich holatiga qaytarish
+    # 1. Hududlarni (qal'alarni) boshlang'ich holatiga qaytarish va tashqi kalitlarni uzish
     terrs_res = await session.execute(select(models.Territory))
     all_terrs = terrs_res.scalars().all()
     for t in all_terrs:
@@ -3392,11 +3350,61 @@ async def reset_entire_game(session: AsyncSession) -> None:
         t.garrison_spearmen = t_info.get("garrison_spearmen", 50)
         t.defense = t_info.get("defense", 500)
         t.castle_level = 1
+        t.wildfire_count = 0
+        t.gates_compromised_until = None
         t.last_tax_collected_at = None
         t.reinforcements_json = None
         t.conquered_by_user_id = None
 
+    # 2. Xonadonlarni boshlang'ich holatiga qaytarish va lord_user_id ni tozalash
+    houses_res = await session.execute(select(models.House))
+    all_houses = houses_res.scalars().all()
+    for h in all_houses:
+        h.lord_user_id = None
+        h.lord_elected_at = None
+        h_info = HOUSES_DATA.get(h.code, {})
+        h.gold = h_info.get("starting_gold", 5000)
+        h.food = h_info.get("starting_food", 10000)
+        h.iron = h_info.get("starting_iron", 2000)
+        h.prestige = h_info.get("prestige", 100)
+
+    await session.flush()
+
+    # 3. Bog'langan barcha jadvallarni ketma-ket (child -> parent tartibida) tozalash
+    table_models = [
+        models.TournamentBet,
+        models.TournamentParticipant,
+        models.Tournament,
+        models.TradeCaravan,
+        models.HouseTrade,
+        models.SpyMission,
+        models.BattleMarch,
+        models.Building,
+        models.BattleReport,
+        models.QuestProgress,
+        models.RavenMessage,
+        models.Duel,
+        models.Dragon,
+        models.HouseVote,
+        models.Transaction,
+        models.War,
+        models.Alliance,
+        models.Artifact,
+        models.NightKingContribution,
+        models.Character,
+        models.Army,
+        models.HouseMember,
+        models.IronBank,
+        models.User,
+    ]
+    for tm in table_models:
+        try:
+            await session.execute(delete(tm))
+        except Exception as te:
+            logger.warning(f"reset_entire_game delete warning on {tm.__tablename__}: {te}")
+
     await session.commit()
+
 
 
 async def get_player_conquered_castles_summary(session: AsyncSession) -> Dict[str, Any]:
@@ -4515,6 +4523,11 @@ async def admin_conclude_and_restart_season(session: AsyncSession, bot_app=None)
     3. Butun o'yin 0 ga tushiriladi (reset_entire_game).
     4. Yangi mavsum (SeasonState) yaratiladi va xabarnomalar yuboriladi.
     """
+    # 0. Yangi jadvallar mavjudligini kafolatlash
+    from database.db import engine
+    async with engine.begin() as conn:
+        await conn.run_sync(models.Base.metadata.create_all)
+
     summary = await get_season_status_summary(session)
     season = await get_active_season(session)
     if not season:
@@ -4580,28 +4593,29 @@ async def admin_conclude_and_restart_season(session: AsyncSession, bot_app=None)
     )
     session.add(next_season)
 
+    # Shon-sharaf zali va mavsum bonuslarini avval xavfsiz saqlash
+    await session.commit()
+
     # 4. Butun o'yinni 0 ga tushirish (reset_entire_game)
     await reset_entire_game(session)
-
-    await session.commit()
 
     # E'lon matni
     top_lines = ""
     for item in top3_details:
         badge = "🥇" if item["rank"] == 1 else ("🥈" if item["rank"] == 2 else "🥉")
-        top_lines += f"{badge} **{item['rank']}-o'rin:** {item['name']} ({item['prestige']:,}🎖️)\n"
+        top_lines += f"{badge} *{item['rank']}-o'rin:* {item['name']} ({item['prestige']:,}🎖️)\n"
 
     if not top_lines:
         top_lines = "Jangchilar ro'yxati shakllanmagan edi.\n"
 
     announcement = (
-        f"👑🏆 **VESTEROSDA YANGI DAVR: {current_season_num}-MAVSUM YAKUNLANDI!** 🏆👑\n\n"
-        f"🏛️ **TEMIR TAXT G'OLIBI:** **{winner_house_name}** xonadoni!\n"
-        f"👑 **Vesteros Chempioni (Qirol):** **{overall_winner_name}**\n\n"
-        f"📜 O'yin g'olibi nomi abadiy **Shon-sharaf Zali (Hall of Fame)** solnomalariga oltin harflar bilan muhrlandi!\n\n"
-        f"🎖️ **YANGI MAVSUM UCHUN BONUSGA EGA BO'LGAN TOP 3 LORDLAR:**\n"
+        f"👑🏆 *VESTEROSDA YANGI DAVR: {current_season_num}-MAVSUM YAKUNLANDI!* 🏆👑\n\n"
+        f"🏛️ *TEMIR TAXT G'OLIBI:* *{winner_house_name}* xonadoni!\n"
+        f"👑 *Vesteros Chempioni (Qirol):* *{overall_winner_name}*\n\n"
+        f"📜 O'yin g'olibi nomi abadiy *Shon-sharaf Zali (Hall of Fame)* solnomalariga oltin harflar bilan muhrlandi!\n\n"
+        f"🎖️ *YANGI MAVSUM UCHUN BONUSGA EGA BO'LGAN TOP 3 LORDLAR:*\n"
         f"{top_lines}\n"
-        f"🌟 **{next_season_num}-MAVSUM RASMAN BOSHLANDI!**\n"
+        f"🌟 *{next_season_num}-MAVSUM RASMAN BOSHLANDI!*\n"
         f"Barcha o'yinchilar ma'lumotlari 0 ga tushirildi. Qal'alar qayta taqsimlandi!\n"
         f"Barcha lordlar /start buyrug'i orqali qaytadan o'z taqdirini tanlashi va jangga kirishi mumkin!"
     )
@@ -4611,7 +4625,7 @@ async def admin_conclude_and_restart_season(session: AsyncSession, bot_app=None)
         h_res = await session.execute(select(models.House).where(models.House.group_chat_id.isnot(None)))
         for h in h_res.scalars().all():
             try:
-                await notify_house_group(bot_app, h.id, announcement)
+                await notify_house_group(bot_app, h.id, announcement, parse_mode="Markdown")
             except Exception:
                 pass
 
