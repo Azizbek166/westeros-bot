@@ -33,9 +33,9 @@ class User(Base):
     xp = Column(Integer, default=0)
 
     # Shaxsiy resurslar
-    gold = Column(BigInteger, default=1000)
-    food = Column(BigInteger, default=2000)
-    iron = Column(BigInteger, default=500)
+    gold = Column(BigInteger, default=250)
+    food = Column(BigInteger, default=500)
+    iron = Column(BigInteger, default=125)
     prestige = Column(Integer, default=10)
 
     # Tinchlik qalqoni (yangi o'yinchilarni himoya qilish)
@@ -192,9 +192,9 @@ class Territory(Base):
     population = Column(Integer, default=50000)
 
     # Soatlik daromadlar
-    gold_income = Column(Integer, default=200)
-    food_income = Column(Integer, default=500)
-    iron_income = Column(Integer, default=100)
+    gold_income = Column(Integer, default=50)
+    food_income = Column(Integer, default=125)
+    iron_income = Column(Integer, default=25)
 
     defense = Column(Integer, default=500)  # Qal'a mustahkamligi
     garrison_infantry = Column(Integer, default=200)
@@ -569,7 +569,7 @@ class Tournament(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(100), default="Qirol Qo'li Turniri")
     status = Column(String(30), default="active", index=True)  # active, completed
-    prize_pool = Column(BigInteger, default=10000)
+    prize_pool = Column(BigInteger, default=2500)
     winner_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     winner_name = Column(String(100), nullable=True)
     details = Column(Text, default="")

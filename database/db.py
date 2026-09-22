@@ -328,7 +328,7 @@ async def init_db():
             new_tourney = models.Tournament(
                 name="Qirol Qo'li Turniri #1",
                 status="active",
-                prize_pool=25000,
+                prize_pool=6250,
                 details="Qirollikning eng qudratli ritsarlari jangi! G'olibga 70% xazina va 'Qirollik Chempioni' sharafli unvoni beriladi.",
                 created_at=datetime.utcnow()
             )

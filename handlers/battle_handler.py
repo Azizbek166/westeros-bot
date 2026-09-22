@@ -807,6 +807,16 @@ async def send_custom_march_callback(update: Update, context: ContextTypes.DEFAU
                 await query.answer("❌ Ushbu qal'a rasmiy ittifoqchingizga qarashli!", show_alert=True)
                 return
 
+        # 5 ta qal'a limiti tekshiruvi
+        if user.house_id and terr.owner_house_id != user.house_id:
+            h_castles = await crud.get_house_castle_count(session, user.house_id)
+            if h_castles >= crud.MAX_HOUSE_CASTLES:
+                await query.answer(
+                    f"❌ Xonadoningiz allaqachon {h_castles}/{crud.MAX_HOUSE_CASTLES} ta qal'aga ega! Maksimal limit: {crud.MAX_HOUSE_CASTLES} ta qal'a.",
+                    show_alert=True
+                )
+                return
+
         u_inf = (user.army.infantry if user.army else 0) or 0
         u_arc = (user.army.archers if user.army else 0) or 0
         u_cav = (user.army.cavalry if user.army else 0) or 0
@@ -986,6 +996,16 @@ async def send_march_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             allied_ids = {a.house_a_id if a.house_b_id == user.house_id else a.house_b_id for a in allies}
             if terr.owner_house_id in allied_ids:
                 await query.answer("❌ Ushbu qal'a rasmiy ittifoqchingizga qarashli!", show_alert=True)
+                return
+
+        # 5 ta qal'a limiti tekshiruvi
+        if user.house_id and terr.owner_house_id != user.house_id:
+            h_castles = await crud.get_house_castle_count(session, user.house_id)
+            if h_castles >= crud.MAX_HOUSE_CASTLES:
+                await query.answer(
+                    f"❌ Xonadoningiz allaqachon {h_castles}/{crud.MAX_HOUSE_CASTLES} ta qal'aga ega! Maksimal limit: {crud.MAX_HOUSE_CASTLES} ta qal'a.",
+                    show_alert=True
+                )
                 return
 
         ratio = percent / 100.0

@@ -31,14 +31,14 @@ async def show_bank_hub(target, user_id: int, is_message: bool = False):
 
         # Omonat hisobi
         dep_gold = bank.deposit_gold or 0
-        daily_yield = int(dep_gold * 0.015)
+        daily_yield = int(dep_gold * crud.DAILY_INTEREST_RATE)
 
-        # Foiz olish vaqti (soatbay hisoblanadi, kuniga 1.5%)
+        # Foiz olish vaqti (soatbay hisoblanadi, kuniga 0.375%)
         now = datetime.utcnow()
         last_claim = bank.last_interest_claimed_at or bank.deposit_updated_at or now
         elapsed_sec = max(0, (now - last_claim).total_seconds())
         hours_ready = int(elapsed_sec // 3600)
-        accumulated_interest = int(dep_gold * (0.015 / 24.0) * hours_ready) if hours_ready >= 1 else 0
+        accumulated_interest = int(dep_gold * (crud.DAILY_INTEREST_RATE / 24.0) * hours_ready) if hours_ready >= 1 else 0
         mins_left = max(1, int((3600 - (elapsed_sec % 3600)) // 60))
 
         if dep_gold > 0:
@@ -73,7 +73,7 @@ async def show_bank_hub(target, user_id: int, is_message: bool = False):
             f"💰 Hamyoningiz: <b>{user.gold:,}🪙 Oltin</b>\n\n"
             f"──────── <b>OMONAT BO'LIMI</b> ────────\n"
             f"• Saqlanayotgan oltin: <b>{dep_gold:,} / 50,000🪙</b>\n"
-            f"• Kunlik daromad: <b>+{daily_yield:,}🪙/kun</b> (+1.5%)\n"
+            f"• Kunlik daromad: <b>+{daily_yield:,}🪙/kun</b> (+0.375%)\n"
             f"• Yig'ilgan tayyor foiz: {interest_status_str}\n\n"
             f"──────── <b>KREDIT (QARZ) BO'LIMI</b> ────────\n"
             f"• Asosiy qarz: <b>{loan_gold:,}🪙</b>\n"
@@ -351,7 +351,7 @@ async def bank_int_wait_info_callback(update: Update, context: ContextTypes.DEFA
     elapsed_sec = max(0, (now - last_claim).total_seconds())
     rem_mins = max(1, int((3600 - (elapsed_sec % 3600)) // 60))
     await query.answer(
-        f"⏳ Omonat foizlari har 1 soatda to'planadi (kuniga +1.5%).\nKeyingi foiz tushishiga taxminan {rem_mins} daqiqa qoldi!",
+        f"⏳ Omonat foizlari har 1 soatda to'planadi (kuniga +0.375%).\nKeyingi foiz tushishiga taxminan {rem_mins} daqiqa qoldi!",
         show_alert=True
     )
 

@@ -396,6 +396,19 @@ async def get_house_territories(session: AsyncSession, house_id: int) -> List[mo
     return list(result.scalars().all())
 
 
+MAX_HOUSE_CASTLES = 5
+
+
+async def get_house_castle_count(session: AsyncSession, house_id: int) -> int:
+    """Xonadonga tegishli jami qal'alar soni"""
+    if not house_id:
+        return 0
+    result = await session.execute(
+        select(func.count(models.Territory.id)).where(models.Territory.owner_house_id == house_id)
+    )
+    return result.scalar() or 0
+
+
 # ============================================================
 # ARMY & RECRUITMENT CRUD
 # ============================================================
@@ -436,8 +449,8 @@ async def recruit_troops(
     user.daily_recruit_count = old_cnt + amount
     quest_completed = False
     if old_cnt < 100 <= user.daily_recruit_count:
-        user.gold += 500
-        user.food += 1000
+        user.gold += 125
+        user.food += 250
         user.xp += 80
         quest_completed = True
 
@@ -2424,10 +2437,10 @@ async def award_night_king_victory(session: AsyncSession, bot_app=None) -> Dict[
     if not winner:
         return {"awarded": False, "reason": "Winner not found"}
 
-    # Top 1 ga "Shimol Najotkori" unvoni, +500 Prestige, +3000 Gold
+    # Top 1 ga "Shimol Najotkori" unvoni, +500 Prestige, +750 Gold
     winner.title = "Shimol Najotkori"
     winner.prestige = (winner.prestige or 0) + 500
-    winner.gold = (winner.gold or 0) + 3000
+    winner.gold = (winner.gold or 0) + 750
     winner.xp = (winner.xp or 0) + 1000
 
     # Top 2 va Top 3 ga ham sovrinlar
@@ -2435,13 +2448,13 @@ async def award_night_king_victory(session: AsyncSession, bot_app=None) -> Dict[
         top2_user = await get_user_any(session, contribs[1].user_id)
         if top2_user:
             top2_user.prestige = (top2_user.prestige or 0) + 300
-            top2_user.gold = (top2_user.gold or 0) + 1800
+            top2_user.gold = (top2_user.gold or 0) + 450
 
     if len(contribs) > 2:
         top3_user = await get_user_any(session, contribs[2].user_id)
         if top3_user:
             top3_user.prestige = (top3_user.prestige or 0) + 200
-            top3_user.gold = (top3_user.gold or 0) + 1000
+            top3_user.gold = (top3_user.gold or 0) + 250
 
     await session.commit()
 
@@ -2455,7 +2468,7 @@ async def award_night_king_victory(session: AsyncSession, bot_app=None) -> Dict[
                 f"🎖️ **MUKOFOTLARINGIZ:**\n"
                 f"• 👑 Faxriy Unvon: **Shimol Najotkori**\n"
                 f"• 🏆 Nufuz: **+500 Prestige**\n"
-                f"• 🪙 Xazina: **+3,000 Oltin**\n"
+                f"• 🪙 Xazina: **+750 Oltin**\n"
                 f"• ⭐ Tajriba: **+1,000 XP**\n\n"
                 f"Bu unvon endi sizning profilingiz va butun Vesteros reytingida mangu aks etadi!"
             )
@@ -2553,12 +2566,12 @@ async def fight_ai_champion(
 
     won = player_score >= champ_score
     if won:
-        user.gold += 500
+        user.gold += 125
         user.prestige += 3
         user.xp += 15
         outcome = (
             f"🏆 **G'ALABA!** Sizning qilich zarbangiz {champion_name}ning mudofaasini teshib o'tdi!\n"
-            f"🎁 Mukofot: **+500🪙 Oltin, +3 Prestige, +15 XP** ({user.daily_duel_count}/10)"
+            f"🎁 Mukofot: **+125🪙 Oltin, +3 Prestige, +15 XP** ({user.daily_duel_count}/10)"
         )
     else:
         if bet_gold > 0:
@@ -3988,7 +4001,7 @@ async def buy_wildfire_defense(session: AsyncSession, user_id: int, territory_id
 # ============================================================
 
 MAX_BANK_DEPOSIT = 50000
-DAILY_INTEREST_RATE = 0.015  # 1.5% kunlik daromad
+DAILY_INTEREST_RATE = 0.00375  # 0.375% kunlik daromad (4 barobar kamaytirildi)
 LOAN_INTEREST_RATE = 0.10    # 10% kredit foizi
 LOAN_DAYS = 5                # 5 kunlik muddat
 
@@ -4065,7 +4078,7 @@ async def deposit_to_iron_bank(session: AsyncSession, user_id: int, amount: int)
         f"🏦 **OMONAT QABUL QILINDI!**\n\n"
         f"Braavos Temir Bankiga **+{amount:,}🪙 Oltin** topshirdingiz.{accrued_note}\n"
         f"Jami omonatingiz: **{bank.deposit_gold:,}🪙**\n"
-        f"Kunlik daromad: **+{daily_yield:,}🪙/kun** (kuniga +1.5%)\n"
+        f"Kunlik daromad: **+{daily_yield:,}🪙/kun** (kuniga +0.375%)\n"
         f"Hamyoningizda qoldi: **{user.gold:,}🪙**"
     )
 
@@ -4135,7 +4148,7 @@ async def claim_iron_bank_interest(session: AsyncSession, user_id: int) -> Tuple
 
     if hours_elapsed < 1:
         rem_mins = max(1, int((3600 - (elapsed_seconds % 3600)) // 60))
-        return False, f"⏳ Foizlar har soatda to'planadi (kuniga 1.5%). Keyingi soatlik foizga: {rem_mins} daqiqa qoldi."
+        return False, f"⏳ Foizlar har soatda to'planadi (kuniga 0.375%). Keyingi soatlik foizga: {rem_mins} daqiqa qoldi."
 
     profit = int(curr_dep * (DAILY_INTEREST_RATE / 24.0) * hours_elapsed)
     if profit <= 0:
@@ -4152,7 +4165,7 @@ async def claim_iron_bank_interest(session: AsyncSession, user_id: int) -> Tuple
 
     return True, (
         f"🪙 **BANK FOIZI MUVAFFAQIYATLI OLINDI!**\n\n"
-        f"Braavos Temir Banki omonatingizdan **+{profit:,}🪙 Oltin** sof foyda berdi! ({period_str} 1.5% daromad)\n"
+        f"Braavos Temir Banki omonatingizdan **+{profit:,}🪙 Oltin** sof foyda berdi! ({period_str} 0.375% daromad)\n"
         f"Hamyoningizdagi jami oltin: **{user.gold:,}🪙**"
     )
 
@@ -4904,7 +4917,7 @@ async def resolve_tournament(session: AsyncSession, bot_app=None) -> Tuple[bool,
             fighter_power=npc["power"],
         )
         session.add(npc_part)
-        tourney.prize_pool += 2000
+        tourney.prize_pool += 500
         parts.append(npc_part)
 
     # Turnir duellari: barcha ishtirokchilarni juftlab saralash
@@ -5028,7 +5041,7 @@ async def resolve_tournament(session: AsyncSession, bot_app=None) -> Tuple[bool,
 async def admin_start_tournament(
     session: AsyncSession,
     name: Optional[str] = None,
-    prize_pool: int = 25000,
+    prize_pool: int = 6250,
     bot_app=None,
 ) -> Tuple[bool, str]:
     """Admin tomonidan yangi ritsarlar turnirini e'lon qilish va boshlash"""
@@ -5098,9 +5111,9 @@ async def dispatch_trade_caravan(
         return False, "❌ Karvon faqat Oziq-ovqat (food) yoki Temir (iron) tashiydi."
 
     valid_tiers = {
-        5000: 2500,
-        10000: 5500,
-        20000: 12000,
+        5000: 625,
+        10000: 1375,
+        20000: 3000,
     }
     if amount not in valid_tiers:
         return False, "❌ Karvon yuki miqdori 5,000, 10,000 yoki 20,000 bo'lishi kerak."
@@ -5269,8 +5282,8 @@ async def raid_trade_caravan(
         caravan.raider_user_id = raider.id
         caravan.raid_report = battle_res["details"]
 
-        stolen_res = int(caravan.resource_amount * 0.70)
-        bounty_gold = 1000
+        stolen_res = int(caravan.resource_amount * 0.175)
+        bounty_gold = 250
 
         if caravan.resource_type == "food":
             raider.food += stolen_res

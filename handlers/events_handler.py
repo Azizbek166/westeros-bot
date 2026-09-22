@@ -163,8 +163,8 @@ async def raid_night_king_callback(update: Update, context: ContextTypes.DEFAULT
         await crud.record_night_king_damage(session, user.id, total_dmg)
 
         # Mukofot
-        user.gold += 350
-        user.iron += 180
+        user.gold += 88
+        user.iron += 45
         user.prestige += 50
         user.xp += 180
 
@@ -223,10 +223,10 @@ async def night_king_leaderboard_callback(update: Update, context: ContextTypes.
         f"Oq yuruvchilar armiyasiga eng katta talafot yetkazgan Vesteros xaloskorlari:\n\n"
         f"{list_str}\n\n"
         f"🎁 **REYTING MUKOFOTLARI (FASL YAKUNIDA):**\n"
-        f"• 🥇 1-o'rin: +3,000🪙 Oltin, +500🏆 Prestige, 'Shimol Najotkori' unvoni\n"
-        f"• 🥈 2-o'rin: +1,800🪙 Oltin, +300🏆 Prestige\n"
-        f"• 🥉 3-o'rin: +1,000🪙 Oltin, +200🏆 Prestige\n"
-        f"• 🎖️ 4-10 o'rinlar: +500🪙 Oltin, +100🏆 Prestige\n\n"
+        f"• 🥇 1-o'rin: +750🪙 Oltin, +500🏆 Prestige, 'Shimol Najotkori' unvoni\n"
+        f"• 🥈 2-o'rin: +450🪙 Oltin, +300🏆 Prestige\n"
+        f"• 🥉 3-o'rin: +250🪙 Oltin, +200🏆 Prestige\n"
+        f"• 🎖️ 4-10 o'rinlar: +125🪙 Oltin, +100🏆 Prestige\n\n"
         f"Sizning bugungi hujumlaringiz: **{user_cnt}/3**"
     )
 
@@ -461,15 +461,15 @@ async def event_bandits_callback(update: Update, context: ContextTypes.DEFAULT_T
 
     buttons = [
         [InlineKeyboardButton(f"⚔️ Qaroqchilarga Hujum Qilish ({b_count}/3)", callback_data="bandits_fight")],
-        [InlineKeyboardButton("💰 O'lpon To'lab Qutulish (-200🪙 oltin)", callback_data="bandits_pay")],
+        [InlineKeyboardButton("💰 O'lpon To'lab Qutulish (-50🪙 oltin)", callback_data="bandits_pay")],
         [InlineKeyboardButton("🔙 Voqealarga Qaytish", callback_data="menu_throne")],
     ]
 
     text = (
         f"🥷 **QAROQCHILAR VA ISYONCHILAR PISTIRMASI!**\n\n"
         f"Savdo yo'llaringizga tog' qaroqchilari hujum qildi va karvonlaringizni to'smoqda!\n\n"
-        f"1. **Hujum qilish:** Qaroqchilar bazasini tor-mor qilish (taxminan 5 ta askar yo'qotib, ularning xazinasidan +800🪙 oltin va +300🌾 oziq-ovqat olasiz).\n"
-        f"2. **O'lpon to'lash:** 200 tanga berib xavfdan qutulish.\n\n"
+        f"1. **Hujum qilish:** Qaroqchilar bazasini tor-mor qilish (taxminan 5 ta askar yo'qotib, ularning xazinasidan +200🪙 oltin va +75🌾 oziq-ovqat olasiz).\n"
+        f"2. **O'lpon to'lash:** 50 tanga berib xavfdan qutulish.\n\n"
         f"Bugungi hujumlaringiz: **{b_count}/3** ta"
     )
     await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
@@ -514,8 +514,8 @@ async def bandits_action_callback(update: Update, context: ContextTypes.DEFAULT_
             else:
                 army.archers = max(0, army.archers - 5)
 
-            user.gold += 800
-            user.food += 300
+            user.gold += 200
+            user.food += 75
             user.prestige += 35
             user.xp += 120
             user.daily_bandit_count = b_cnt + 1
@@ -523,11 +523,11 @@ async def bandits_action_callback(update: Update, context: ContextTypes.DEFAULT_
             from core.leveling import check_user_level_up
             lvl_up, new_lvl, lvl_msg = check_user_level_up(user)
             await session.commit()
-            msg = f"🏆 G'alaba! Qaroqchilar tor-mor etildi: +800🪙 oltin, +300🌾 oziq-ovqat, +35 Prestige! ({user.daily_bandit_count}/3)"
+            msg = f"🏆 G'alaba! Qaroqchilar tor-mor etildi: +200🪙 oltin, +75🌾 oziq-ovqat, +35 Prestige! ({user.daily_bandit_count}/3)"
         else:
-            user.gold = max(0, user.gold - 200)
+            user.gold = max(0, user.gold - 50)
             await session.commit()
-            msg = "💰 200 tanga o'lpon to'landi. Qaroqchilar chekindi."
+            msg = "💰 50 tanga o'lpon to'landi. Qaroqchilar chekindi."
 
     try:
         await query.answer(msg, show_alert=True)

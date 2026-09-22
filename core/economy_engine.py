@@ -31,14 +31,14 @@ def calculate_army_upkeep(army: models.Army, weather_type: str = "normal") -> fl
 async def calculate_hourly_income(session: AsyncSession, user: models.User, weather_type: str = "normal") -> Dict[str, int]:
     """O'yinchining hududlari, temir koni, don tegirmoni va bazaviy soatlik daromadlari"""
     mine_lvl = getattr(user, "iron_mine_level", 1) or 1
-    mine_iron = mine_lvl * 50  # Har daraja uchun +50 temir/soat
+    mine_iron = mine_lvl * 12  # Har daraja uchun +12 temir/soat (4 barobar kamaytirildi)
 
     mill_lvl = getattr(user, "grain_mill_level", 1) or 1
-    mill_food = mill_lvl * 75  # Har daraja uchun +75 oziq-ovqat/soat
+    mill_food = mill_lvl * 18  # Har daraja uchun +18 oziq-ovqat/soat (4 barobar kamaytirildi)
 
-    base_gold = 50
-    base_food = 100 + mill_food
-    base_iron = 20 + mine_iron
+    base_gold = 12
+    base_food = 25 + mill_food
+    base_iron = 5 + mine_iron
 
     if not user.house_id:
         total_gold = base_gold

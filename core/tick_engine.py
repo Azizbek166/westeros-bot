@@ -180,19 +180,26 @@ async def process_due_marches(bot_app=None):
                 att_house_name = att_house.name if att_house else "Vesteros Qo'shini"
 
                 if battle_res["winner"] == "attacker":
-                    territory.owner_house_id = attacker.house_id
-                    territory.conquered_by_user_id = attacker.id
-                    # Qal'a egasi o'zgarganda mudofaadagi ajdar uyasiga qaytadi
-                    if territory.reinforcements_json:
-                        try:
-                            r_json = json.loads(territory.reinforcements_json)
-                            if "stationed_dragon" in r_json:
-                                del r_json["stationed_dragon"]
-                            if "stationed_dragons" in r_json:
-                                del r_json["stationed_dragons"]
-                            territory.reinforcements_json = json.dumps(r_json)
-                        except Exception:
-                            pass
+                    # Xonadon qal'alar soni tekshiruvi (Maksimal 5 ta qal'a limiti)
+                    attacker_castle_count = await crud.get_house_castle_count(session, attacker.house_id) if attacker.house_id else 0
+                    can_annex = (territory.owner_house_id == attacker.house_id) or (attacker_castle_count < crud.MAX_HOUSE_CASTLES)
+
+                    if can_annex:
+                        territory.owner_house_id = attacker.house_id
+                        territory.conquered_by_user_id = attacker.id
+                        # Qal'a egasi o'zgarganda mudofaadagi ajdar uyasiga qaytadi
+                        if territory.reinforcements_json:
+                            try:
+                                r_json = json.loads(territory.reinforcements_json)
+                                if "stationed_dragon" in r_json:
+                                    del r_json["stationed_dragon"]
+                                if "stationed_dragons" in r_json:
+                                    del r_json["stationed_dragons"]
+                                territory.reinforcements_json = json.dumps(r_json)
+                            except Exception:
+                                pass
+                    else:
+                        logger.info(f"Xonadon #{attacker.house_id} allaqachon {attacker_castle_count} ta qal'aga ega (max {crud.MAX_HOUSE_CASTLES}). Qal'a egallanmadi, faqat o'lja olindi.")
 
                     tot_gold = battle_res["loot"]["gold"]
                     tot_food = battle_res["loot"]["food"]
@@ -214,8 +221,8 @@ async def process_due_marches(bot_app=None):
                         att_house.iron += int(tot_iron * 0.3)
                         att_house.prestige += 25
 
-                    # Himoyachi Lordiga boy berish xabari
-                    if bot_app and def_lord_id and old_owner_house_id != attacker.house_id:
+                    # Himoyachi Lordiga boy berish xabari (faqat qal'a haqiqatda egallangan bo'lsa)
+                    if can_annex and bot_app and def_lord_id and old_owner_house_id != attacker.house_id:
                         def_lose_text = (
                             f"🚨 **QAL'A BOY BERILDI!**\n\n"
                             f"🏰 **{territory.name} ({territory.castle_name})** qal'asi **{att_house_name}** armiyasi tomonidan qamal qilinib, egallab olindi!\n\n"
@@ -237,7 +244,7 @@ async def process_due_marches(bot_app=None):
 
                     # Xonadon guruhlariga ham hisobot yuborish
                     if bot_app:
-                        if old_owner_house_id and old_owner_house_id != attacker.house_id:
+                        if can_annex and old_owner_house_id and old_owner_house_id != attacker.house_id:
                             grp_lose_text = (
                                 f"🚨💀 <b>QAL'A BOY BERILDI!</b>\n\n"
                                 f"🏰 <b>{html.escape(territory.name)}</b> ({html.escape(territory.castle_name)}) "
@@ -247,15 +254,27 @@ async def process_due_marches(bot_app=None):
                             asyncio.create_task(notify_house_group(bot_app, old_owner_house_id, grp_lose_text, parse_mode="HTML"))
 
                         if attacker.house_id:
-                            grp_win_text = (
-                                f"🏆⚔️ <b>BUYUK ZAFAR! QAL'A EGALLANDI!</b>\n\n"
-                                f"🏰 Jasur lordimiz <b>{html.escape(attacker.full_name)}</b> "
-                                f"dushmanning <b>{html.escape(territory.name)}</b> ({html.escape(territory.castle_name)}) qal'asini zabt etdi!\n\n"
-                                f"• 🪙 Oltin: <b>+{int(tot_gold * 0.3):,}</b>\n"
-                                f"• 🌾 Oziq-ovqat: <b>+{int(tot_food * 0.3):,}</b>\n"
-                                f"• ⛓️ Temir: <b>+{int(tot_iron * 0.3):,}</b>\n"
-                                f"• 🏆 Xonadon Prestige: <b>+25</b>"
-                            )
+                            if can_annex:
+                                grp_win_text = (
+                                    f"🏆⚔️ <b>BUYUK ZAFAR! QAL'A EGALLANDI!</b>\n\n"
+                                    f"🏰 Jasur lordimiz <b>{html.escape(attacker.full_name)}</b> "
+                                    f"dushmanning <b>{html.escape(territory.name)}</b> ({html.escape(territory.castle_name)}) qal'asini zabt etdi!\n\n"
+                                    f"• 🪙 Oltin: <b>+{int(tot_gold * 0.3):,}</b>\n"
+                                    f"• 🌾 Oziq-ovqat: <b>+{int(tot_food * 0.3):,}</b>\n"
+                                    f"• ⛓️ Temir: <b>+{int(tot_iron * 0.3):,}</b>\n"
+                                    f"• 🏆 Xonadon Prestige: <b>+25</b>"
+                                )
+                            else:
+                                grp_win_text = (
+                                    f"🏆⚔️ <b>BUYUK ZAFAR! DUSHMAN TOR-MOR ETILDI!</b>\n\n"
+                                    f"🏰 Lordimiz <b>{html.escape(attacker.full_name)}</b> "
+                                    f"<b>{html.escape(territory.name)}</b> qal'asiga hujum qilib zafar quchdi va o'lja keltirdi!\n"
+                                    f"<i>(Xonadonimiz 5/5 ta qal'a limitiga ega bo'lgani sababli qal'a egallanmadi)</i>\n\n"
+                                    f"• 🪙 Oltin: <b>+{int(tot_gold * 0.3):,}</b>\n"
+                                    f"• 🌾 Oziq-ovqat: <b>+{int(tot_food * 0.3):,}</b>\n"
+                                    f"• ⛓️ Temir: <b>+{int(tot_iron * 0.3):,}</b>\n"
+                                    f"• 🏆 Xonadon Prestige: <b>+25</b>"
+                                )
                             asyncio.create_task(notify_house_group(bot_app, attacker.house_id, grp_win_text, parse_mode="HTML"))
                 else:
                     # Himoyachi g'alaba qozondi
@@ -314,11 +333,18 @@ async def process_due_marches(bot_app=None):
                     def_loss_str = ", ".join(f"{troop_labels_uz.get(t, t)}: -{c:,}" for t, c in battle_res["defender_losses"].items() if c > 0) or "Yo'qotishlar yo'q"
 
                     if battle_res["winner"] == "attacker":
-                        res_title = "🏆 **G'ALABA! QAL'A ZABT ETILDI!**"
-                        res_outcome = (
-                            f"🎉 Tabriklaymiz! **{territory.name} ({territory.castle_name})** qal'asi endi "
-                            f"**{att_house_name}** xonadoni tasarrufiga o'tdi va '/castles' ro'yxatingizga qo'shildi!"
-                        )
+                        if can_annex:
+                            res_title = "🏆 **G'ALABA! QAL'A ZABT ETILDI!**"
+                            res_outcome = (
+                                f"🎉 Tabriklaymiz! **{territory.name} ({territory.castle_name})** qal'asi endi "
+                                f"**{att_house_name}** xonadoni tasarrufiga o'tdi va '/castles' ro'yxatingizga qo'shildi!"
+                            )
+                        else:
+                            res_title = "🏆 **G'ALABA! (O'LJA QO'LGA KIRITILDI)**"
+                            res_outcome = (
+                                f"⚔️ Dushman mag'lub etildi va o'ljalar qo'lga kiritildi! "
+                                f"Biroq xonadoningiz allaqachon maksimal {crud.MAX_HOUSE_CASTLES} ta qal'aga ega bo'lgani tufayli qal'a xonadoningizga qo'shilmadi."
+                            )
                     else:
                         res_title = "🛡️ **MAG'LUBIYAT! HUJUM QAYTARILDI.**"
                         res_outcome = (
@@ -735,7 +761,7 @@ async def process_due_trade_caravans(bot_app=None):
                     army.infantry += (caravan.escort_infantry or 0)
 
                 # Foyda va nufuzni berish
-                gold_gain = caravan.expected_gold_reward or 2500
+                gold_gain = caravan.expected_gold_reward or 625
                 prestige_gain = 15 if caravan.resource_amount < 10000 else (30 if caravan.resource_amount < 20000 else 60)
                 owner.gold += gold_gain
                 owner.prestige += prestige_gain

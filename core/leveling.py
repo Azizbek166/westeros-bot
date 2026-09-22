@@ -82,8 +82,8 @@ def check_user_level_up(user) -> Tuple[bool, int, str]:
         user.level = new_level
         # Bonuslarni hisoblash
         lvl_info = LEVEL_TITLES.get(new_level, {})
-        bonus_gold = new_level * 150
-        bonus_iron = new_level * 50
+        bonus_gold = new_level * 37
+        bonus_iron = new_level * 12
         bonus_prestige = new_level * 5
 
         user.gold += bonus_gold

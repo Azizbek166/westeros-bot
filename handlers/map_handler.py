@@ -391,6 +391,7 @@ async def show_my_castles(target, user_id: int, is_message: bool = False):
 
         text = (
             f"🏰 **QAL'ALARIM VA G'AZNALAR — {h_emoji} {h_name}**\n\n"
+            f"📊 Xonadon qal'alari: **{len(castles)}/{crud.MAX_HOUSE_CASTLES} ta** (Maksimal limit: {crud.MAX_HOUSE_CASTLES} ta)\n\n"
             f"Tasarrufingizdagi barcha strategik qal'alar va ularning daromadlari:\n\n"
         )
 

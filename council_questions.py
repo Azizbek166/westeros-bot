@@ -134,7 +134,7 @@ def _generate_council_questions():
             correct_text = options[0]
             rng.shuffle(options)
             correct_idx = options.index(correct_text)
-            reward = rng.choice([80, 100, 120, 150, 180, 200])
+            reward = rng.choice([20, 25, 30, 38, 45, 50])
             questions.append((q_text, options, correct_idx, reward))
     rng.shuffle(questions)
     return questions[:500]

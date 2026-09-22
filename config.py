@@ -71,9 +71,9 @@ DAILY_SECRET_QUEST_LIMIT = 2
 # ============================================================
 
 # Yangi o'yinchi boshlang'ich resurslari
-STARTING_GOLD = 1000
-STARTING_FOOD = 2000
-STARTING_IRON = 500
+STARTING_GOLD = 250
+STARTING_FOOD = 500
+STARTING_IRON = 125
 
 # Boshlang'ich Tinchlik Qalqoni (soatlarda, masalan 72 soat = 3 kun)
 PEACE_SHIELD_HOURS = 72
