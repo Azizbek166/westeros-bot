@@ -2924,7 +2924,8 @@ async def admin_season_menu_callback(update: Update, context: ContextTypes.DEFAU
         )
 
         buttons = [
-            [InlineKeyboardButton("🏆 Mavsumni Yakunlash & Yangi Mavsum Boshlash", callback_data="admin_season_conclude_ask")],
+            [InlineKeyboardButton("👑 Keyingi Yangi Mavsum Boshlash", callback_data="admin_season_conclude_ask")],
+            [InlineKeyboardButton("🔄 Joriy Mavsumni Qayta Boshlash (0 dan)", callback_data="admin_season_restart_current_ask")],
             [InlineKeyboardButton("🔙 Admin Panelga Qaytish", callback_data="admin_panel")],
         ]
         try:
@@ -3059,6 +3060,102 @@ async def admin_season_conclude_do_callback(update: Update, context: ContextType
             await query.edit_message_text(err_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(err_btns))
         except Exception:
             await query.edit_message_text(f"❌ Xatolik yuz berdi: {str(e)}", parse_mode=None, reply_markup=InlineKeyboardMarkup(err_btns))
+
+async def admin_season_restart_current_ask_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Joriy mavsumni qayta boshlash tasdiqlash so'rovi"""
+    query = update.callback_query
+    await query.answer()
+    uid = query.from_user.id
+    if not is_admin(uid) and uid != OWNER_ID:
+        await query.answer("❌ Faqat Administrator ushbu amalni bajara oladi!", show_alert=True)
+        return
+
+    try:
+        async with AsyncSessionLocal() as session:
+            season = await crud.get_active_season(session)
+            s_num = season.season_number if season else 1
+
+        text = (
+            f"🔄⚠️ *DIQQAT: JORIY {s_num}-MAVSUMNI QAYTA BOSHLASH (RESTART)!*\n\n"
+            f"Haqiqatan ham joriy *{s_num}-Mavsum*ni barcha lordlar uchun 0 dan qayta boshlamoqchimisiz?\n\n"
+            f"*Nimalar sodir bo'ladi:*\n"
+            f"• Mavsum raqami o'zgarmaydi (*{s_num}-Mavsum* saqlanib qoladi).\n"
+            f"• Mavsum muddati keyingi 30 kunga yangilanadi.\n"
+            f"• Barcha o'yinchilar profillari, armiyalari va resurslari 0 ga tushiriladi.\n"
+            f"• Barcha 60 ta qal'a boshlang'ich holatiga qaytariladi.\n"
+            f"• Barcha lordlar /start orqali joriy mavsumni boshidan qayta boshlaydi!\n\n"
+            f"❗️ _Ushbu amalni ortga qaytarib bo'lmaydi!_"
+        )
+        buttons = [
+            [InlineKeyboardButton("🔄 HA, JORIY MAVSUMNI 0 QILIB QAYTA BOSHLASH", callback_data="admin_season_restart_current_do")],
+            [InlineKeyboardButton("❌ Bekor Qilish", callback_data="admin_season_menu")],
+        ]
+        try:
+            await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        except Exception:
+            await query.edit_message_text(text, parse_mode=None, reply_markup=InlineKeyboardMarkup(buttons))
+    except Exception as e:
+        logger.error(f"admin_season_restart_current_ask_callback xatosi: {e}", exc_info=True)
+        await query.answer(f"Xatolik: {e}", show_alert=True)
+
+
+async def admin_season_restart_current_do_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Joriy mavsumni qayta boshlash ijrosi"""
+    query = update.callback_query
+    uid = query.from_user.id
+    if not is_admin(uid) and uid != OWNER_ID:
+        await query.answer("❌ Huquqingiz yetarli emas!", show_alert=True)
+        return
+
+    try:
+        await query.answer("⏳ Joriy mavsum qayta boshlanmoqda...", show_alert=False)
+    except Exception:
+        pass
+
+    try:
+        try:
+            await query.edit_message_text(
+                "⏳ *JORIY MAVSUM QAYTA BOSHLANMOQDA...*\n\n"
+                "• Barcha o'yinchilar va armiyalar 0 ga tushirilmoqda...\n"
+                "• Qal'alar boshlang'ich holatiga qaytarilmoqda...\n"
+                "• Mavsum muddati 30 kunga yangilanmoqda...\n\n"
+                "_Iltimos, kuting..._",
+                parse_mode="Markdown"
+            )
+        except Exception:
+            pass
+
+        async with AsyncSessionLocal() as session:
+            ok, ann, res_info = await crud.admin_restart_current_season(session, context.application)
+
+        if not ok:
+            text_err = f"❌ *Xatolik yuz berdi:*\n{ann}"
+            buttons_err = [[InlineKeyboardButton("🔙 Admin Panel", callback_data="admin_panel")]]
+            try:
+                await query.edit_message_text(text_err, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons_err))
+            except Exception:
+                await query.edit_message_text(text_err, parse_mode=None, reply_markup=InlineKeyboardMarkup(buttons_err))
+            return
+
+        s_num = res_info.get("season_number", 1)
+        text = (
+            f"🔄⚡ *{s_num}-MAVSUM MUVAFFAQIYATLI QAYTA BOSHLANDI!* ⚡🔄\n\n"
+            f"• Mavsum raqami: **{s_num}-Mavsum**\n"
+            f"• Barcha o'yinchilar ma'lumotlari 0 ga tushirildi.\n"
+            f"• 60 ta qal'a mudofaasi va taqsimoti qayta tiklandi.\n"
+            f"• Barcha o'yinchilar /start buyrug'i orqali o'yinni yangidan boshlashi mumkin!"
+        )
+        buttons = [
+            [InlineKeyboardButton("👑 /start orqali Yangidan Boshlash", callback_data="menu_main")],
+            [InlineKeyboardButton("⚙️ Admin Paneli", callback_data="admin_panel")],
+        ]
+        try:
+            await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        except Exception:
+            await query.edit_message_text(text, parse_mode=None, reply_markup=InlineKeyboardMarkup(buttons))
+    except Exception as e:
+        logger.error(f"admin_season_restart_current_do_callback xatosi: {e}", exc_info=True)
+        await query.answer(f"Xatolik: {e}", show_alert=True)
 
 
 async def end_season_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3258,34 +3355,38 @@ async def admin_bank_menu_callback(update: Update, context: ContextTypes.DEFAULT
     if not is_admin(query.from_user.id):
         return
 
-    async with AsyncSessionLocal() as session:
-        loans_enabled = await crud.is_bank_loans_enabled(session)
-        stats = await crud.admin_get_bank_stats(session)
-
-    status_icon = "🟢 Faol (Qarz olish ochiq)" if loans_enabled else "🔴 O'chirilgan (Qarz berilmaydi)"
-    toggle_text = "🔴 Qarz Olishni O'chirish" if loans_enabled else "🟢 Qarz Olishni Yoqish"
-
-    text = (
-        f"🏦 **TEMIR BANK & QARZLAR BOSHQARUVI**\n\n"
-        f"• Qarz berish tizimi: **{status_icon}**\n"
-        f"• 💰 Jami depozitlar: **{stats['total_deposits']:,}**🪙 oltin\n"
-        f"• 📜 Jami faol qarzlar: **{stats['total_loans']:,}**🪙 oltin\n"
-        f"• 👥 Qarzdor lordlar soni: **{stats['debtor_count']}** ta\n"
-        f"• ⚠️ To'lov muddati o'tganlar: **{stats['defaulted_count']}** ta\n\n"
-        f"Kerakli amalni tanlang:"
-    )
-
-    buttons = [
-        [InlineKeyboardButton(toggle_text, callback_data="admin_bank_toggle_loans")],
-        [InlineKeyboardButton("📋 Qarzdorlar Ro'yxati", callback_data="admin_bank_debtors:0")],
-        [InlineKeyboardButton("🧹 Barcha Qarzlarni Kechirish (0 qilish)", callback_data="admin_bank_forgive_all_ask")],
-        [InlineKeyboardButton("🔙 Admin Panel", callback_data="admin_panel")],
-    ]
-
     try:
-        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
-    except Exception:
-        await query.edit_message_text(text, parse_mode=None, reply_markup=InlineKeyboardMarkup(buttons))
+        async with AsyncSessionLocal() as session:
+            loans_enabled = await crud.is_bank_loans_enabled(session)
+            stats = await crud.admin_get_bank_stats(session)
+
+        status_icon = "🟢 Faol (Qarz olish ochiq)" if loans_enabled else "🔴 O'chirilgan (Qarz berilmaydi)"
+        toggle_text = "🔴 Qarz Olishni O'chirish" if loans_enabled else "🟢 Qarz Olishni Yoqish"
+
+        text = (
+            f"🏦 **TEMIR BANK & QARZLAR BOSHQARUVI**\n\n"
+            f"• Qarz berish tizimi: **{status_icon}**\n"
+            f"• 💰 Jami depozitlar: **{stats.get('total_deposits', 0):,}**🪙 oltin\n"
+            f"• 📜 Jami faol qarzlar: **{stats.get('total_loans', 0):,}**🪙 oltin\n"
+            f"• 👥 Qarzdor lordlar soni: **{stats.get('debtor_count', 0)}** ta\n"
+            f"• ⚠️ To'lov muddati o'tganlar: **{stats.get('defaulted_count', 0)}** ta\n\n"
+            f"Kerakli amalni tanlang:"
+        )
+
+        buttons = [
+            [InlineKeyboardButton(toggle_text, callback_data="admin_bank_toggle_loans")],
+            [InlineKeyboardButton("📋 Qarzdorlar Ro'yxati", callback_data="admin_bank_debtors:0")],
+            [InlineKeyboardButton("🧹 Barcha Qarzlarni Kechirish (0 qilish)", callback_data="admin_bank_forgive_all_ask")],
+            [InlineKeyboardButton("🔙 Admin Panel", callback_data="admin_panel")],
+        ]
+
+        try:
+            await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        except Exception:
+            await query.edit_message_text(text, parse_mode=None, reply_markup=InlineKeyboardMarkup(buttons))
+    except Exception as e:
+        logger.error(f"admin_bank_menu_callback xatosi: {e}", exc_info=True)
+        await query.answer(f"Bank ma'lumotlarini yuklashda xatolik: {e}", show_alert=True)
 
 
 async def admin_bank_toggle_loans_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3294,11 +3395,15 @@ async def admin_bank_toggle_loans_callback(update: Update, context: ContextTypes
     if not is_admin(query.from_user.id):
         return
 
-    async with AsyncSessionLocal() as session:
-        new_state, state_msg = await crud.admin_toggle_bank_loans(session)
+    try:
+        async with AsyncSessionLocal() as session:
+            new_state, state_msg = await crud.admin_toggle_bank_loans(session)
 
-    await query.answer(state_msg, show_alert=True)
-    await admin_bank_menu_callback(update, context)
+        await query.answer(state_msg, show_alert=True)
+        await admin_bank_menu_callback(update, context)
+    except Exception as e:
+        logger.error(f"admin_bank_toggle_loans_callback xatosi: {e}", exc_info=True)
+        await query.answer(f"Xatolik: {e}", show_alert=True)
 
 
 async def admin_bank_debtors_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3311,49 +3416,53 @@ async def admin_bank_debtors_callback(update: Update, context: ContextTypes.DEFA
     offset = int(query.data.split(":")[1])
     limit = 6
 
-    async with AsyncSessionLocal() as session:
-        debtors = await crud.admin_get_loan_debtors(session, limit=limit, offset=offset)
-        total_res = await session.execute(
-            select(func.count(models.IronBank.id)).where(models.IronBank.loan_gold > 0)
-        )
-        total_debtors = total_res.scalar() or 0
-
-    if not debtors:
-        text = "🏦 **QARZDORLAR RO'YXATI**\n\nHozirda bankdan qarzdor bo'lgan lordlar yo'q!"
-        buttons = [[InlineKeyboardButton("🔙 Bank Menyusi", callback_data="admin_bank_menu")]]
-        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
-        return
-
-    text = (
-        f"📋 **TEMIR BANK QARZDORLARI** (Jami: {total_debtors} ta)\n\n"
-        f"Qarzni kechirish yoki profilini ko'rish uchun tanlang:\n\n"
-    )
-
-    buttons = []
-    for d in debtors:
-        u = d["user"]
-        u_name = escape_md(u.full_name or u.username or f"User {u.id}")
-        warn = " ⚠️ MUDDATI O'TGAN!" if d["is_defaulted"] else ""
-        text += f"• **{u_name}**: `{d['loan_gold']:,}`🪙{warn}\n"
-        buttons.append([
-            InlineKeyboardButton(f"👤 {u_name[:15]}: {d['loan_gold']:,}🪙", callback_data=f"admin_u_detail:{u.id}"),
-            InlineKeyboardButton("❌ Kechirish", callback_data=f"adm_u_forgive_loan:{u.id}"),
-        ])
-
-    nav_row = []
-    if offset >= limit:
-        nav_row.append(InlineKeyboardButton("⬅️ Oldingi", callback_data=f"admin_bank_debtors:{offset - limit}"))
-    if offset + limit < total_debtors:
-        nav_row.append(InlineKeyboardButton("Keyingi ➡️", callback_data=f"admin_bank_debtors:{offset + limit}"))
-    if nav_row:
-        buttons.append(nav_row)
-
-    buttons.append([InlineKeyboardButton("🔙 Bank Menyusi", callback_data="admin_bank_menu")])
-
     try:
-        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
-    except Exception:
-        await query.edit_message_text(text, parse_mode=None, reply_markup=InlineKeyboardMarkup(buttons))
+        async with AsyncSessionLocal() as session:
+            debtors = await crud.admin_get_loan_debtors(session, limit=limit, offset=offset)
+            total_res = await session.execute(
+                select(func.count(models.IronBank.id)).where(models.IronBank.loan_gold > 0)
+            )
+            total_debtors = total_res.scalar() or 0
+
+        if not debtors:
+            text = "🏦 **QARZDORLAR RO'YXATI**\n\nHozirda bankdan qarzdor bo'lgan lordlar yo'q!"
+            buttons = [[InlineKeyboardButton("🔙 Bank Menyusi", callback_data="admin_bank_menu")]]
+            await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+            return
+
+        text = (
+            f"📋 **TEMIR BANK QARZDORLARI** (Jami: {total_debtors} ta)\n\n"
+            f"Qarzni kechirish yoki profilini ko'rish uchun tanlang:\n\n"
+        )
+
+        buttons = []
+        for d in debtors:
+            u = d["user"]
+            u_name = escape_md(u.full_name or u.username or f"User {u.id}")
+            warn = " ⚠️ MUDDATI O'TGAN!" if d.get("is_defaulted") else ""
+            text += f"• **{u_name}**: `{d['loan_gold']:,}`🪙{warn}\n"
+            buttons.append([
+                InlineKeyboardButton(f"👤 {u_name[:15]}: {d['loan_gold']:,}🪙", callback_data=f"admin_u_detail:{u.id}"),
+                InlineKeyboardButton("❌ Kechirish", callback_data=f"adm_u_forgive_loan:{u.id}"),
+            ])
+
+        nav_row = []
+        if offset >= limit:
+            nav_row.append(InlineKeyboardButton("⬅️ Oldingi", callback_data=f"admin_bank_debtors:{offset - limit}"))
+        if offset + limit < total_debtors:
+            nav_row.append(InlineKeyboardButton("Keyingi ➡️", callback_data=f"admin_bank_debtors:{offset + limit}"))
+        if nav_row:
+            buttons.append(nav_row)
+
+        buttons.append([InlineKeyboardButton("🔙 Bank Menyusi", callback_data="admin_bank_menu")])
+
+        try:
+            await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        except Exception:
+            await query.edit_message_text(text, parse_mode=None, reply_markup=InlineKeyboardMarkup(buttons))
+    except Exception as e:
+        logger.error(f"admin_bank_debtors_callback xatosi: {e}", exc_info=True)
+        await query.answer(f"Qarzdorlarni yuklashda xatolik: {e}", show_alert=True)
 
 
 async def admin_forgive_user_loan_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3570,6 +3679,8 @@ def register_admin_handlers(app):
     app.add_handler(CallbackQueryHandler(admin_season_menu_callback, pattern="^admin_season_menu$"))
     app.add_handler(CallbackQueryHandler(admin_season_conclude_ask_callback, pattern="^admin_season_conclude_ask$"))
     app.add_handler(CallbackQueryHandler(admin_season_conclude_do_callback, pattern="^admin_season_conclude_do$"))
+    app.add_handler(CallbackQueryHandler(admin_season_restart_current_ask_callback, pattern="^admin_season_restart_current_ask$"))
+    app.add_handler(CallbackQueryHandler(admin_season_restart_current_do_callback, pattern="^admin_season_restart_current_do$"))
     app.add_handler(CallbackQueryHandler(admin_wipe_ask_callback, pattern="^admin_wipe_ask$"))
     app.add_handler(CallbackQueryHandler(admin_wipe_confirm_callback, pattern="^admin_wipe_confirm$"))
     app.add_handler(CommandHandler(["setwar", "warcontrol"], set_war_command))

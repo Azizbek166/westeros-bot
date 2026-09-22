@@ -4321,7 +4321,7 @@ async def admin_toggle_bank_loans(session: AsyncSession) -> Tuple[bool, str]:
 
 
 async def admin_get_bank_stats(session: AsyncSession) -> Dict[str, Any]:
-    """Bank statistikasi: jami depozit, jami qarz, qarzdorlar soni"""
+    """Bank statistikasi: jami depozit, jami qarz, qarzdorlar soni, muddati o'tganlar"""
     dep_res = await session.execute(select(func.sum(models.IronBank.deposit_gold)))
     total_deposits = dep_res.scalar() or 0
 
@@ -4335,26 +4335,47 @@ async def admin_get_bank_stats(session: AsyncSession) -> Dict[str, Any]:
     )
     debtors_count = debtors_res.scalar() or 0
 
+    defaulted_res = await session.execute(
+        select(func.count(models.IronBank.id)).where(
+            models.IronBank.loan_gold > 0,
+            models.IronBank.is_defaulted == True
+        )
+    )
+    defaulted_count = defaulted_res.scalar() or 0
+
     loans_enabled = await is_bank_loans_enabled(session)
 
     return {
         "total_deposits": total_deposits,
         "total_loans": total_loans,
         "debtors_count": debtors_count,
+        "debtor_count": debtors_count,
+        "defaulted_count": defaulted_count,
         "loans_enabled": loans_enabled,
     }
 
 
-async def admin_get_loan_debtors(session: AsyncSession, limit: int = 15) -> List[Tuple[models.User, models.IronBank]]:
+async def admin_get_loan_debtors(session: AsyncSession, limit: int = 15, offset: int = 0) -> List[Dict[str, Any]]:
     """Qarzga ega bo'lgan o'yinchilar ro'yxati"""
     res = await session.execute(
         select(models.User, models.IronBank)
         .join(models.IronBank, models.User.id == models.IronBank.user_id)
         .where(models.IronBank.loan_gold > 0)
         .order_by(models.IronBank.loan_gold.desc())
+        .offset(offset)
         .limit(limit)
     )
-    return list(res.all())
+    debtors = []
+    for row in res.all():
+        user_obj, bank_obj = row
+        debtors.append({
+            "user": user_obj,
+            "loan_gold": bank_obj.loan_gold or 0,
+            "deposit_gold": bank_obj.deposit_gold or 0,
+            "is_defaulted": bool(bank_obj.is_defaulted),
+            "loan_due_at": bank_obj.loan_due_at,
+        })
+    return debtors
 
 
 async def admin_forgive_user_loan(session: AsyncSession, user_id: int) -> Tuple[bool, str]:
@@ -4787,6 +4808,49 @@ async def admin_conclude_and_restart_season(session: AsyncSession, bot_app=None)
         "winner_house": winner_house_name,
         "top3_players": top3_details,
     }
+
+
+async def admin_restart_current_season(session: AsyncSession, bot_app=None) -> Tuple[bool, str, Dict[str, Any]]:
+    """
+    Admin tomonidan joriy mavsumni (mavsum raqamini o'zgartirmasdan) 0 dan qayta boshlash:
+    1. Barcha o'yinchilar, armiyalar va qal'alar 0 ga tushiriladi (reset_entire_game).
+    2. Joriy mavsumning muddati (start_date = now, end_date = now + 30 days) yangilanadi.
+    3. Mavsum raqami (masalan 1-mavsum) o'zgarishsiz qoladi.
+    """
+    season = await get_active_season(session)
+    if not season:
+        return False, "Faol mavsum topilmadi.", {}
+
+    now = datetime.utcnow()
+    current_season_num = season.season_number
+
+    # 1. Butun o'yinni 0 ga tushirish
+    await reset_entire_game(session)
+
+    # 2. Mavsum muddatini qayta yangilash
+    season.start_date = now
+    season.end_date = now + timedelta(days=30)
+    season.is_active = True
+    await session.commit()
+
+    announcement = (
+        f"🔄⚡ **QIROL FARMONI: {current_season_num}-MAVSUM QAYTA BOSHLANDI (RESTART)!** ⚡🔄\n\n"
+        f"Administrator qarori bilan **{current_season_num}-Mavsum** barcha lordlar uchun 0 dan qayta boshlandi!\n\n"
+        f"• Barcha xazinolar, armiyalar va darajalar boshlang'ich holatiga qaytarildi.\n"
+        f"• 60 ta qal'a mudofaasi va taqsimoti qayta tiklandi.\n"
+        f"• Hozirning o'zida /start buyrug'i orqali yangi taqdiringizni tanlang va Temir Taxt uchun kurashga kiring!"
+    )
+
+    if bot_app:
+        from core.notifier import notify_house_group
+        h_res = await session.execute(select(models.House).where(models.House.group_chat_id.isnot(None)))
+        for h in h_res.scalars().all():
+            try:
+                await notify_house_group(bot_app, h.id, announcement, parse_mode="Markdown")
+            except Exception:
+                pass
+
+    return True, announcement, {"season_number": current_season_num}
 
 
 async def get_pending_season_bonus(session: AsyncSession, telegram_id: int) -> Optional[models.SeasonTopBonus]:

@@ -32,13 +32,12 @@ async def process_due_marches(bot_app=None):
 
         for march in marches:
             try:
-                march.status = "resolved"
-
                 # Hujumchi va Hudud ma'lumotlari
                 attacker = await session.get(models.User, march.attacker_user_id)
                 territory = await session.get(models.Territory, march.target_territory_id)
 
                 if not attacker or not territory:
+                    march.status = "failed"
                     continue
 
                 # Hujumchi tarkibi
@@ -80,6 +79,8 @@ async def process_due_marches(bot_app=None):
                 # Himoyachining ajdari va artefakti (agar qal'a egasi lordining ajdari bo'lsa)
                 def_dragon_pwr = 0
                 def_lord_id = None
+                def_lord_user = None
+                def_house = None
                 def_art_bonuses = {}
                 old_owner_house_id = territory.owner_house_id
                 if old_owner_house_id:
@@ -153,11 +154,13 @@ async def process_due_marches(bot_app=None):
                 if battle_res.get("wildfire_used", 0) > 0 and terr_wildfire > 0:
                     territory.wildfire_count = max(0, territory.wildfire_count - 1)
 
-                # Tirik qolgan hujumchilarni qaytarish
-                army_res = await session.execute(
-                    select(models.Army).where(models.Army.user_id == attacker.id)
-                )
-                attacker_army_obj = army_res.scalar_one_or_none()
+                # Qal'a mudofaasiga yetkazilgan talofatni hisobga olish
+                castle_defense_dmg = battle_res.get("castle_defense_damage", 0)
+                if castle_defense_dmg > 0:
+                    territory.defense = max(50, territory.defense - castle_defense_dmg)
+
+                # Tirik qolgan hujumchilarni armiyaga qaytarish
+                attacker_army_obj = await crud.get_user_army(session, attacker.id)
                 if attacker_army_obj:
                     attacker_army_obj.infantry += battle_res["remaining_attacker"]["infantry"]
                     attacker_army_obj.archers += battle_res["remaining_attacker"]["archers"]
@@ -187,6 +190,8 @@ async def process_due_marches(bot_app=None):
                     if can_annex:
                         territory.owner_house_id = attacker.house_id
                         territory.conquered_by_user_id = attacker.id
+                        # Zabt etilgan qal'a mudofaa devorlari shikastlangan
+                        territory.defense = min(territory.defense, 300)
                         # Qal'a egasi o'zgarganda mudofaadagi ajdar uyasiga qaytadi
                         if territory.reinforcements_json:
                             try:
@@ -395,8 +400,27 @@ async def process_due_marches(bot_app=None):
                     except Exception:
                         pass
 
+                # Yurish muvaffaqiyatli yakunlandi
+                march.status = "resolved"
+
             except Exception as e:
                 logger.error(f"March {march.id} ni hisoblashda xatolik: {e}", exc_info=True)
+                try:
+                    if march.status == "marching":
+                        march.status = "failed"
+                        if attacker:
+                            army = await crud.get_user_army(session, attacker.id)
+                            if army:
+                                army.infantry += march.infantry
+                                army.archers += march.archers
+                                army.cavalry += march.cavalry
+                                army.spearmen += march.spearmen
+                                army.special_troops += march.special_troops
+                                army.catapults = (army.catapults or 0) + (getattr(march, "catapults", 0) or 0)
+                                army.siege_towers = (army.siege_towers or 0) + (getattr(march, "siege_towers", 0) or 0)
+                                logger.info(f"March {march.id} qo'shinlari o'yinchi {attacker.id} ga failsafe qaytarildi.")
+                except Exception as e_refund:
+                    logger.error(f"March {march.id} qo'shinlarini failsafe qaytarishda xatolik: {e_refund}")
 
         await session.commit()
 
@@ -859,19 +883,19 @@ async def execute_daily_2100_war_and_npc_raids(bot_app=None, force: bool = False
             daily_ev.data_json = json.dumps(data)
             await session.commit()
 
-            logger.info(f"⚔️ SOAT 21:00: KUNLIK URUSH VA NPC BOSQINLARI BOSHLANDI! ({today_str})")
+            logger.info(f"⚔️ KUNLIK URUSH VA NPC BOSQINLARI BOSHLANDI! ({today_str})")
 
-            # 2. Urush rejimini 2.0 soatga ochamiz (21:00 dan 23:00 gacha)
-            await crud.set_war_status(session, is_active=True, duration_hours=2.0, opened_by=0)
+            # 2. Urush rejimini 1.0 soatga ochamiz (1 soat davom etadi)
+            await crud.set_war_status(session, is_active=True, duration_hours=1.0, opened_by=0)
 
             # 3. Server-wide broadcast (Barcha o'yinchilarga e'lon)
             war_announcement = (
-                "⚔️🔥 **QIROL FARMONI: SOAT 21:00 — KUNLIK URUSH BOSHLANDI!** 🔥⚔️\n\n"
-                "Vesteros uzra qonli jang darvozalari 2 soatga (21:00 dan 23:00 gacha) keng ochildi!\n\n"
+                "⚔️🔥 **QIROL FARMONI: HARBIY HOLAT VA NPC BOSQINLARI BOSHLANDI!** 🔥⚔️\n\n"
+                "Vesteros uzra qonli jang darvozalari 1 soatga keng ochildi!\n\n"
                 "🏰 Barcha dushman qal'alariga harbiy yurishlar va qamallar boshlandi.\n"
                 "👾 **OGOHLANTIRISH:** 10 ta NPC qo'rg'onlari va yovvoyi erkin qo'shinlar ham o'yinchilar qal'alariga qaqshatqich bosqin boshladi!\n\n"
                 "🛡️ O'z qal'angizni himoya qiling, qo'shinlarni safarbar qiling va xonadoningiz sha'nini saqlang!\n\n"
-                "*(Xaritadan dushman qal'asini tanlang va harbiy yurish boshlang!)*"
+                "*(Xaritadan dushman qal'asini tanlang va harbiy yurish boshlang! Urush 1 soat davom etadi)*"
             )
 
             if bot_app:
@@ -974,6 +998,10 @@ async def execute_daily_2100_war_and_npc_raids(bot_app=None, force: bool = False
                 target_terr.garrison_archers = battle_res["remaining_defender"]["archers"]
                 target_terr.garrison_cavalry = battle_res["remaining_defender"]["cavalry"]
                 target_terr.garrison_spearmen = battle_res["remaining_defender"]["spearmen"]
+                # Qal'a mudofaasiga yetkazilgan talofat
+                npc_def_dmg = battle_res.get("castle_defense_damage", 0)
+                if npc_def_dmg > 0:
+                    target_terr.defense = max(50, target_terr.defense - npc_def_dmg)
 
                 raided_count += 1
 
@@ -1032,10 +1060,10 @@ async def execute_daily_2100_war_and_npc_raids(bot_app=None, force: bool = False
             try:
                 await notify_owner(
                     bot_app,
-                    f"👾 *21:00 KUNLIK URUSH & NPC BOSQINLARI O'TKAZILDI!*\n\n"
+                    f"👾 *KUNLIK URUSH & NPC BOSQINLARI O'TKAZILDI!*\n\n"
                     f"📅 Sana: `{today_str}` (UZT)\n"
                     f"⚔️ Hujumga uchragan qal'alar soni: *{raided_count}*\n"
-                    f"⏱️ Urush rejimi: *2 soat (23:00 gacha faol)*"
+                    f"⏱️ Urush rejimi: *1 soat davomida faol*"
                 )
             except Exception:
                 pass
@@ -1046,16 +1074,10 @@ async def execute_daily_2100_war_and_npc_raids(bot_app=None, force: bool = False
 
 async def check_and_trigger_daily_war_failsafe(bot_app=None):
     """
-    Agar bot 21:00 da o'chiq bo'lgan bo'lsa yoki restart bo'lgan bo'lsa,
-    soat 21:00 va 22:59 (UZT) oralig'ida bugungi urush o'tkazilganligini tekshiradi
-    va agar hali ochilmagan bo'lsa, avtomatik ochadi va bosqinlarni o'tkazadi.
+    Foydalanuvchi talabiga ko'ra: Kunlik urush va NPC bosqinlari avtomatik tarzda emas,
+    faqat admin tomonidan boshqariladi. Shuning uchun avtomatik ishga tushirish o'chirilgan.
     """
-    try:
-        uzb_now = datetime.utcnow() + timedelta(hours=5)
-        if uzb_now.hour in [21, 22]:
-            await execute_daily_2100_war_and_npc_raids(bot_app=bot_app, force=False)
-    except Exception as e:
-        logger.error(f"check_and_trigger_daily_war_failsafe xatosi: {e}")
+    return
 
 
 

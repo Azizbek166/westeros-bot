@@ -250,13 +250,15 @@ def main():
         first=60,
     )
 
-    # Har kuni soat 21:00 da (O'zbekiston vaqti UTC+5) kunlik urush va NPC hujumlari
-    uzbekistan_tz = timezone(timedelta(hours=5))
-    app.job_queue.run_daily(
-        daily_war_and_npc_job,
-        time=dt_time(hour=21, minute=0, second=0, tzinfo=uzbekistan_tz),
-        name="daily_2100_war_job",
-    )
+    # Kunlik urush va NPC hujumlari - ADMIN BOSHQARUVI:
+    # Foydalanuvchi talabi: Urush va NPC bosqinlari avtomatik boshlanmaydi, admin qo'lda boshlaydi (/dailywar yoki Admin Panel)
+    # va boshlangandan so'ng 1 soat davom etadi.
+    # uzbekistan_tz = timezone(timedelta(hours=5))
+    # app.job_queue.run_daily(
+    #     daily_war_and_npc_job,
+    #     time=dt_time(hour=21, minute=0, second=0, tzinfo=uzbekistan_tz),
+    #     name="daily_2100_war_job",
+    # )
 
     print("==================================================")
     print("👑 THE IRON THRONE — 500+ PLAYER MMORPG ISHGA TUSHDI")

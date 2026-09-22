@@ -34,6 +34,7 @@ def calculate_battle(
 
     total_att_count = sum(att_troops.values())
     total_def_count = sum(def_troops.values())
+    initial_castle_defense = castle_defense
 
     # Artefakt bonuslari
     att_art = attacker_artifact_bonuses or {}
@@ -121,6 +122,15 @@ def calculate_battle(
         siege_details += (
             f"🗼 **QAMAL MINORALARI:**\n"
             f"{siege_towers} ta minoralar hujumchi piyodalarni devor kamonchilaridan to'sib, qal'a devorlari ustiga xavfsiz olib chiqdi!\n\n"
+        )
+
+    # 0.4. Askarlar hujumi (Qal'a istehkomlariga yetkazilgan talofat)
+    if total_att_count > 0:
+        assault_wall_dmg = max(10, min(int(castle_defense * 0.25), int(total_att_count * 0.20)))
+        castle_defense = max(50, castle_defense - assault_wall_dmg)
+        siege_details += (
+            f"⚔️🧱 **QAL'A DEVORLARIGA SHIDDATLI HUJUM:**\n"
+            f"Hujumchi armiya qal'a darvozalari va mudofaa istehkomlariga qaqshatqich zarba berdi! Qal'a mustahkamligi **-{assault_wall_dmg}** ballga yemirildi.\n\n"
         )
 
     # ============================================================
@@ -376,7 +386,9 @@ def calculate_battle(
             twr_lost = min(siege_towers, max(0 if siege_towers == 0 else 1, int(siege_towers * random.uniform(0.5, 0.85))))
             win_details = "🛡️ **Himoyachilar hujumni qaytarishga muvaffaq bo'ldi!** Qal'a devorlari bardosh berdi."
 
-    full_details = f"{weather_details}{gates_details}{champion_details}{siege_details}{dragon_details}{win_details}"
+    castle_defense_damage = max(10, initial_castle_defense - castle_defense) if total_att_count > 0 else 0
+    wall_summary = f"\n\n🧱🏰 **QAL'A MUDOFAASI:** {initial_castle_defense} ➔ {castle_defense} (**-{castle_defense_damage}** mudofaa talofati)\n"
+    full_details = f"{weather_details}{gates_details}{champion_details}{siege_details}{dragon_details}{win_details}{wall_summary}"
 
     return {
         "winner": winner,
@@ -389,6 +401,8 @@ def calculate_battle(
         "catapults_lost": cat_lost,
         "siege_towers_lost": twr_lost,
         "wildfire_used": wildfire_used,
+        "castle_defense_damage": castle_defense_damage,
+        "new_castle_defense": castle_defense,
         "details": full_details,
     }
 
