@@ -1,4 +1,4 @@
-﻿import logging
+import logging
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
@@ -85,10 +85,11 @@ async def show_hall_of_fame_menu(target, user_id: int):
         if fame_entries:
             for entry in fame_entries:
                 date_str = entry.concluded_at.strftime("%d.%m.%Y") if entry.concluded_at else ""
+                winner_person = entry.king_name or entry.top_warrior_name or "Noma'lum"
                 fame_text += (
-                    f"🏆 **{entry.season_number}-MAVSUM G'OLIBI:** **{entry.winner_house_name}** xonadoni\n"
-                    f"👑 **Qirol:** {entry.king_name or 'Noma\'lum'}\n"
-                    f"⚔️ **Bosh Botir:** {entry.top_warrior_name} ({entry.top_warrior_prestige:,}🎖️)\n"
+                    f"🏆 **{entry.season_number}-MAVSUM CHEMPIONI:**\n"
+                    f"👑 **G'olib:** **{winner_person}** ({entry.winner_house_name} xonadoni)\n"
+                    f"🎖️ **Nufuz:** {entry.top_warrior_prestige:,}🎖️\n"
                     f"📅 _Tarixiy sana: {date_str}_\n"
                     f"{'—'*25}\n"
                 )

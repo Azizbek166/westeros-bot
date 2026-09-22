@@ -542,6 +542,23 @@ class HallOfFame(Base):
 
 
 # ============================================================
+# 24.1 MAVSUMIY TOP-3 BONUSLARI (SEASON TOP BONUSES)
+# ============================================================
+class SeasonTopBonus(Base):
+    __tablename__ = "season_top_bonuses"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    season_number = Column(Integer, nullable=False, index=True)
+    telegram_id = Column(BigInteger, nullable=False, index=True)
+    character_name = Column(String(100), nullable=True)
+    rank_position = Column(Integer, nullable=False)  # 1, 2, 3
+    prestige = Column(Integer, default=0)
+    is_claimed = Column(Boolean, default=False)
+    claimed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# ============================================================
 # 25. JOSUSLIK VA QIZIL TO'Y (ESPIONAGE & INFILTRATION)
 # ============================================================
 class SpyMission(Base):

@@ -118,6 +118,7 @@ async def show_admin_dashboard(target, is_message: bool):
         ]
 
         if is_admin(target_user_id) or str(target_user_id) == str(OWNER_ID):
+            buttons.append([InlineKeyboardButton("👑 MAVSUMNI TUGATISH & YANGI MAVSUM (RESET)", callback_data="admin_season_menu")])
             buttons.append([InlineKeyboardButton("⚠️ O'YINNI 0 QILISH (MAVSUM RESET)", callback_data="admin_wipe_ask")])
 
         buttons.append([InlineKeyboardButton("🔙 Bosh Menyu", callback_data="menu_main")])
@@ -2832,6 +2833,154 @@ async def give_army_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"{'✅' if ok else '❌'} {msg}")
 
 
+async def admin_season_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin: Mavsumni boshqarish va yakunlash menyusi"""
+    query = update.callback_query
+    await query.answer()
+    uid = query.from_user.id
+    if not is_admin(uid) and uid != OWNER_ID:
+        await query.answer("❌ Faqat Administrator kirishi mumkin!", show_alert=True)
+        return
+
+    async with AsyncSessionLocal() as session:
+        summary = await crud.get_season_status_summary(session)
+
+    s_num = summary["season_number"]
+    next_s_num = s_num + 1
+    rem_str = f"{summary['rem_days']} kun {summary['rem_hours']} soat {summary['rem_mins']} daqiqa"
+    winner_h = summary["winner_house_name"]
+    winner_emoji = summary["winner_house_emoji"]
+    king_name = summary["king_name"]
+
+    top3_text = ""
+    for p in summary["top3_players"]:
+        badge = "🥇" if p["rank"] == 1 else ("🥈" if p["rank"] == 2 else "🥉")
+        top3_text += f"• {badge} **{p['rank']}-o'rin:** {p['name']} ({p['house']}) — **{p['prestige']:,}🎖️** Nufuz (Daraja: {p['level']})\n"
+
+    if not top3_text:
+        top3_text = "• *Hozircha faol o'yinchilar yo'q*\n"
+
+    text = (
+        f"👑 **{s_num}-MAVSUM BOSHQARUVI & YAKUNLASH**\n\n"
+        f"⏱️ **Qolgan muddat:** {rem_str}\n"
+        f"🏰 **Amaldagi Temir Taxt Egalari:** {winner_emoji} **{winner_h}**\n"
+        f"👑 **Vesteros Qiroli:** **{king_name}**\n\n"
+        f"🏆 **JORIY MAVSUM YETAKCHILARI (TOP 3):**\n"
+        f"{top3_text}\n"
+        f"📜 **Mavsumni yakunlash oqibatlari:**\n"
+        f"1. O'yin g'olibi ({king_name}) abadiy **Shon-sharaf Zali (Hall of Fame)**ga muhrlanadi.\n"
+        f"2. Yuqoridagi TOP 3 lordlarga yangi {next_s_num}-Mavsum uchun **maxsus boshlang'ich bonuslar** (unvon, xazina, saralangan qo'shinlar) biriktiriladi.\n"
+        f"3. Barcha o'yinchilar, armiyalar va qal'alar 0 ga tushirilib, **{next_s_num}-Mavsum** rasman boshlanadi!\n\n"
+        f"Mavsumni yakunlab, yangi mavsumni boshlashni istaysizmi?"
+    )
+
+    buttons = [
+        [InlineKeyboardButton("🏆 Mavsumni Yakunlash & Yangi Mavsum Boshlash", callback_data="admin_season_conclude_ask")],
+        [InlineKeyboardButton("🔙 Admin Panelga Qaytish", callback_data="admin_panel")],
+    ]
+    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def admin_season_conclude_ask_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Mavsumni yakunlashdan oldin tasdiqlash so'rovi"""
+    query = update.callback_query
+    await query.answer()
+    uid = query.from_user.id
+    if not is_admin(uid) and uid != OWNER_ID:
+        await query.answer("❌ Faqat Administrator ushbu amalni bajara oladi!", show_alert=True)
+        return
+
+    async with AsyncSessionLocal() as session:
+        summary = await crud.get_season_status_summary(session)
+
+    s_num = summary["season_number"]
+    next_s_num = s_num + 1
+
+    text = (
+        f"⚠️ **DIQQAT: {s_num}-MAVSUMNI TO'LIQ YAKUNLASH VA 0 DAN BOSHLASH!**\n\n"
+        f"Haqiqatan ham {s_num}-mavsumni yakunlab, yangi **{next_s_num}-Mavsum**ni boshlamoqchimisiz?\n\n"
+        f"**Nimalar sodir bo'ladi:**\n"
+        f"• G'olib **{summary['king_name']}** Shon-sharaf zaliga yoziladi.\n"
+        f"• TOP 3 o'yinchilariga yangi mavsumda ro'yxatdan o'tishda maxsus bonuslar saqlanadi.\n"
+        f"• Barcha o'yinchilar profillari, armiyalari va resurslari 0 ga tushiriladi.\n"
+        f"• Barcha 60 ta qal'a boshlang'ich holatiga qaytariladi.\n"
+        f"• Hamma /start orqali yangi mavsumda qaytadan boshlaydi!\n\n"
+        f"❗️ *Ushbu amalni ortga qaytarib bo'lmaydi!*"
+    )
+    buttons = [
+        [InlineKeyboardButton("👑 HA, MAVSUMNI YAKUNLASH VA 0 QILISH", callback_data="admin_season_conclude_do")],
+        [InlineKeyboardButton("❌ Bekor Qilish", callback_data="admin_season_menu")],
+    ]
+    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def admin_season_conclude_do_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Mavsumni yakunlash va yangi mavsum boshlash ijrosi"""
+    query = update.callback_query
+    uid = query.from_user.id
+    if not is_admin(uid) and uid != OWNER_ID:
+        await query.answer("❌ Huquqingiz yetarli emas!", show_alert=True)
+        return
+
+    await query.answer("⏳ Mavsum yakunlanmoqda va baza yangilanmoqda...", show_alert=False)
+    async with AsyncSessionLocal() as session:
+        ok, ann, res_info = await crud.admin_conclude_and_restart_season(session, context.application)
+
+    if not ok:
+        await query.edit_message_text(f"❌ Xatolik yuz berdi: {ann}", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Orqaga", callback_data="admin_panel")]]))
+        return
+
+    top3_lines = ""
+    for p in res_info.get("top3_players", []):
+        badge = "🥇" if p["rank"] == 1 else ("🥈" if p["rank"] == 2 else "🥉")
+        top3_lines += f"{badge} **{p['rank']}-o'rin:** {p['name']} ({p['prestige']:,}🎖️)\n"
+
+    text = (
+        f"👑🏆 **{res_info['season_number']}-MAVSUM MUVAFFAQIYATLI YAKUNLANDI!** 🏆👑\n\n"
+        f"🏛️ **Mavsum Chempioni:** **{res_info['winner_name']}** ({res_info['winner_house']})\n"
+        f"📜 O'yin g'olibi nomi abadiy **Shon-sharaf Zali (Hall of Fame)**ga oltin harflar bilan muhrlandi!\n\n"
+        f"🎖️ **Yangi mavsumda bonus oluvchi TOP 3 lordlar:**\n"
+        f"{top3_lines or 'Mavjud emas'}\n"
+        f"🌟 **{res_info['next_season_number']}-MAVSUM BOSHLANDI!**\n"
+        f"• Barcha o'yinchilar ma'lumotlari to'liq 0 ga tushirildi.\n"
+        f"• Qal'alar va garnizonlar boshlang'ich holatiga qaytdi.\n"
+        f"• Endi barcha o'yinchilar /start buyrug'i orqali yangi taqdirini tanlashi mumkin!"
+    )
+    buttons = [
+        [InlineKeyboardButton("👑 /start orqali Yangidan Boshlash", callback_data="menu_main")],
+        [InlineKeyboardButton("⚙️ Admin Paneli", callback_data="admin_panel")],
+    ]
+    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def end_season_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/endseason yoki /concludeseason buyrug'i"""
+    uid = update.effective_user.id
+    if not is_admin(uid) and uid != OWNER_ID:
+        await update.message.reply_text("❌ Faqat Administrator ushbu buyruqni bera oladi!")
+        return
+
+    async with AsyncSessionLocal() as session:
+        summary = await crud.get_season_status_summary(session)
+
+    s_num = summary["season_number"]
+    next_s_num = s_num + 1
+
+    text = (
+        f"⚠️ **DIQQAT: {s_num}-MAVSUMNI TO'LIQ YAKUNLASH VA 0 DAN BOSHLASH!**\n\n"
+        f"Haqiqatan ham {s_num}-mavsumni yakunlab, yangi **{next_s_num}-Mavsum**ni boshlamoqchimisiz?\n\n"
+        f"• G'olib **{summary['king_name']}** Shon-sharaf zaliga yoziladi.\n"
+        f"• TOP 3 o'yinchilariga yangi mavsumda ro'yxatdan o'tishda maxsus bonuslar saqlanadi.\n"
+        f"• Barcha o'yinchilar profillari, armiyalari va resurslari 0 ga tushiriladi.\n"
+        f"• Hamma /start orqali yangi mavsumda qaytadan boshlaydi!"
+    )
+    buttons = [
+        [InlineKeyboardButton("👑 HA, MAVSUMNI YAKUNLASH VA 0 QILISH", callback_data="admin_season_conclude_do")],
+        [InlineKeyboardButton("❌ Bekor Qilish", callback_data="menu_main")],
+    ]
+    await update.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
 async def admin_wipe_ask_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """O'yinni tozalashdan oldin ogohlantirish ekrani"""
     query = update.callback_query
@@ -2964,6 +3113,10 @@ def register_admin_handlers(app):
     app.add_handler(CallbackQueryHandler(admin_reset_all_limits_callback, pattern="^admin_reset_all_limits$"))
     app.add_handler(CallbackQueryHandler(admin_tourney_menu_callback, pattern="^admin_tourney_menu$"))
     app.add_handler(CallbackQueryHandler(admin_broadcast_info_callback, pattern="^admin_broadcast_info$"))
+    app.add_handler(CommandHandler(["endseason", "concludeseason", "nextseason"], end_season_command))
+    app.add_handler(CallbackQueryHandler(admin_season_menu_callback, pattern="^admin_season_menu$"))
+    app.add_handler(CallbackQueryHandler(admin_season_conclude_ask_callback, pattern="^admin_season_conclude_ask$"))
+    app.add_handler(CallbackQueryHandler(admin_season_conclude_do_callback, pattern="^admin_season_conclude_do$"))
     app.add_handler(CallbackQueryHandler(admin_wipe_ask_callback, pattern="^admin_wipe_ask$"))
     app.add_handler(CallbackQueryHandler(admin_wipe_confirm_callback, pattern="^admin_wipe_confirm$"))
     app.add_handler(CommandHandler(["setwar", "warcontrol"], set_war_command))

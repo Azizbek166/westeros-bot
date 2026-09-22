@@ -253,6 +253,12 @@ async def handle_custom_name_input(update: Update, context: ContextTypes.DEFAULT
                     house_id=house_id,
                     character_name=raw_name,
                 )
+
+            # Oldingi mavsum TOP-3 g'olibi bo'lsa, bonusni avtomatik biriktirish
+            pending_bonus = await crud.get_pending_season_bonus(session, user_id)
+            season_bonus_msg = ""
+            if pending_bonus:
+                _, season_bonus_msg = await crud.apply_season_top_bonus(session, user, pending_bonus)
         except ValueError as ve:
             await update.effective_message.reply_text(f"❌ {ve}")
             return
@@ -283,7 +289,7 @@ async def handle_custom_name_input(update: Update, context: ContextTypes.DEFAULT
 
     text = (
         f"🎉 **QASAMYOD QABUL QILINDI!**\n\n"
-        f"👤 Siz endi **{house_info['emoji']} {house_info['name']}** xonadonida **{escape_md(raw_name)}** sifatida qasamyod qildingiz!{reassigned_notice}\n"
+        f"👤 Siz endi **{house_info['emoji']} {house_info['name']}** xonadonida **{escape_md(raw_name)}** sifatida qasamyod qildingiz!{reassigned_notice}{season_bonus_msg}\n\n"
         f"🎖️ Lavozimingiz: **{user_rank_display}**\n\n"
         f"💰 Boshlang'ich Resurslar:\n"
         f"🪙 Oltin: **{user.gold:,}** | 🌾 Oziq-ovqat: **{user.food:,}** | ⛓️ Temir: **{user.iron:,}**\n"

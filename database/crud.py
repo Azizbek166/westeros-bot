@@ -3356,6 +3356,10 @@ async def reset_entire_game(session: AsyncSession) -> None:
         models.Character,
         models.Army,
         models.HouseMember,
+        models.SpyMission,
+        models.TournamentParticipant,
+        models.Tournament,
+        models.IronBank,
         models.User,
     ]
     for tm in table_models:
@@ -4424,6 +4428,284 @@ async def check_and_conclude_season(session: AsyncSession, bot_app=None) -> Tupl
                 pass
 
     return True, announcement
+
+
+async def get_season_status_summary(session: AsyncSession) -> Dict[str, Any]:
+    """Mavsum haqida to'liq xulosaviy ma'lumot (admin paneli uchun)"""
+    season = await get_active_season(session)
+    now = datetime.utcnow()
+    rem_seconds = max(0, int((season.end_date - now).total_seconds())) if season else 0
+    rem_days = rem_seconds // 86400
+    rem_hours = (rem_seconds % 86400) // 3600
+    rem_mins = (rem_seconds % 3600) // 60
+
+    kl_res = await session.execute(
+        select(models.Territory).where(models.Territory.code == "kings_landing")
+    )
+    kl_terr = kl_res.scalar_one_or_none()
+    winner_house = None
+    if kl_terr and kl_terr.owner_house_id:
+        winner_house = await session.get(models.House, kl_terr.owner_house_id)
+    if not winner_house:
+        top_h_res = await session.execute(
+            select(models.House).order_by(models.House.prestige.desc()).limit(1)
+        )
+        winner_house = top_h_res.scalar_one_or_none()
+
+    winner_house_name = winner_house.name if winner_house else "Vesteros Ittifoqi"
+    winner_house_emoji = winner_house.emoji if winner_house else "🏰"
+    winner_house_id = winner_house.id if winner_house else None
+    king_name = "Noma'lum Lord"
+    king_user = None
+    if winner_house and winner_house.lord_user_id:
+        king_user = await get_user_by_telegram_id(session, winner_house.lord_user_id)
+        if king_user:
+            k_char_res = await session.execute(
+                select(models.Character.name).where(models.Character.user_id == king_user.id).limit(1)
+            )
+            k_name = k_char_res.scalar_one_or_none()
+            king_name = k_name if k_name else king_user.full_name
+
+    top_users_res = await session.execute(
+        select(models.User)
+        .options(
+            selectinload(models.User.characters),
+            selectinload(models.User.house),
+            selectinload(models.User.army),
+        )
+        .order_by(models.User.prestige.desc(), models.User.level.desc(), models.User.gold.desc())
+        .limit(3)
+    )
+    top_players = list(top_users_res.scalars().all())
+    top3_list = []
+    for rank, p in enumerate(top_players, start=1):
+        char_name = p.characters[0].name if p.characters else p.full_name
+        h_name = p.house.name if p.house else "Mustaqil"
+        top3_list.append({
+            "rank": rank,
+            "telegram_id": p.telegram_id,
+            "name": char_name,
+            "house": h_name,
+            "prestige": p.prestige or 0,
+            "level": p.level or 1,
+        })
+
+    return {
+        "season_number": season.season_number if season else 1,
+        "start_date": season.start_date if season else now,
+        "end_date": season.end_date if season else now,
+        "rem_days": rem_days,
+        "rem_hours": rem_hours,
+        "rem_mins": rem_mins,
+        "winner_house_id": winner_house_id,
+        "winner_house_name": winner_house_name,
+        "winner_house_emoji": winner_house_emoji,
+        "king_name": king_name,
+        "king_user": king_user,
+        "top3_players": top3_list,
+        "raw_top_players": top_players,
+    }
+
+
+async def admin_conclude_and_restart_season(session: AsyncSession, bot_app=None) -> Tuple[bool, str, Dict[str, Any]]:
+    """
+    Admin tomonidan mavsumni yakunlash va yangi mavsum boshlash:
+    1. O'yin g'olibi (Temir Taxt sohibi / Qirol) Shon-sharaf zaliga (Hall of Fame) yoziladi.
+    2. TOP 3 o'yinchilariga yangi mavsum uchun SeasonTopBonus yoziladi.
+    3. Butun o'yin 0 ga tushiriladi (reset_entire_game).
+    4. Yangi mavsum (SeasonState) yaratiladi va xabarnomalar yuboriladi.
+    """
+    summary = await get_season_status_summary(session)
+    season = await get_active_season(session)
+    if not season:
+        return False, "Faol mavsum topilmadi.", {}
+
+    now = datetime.utcnow()
+    current_season_num = season.season_number
+    next_season_num = current_season_num + 1
+
+    winner_house_name = summary["winner_house_name"]
+    winner_house_id = summary["winner_house_id"]
+    king_name = summary["king_name"]
+
+    raw_top = summary["raw_top_players"]
+    top1_player = raw_top[0] if len(raw_top) > 0 else None
+    top_warrior_prestige = top1_player.prestige if top1_player else 0
+
+    # O'yinni yutgan odam (Temir Taxt Qiroli yoki Top 1 jangchi)
+    overall_winner_name = king_name if king_name and king_name != "Noma'lum Lord" else (top1_player.full_name if top1_player else "Vesteros Qiroli")
+
+    # 1. Shon-sharaf zaliga yozish (faqat o'yinni yutgan shaxs)
+    hof_entry = models.HallOfFame(
+        season_number=current_season_num,
+        winner_house_id=winner_house_id,
+        winner_house_name=winner_house_name,
+        king_user_id=None,
+        king_name=overall_winner_name,
+        top_warrior_name=overall_winner_name,
+        top_warrior_prestige=top_warrior_prestige,
+        concluded_at=now,
+    )
+    session.add(hof_entry)
+
+    # 2. Yangi mavsum uchun TOP 3 o'yinchilariga bonus yozish
+    top3_details = []
+    for rank, p in enumerate(raw_top, start=1):
+        char_name = p.characters[0].name if p.characters else p.full_name
+        bonus_entry = models.SeasonTopBonus(
+            season_number=current_season_num,
+            telegram_id=p.telegram_id,
+            character_name=char_name,
+            rank_position=rank,
+            prestige=p.prestige or 0,
+            is_claimed=False,
+            created_at=now,
+        )
+        session.add(bonus_entry)
+        top3_details.append({
+            "rank": rank,
+            "name": char_name,
+            "prestige": p.prestige or 0,
+            "telegram_id": p.telegram_id,
+        })
+
+    # 3. Joriy mavsumni yopish va yangi mavsumni ochish
+    season.is_active = False
+    next_season = models.SeasonState(
+        season_number=next_season_num,
+        start_date=now,
+        end_date=now + timedelta(days=30),
+        is_active=True,
+        created_at=now,
+    )
+    session.add(next_season)
+
+    # 4. Butun o'yinni 0 ga tushirish (reset_entire_game)
+    await reset_entire_game(session)
+
+    await session.commit()
+
+    # E'lon matni
+    top_lines = ""
+    for item in top3_details:
+        badge = "🥇" if item["rank"] == 1 else ("🥈" if item["rank"] == 2 else "🥉")
+        top_lines += f"{badge} **{item['rank']}-o'rin:** {item['name']} ({item['prestige']:,}🎖️)\n"
+
+    if not top_lines:
+        top_lines = "Jangchilar ro'yxati shakllanmagan edi.\n"
+
+    announcement = (
+        f"👑🏆 **VESTEROSDA YANGI DAVR: {current_season_num}-MAVSUM YAKUNLANDI!** 🏆👑\n\n"
+        f"🏛️ **TEMIR TAXT G'OLIBI:** **{winner_house_name}** xonadoni!\n"
+        f"👑 **Vesteros Chempioni (Qirol):** **{overall_winner_name}**\n\n"
+        f"📜 O'yin g'olibi nomi abadiy **Shon-sharaf Zali (Hall of Fame)** solnomalariga oltin harflar bilan muhrlandi!\n\n"
+        f"🎖️ **YANGI MAVSUM UCHUN BONUSGA EGA BO'LGAN TOP 3 LORDLAR:**\n"
+        f"{top_lines}\n"
+        f"🌟 **{next_season_num}-MAVSUM RASMAN BOSHLANDI!**\n"
+        f"Barcha o'yinchilar ma'lumotlari 0 ga tushirildi. Qal'alar qayta taqsimlandi!\n"
+        f"Barcha lordlar /start buyrug'i orqali qaytadan o'z taqdirini tanlashi va jangga kirishi mumkin!"
+    )
+
+    if bot_app:
+        from core.notifier import notify_house_group
+        h_res = await session.execute(select(models.House).where(models.House.group_chat_id.isnot(None)))
+        for h in h_res.scalars().all():
+            try:
+                await notify_house_group(bot_app, h.id, announcement)
+            except Exception:
+                pass
+
+    return True, announcement, {
+        "season_number": current_season_num,
+        "next_season_number": next_season_num,
+        "winner_name": overall_winner_name,
+        "winner_house": winner_house_name,
+        "top3_players": top3_details,
+    }
+
+
+async def get_pending_season_bonus(session: AsyncSession, telegram_id: int) -> Optional[models.SeasonTopBonus]:
+    """O'yinchi uchun o'tgan mavsumdan qolgan kutilayotgan bonusni olish"""
+    res = await session.execute(
+        select(models.SeasonTopBonus)
+        .where(
+            models.SeasonTopBonus.telegram_id == telegram_id,
+            models.SeasonTopBonus.is_claimed == False,
+        )
+        .order_by(models.SeasonTopBonus.season_number.desc())
+    )
+    return res.scalars().first()
+
+
+async def apply_season_top_bonus(session: AsyncSession, user: models.User, bonus: models.SeasonTopBonus) -> Tuple[bool, str]:
+    """Foydalanuvchiga mavsumiy TOP bonusini biriktirish"""
+    if not user or not bonus or bonus.is_claimed:
+        return False, ""
+
+    season_num = bonus.season_number
+    pos = bonus.rank_position
+
+    if pos == 1:
+        title = f"🏆 {season_num}-Mavsum Chempioni"
+        gold_bonus = 2500
+        food_bonus = 5000
+        iron_bonus = 1500
+        prestige_bonus = 100
+        inf_bonus = 150
+        arc_bonus = 100
+        cav_bonus = 50
+        spear_bonus = 50
+        pos_badge = "🥇 1-o'rin (Mavsum Chempioni)"
+    elif pos == 2:
+        title = f"🥈 {season_num}-Mavsum Vitse-Chempioni"
+        gold_bonus = 1500
+        food_bonus = 3000
+        iron_bonus = 1000
+        prestige_bonus = 60
+        inf_bonus = 100
+        arc_bonus = 60
+        cav_bonus = 30
+        spear_bonus = 30
+        pos_badge = "🥈 2-o'rin (Vitse-Chempion)"
+    else:
+        title = f"🥉 {season_num}-Mavsum Bronza Botiri"
+        gold_bonus = 1000
+        food_bonus = 2000
+        iron_bonus = 600
+        prestige_bonus = 30
+        inf_bonus = 70
+        arc_bonus = 40
+        cav_bonus = 20
+        spear_bonus = 20
+        pos_badge = "🥉 3-o'rin (Bronza Botiri)"
+
+    user.title = title
+    user.gold = (user.gold or 0) + gold_bonus
+    user.food = (user.food or 0) + food_bonus
+    user.iron = (user.iron or 0) + iron_bonus
+    user.prestige = (user.prestige or 0) + prestige_bonus
+
+    if user.army:
+        user.army.infantry = (user.army.infantry or 0) + inf_bonus
+        user.army.archers = (user.army.archers or 0) + arc_bonus
+        user.army.cavalry = (user.army.cavalry or 0) + cav_bonus
+        user.army.spearmen = (user.army.spearmen or 0) + spear_bonus
+
+    bonus.is_claimed = True
+    bonus.claimed_at = datetime.utcnow()
+    await session.commit()
+
+    army_total = inf_bonus + arc_bonus + cav_bonus + spear_bonus
+    bonus_note = (
+        f"\n\n🌟 **OLDINGI MAVSUM CHEMPIONLIK BONSI!**\n"
+        f"Siz o'tgan **{season_num}-Mavsumda** {pos_badge} bo'lganingiz uchun:\n"
+        f"👑 Sharafli Unvon: **{title}**\n"
+        f"🪙 **+{gold_bonus:,}** Oltin | 🌾 **+{food_bonus:,}** Oziq-ovqat | ⛓️ **+{iron_bonus:,}** Temir\n"
+        f"🎖️ **+{prestige_bonus}** Nufuz\n"
+        f"🛡️ **+{army_total}** ta Saralangan Qo'shin hamyoningiz va armiyangizga qo'shildi!"
+    )
+    return True, bonus_note
+
 
 
 # ============================================================
