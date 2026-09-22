@@ -1,12 +1,11 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
-from database import AsyncSessionLocal, crud
+from database import AsyncSessionLocal, crud, models
+from sqlalchemy import select
 from data.houses_data import HOUSES_DATA
 from data.characters_data import HOUSE_CHARACTERS
 from keyboards.menus import (
     main_menu_keyboard,
-    regions_keyboard,
-    houses_in_region_keyboard,
     back_to_main_keyboard,
     persistent_reply_keyboard,
 )
@@ -43,19 +42,53 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(text, parse_mode="Markdown", reply_markup=main_menu_keyboard(user_id))
             return
 
-    # Yangi o'yinchi uchun mintaqa tanlash
+        # Yangi o'yinchi uchun bot avtomatik random xonadon tanlaydi
+        assigned_house = await crud.get_random_available_house(session)
+        if not assigned_house:
+            house_code = "stark"
+            house_info = HOUSES_DATA.get("stark", {})
+            house_id = 1
+        else:
+            house_code = assigned_house.code
+            house_id = assigned_house.id
+            house_info = HOUSES_DATA.get(house_code) or {
+                "id": assigned_house.id,
+                "name": assigned_house.name,
+                "emoji": assigned_house.emoji,
+                "region": assigned_house.region,
+                "description": assigned_house.description,
+                "special_troop": assigned_house.special_troop_name,
+            }
+
+        member_count = await crud.get_house_members_count(session, house_id)
+
+    context.user_data["selected_house"] = house_code
+    context.user_data["awaiting_custom_name"] = True
+
+    buttons = [
+        [InlineKeyboardButton("🎲 Boshqa Tasodifiy Xonadon", callback_data="random_house_pick")]
+    ]
+
     text = (
         "👑 **THE IRON THRONE — WESTEROS MMORPG**\n\n"
         "Qirol Robert Baratheon vafot etdi! Temir Taxt bo'shab qoldi.\n"
         "Westerosda 50 ta xonadon taxt uchun jangga kirishmoqda.\n\n"
+        "🎲 **Taqdir sizni quyidagi xonadon safiga yo'lladi:**\n\n"
+        f"{house_info.get('emoji', '🏰')} **{house_info.get('name', 'Xonadon')}**\n"
+        f"📍 Mintaqa: **{house_info.get('region', 'Westeros')}**\n"
+        f"📜 {house_info.get('description', '')}\n"
+        f"🔥 Maxsus Qo'shin: **{house_info.get('special_troop', '')}**\n"
+        f"👥 Hozirgi a'zolar: **{member_count}/5**\n\n"
         "🛡️ Yangi o'yinchilarga **3 kunlik Tinchlik Qalqoni (Peace Shield)** beriladi.\n\n"
-        "Boshlash uchun o'z mintaqangizni tanlang:"
+        "✍️ **Qahramoningiz nomini yozing:**\n"
+        "O'zingiz uchun qahramon ismini chatga matn sifatida yuboring (masalan: *Aegon*, *Zafar*, *Shadowblade*).\n\n"
+        "⚠️ *Qoida: Nom 2-30 belgidan iborat bo'lishi va butun Westeros bo'ylab takrorlanmasligi shart!*"
     )
-    await update.message.reply_text(text, parse_mode="Markdown", reply_markup=regions_keyboard())
+    await update.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
 
 
-async def region_selected_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Mintaqa tanlanganda xonadonlar ro'yxatini chiqarish"""
+async def random_house_pick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Tasodifiy xonadonni qayta tanlash"""
     query = update.callback_query
     await query.answer()
 
@@ -65,65 +98,56 @@ async def region_selected_callback(update: Update, context: ContextTypes.DEFAULT
         if existing and existing.house_id:
             await query.answer("❌ Siz allaqachon xonadonga a'zosiz! Xonadonni almashtirish taqiqlanadi.", show_alert=True)
             return
-        member_counts = await crud.get_all_houses_member_counts(session)
 
-    context.user_data.pop("awaiting_custom_name", None)
-    region_name = query.data.split(":", 1)[1]
-    context.user_data["selected_region"] = region_name
-
-    text = (
-        f"📍 **{region_name}** mintaqasidagi xonadonlar:\n\n"
-        f"Qaysi xonadonga xizmat qilishni xohlaysiz?\n"
-        f"*(Har bir xonadonga ko'pi bilan 5 nafar lord qo'shila oladi)*"
-    )
-    await query.edit_message_text(
-        text,
-        parse_mode="Markdown",
-        reply_markup=houses_in_region_keyboard(region_name, member_counts=member_counts)
-    )
-
-
-async def house_selected_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Xonadon tanlanganda qahramon nomini yozishni so'rash"""
-    query = update.callback_query
-    await query.answer()
-
-    user_id = query.from_user.id
-    async with AsyncSessionLocal() as session:
-        existing = await crud.get_user_by_telegram_id(session, user_id)
-        if existing and existing.house_id:
-            await query.answer("❌ Siz allaqachon xonadonga a'zosiz! Xonadonni almashtirish taqiqlanadi.", show_alert=True)
-            await query.edit_message_text("❌ Siz allaqachon xonadon tanlagansiz! Xonadonni almashtirish taqiqlangan.", reply_markup=main_menu_keyboard(user_id))
-            return
-
-    house_code = query.data.split(":", 1)[1]
-    context.user_data["selected_house"] = house_code
-    house_info = HOUSES_DATA.get(house_code, {})
-    house_id = house_info.get("id", 1)
-
-    async with AsyncSessionLocal() as session:
+        assigned_house = await crud.get_random_available_house(session)
+        if not assigned_house:
+            house_code = "stark"
+            house_info = HOUSES_DATA.get("stark", {})
+            house_id = 1
+        else:
+            house_code = assigned_house.code
+            house_id = assigned_house.id
+            house_info = HOUSES_DATA.get(house_code) or {
+                "id": assigned_house.id,
+                "name": assigned_house.name,
+                "emoji": assigned_house.emoji,
+                "region": assigned_house.region,
+                "description": assigned_house.description,
+                "special_troop": assigned_house.special_troop_name,
+            }
         member_count = await crud.get_house_members_count(session, house_id)
 
-    if member_count >= 5:
-        await query.answer("❌ Bu xonadon to'lgan (5/5)! Iltimos, boshqa bo'sh xonadonni tanlang.", show_alert=True)
-        return
-
+    context.user_data["selected_house"] = house_code
     context.user_data["awaiting_custom_name"] = True
 
     buttons = [
-        [InlineKeyboardButton("🔙 Xonadonlarga Qaytish", callback_data=f"sel_reg:{house_info.get('region', 'The North')}")]
+        [InlineKeyboardButton("🎲 Boshqa Tasodifiy Xonadon", callback_data="random_house_pick")]
     ]
 
     text = (
-        f"{house_info.get('emoji', '🏰')} **{house_info.get('name', 'Xonadon')}**\n\n"
-        f"📜 {house_info.get('description', '')}\n\n"
+        "🎲 **TAQDIR SIZNI QUYIDAGI XONADONGA YO'LLADI:**\n\n"
+        f"{house_info.get('emoji', '🏰')} **{house_info.get('name', 'Xonadon')}**\n"
+        f"📍 Mintaqa: **{house_info.get('region', 'Westeros')}**\n"
+        f"📜 {house_info.get('description', '')}\n"
         f"🔥 Maxsus Qo'shin: **{house_info.get('special_troop', '')}**\n"
         f"👥 Hozirgi a'zolar: **{member_count}/5**\n\n"
-        f"✍️ **Qahramoningiz nomini yozing:**\n"
-        f"O'zingiz uchun qahramon ismini chatga matn sifatida yuboring (masalan: *Aegon*, *Zafar*, *Shadowblade*).\n\n"
-        f"⚠️ *Qoida: Nom 2-30 belgidan iborat bo'lishi va butun Westeros bo'ylab takrorlanmasligi shart!*"
+        "🛡️ Yangi o'yinchilarga **3 kunlik Tinchlik Qalqoni (Peace Shield)** beriladi.\n\n"
+        "✍️ **Qahramoningiz nomini yozing:**\n"
+        "O'zingiz uchun qahramon ismini chatga matn sifatida yuboring (masalan: *Aegon*, *Zafar*, *Shadowblade*).\n\n"
+        "⚠️ *Qoida: Nom 2-30 belgidan iborat bo'lishi va butun Westeros bo'ylab takrorlanmasligi shart!*"
     )
-    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+    if query.message:
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def region_selected_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Mintaqa tanlanganda tasodifiy xonadon ko'rsatish"""
+    await random_house_pick_callback(update, context)
+
+
+async def house_selected_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Xonadon tanlanganda tasodifiy xonadon ko'rsatish"""
+    await random_house_pick_callback(update, context)
 
 
 async def handle_custom_name_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -155,9 +179,7 @@ async def handle_custom_name_input(update: Update, context: ContextTypes.DEFAULT
         )
         return
 
-    house_code = context.user_data.get("selected_house", "stark")
-    house_info = HOUSES_DATA.get(house_code, HOUSES_DATA["stark"])
-    house_id = house_info.get("id", 1)
+    house_code = context.user_data.get("selected_house")
 
     async with AsyncSessionLocal() as session:
         existing = await crud.get_user_by_telegram_id(session, user_id)
@@ -176,22 +198,41 @@ async def handle_custom_name_input(update: Update, context: ContextTypes.DEFAULT
             )
             return
 
-        current_members = await crud.get_house_members_count(session, house_id)
-        if current_members >= 5:
-            context.user_data.pop("awaiting_custom_name", None)
-            await update.effective_message.reply_text(
-                f"❌ Kechirasiz, **{house_info['name']}** xonadoni hozirgina to'ldi (5/5). Iltimos, boshqa xonadon tanlang.",
-                reply_markup=regions_keyboard()
+        # Bo'sh va to'lmagan xonadonni aniqlash
+        house_obj = None
+        if house_code:
+            h_res = await session.execute(
+                select(models.House).where(models.House.code == house_code)
             )
-            return
+            found_h = h_res.scalar_one_or_none()
+            if found_h:
+                cnt = await crud.get_house_members_count(session, found_h.id)
+                if cnt < 5:
+                    house_obj = found_h
 
-        if existing and existing.house_id:
-            context.user_data.pop("awaiting_custom_name", None)
-            await update.effective_message.reply_text(
-                "❌ Siz allaqachon xonadonga a'zosiz! Xonadonni almashtirish taqiqlangan.",
-                reply_markup=main_menu_keyboard(user_id)
-            )
-            return
+        reassigned_notice = ""
+        if not house_obj:
+            house_obj = await crud.get_random_available_house(session)
+            if not house_obj:
+                await update.effective_message.reply_text(
+                    "❌ Hozirda bo'sh xonadonlar mavjud emas. Iltimos, keyinroq qayta urinib ko'ring."
+                )
+                return
+            if house_code and house_code != house_obj.code:
+                reassigned_notice = f"\n\n*(Eslatma: Avvalgi xonadon to'lgani sababli, bot sizni tasodifiy **{house_obj.emoji} {house_obj.name}** safiga qabul qildi)*"
+            house_code = house_obj.code
+            context.user_data["selected_house"] = house_code
+
+        house_id = house_obj.id
+        current_members = await crud.get_house_members_count(session, house_id)
+        house_info = HOUSES_DATA.get(house_code) or {
+            "id": house_id,
+            "name": house_obj.name,
+            "emoji": house_obj.emoji,
+            "region": house_obj.region,
+            "description": house_obj.description,
+            "special_troop": house_obj.special_troop_name,
+        }
 
         try:
             if existing:
@@ -215,6 +256,7 @@ async def handle_custom_name_input(update: Update, context: ContextTypes.DEFAULT
         except ValueError as ve:
             await update.effective_message.reply_text(f"❌ {ve}")
             return
+
 
     context.user_data.pop("awaiting_custom_name", None)
 
@@ -241,7 +283,7 @@ async def handle_custom_name_input(update: Update, context: ContextTypes.DEFAULT
 
     text = (
         f"🎉 **QASAMYOD QABUL QILINDI!**\n\n"
-        f"👤 Siz endi **{house_info['emoji']} {house_info['name']}** xonadonida **{escape_md(raw_name)}** sifatida qasamyod qildingiz!\n"
+        f"👤 Siz endi **{house_info['emoji']} {house_info['name']}** xonadonida **{escape_md(raw_name)}** sifatida qasamyod qildingiz!{reassigned_notice}\n"
         f"🎖️ Lavozimingiz: **{user_rank_display}**\n\n"
         f"💰 Boshlang'ich Resurslar:\n"
         f"🪙 Oltin: **{user.gold:,}** | 🌾 Oziq-ovqat: **{user.food:,}** | ⛓️ Temir: **{user.iron:,}**\n"
@@ -336,10 +378,11 @@ def register_start_handlers(app):
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(MessageHandler(filters.Regex("^(🏠 Bosh Menyu|🏰 Qalalarim)$"), bottom_menu_text_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_custom_name_input), group=2)
+    app.add_handler(CallbackQueryHandler(random_house_pick_callback, pattern="^random_house_pick$"))
     app.add_handler(CallbackQueryHandler(region_selected_callback, pattern="^sel_reg:"))
     app.add_handler(CallbackQueryHandler(house_selected_callback, pattern="^sel_house:"))
     app.add_handler(CallbackQueryHandler(hero_selected_callback, pattern="^sel_hero:"))
     app.add_handler(CallbackQueryHandler(hero_taken_callback, pattern="^hero_taken$"))
     app.add_handler(CallbackQueryHandler(main_menu_callback, pattern="^menu_main$"))
-    app.add_handler(CallbackQueryHandler(lambda u, c: u.callback_query.edit_message_text("Mintaqangizni tanlang:", reply_markup=regions_keyboard()), pattern="^back_to_regions$"))
+    app.add_handler(CallbackQueryHandler(random_house_pick_callback, pattern="^back_to_regions$"))
 

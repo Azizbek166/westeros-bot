@@ -601,16 +601,9 @@ async def tax_all_wait_info_callback(update: Update, context: ContextTypes.DEFAU
 
 
 async def choose_house_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Qal'alarim bo'limidan xonadon tanlashga o'tish"""
-    query = update.callback_query
-    await query.answer()
-    from keyboards.menus import regions_keyboard
-    text = (
-        "👑 **THE IRON THRONE — XONADON TANLASH**\n\n"
-        "Vesterosning 50 ta xonadoni taxt uchun kurashmoqda.\n\n"
-        "Qal'alarga ega bo'lish va o'lpon yig'ish uchun avval mintaqangizni tanlang:"
-    )
-    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=regions_keyboard())
+    """Qal'alarim bo'limidan xonadon tanlashga o'tish (tasodifiy xonadon biriktirish)"""
+    from handlers.start_handler import random_house_pick_callback
+    await random_house_pick_callback(update, context)
 
 
 async def upgrade_walls_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):

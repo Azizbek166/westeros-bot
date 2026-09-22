@@ -359,6 +359,29 @@ async def get_all_houses_member_counts(session: AsyncSession) -> Dict[int, int]:
     return {row[0]: row[1] for row in result.all()}
 
 
+async def get_random_available_house(session: AsyncSession) -> Optional[models.House]:
+    """Bo'sh o'rinlari (< 5 a'zo) mavjud bo'lgan o'ynaladigan (non-NPC) xonadonlardan birini tasodifiy tanlash"""
+    houses_res = await session.execute(
+        select(models.House).where(
+            or_(models.House.is_npc.is_(False), models.House.is_npc.is_(None))
+        )
+    )
+    all_houses = houses_res.scalars().all()
+    if not all_houses:
+        houses_res = await session.execute(select(models.House))
+        all_houses = houses_res.scalars().all()
+        if not all_houses:
+            return None
+
+    member_counts = await get_all_houses_member_counts(session)
+    available_houses = [h for h in all_houses if member_counts.get(h.id, 0) < 5]
+
+    if not available_houses:
+        return min(all_houses, key=lambda h: member_counts.get(h.id, 0))
+
+    return random.choice(available_houses)
+
+
 # ============================================================
 # TERRITORY & MAP CRUD
 # ============================================================
