@@ -65,6 +65,7 @@ def _persist_admins():
 DAILY_QUIZ_LIMIT = 8
 DAILY_COUNCIL_LIMIT = 3
 DAILY_SECRET_QUEST_LIMIT = 2
+DAILY_DUEL_LIMIT = int(os.getenv("DAILY_DUEL_LIMIT", "5"))
 
 # ============================================================
 # O'YIN IQTISODIYOTI VA BALANS

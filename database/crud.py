@@ -15,6 +15,7 @@ from config import (
     STARTING_ARCHERS,
     STARTING_CAVALRY,
     STARTING_SPEARMEN,
+    DAILY_DUEL_LIMIT,
 )
 
 
@@ -319,6 +320,23 @@ async def join_house(
     await session.commit()
     await session.refresh(user, ["house", "army", "characters"])
     return user
+
+
+async def get_user_characters(session: AsyncSession, user_id: int) -> List[models.Character]:
+    """Foydalanuvchining barcha tirik qahramonlarini olish"""
+    res = await session.execute(
+        select(models.Character).where(
+            models.Character.user_id == user_id,
+            models.Character.is_alive == True,
+        )
+    )
+    return list(res.scalars().all())
+
+
+async def get_user_character(session: AsyncSession, user_id: int) -> Optional[models.Character]:
+    """Foydalanuvchining asosiy tirik qahramonini olish"""
+    chars = await get_user_characters(session, user_id)
+    return chars[0] if chars else None
 
 
 async def leave_house(session: AsyncSession, user_id: int) -> Tuple[bool, str]:
@@ -2557,8 +2575,8 @@ async def fight_ai_champion(
 
     await check_and_reset_daily_limits(session, user)
     duel_cnt = getattr(user, "daily_duel_count", 0) or 0
-    if duel_cnt >= 10:
-        return {"success": False, "error": "❌ Bugungi 10 ta duel limitingiz tugagan! Ertaga yana maydonga tushishingiz mumkin."}
+    if duel_cnt >= DAILY_DUEL_LIMIT:
+        return {"success": False, "error": f"❌ Bugungi {DAILY_DUEL_LIMIT} ta duel limitingiz tugagan! Ertaga yana maydonga tushishingiz mumkin."}
 
     user.daily_duel_count = duel_cnt + 1
 
@@ -2613,7 +2631,7 @@ async def fight_ai_champion(
         user.xp += 15
         outcome = (
             f"🏆 **G'ALABA!** Sizning qilich zarbangiz {champion_name}ning mudofaasini teshib o'tdi!\n"
-            f"🎁 Mukofot: **+125🪙 Oltin, +1 Prestige, +15 XP** ({user.daily_duel_count}/10)"
+            f"🎁 Mukofot: **+125🪙 Oltin, +1 Prestige, +15 XP** ({user.daily_duel_count}/{DAILY_DUEL_LIMIT})"
         )
     else:
         if bet_gold > 0:
@@ -2654,6 +2672,11 @@ async def create_pvp_duel(
     challenger = await get_user_any(session, challenger_tg_or_id)
     if not challenger:
         return False, "Foydalanuvchi topilmadi.", None, None
+
+    await check_and_reset_daily_limits(session, challenger)
+    duel_cnt = getattr(challenger, "daily_duel_count", 0) or 0
+    if duel_cnt >= DAILY_DUEL_LIMIT:
+        return False, f"❌ Bugungi {DAILY_DUEL_LIMIT} ta duel limitingiz tugagan! Ertaga yana maydonga tushishingiz mumkin.", None, None
 
     if bet_gold > 0 and challenger.gold < bet_gold:
         return False, f"Duel uchun sizda kamida {bet_gold}🪙 oltin bo'lishi kerak!", None, None
@@ -2718,6 +2741,13 @@ async def resolve_pvp_duel(
     opponent = await get_user_any(session, duel.opponent_id)
     if not challenger or not opponent:
         return {"success": False, "error": "Jang ishtirokchilaridan biri topilmadi."}
+
+    await check_and_reset_daily_limits(session, challenger)
+    await check_and_reset_daily_limits(session, opponent)
+
+    opp_duel_cnt = getattr(opponent, "daily_duel_count", 0) or 0
+    if opp_duel_cnt >= DAILY_DUEL_LIMIT:
+        return {"success": False, "error": f"❌ Bugungi {DAILY_DUEL_LIMIT} ta duel limitingiz tugagan! Ertaga yana maydonga tushishingiz mumkin."}
 
     bet_gold = duel.bet_gold
     if bet_gold > 0:
@@ -2793,6 +2823,11 @@ async def resolve_pvp_duel(
     loser.prestige = max(0, loser.prestige - 2)
     loser.xp += 50
 
+    challenger.daily_duel_count = (getattr(challenger, "daily_duel_count", 0) or 0) + 1
+    opponent.daily_duel_count = (getattr(opponent, "daily_duel_count", 0) or 0) + 1
+    session.add(challenger)
+    session.add(opponent)
+
     from core.leveling import check_user_level_up
     check_user_level_up(winner)
     check_user_level_up(loser)
@@ -2803,7 +2838,7 @@ async def resolve_pvp_duel(
         f"🏆 G'olib: **{winner.full_name}** ({winner_name}) — {tactic_names.get(duel.challenger_tactic if challenger_won else opponent_tactic)}\n"
         f"💀 Mag'lub: **{loser.full_name}** ({loser_name}) — {tactic_names.get(opponent_tactic if challenger_won else duel.challenger_tactic)}\n\n"
         f"📊 **MUKOFOTLAR:**\n"
-        f"• G'olib ({winner.full_name}): +{bet_gold if bet_gold > 0 else 50}🪙 oltin, +35🏆 Prestige, +150 XP\n"
+        f"• G'olib ({winner.full_name}): +{bet_gold if bet_gold > 0 else 50}🪙 oltin, +8🏆 Prestige, +150 XP\n"
         f"• Mag'lub ({loser.full_name}): -{bet_gold if bet_gold > 0 else 0}🪙 oltin, +50 XP"
     )
     duel.details = outcome

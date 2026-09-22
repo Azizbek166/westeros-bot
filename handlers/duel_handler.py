@@ -2,7 +2,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CommandHandler, CallbackQueryHandler, ContextTypes
 from database import AsyncSessionLocal, crud, models
 from keyboards.menus import back_to_main_keyboard
-from config import escape_md
+from config import escape_md, DAILY_DUEL_LIMIT
 from sqlalchemy import select
 import html
 
@@ -50,7 +50,7 @@ async def show_duel_hub(target, user_id: int, is_message: bool):
 
         await crud.check_and_reset_daily_limits(session, user)
         duel_cnt = getattr(user, "daily_duel_count", 0) or 0
-        rem_duels = max(0, 10 - duel_cnt)
+        rem_duels = max(0, DAILY_DUEL_LIMIT - duel_cnt)
 
         hero = user.characters[0] if user.characters else None
         h_name = hero.name if hero else "Lord"
@@ -76,8 +76,8 @@ async def show_duel_hub(target, user_id: int, is_message: bool):
             f"👤 Jangchingiz: **{escape_md(h_name)}**\n"
             f"⚔️ Hujum: **{h_atk}** | 🛡️ Mudofaa: **{h_def}**\n"
             f"🪙 Xazinangiz: **{user.gold:,}** oltin\n"
-            f"🎯 Bugungi duel limitingiz: **{rem_duels}/10** ta jang qoldi\n"
-            f"🎁 G'alaba mukofoti: **+500🪙 Oltin, +3 Prestige, +15 XP**\n\n"
+            f"🎯 Bugungi duel limitingiz: **{rem_duels}/{DAILY_DUEL_LIMIT}** ta jang qoldi\n"
+            f"🎁 G'alaba mukofoti: **+125🪙 Oltin, +1 Prestige, +15 XP**\n\n"
             f"Duel turlari:\n"
             f"• 👥 **PvP:** Haqiqiy o'yinchilarga duel e'lon qilish (`/duel @username`)\n"
             f"• ⚔️ **AI Chempionlar:** Vesteros afsonalari bilan jang (bepul yoki garovli)\n"
@@ -112,6 +112,17 @@ async def show_duel_hub(target, user_id: int, is_message: bool):
 async def duel_champ_pick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Raqib chempionni tanlash"""
     query = update.callback_query
+    user_id = query.from_user.id
+
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_with_relations(session, user_id)
+        if user:
+            await crud.check_and_reset_daily_limits(session, user)
+            duel_cnt = getattr(user, "daily_duel_count", 0) or 0
+            if duel_cnt >= DAILY_DUEL_LIMIT:
+                await query.answer(f"❌ Bugungi {DAILY_DUEL_LIMIT} ta duel limitingiz tugagan! Ertaga yana maydonga tushishingiz mumkin.", show_alert=True)
+                return
+
     await query.answer()
 
     bet_gold = int(query.data.split(":")[1])
@@ -229,6 +240,12 @@ async def duel_pvp_hub_callback(update: Update, context: ContextTypes.DEFAULT_TY
     async with AsyncSessionLocal() as session:
         user = await crud.get_user_with_relations(session, user_id)
         if not user:
+            return
+
+        await crud.check_and_reset_daily_limits(session, user)
+        duel_cnt = getattr(user, "daily_duel_count", 0) or 0
+        if duel_cnt >= DAILY_DUEL_LIMIT:
+            await query.answer(f"❌ Bugungi {DAILY_DUEL_LIMIT} ta duel limitingiz tugagan! Ertaga yana maydonga tushishingiz mumkin.", show_alert=True)
             return
 
         # Boshqa lordlar ro'yxatini olish (o'zidan boshqa so'nggi faol 8 ta o'yinchi)
@@ -376,6 +393,12 @@ async def handle_quick_pvp_command(update: Update, context: ContextTypes.DEFAULT
             await update.message.reply_text("❌ Avval /start ni bosing.")
             return
 
+        await crud.check_and_reset_daily_limits(session, sender)
+        duel_cnt = getattr(sender, "daily_duel_count", 0) or 0
+        if duel_cnt >= DAILY_DUEL_LIMIT:
+            await update.message.reply_text(f"❌ Bugungi {DAILY_DUEL_LIMIT} ta duel limitingiz tugagan! Ertaga yana maydonga tushishingiz mumkin.")
+            return
+
     # Taktika tanlashni so'rash
     buttons = [
         [InlineKeyboardButton("🗡️ Og'ir Zarba", callback_data=f"pvp_cmd_send:{target_str}:{bet}:heavy")],
@@ -469,6 +492,17 @@ async def pvp_inbox_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def pvp_accept_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Raqib duelni qabul qilganda taktika tanlashi"""
     query = update.callback_query
+    tg_user_id = query.from_user.id
+
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_by_telegram_id(session, tg_user_id)
+        if user:
+            await crud.check_and_reset_daily_limits(session, user)
+            duel_cnt = getattr(user, "daily_duel_count", 0) or 0
+            if duel_cnt >= DAILY_DUEL_LIMIT:
+                await query.answer(f"❌ Bugungi {DAILY_DUEL_LIMIT} ta duel limitingiz tugagan! Ertaga yana maydonga tushishingiz mumkin.", show_alert=True)
+                return
+
     await query.answer()
 
     duel_id = int(query.data.split(":")[1])
