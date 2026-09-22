@@ -4024,7 +4024,8 @@ async def buy_wildfire_defense(session: AsyncSession, user_id: int, territory_id
 # ============================================================
 
 MAX_BANK_DEPOSIT = 50000
-DAILY_INTEREST_RATE = 0.00375  # 0.375% kunlik daromad (4 barobar kamaytirildi)
+HOURLY_INTEREST_RATE = 0.00375  # 0.375% soatlik daromad (soatiga +0.375%)
+DAILY_INTEREST_RATE = HOURLY_INTEREST_RATE * 24  # orqaga moslik uchun
 LOAN_INTEREST_RATE = 0.10    # 10% kredit foizi
 LOAN_DAYS = 5                # 5 kunlik muddat
 
@@ -4085,7 +4086,10 @@ async def deposit_to_iron_bank(session: AsyncSession, user_id: int, amount: int)
         elapsed_sec = max(0, (now - last_claim).total_seconds())
         hours_elapsed = int(elapsed_sec // 3600)
         if hours_elapsed >= 1:
-            accrued = int(curr_dep * (DAILY_INTEREST_RATE / 24.0) * hours_elapsed)
+            raw_accrued = curr_dep * HOURLY_INTEREST_RATE * hours_elapsed
+            accrued = int(raw_accrued)
+            if accrued <= 0 and raw_accrued >= 0.25:
+                accrued = 1
             if accrued > 0:
                 user.gold = (user.gold or 0) + accrued
                 accrued_note = f"\n🪙 Avvalgi depozitingizdan to'plangan **+{accrued:,}🪙** foiz hamyoningizga o'tkazildi!"
@@ -4096,12 +4100,12 @@ async def deposit_to_iron_bank(session: AsyncSession, user_id: int, amount: int)
     bank.last_interest_claimed_at = now
     await session.commit()
 
-    daily_yield = int(bank.deposit_gold * DAILY_INTEREST_RATE)
+    hourly_yield = int(bank.deposit_gold * HOURLY_INTEREST_RATE)
     return True, (
         f"🏦 **OMONAT QABUL QILINDI!**\n\n"
         f"Braavos Temir Bankiga **+{amount:,}🪙 Oltin** topshirdingiz.{accrued_note}\n"
         f"Jami omonatingiz: **{bank.deposit_gold:,}🪙**\n"
-        f"Kunlik daromad: **+{daily_yield:,}🪙/kun** (kuniga +0.375%)\n"
+        f"Soatlik daromad: **+{hourly_yield:,}🪙/soat** (soatiga +0.375%)\n"
         f"Hamyoningizda qoldi: **{user.gold:,}🪙**"
     )
 
@@ -4131,7 +4135,10 @@ async def withdraw_from_iron_bank(session: AsyncSession, user_id: int, amount: i
         elapsed_sec = max(0, (now - last_claim).total_seconds())
         hours_elapsed = int(elapsed_sec // 3600)
         if hours_elapsed >= 1:
-            accrued = int(curr_dep * (DAILY_INTEREST_RATE / 24.0) * hours_elapsed)
+            raw_accrued = curr_dep * HOURLY_INTEREST_RATE * hours_elapsed
+            accrued = int(raw_accrued)
+            if accrued <= 0 and raw_accrued >= 0.25:
+                accrued = 1
             if accrued > 0:
                 user.gold = (user.gold or 0) + accrued
                 accrued_note = f"\n🪙 Omonatdan to'plangan **+{accrued:,}🪙** foiz ham hamyoningizga qo'shildi!"
@@ -4151,7 +4158,7 @@ async def withdraw_from_iron_bank(session: AsyncSession, user_id: int, amount: i
 
 
 async def claim_iron_bank_interest(session: AsyncSession, user_id: int) -> Tuple[bool, str]:
-    """Omonat bo'yicha to'plangan foizni yechib olish"""
+    """Omonat bo'yicha to'plangan soatlik foizni yechib olish"""
     user = await get_user_any(session, user_id)
     if not user:
         return False, "❌ Foydalanuvchi topilmadi."
@@ -4171,9 +4178,13 @@ async def claim_iron_bank_interest(session: AsyncSession, user_id: int) -> Tuple
 
     if hours_elapsed < 1:
         rem_mins = max(1, int((3600 - (elapsed_seconds % 3600)) // 60))
-        return False, f"⏳ Foizlar har soatda to'planadi (kuniga 0.375%). Keyingi soatlik foizga: {rem_mins} daqiqa qoldi."
+        return False, f"⏳ Foizlar har soatda to'planadi (soatiga +0.375%). Keyingi soatlik foizga: {rem_mins} daqiqa qoldi."
 
-    profit = int(curr_dep * (DAILY_INTEREST_RATE / 24.0) * hours_elapsed)
+    raw_profit = curr_dep * HOURLY_INTEREST_RATE * hours_elapsed
+    profit = int(raw_profit)
+    if profit <= 0 and raw_profit >= 0.25:
+        profit = 1
+
     if profit <= 0:
         return False, "⏳ Hozircha foiz miqdori yetarli emas. Birozdan so'ng qayta tekshiring."
 
@@ -4188,7 +4199,7 @@ async def claim_iron_bank_interest(session: AsyncSession, user_id: int) -> Tuple
 
     return True, (
         f"🪙 **BANK FOIZI MUVAFFAQIYATLI OLINDI!**\n\n"
-        f"Braavos Temir Banki omonatingizdan **+{profit:,}🪙 Oltin** sof foyda berdi! ({period_str} 0.375% daromad)\n"
+        f"Braavos Temir Banki omonatingizdan **+{profit:,}🪙 Oltin** sof foyda berdi! ({period_str} +0.375% soatlik daromad)\n"
         f"Hamyoningizdagi jami oltin: **{user.gold:,}🪙**"
     )
 
