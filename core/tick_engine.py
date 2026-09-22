@@ -51,10 +51,10 @@ async def process_due_marches(bot_app=None):
 
                 # Himoyachi garnizoni
                 def_garrison = {
-                    "infantry": territory.garrison_infantry,
-                    "archers": territory.garrison_archers,
-                    "cavalry": territory.garrison_cavalry,
-                    "spearmen": territory.garrison_spearmen,
+                    "infantry": territory.garrison_infantry or 0,
+                    "archers": territory.garrison_archers or 0,
+                    "cavalry": territory.garrison_cavalry or 0,
+                    "spearmen": territory.garrison_spearmen or 0,
                     "special_troops": 0,
                 }
 

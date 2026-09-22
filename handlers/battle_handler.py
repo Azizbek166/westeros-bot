@@ -1159,259 +1159,348 @@ async def def_rf_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         except Exception:
             pass
 
-    terr_id = int(query.data.split(":")[1])
-    user_id = query.from_user.id
+    try:
+        terr_id = int(query.data.split(":")[1])
+        user_id = query.from_user.id
 
-    async with AsyncSessionLocal() as session:
-        user = await crud.get_user_with_relations(session, user_id)
-        terr = await crud.get_territory_by_id(session, terr_id)
+        async with AsyncSessionLocal() as session:
+            user = await crud.get_user_with_relations(session, user_id)
+            terr = await crud.get_territory_by_id(session, terr_id)
 
-        if not user or not terr:
-            if query:
+            if not user or not terr:
+                if query:
+                    try:
+                        await query.answer("Ma'lumot topilmadi.", show_alert=True)
+                    except Exception:
+                        pass
+                return
+
+            user_army = await crud.get_user_army(session, user.id)
+            u_inf = user_army.infantry or 0
+            u_arc = user_army.archers or 0
+            u_cav = user_army.cavalry or 0
+            u_sp = user_army.spearmen or 0
+            total_army = u_inf + u_arc + u_cav + u_sp
+
+            is_own = bool(user.house_id and terr.owner_house_id == user.house_id)
+            user_house = await session.get(models.House, user.house_id) if user.house_id else None
+            is_ally = False
+            owner_house = None
+            if not is_own and terr.owner_house_id:
+                owner_house = await session.get(models.House, terr.owner_house_id)
+                if user.house_id:
+                    al_res = await session.execute(
+                        select(models.Alliance).where(
+                            models.Alliance.status == "active",
+                            ((models.Alliance.house_a_id == user.house_id) & (models.Alliance.house_b_id == terr.owner_house_id)) |
+                            ((models.Alliance.house_a_id == terr.owner_house_id) & (models.Alliance.house_b_id == user.house_id))
+                        )
+                    )
+                    is_ally = al_res.scalar_one_or_none() is not None
+
+            is_lord = (
+                is_own
+                and (
+                    (user_house and user_house.lord_user_id == user.telegram_id)
+                    or user.rank == "king"
+                )
+            )
+
+            buttons = [
+                [
+                    InlineKeyboardButton("🛡️ +50 Askar", callback_data=f"def_send_rf:{terr.id}:50"),
+                    InlineKeyboardButton("🛡️ +100 Askar", callback_data=f"def_send_rf:{terr.id}:100"),
+                ],
+                [
+                    InlineKeyboardButton("🛡️ +250 Askar", callback_data=f"def_send_rf:{terr.id}:250"),
+                    InlineKeyboardButton("🛡️ +500 Askar", callback_data=f"def_send_rf:{terr.id}:500"),
+                ],
+                [
+                    InlineKeyboardButton("🛡️ Barcha Askarlarni Joylashtirish", callback_data=f"def_send_rf:{terr.id}:all"),
+                ],
+            ]
+
+            if is_lord:
+                buttons.append([
+                    InlineKeyboardButton("↩️ Garnizondan Askarlarni Qaytarish", callback_data=f"def_withdraw_rf:{terr.id}"),
+                ])
+
+            buttons.append([
+                InlineKeyboardButton("✍️ Askar Sonini Qo'lda Kiritish", callback_data=f"def_custom_rf:{terr.id}"),
+            ])
+
+            if is_own:
+                buttons.append([
+                    InlineKeyboardButton("🏰 Qal'aga Qaytish", callback_data=f"my_c_detail:{terr.id}"),
+                    InlineKeyboardButton("🗺️ Xaritaga Qaytish", callback_data=f"view_terr:{terr.id}"),
+                ])
+            else:
+                buttons.append([
+                    InlineKeyboardButton("🔙 Qal'a Tafsilotlari", callback_data=f"view_terr:{terr.id}"),
+                ])
+                buttons.append([
+                    InlineKeyboardButton("🤝 Diplomatiya Menyusi", callback_data="diplo_reinforce_pick"),
+                ])
+
+            g_inf = terr.garrison_infantry or 0
+            g_arc = terr.garrison_archers or 0
+            g_cav = terr.garrison_cavalry or 0
+            g_sp = terr.garrison_spearmen or 0
+            g_total = g_inf + g_arc + g_cav + g_sp
+
+            t_name = escape_md(terr.name.upper())
+            if is_own:
+                header = f"🛡️ **QAL'AGA ASKAR JOYLASHTIRISH: {t_name}**\n\n"
+                desc = "Qal'a mudofaasiga qancha askar joylashtirmoqchisiz?"
+            else:
+                h_name = escape_md(f"{owner_house.emoji} {owner_house.name}") if owner_house else "Ittifoqchi"
+                header = (
+                    f"🤝🛡️ **ITTIFOQCHI QAL'ASINI HIMOYALASH: {t_name}**\n\n"
+                    f"👑 Qal'a egasi: **{h_name}**\n"
+                    f"Ittifoqchingizni dushman hujumidan asrash uchun garnizonga qo'shimcha askarlar yuborishingiz mumkin.\n\n"
+                )
+                desc = "Ittifoqchi mudofaasiga qancha askar yubormoqchisiz?"
+
+            text = (
+                f"{header}"
+                f"🏰 **Qal'a garnizoni hozir:**\n"
+                f"• 🛡️ Piyoda: {g_inf:,}\n"
+                f"• 🏹 Kamonchi: {g_arc:,}\n"
+                f"• 🐎 Otliq: {g_cav:,}\n"
+                f"• 🗡️ Nayzachi: {g_sp:,}\n"
+                f"🎯 Jami: **{g_total:,}** askar\n\n"
+                f"👥 **Sizning shaxsiy armiyangiz:** **{total_army:,}** askar\n\n"
+                f"{desc}"
+            )
+            try:
+                await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+            except Exception:
+                clean_text = text.replace("**", "").replace("*", "").replace("`", "")
                 try:
-                    await query.answer("Ma'lumot topilmadi.", show_alert=True)
+                    await query.edit_message_text(clean_text, reply_markup=InlineKeyboardMarkup(buttons))
                 except Exception:
                     pass
-            return
-
-        total_army = (
-            user.army.infantry + user.army.archers + user.army.cavalry + user.army.spearmen
-        )
-
-        is_own = bool(user.house and terr.owner_house_id == user.house_id)
-        is_ally = False
-        owner_house = None
-        if not is_own and terr.owner_house_id:
-            owner_house = await session.get(models.House, terr.owner_house_id)
-            if user.house_id:
-                al_res = await session.execute(
-                    select(models.Alliance).where(
-                        models.Alliance.status == "active",
-                        ((models.Alliance.house_a_id == user.house_id) & (models.Alliance.house_b_id == terr.owner_house_id)) |
-                        ((models.Alliance.house_a_id == terr.owner_house_id) & (models.Alliance.house_b_id == user.house_id))
-                    )
-                )
-                is_ally = al_res.scalar_one_or_none() is not None
-
-        is_lord = (
-            is_own
-            and (
-                user.house.lord_user_id == user.telegram_id
-                or user.rank == "king"
-            )
-        )
-
-        buttons = [
-            [
-                InlineKeyboardButton("🛡️ +50 Askar", callback_data=f"def_send_rf:{terr.id}:50"),
-                InlineKeyboardButton("🛡️ +100 Askar", callback_data=f"def_send_rf:{terr.id}:100"),
-            ],
-            [
-                InlineKeyboardButton("🛡️ +250 Askar", callback_data=f"def_send_rf:{terr.id}:250"),
-                InlineKeyboardButton("🛡️ +500 Askar", callback_data=f"def_send_rf:{terr.id}:500"),
-            ],
-            [
-                InlineKeyboardButton("🛡️ Barcha Askarlarni Joylashtirish", callback_data=f"def_send_rf:{terr.id}:all"),
-            ],
-        ]
-
-        if is_lord:
-            buttons.append([
-                InlineKeyboardButton("↩️ Garnizondan Askarlarni Qaytarish", callback_data=f"def_withdraw_rf:{terr.id}"),
-            ])
-
-        buttons.append([
-            InlineKeyboardButton("✍️ Askar Sonini Qo'lda Kiritish", callback_data=f"def_custom_rf:{terr.id}"),
-        ])
-
-        if is_own:
-            buttons.append([
-                InlineKeyboardButton("🔙 Qal'aga Qaytish", callback_data=f"my_c_detail:{terr.id}"),
-            ])
-        else:
-            buttons.append([
-                InlineKeyboardButton("🔙 Qal'a Tafsilotlari", callback_data=f"view_terr:{terr.id}"),
-            ])
-            buttons.append([
-                InlineKeyboardButton("🤝 Diplomatiya Menyusi", callback_data="diplo_reinforce_pick"),
-            ])
-
-        if is_own:
-            header = f"🛡️ **QAL'AGA ASKAR JOYLASHTIRISH: {terr.name.upper()}**\n\n"
-            desc = "Qal'a mudofaasiga qancha askar joylashtirmoqchisiz?"
-        else:
-            h_name = f"{owner_house.emoji} {owner_house.name}" if owner_house else "Ittifoqchi"
-            header = (
-                f"🤝🛡️ **ITTIFOQCHI QAL'ASINI HIMOYALASH: {terr.name.upper()}**\n\n"
-                f"👑 Qal'a egasi: **{h_name}**\n"
-                f"Ittifoqchingizni dushman hujumidan asrash uchun garnizonga qo'shimcha askarlar yuborishingiz mumkin.\n\n"
-            )
-            desc = "Ittifoqchi mudofaasiga qancha askar yubormoqchisiz?"
-
-        text = (
-            f"{header}"
-            f"🏰 **Qal'a garnizoni hozir:**\n"
-            f"• 🛡️ Piyoda: {terr.garrison_infantry:,}\n"
-            f"• 🏹 Kamonchi: {terr.garrison_archers:,}\n"
-            f"• 🐎 Otliq: {terr.garrison_cavalry:,}\n"
-            f"• 🗡️ Nayzachi: {terr.garrison_spearmen:,}\n"
-            f"🎯 Jami: **{terr.garrison_infantry + terr.garrison_archers + terr.garrison_cavalry + terr.garrison_spearmen:,}** askar\n\n"
-            f"👥 **Sizning shaxsiy armiyangiz:** **{total_army:,}** askar\n\n"
-            f"{desc}"
-        )
-        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+    except Exception as e:
+        logger.error(f"def_rf_menu_callback error: {e}", exc_info=True)
+        if query:
+            try:
+                await query.answer("Xatolik yuz berdi.", show_alert=True)
+            except Exception:
+                pass
 
 
 async def def_send_rf_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Qal'a garnizoniga askarlarni joylashtirish"""
     query = update.callback_query
+    if not query:
+        return
 
-    parts = query.data.split(":")
-    terr_id = int(parts[1])
-    count_type = parts[2]
-    user_id = query.from_user.id
+    try:
+        await query.answer()
+    except Exception:
+        pass
 
-    async with AsyncSessionLocal() as session:
-        user = await crud.get_user_with_relations(session, user_id)
-        terr = await crud.get_territory_by_id(session, terr_id)
+    try:
+        parts = query.data.split(":")
+        terr_id = int(parts[1])
+        count_type = parts[2]
+        user_id = query.from_user.id
 
-        if not user or not terr:
-            await query.answer("Ma'lumot topilmadi.", show_alert=True)
-            return
+        async with AsyncSessionLocal() as session:
+            user = await crud.get_user_with_relations(session, user_id)
+            terr = await crud.get_territory_by_id(session, terr_id)
 
-        ok, msg, _ = await crud.send_castle_reinforcements_proportional(
-            session=session,
-            user_id=user.id,
-            target_territory_id=terr.id,
-            count=None if count_type == "all" else int(count_type),
-            send_all=(count_type == "all"),
-        )
+            if not user or not terr:
+                try:
+                    await query.answer("Ma'lumot topilmadi.", show_alert=True)
+                except Exception:
+                    pass
+                return
 
-        if ok and terr.owner_house_id != user.house_id and terr.owner_house_id and context.bot:
-            try:
-                owner_house = await session.get(models.House, terr.owner_house_id)
-                if owner_house and owner_house.lord_user_id and owner_house.lord_user_id != user.telegram_id:
-                    await context.bot.send_message(
-                        chat_id=owner_house.lord_user_id,
-                        text=(
-                            f"🤝🛡️ **QARG'A XABARI: ITTIFOQCHIDAN HARBIY YORDAM!**\n\n"
-                            f"**{user.full_name}** ({user.house.name if user.house else 'Ittifoqchi'}) "
-                            f"**{terr.name}** qal'angiz mudofaasiga qo'shimcha garnizon askarlari joylashtirdi!"
-                        ),
-                        parse_mode="Markdown"
-                    )
-            except Exception:
-                pass
+            ok, msg, _ = await crud.send_castle_reinforcements_proportional(
+                session=session,
+                user_id=user.id,
+                target_territory_id=terr.id,
+                count=None if count_type == "all" else int(count_type),
+                send_all=(count_type == "all"),
+            )
 
-    await query.answer(msg, show_alert=True)
-    if ok:
-        if terr.owner_house_id == user.house_id:
-            from handlers.map_handler import show_my_castle_detail
-            await show_my_castle_detail(query, user_id, terr_id)
-        else:
-            query.data = f"def_rf_menu:{terr_id}"
-            await def_rf_menu_callback(update, context)
+            if ok and terr.owner_house_id != user.house_id and terr.owner_house_id and context.bot:
+                try:
+                    owner_house = await session.get(models.House, terr.owner_house_id)
+                    user_house = await session.get(models.House, user.house_id) if user.house_id else None
+                    u_h_name = user_house.name if user_house else "Ittifoqchi"
+                    if owner_house and owner_house.lord_user_id and owner_house.lord_user_id != user.telegram_id:
+                        await context.bot.send_message(
+                            chat_id=owner_house.lord_user_id,
+                            text=(
+                                f"🤝🛡️ **QARG'A XABARI: ITTIFOQCHIDAN HARBIY YORDAM!**\n\n"
+                                f"**{user.full_name}** ({u_h_name}) "
+                                f"**{terr.name}** qal'angiz mudofaasiga qo'shimcha garnizon askarlari joylashtirdi!"
+                            ),
+                            parse_mode="Markdown"
+                        )
+                except Exception:
+                    pass
+
+        try:
+            await query.answer(msg.replace("*", "").replace("`", ""), show_alert=True)
+        except Exception:
+            pass
+
+        # Garnizon menyusini to'g'ridan-to'g'ri yangilaymiz (foydalanuvchi yangi hisobni darhol ko'radi)
+        query.data = f"def_rf_menu:{terr_id}"
+        await def_rf_menu_callback(update, context)
+    except Exception as e:
+        logger.error(f"def_send_rf_callback error: {e}", exc_info=True)
+        try:
+            await query.answer("Xatolik yuz berdi.", show_alert=True)
+        except Exception:
+            pass
 
 
 async def def_sos_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Xonadon va ittifoqchilarga shoshilinch SOS qarg'asi uchirish"""
     query = update.callback_query
-    await query.answer("📡 Ittifoqchilar va xonadon a'zolariga SOS qarg'alari uchirildi!", show_alert=True)
+    if query:
+        try:
+            await query.answer("📡 Ittifoqchilar va xonadon a'zolariga SOS qarg'alari uchirildi!", show_alert=True)
+        except Exception:
+            pass
 
-    terr_id = int(query.data.split(":")[1])
-    user_id = query.from_user.id
+    try:
+        terr_id = int(query.data.split(":")[1])
+        user_id = query.from_user.id
 
-    async with AsyncSessionLocal() as session:
-        user = await crud.get_user_with_relations(session, user_id)
-        terr = await crud.get_territory_by_id(session, terr_id)
+        async with AsyncSessionLocal() as session:
+            user = await crud.get_user_with_relations(session, user_id)
+            terr = await crud.get_territory_by_id(session, terr_id)
 
-        if not user or not terr:
-            return
+            if not user or not terr or not user.house_id:
+                return
 
-        # Xonadon a'zolariga yuborish
-        members_res = await session.execute(
-            select(models.User).where(
-                models.User.house_id == user.house_id,
-                models.User.telegram_id != user.telegram_id,
-            ).limit(10)
-        )
-        members = members_res.scalars().all()
+            char_res = await session.execute(select(models.Character.name).where(models.Character.user_id == user.id).limit(1))
+            c_name = char_res.scalar_one_or_none() or user.full_name
 
-        sos_text = (
-            f"🚨 **SHOSHILINCH SOS CHAQIRUV!**\n\n"
-            f"🏰 Xonadonimizning **{terr.name} ({terr.castle_name})** qal'asiga dushman yurishi boshlandi!\n"
-            f"⏱️ Qamal boshlanishiga sanoqli daqiqalar qoldi!\n\n"
-            f"Lord {user.character_name} barcha ittifoqchi va vassallardan zudlik bilan yordam so'ramoqda!"
-        )
-        sos_markup = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🛡️ Qal'aga Yordam Yuborish", callback_data=f"def_rf_menu:{terr.id}")]
-        ])
+            # Xonadon a'zolariga yuborish
+            members_res = await session.execute(
+                select(models.User).where(
+                    models.User.house_id == user.house_id,
+                    models.User.telegram_id != user.telegram_id,
+                ).limit(10)
+            )
+            members = members_res.scalars().all()
 
-        for m in members:
-            try:
-                await context.bot.send_message(
-                    chat_id=m.telegram_id,
-                    text=sos_text,
-                    parse_mode="Markdown",
-                    reply_markup=sos_markup,
-                )
-            except Exception:
-                pass
+            sos_text = (
+                f"🚨 **SHOSHILINCH SOS CHAQIRUV!**\n\n"
+                f"🏰 Xonadonimizning **{terr.name} ({terr.castle_name})** qal'asiga dushman yurishi boshlandi!\n"
+                f"⏱️ Qamal boshlanishiga sanoqli daqiqalar qoldi!\n\n"
+                f"Lord {c_name} barcha ittifoqchi va vassallardan zudlik bilan yordam so'ramoqda!"
+            )
+            sos_markup = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🛡️ Qal'aga Yordam Yuborish", callback_data=f"def_rf_menu:{terr.id}")]
+            ])
+
+            for m in members:
+                try:
+                    await context.bot.send_message(
+                        chat_id=m.telegram_id,
+                        text=sos_text,
+                        parse_mode="Markdown",
+                        reply_markup=sos_markup,
+                    )
+                except Exception:
+                    pass
+    except Exception as e:
+        logger.error(f"def_sos_callback error: {e}", exc_info=True)
 
 
 async def defend_siege_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Qal'aga bo'layotgan faol qamalni ko'rish va himoyalanish choralarini ko'rish"""
     query = update.callback_query
-    await query.answer()
-    march_id = int(query.data.split(":")[1])
-    user_id = query.from_user.id
+    if query:
+        try:
+            await query.answer()
+        except Exception:
+            pass
 
-    async with AsyncSessionLocal() as session:
-        march = await session.get(models.BattleMarch, march_id)
-        if not march or march.status != "marching":
-            await query.answer("Qamal yakunlangan yoki bekor qilingan.", show_alert=True)
-            await show_battle_hub(query, user_id, is_message=False)
-            return
+    try:
+        march_id = int(query.data.split(":")[1])
+        user_id = query.from_user.id
 
-        terr = await session.get(models.Territory, march.target_territory_id)
-        attacker = await session.get(models.User, march.attacker_user_id)
-        att_house = await session.get(models.House, attacker.house_id) if (attacker and attacker.house_id) else None
+        async with AsyncSessionLocal() as session:
+            march = await session.get(models.BattleMarch, march_id)
+            if not march or march.status != "marching":
+                if query:
+                    try:
+                        await query.answer("Qamal yakunlangan yoki bekor qilingan.", show_alert=True)
+                    except Exception:
+                        pass
+                await show_battle_hub(query, user_id, is_message=False)
+                return
 
-        rem_sec = max(0, int((march.arrival_time - datetime.utcnow()).total_seconds()))
-        att_name = attacker.characters[0].name if (attacker and attacker.characters) else (attacker.full_name if attacker else "Dushman")
-        att_house_name = f"{att_house.emoji} {att_house.name}" if att_house else "Noma'lum"
+            terr = await session.get(models.Territory, march.target_territory_id)
+            attacker = await session.get(models.User, march.attacker_user_id)
+            att_house = await session.get(models.House, attacker.house_id) if (attacker and attacker.house_id) else None
 
-        tot_enemy = march.infantry + march.archers + march.cavalry + march.spearmen + march.special_troops
-        enemy_dragon_str = "🔥 Bor (Drakarys xavfi!)" if march.has_dragon else "Yo'q"
+            rem_sec = max(0, int((march.arrival_time - datetime.utcnow()).total_seconds()))
+            char_res = await session.execute(select(models.Character.name).where(models.Character.user_id == attacker.id).limit(1)) if attacker else None
+            att_name = (char_res.scalar_one_or_none() if char_res else None) or (attacker.full_name if attacker else "Dushman")
+            att_house_name = f"{att_house.emoji} {att_house.name}" if att_house else "Noma'lum"
 
-        # Qal'amiz garnizoni va mudofaasi
-        garr_total = terr.garrison_infantry + terr.garrison_archers + terr.garrison_cavalry + terr.garrison_spearmen
-        st_dragon = crud.get_stationed_dragon_info(terr)
-        def_dragon_str = f"🔥 {st_dragon['dragon_name']} (Kuch: {st_dragon['power']})" if st_dragon else "Yo'q"
+            tot_enemy = (march.infantry or 0) + (march.archers or 0) + (march.cavalry or 0) + (march.spearmen or 0) + (march.special_troops or 0)
+            enemy_dragon_str = "🔥 Bor (Drakarys xavfi!)" if march.has_dragon else "Yo'q"
 
-        buttons = [
-            [InlineKeyboardButton("🛡️ Shoshilinch Askar Joylashtirish", callback_data=f"def_rf_menu:{terr.id}")],
-            [InlineKeyboardButton("🐉 Ajdarni Mudofaaga Joylashtirish", callback_data=f"def_station_dragon:{terr.id}")],
-            [InlineKeyboardButton("🤝 Xonadonga SOS Chaqiruvi", callback_data=f"def_sos:{terr.id}")],
-            [InlineKeyboardButton("🔄 Qamal Holatini Yangilash", callback_data=f"defend_siege:{march.id}")],
-            [InlineKeyboardButton("🔙 Harbiy Markazga Qaytish", callback_data="menu_battle")],
-        ]
+            # Qal'amiz garnizoni va mudofaasi
+            g_inf = terr.garrison_infantry or 0 if terr else 0
+            g_arc = terr.garrison_archers or 0 if terr else 0
+            g_cav = terr.garrison_cavalry or 0 if terr else 0
+            g_sp = terr.garrison_spearmen or 0 if terr else 0
+            garr_total = g_inf + g_arc + g_cav + g_sp
+            st_dragon = crud.get_stationed_dragon_info(terr) if terr else None
+            def_dragon_str = f"🔥 {st_dragon['dragon_name']} (Kuch: {st_dragon['power']})" if st_dragon else "Yo'q"
 
-        text = (
-            f"🚨 **FAOL QAMAL VA QAL'A HIMOYASI!**\n\n"
-            f"🏰 Qal'a: **{terr.name} ({terr.castle_name})**\n"
-            f"⏱️ Dushman yetib kelishiga: **{rem_sec // 60} daqiqa {rem_sec % 60} soniya** qoldi!\n\n"
-            f"⚔️ **DUSHMAN QO'SHINI:**\n"
-            f"• Qo'mondon: **{escape_md(att_name)}** ({escape_md(att_house_name)})\n"
-            f"• Hujumchilar: taxminan **{tot_enemy:,}** askar\n"
-            f"• Ajdar Hujumi: **{enemy_dragon_str}**\n\n"
-            f"🛡️ **QAL'AMIZ MUDOFAASI:**\n"
-            f"• Qal'a Devori: **{terr.defense}** ball\n"
-            f"• Garnizon: **{garr_total:,}** askar (🛡️{terr.garrison_infantry} | 🏹{terr.garrison_archers} | 🐎{terr.garrison_cavalry} | 🗡️{terr.garrison_spearmen})\n"
-            f"• Mudofaadagi Ajdar: **{def_dragon_str}**\n\n"
-            f"Qal'a dushmanga boy berilmasligi uchun zudlik bilan himoyani kuchaytiring!"
-        )
-        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+            t_name = terr.name if terr else "Qal'a"
+            c_name = terr.castle_name if terr else "Istehkom"
+            def_val = terr.defense or 0 if terr else 0
+
+            buttons = [
+                [InlineKeyboardButton("🛡️ Shoshilinch Askar Joylashtirish", callback_data=f"def_rf_menu:{terr.id}")],
+                [InlineKeyboardButton("🐉 Ajdarni Mudofaaga Joylashtirish", callback_data=f"def_station_dragon:{terr.id}")],
+                [InlineKeyboardButton("🤝 Xonadonga SOS Chaqiruvi", callback_data=f"def_sos:{terr.id}")],
+                [InlineKeyboardButton("🔄 Qamal Holatini Yangilash", callback_data=f"defend_siege:{march.id}")],
+                [InlineKeyboardButton("🔙 Harbiy Markazga Qaytish", callback_data="menu_battle")],
+            ]
+
+            text = (
+                f"🚨 **FAOL QAMAL VA QAL'A HIMOYASI!**\n\n"
+                f"🏰 Qal'a: **{escape_md(t_name)} ({escape_md(c_name)})**\n"
+                f"⏱️ Dushman yetib kelishiga: **{rem_sec // 60} daqiqa {rem_sec % 60} soniya** qoldi!\n\n"
+                f"⚔️ **DUSHMAN QO'SHINI:**\n"
+                f"• Qo'mondon: **{escape_md(att_name)}** ({escape_md(att_house_name)})\n"
+                f"• Hujumchilar: taxminan **{tot_enemy:,}** askar\n"
+                f"• Ajdar Hujumi: **{enemy_dragon_str}**\n\n"
+                f"🛡️ **QAL'AMIZ MUDOFAASI:**\n"
+                f"• Qal'a Devori: **{def_val}** ball\n"
+                f"• Garnizon: **{garr_total:,}** askar (🛡️{g_inf} | 🏹{g_arc} | 🐎{g_cav} | 🗡️{g_sp})\n"
+                f"• Mudofaadagi Ajdar: **{def_dragon_str}**\n\n"
+                f"Qal'a dushmanga boy berilmasligi uchun zudlik bilan himoyani kuchaytiring!"
+            )
+            try:
+                await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+            except Exception:
+                clean_text = text.replace("**", "").replace("*", "").replace("`", "")
+                try:
+                    await query.edit_message_text(clean_text, reply_markup=InlineKeyboardMarkup(buttons))
+                except Exception:
+                    pass
+    except Exception as e:
+        logger.error(f"defend_siege_callback error: {e}", exc_info=True)
+        if query:
+            try:
+                await query.answer("Xatolik yuz berdi.", show_alert=True)
+            except Exception:
+                pass
 
 
 async def march_custom_req_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1585,12 +1674,14 @@ async def handle_battle_text_input(update: Update, context: ContextTypes.DEFAULT
             if ok and not is_own and terr and terr.owner_house_id and context.bot:
                 try:
                     owner_house = await session.get(models.House, terr.owner_house_id)
+                    user_house = await session.get(models.House, user.house_id) if user and user.house_id else None
+                    u_h_name = user_house.name if user_house else "Ittifoqchi"
                     if owner_house and owner_house.lord_user_id and owner_house.lord_user_id != user.telegram_id:
                         await context.bot.send_message(
                             chat_id=owner_house.lord_user_id,
                             text=(
                                 f"🤝🛡️ **QARG'A XABARI: ITTIFOQCHIDAN HARBIY YORDAM!**\n\n"
-                                f"**{user.full_name}** ({user.house.name if user.house else 'Ittifoqchi'}) "
+                                f"**{user.full_name}** ({u_h_name}) "
                                 f"**{terr.name}** qal'angiz mudofaasiga qo'shimcha garnizon askarlari joylashtirdi!"
                             ),
                             parse_mode="Markdown"
@@ -1600,6 +1691,7 @@ async def handle_battle_text_input(update: Update, context: ContextTypes.DEFAULT
 
         if is_own:
             buttons = [
+                [InlineKeyboardButton("🛡️ Garnizon Menyusiga Qaytish", callback_data=f"def_rf_menu:{terr_id}")],
                 [InlineKeyboardButton("🏰 Qal'aga Qaytish", callback_data=f"my_c_detail:{terr_id}")],
             ]
         else:
@@ -1607,7 +1699,14 @@ async def handle_battle_text_input(update: Update, context: ContextTypes.DEFAULT
                 [InlineKeyboardButton("🛡️ Garnizon Menyusiga Qaytish", callback_data=f"def_rf_menu:{terr_id}")],
                 [InlineKeyboardButton("🗺️ Qal'a Ma'lumotiga Qaytish", callback_data=f"view_terr:{terr_id}")],
             ]
-        await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        try:
+            await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        except Exception:
+            clean_msg = msg.replace("**", "").replace("*", "").replace("`", "")
+            try:
+                await update.message.reply_text(clean_msg, reply_markup=InlineKeyboardMarkup(buttons))
+            except Exception:
+                pass
         return
 
     # 3. Garnizondan askar qaytarib olish

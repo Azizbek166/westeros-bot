@@ -457,9 +457,9 @@ async def show_my_castle_detail(query, user_id: int, terr_id: int):
         acc_iron = iron_inc * hours
 
         st_dragon = crud.get_stationed_dragon_info(terr)
-        drg_str = f"🔥 {st_dragon.get('dragon_name')} ({st_dragon.get('user_name')})" if st_dragon else "Mavjud emas"
+        drg_str = f"🔥 {escape_md(st_dragon.get('dragon_name'))} ({escape_md(st_dragon.get('user_name'))})" if st_dragon else "Mavjud emas"
 
-        c_name = (terr.castle_name or terr.name or "Qal'a").upper()
+        c_name = escape_md((terr.castle_name or terr.name or "Qal'a").upper())
         g_inf = terr.garrison_infantry or 0
         g_arc = terr.garrison_archers or 0
         g_cav = terr.garrison_cavalry or 0
@@ -482,7 +482,7 @@ async def show_my_castle_detail(query, user_id: int, terr_id: int):
 
         text = (
             f"🏰 **QAL'A BOSHQARUVI: {c_name}**\n\n"
-            f"📍 Hudud: **{terr.name}** ({terr.region})\n"
+            f"📍 Hudud: **{escape_md(terr.name)}** ({escape_md(terr.region)})\n"
             f"🏛️ Qal'a Bosqichi: **{tier_str}**\n"
             f"🛡️ Mudofaa Devori: **{defense_val:,}** / {MAX_WALL_DEFENSE:,} ball{wall_max_str}\n"
             f"💚 Yovvoyi Olov (Wildfire): **{getattr(terr, 'wildfire_count', 0) or 0} / 5 ta**\n"
@@ -506,7 +506,8 @@ async def show_my_castle_detail(query, user_id: int, terr_id: int):
             buttons.append([InlineKeyboardButton(f"⏳ O'lpon to'planmoqda (~{rem_min} daqiqa)", callback_data=f"tax_wait_info:{rem_min}")])
 
         buttons.append([InlineKeyboardButton("🛡️ Garnizonga Askar Joylashtirish", callback_data=f"def_rf_menu:{terr.id}")])
-        is_lord = (user.house and user.house.lord_user_id == user.telegram_id) or (user.rank == "king")
+        user_house = await session.get(models.House, user.house_id) if user.house_id else None
+        is_lord = (user_house and user_house.lord_user_id == user.telegram_id) or (user.rank == "king")
         if is_lord:
             buttons.append([InlineKeyboardButton("↩️ Garnizondan Askarlarni Qaytarish", callback_data=f"def_withdraw_rf:{terr.id}")])
 
@@ -537,7 +538,14 @@ async def show_my_castle_detail(query, user_id: int, terr_id: int):
         buttons.append([InlineKeyboardButton("🔙 Qalalarim Ro'yxati", callback_data="menu_castles")])
         buttons.append([InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")])
 
-        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        try:
+            await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        except Exception:
+            clean_text = text.replace("**", "").replace("*", "").replace("`", "")
+            try:
+                await query.edit_message_text(clean_text, reply_markup=InlineKeyboardMarkup(buttons))
+            except Exception:
+                pass
 
 
 async def my_castle_detail_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -670,7 +678,8 @@ async def show_garrison_withdraw_menu(target, user_id: int, terr_id: int):
         if not user or not terr:
             return
 
-        is_lord = user and terr and (terr.owner_house_id == user.house_id) and ((user.house and user.house.lord_user_id == user.telegram_id) or (user.rank == "king"))
+        user_house = await session.get(models.House, user.house_id) if user.house_id else None
+        is_lord = user and terr and (terr.owner_house_id == user.house_id) and ((user_house and user_house.lord_user_id == user.telegram_id) or (user.rank == "king"))
         if not is_lord:
             err_msg = "❌ **RUXSAT BERILMAGAN!**\n\nQal'a garnizonidan askarlarni qaytarib olish huquqi faqat **Xonadon Lordi**ga berilgan!"
             back_kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Qal'aga Qaytish", callback_data=f"my_c_detail:{terr.id}")]])
@@ -686,12 +695,13 @@ async def show_garrison_withdraw_menu(target, user_id: int, terr_id: int):
         g_sp = terr.garrison_spearmen or 0
         tot_g = g_inf + g_arc + g_cav + g_sp
 
+        army = await crud.get_user_army(session, user.id)
         u_army = (
-            (user.army.infantry or 0)
-            + (user.army.archers or 0)
-            + (user.army.cavalry or 0)
-            + (user.army.spearmen or 0)
-        ) if (user and user.army) else 0
+            (army.infantry or 0)
+            + (army.archers or 0)
+            + (army.cavalry or 0)
+            + (army.spearmen or 0)
+        ) if army else 0
 
         buttons = [
             [
@@ -713,7 +723,7 @@ async def show_garrison_withdraw_menu(target, user_id: int, terr_id: int):
             ]
         ]
 
-        c_name = (terr.castle_name or terr.name or "Qal'a").upper()
+        c_name = escape_md((terr.castle_name or terr.name or "Qal'a").upper())
         text = (
             f"↩️ **GARNIZONDAN ASKARLARNI QAYTARISH: {c_name}**\n\n"
             f"🏰 **Qal'adagi hozirgi garnizon:**\n"
@@ -749,7 +759,8 @@ async def def_withdraw_rf_callback(update: Update, context: ContextTypes.DEFAULT
     async with AsyncSessionLocal() as session:
         user = await crud.get_user_with_relations(session, user_id)
         terr = await session.get(models.Territory, terr_id)
-        is_lord = user and terr and (terr.owner_house_id == user.house_id) and ((user.house and user.house.lord_user_id == user.telegram_id) or (user.rank == "king"))
+        user_house = await session.get(models.House, user.house_id) if user and user.house_id else None
+        is_lord = user and terr and (terr.owner_house_id == user.house_id) and ((user_house and user_house.lord_user_id == user.telegram_id) or (user.rank == "king"))
         if not is_lord:
             await query.answer("❌ Garnizondan askar olish huquqi faqat Xonadon Lordiga tegishli!", show_alert=True)
             return
@@ -768,7 +779,8 @@ async def def_with_act_callback(update: Update, context: ContextTypes.DEFAULT_TY
     async with AsyncSessionLocal() as session:
         user = await crud.get_user_with_relations(session, user_id)
         terr = await session.get(models.Territory, terr_id)
-        is_lord = user and terr and (terr.owner_house_id == user.house_id) and ((user.house and user.house.lord_user_id == user.telegram_id) or (user.rank == "king"))
+        user_house = await session.get(models.House, user.house_id) if user and user.house_id else None
+        is_lord = user and terr and (terr.owner_house_id == user.house_id) and ((user_house and user_house.lord_user_id == user.telegram_id) or (user.rank == "king"))
         if not is_lord:
             await query.answer("❌ Garnizondan askar olish huquqi faqat Xonadon Lordiga tegishli!", show_alert=True)
             return
@@ -804,7 +816,8 @@ async def def_custom_with_callback(update: Update, context: ContextTypes.DEFAULT
     async with AsyncSessionLocal() as session:
         user = await crud.get_user_with_relations(session, user_id)
         terr = await session.get(models.Territory, terr_id)
-        is_lord = user and terr and (terr.owner_house_id == user.house_id) and ((user.house and user.house.lord_user_id == user.telegram_id) or (user.rank == "king"))
+        user_house = await session.get(models.House, user.house_id) if user and user.house_id else None
+        is_lord = user and terr and (terr.owner_house_id == user.house_id) and ((user_house and user_house.lord_user_id == user.telegram_id) or (user.rank == "king"))
         if not is_lord:
             await query.answer("❌ Garnizondan askar olish huquqi faqat Xonadon Lordiga tegishli!", show_alert=True)
             return

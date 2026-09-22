@@ -93,7 +93,7 @@ UPKEEP_FOOD_PER_SPEARMAN = 0.5
 UPKEEP_FOOD_PER_SPECIAL = 1.5
 
 # Yurish tezligi (hududlar orasidagi bazaviy daqiqa - mudofaa reaksiyasi uchun)
-BASE_MARCH_MINUTES = int(os.getenv("BASE_MARCH_MINUTES", "1"))
+BASE_MARCH_MINUTES = int(os.getenv("BASE_MARCH_MINUTES", "5"))
 
 # ============================================================
 # LAVOZIMLAR VA ROLLARI
