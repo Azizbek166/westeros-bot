@@ -61,6 +61,7 @@ class User(Base):
     equipped_artifact_id = Column(Integer, nullable=True)
     iron_mine_level = Column(Integer, default=1)           # Temir koni darajasi (1-10)
     grain_mill_level = Column(Integer, default=1)          # Don tegirmoni darajasi (1-10)
+    castle_taxes_json = Column(Text, default="{}")         # Shaxsiy soliq olingan vaqtlar: {territory_id: iso_timestamp}
     daily_limit_date = Column(String(10), default="")  # YYYY-MM-DD
 
     # Kunlik bonus va taklif (Referral)

@@ -1,4 +1,5 @@
 import os
+from datetime import datetime, timedelta
 from sqlalchemy import select
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CommandHandler, CallbackQueryHandler, ContextTypes
@@ -334,28 +335,22 @@ async def my_castles_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     await show_my_castles(query, user_id, is_message=False)
 
 
-async def show_my_castles(target, user_id: int, is_message: bool):
+async def show_my_castles(target, user_id: int, is_message: bool = False):
     """Xonadonga qarashli barcha qal'alar va daromadlar boshqaruvi"""
     async with AsyncSessionLocal() as session:
         user = await crud.get_user_with_relations(session, user_id)
         if not user or not user.house_id:
-            msg = "Siz hali birorta ham xonadonga a'zo emassiz!"
-            if is_message:
-                await target.message.reply_text(msg)
-            else:
-                await target.edit_message_text(msg)
-            return
-
-        castles = await crud.get_house_territories(session, user.house_id)
-
-        if not castles:
             text = (
-                f"🏰 **QAL'ALARIM — {user.house.emoji} {user.house.name.upper()}**\n\n"
-                f"Hozirda xonadoningiz birorta ham strategik qal'aga egalik qilmaydi.\n"
-                f"🗺️ **Xarita** bo'limiga o'ting va dushman qal'alariga yurish qilib, ularni zabt eting!\n"
-                f"Qal'alarni bosib olgach, ulardan soatlik o'lpon yig'ishingiz mumkin."
+                "🏰 **QAL'ALARIM VA G'AZNALAR**\n\n"
+                "Hurmatli jangchi, siz hali birorta ham Buyuk Xonadonga qo'shilmagansiz!\n\n"
+                "⚔️ **Qal'alarga ega bo'lish uchun:**\n"
+                "• Avval Vesterosning 50 ta qudratli xonadonidan biriga a'zo bo'ling.\n"
+                "• O'z xonadoningiz qal'alaridan har soatda **Oltin 🪙, Oziq-ovqat 🌾 va Temir ⛓️** solig'ini yig'ib oling!\n"
+                "• Dushman qal'alariga qamal uyushtirib, ularni o'z tasarrufingizga kiriting.\n\n"
+                "Quyidagi tugma orqali o'z xonadoningizni tanlang:"
             )
             buttons = [
+                [InlineKeyboardButton("👑 Xonadon Tanlash / Qasamyod Qilish", callback_data="menu_choose_house")],
                 [InlineKeyboardButton("🗺️ Westeros Xaritasi", callback_data="menu_map")],
                 [InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")],
             ]
@@ -365,26 +360,58 @@ async def show_my_castles(target, user_id: int, is_message: bool):
                 await target.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
             return
 
-        from datetime import datetime, timedelta
+        house = user.house
+        if not house:
+            house = await session.get(models.House, user.house_id)
+
+        castles = await crud.get_user_and_house_castles(session, user)
+
+        if not castles:
+            h_emoji = house.emoji if house else "🏰"
+            h_name = house.name.upper() if house else "XONADON"
+            text = (
+                f"🏰 **QAL'ALARIM — {h_emoji} {h_name}**\n\n"
+                f"Hozirda xonadoningiz birorta ham strategik qal'aga egalik qilmaydi.\n"
+                f"🗺️ **Xarita** bo'limiga o'ting va dushman qal'alariga yurish qilib, ularni zabt eting!\n"
+                f"Qal'alarni bosib olgach, ulardan soatlik o'lpon yig'ishingiz mumkin."
+            )
+            buttons = [
+                [InlineKeyboardButton("🗺️ Westeros Xaritasi (Qal'alarni Fath Qilish)", callback_data="menu_map")],
+                [InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")],
+            ]
+            if is_message:
+                await target.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+            else:
+                await target.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+            return
+
         now = datetime.utcnow()
+        h_emoji = house.emoji if house else "🏰"
+        h_name = house.name.upper() if house else "XONADON"
 
         text = (
-            f"🏰 **QAL'ALARIM VA G'AZNALAR — {user.house.emoji} {user.house.name.upper()}**\n\n"
-            f"Xonadoningiz tasarrufidagi barcha qal'alar va ularning g'aznalari:\n\n"
+            f"🏰 **QAL'ALARIM VA G'AZNALAR — {h_emoji} {h_name}**\n\n"
+            f"Tasarrufingizdagi barcha strategik qal'alar va ularning daromadlari:\n\n"
         )
 
-        ready_count = sum(1 for c in castles if min(4, int(max(0, (now - (c.last_tax_collected_at or (now - timedelta(hours=4)))).total_seconds()) // 3600)) >= 1)
+        castles_data = []
+        ready_count = 0
+        for c in castles:
+            hours, rem_min = crud.get_user_castle_tax_hours(user, c, now)
+            if hours >= 1:
+                ready_count += 1
+            castles_data.append((c, hours, rem_min))
+
         buttons = []
         if ready_count > 0:
             buttons.append([InlineKeyboardButton(f"💰 Barcha Qal'alardan O'lpon Yig'ish ({ready_count} ta tayyor)", callback_data="collect_all_tax")])
         else:
-            buttons.append([InlineKeyboardButton("💰 Barcha Qal'alardan O'lpon Yig'ish", callback_data="collect_all_tax")])
+            min_rem = min((rem for _, h, rem in castles_data if h < 1 and rem > 0), default=60)
+            buttons.append([InlineKeyboardButton(f"⏳ O'lpon to'planmoqda (~{min_rem} daqiqa)", callback_data="tax_all_wait_info")])
 
-        for c in castles:
-            tot_gar = c.garrison_infantry + c.garrison_archers + c.garrison_cavalry + c.garrison_spearmen
-            last_tax = c.last_tax_collected_at or (now - timedelta(hours=4))
-            hours = min(4, int(max(0, (now - last_tax).total_seconds()) // 3600))
-            tax_tag = f"💰 {hours}/4 soat o'lpon tayyor" if hours >= 1 else "⏳ O'lpon yig'ilmoqda"
+        for c, hours, rem_min in castles_data:
+            tot_gar = (c.garrison_infantry or 0) + (c.garrison_archers or 0) + (c.garrison_cavalry or 0) + (c.garrison_spearmen or 0)
+            tax_tag = f"💰 {hours}/4 soat o'lpon tayyor" if hours >= 1 else f"⏳ To'planmoqda (~{rem_min} daq)"
 
             text += (
                 f"• 🏰 **{c.castle_name}** ({c.name})\n"
@@ -392,7 +419,8 @@ async def show_my_castles(target, user_id: int, is_message: bool):
                 f"  └ 💰 Daromad: +{c.gold_income}🪙, +{c.food_income}🌾, +{c.iron_income}⛓️/soat\n"
                 f"  └ ✨ Holat: _{tax_tag}_\n\n"
             )
-            buttons.append([InlineKeyboardButton(f"🏰 {c.castle_name} ({hours}s o'lpon)", callback_data=f"my_c_detail:{c.id}")])
+            btn_tag = f"{hours}/4s o'lpon" if hours >= 1 else f"~{rem_min} daq"
+            buttons.append([InlineKeyboardButton(f"🏰 {c.castle_name} ({btn_tag})", callback_data=f"my_c_detail:{c.id}")])
 
         buttons.append([InlineKeyboardButton("🗺️ Butun Xarita", callback_data="menu_map")])
         buttons.append([InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")])
@@ -405,7 +433,6 @@ async def show_my_castles(target, user_id: int, is_message: bool):
 
 async def show_my_castle_detail(query, user_id: int, terr_id: int):
     """Qal'a boshqaruvi va o'lpon yig'ish sahifasini ko'rsatish"""
-    from datetime import datetime, timedelta
     now = datetime.utcnow()
 
     async with AsyncSessionLocal() as session:
@@ -414,10 +441,7 @@ async def show_my_castle_detail(query, user_id: int, terr_id: int):
         if not terr or not user:
             return
 
-        last_tax = terr.last_tax_collected_at or (now - timedelta(hours=4))
-        elapsed_sec = max(0, (now - last_tax).total_seconds())
-        hours = min(4, int(elapsed_sec // 3600))
-        rem_min = max(1, int((3600 - elapsed_sec) // 60)) if hours < 1 else 0
+        hours, rem_min = crud.get_user_castle_tax_hours(user, terr, now)
 
         gold_inc = terr.gold_income or 0
         food_inc = terr.food_income or 0
@@ -448,6 +472,8 @@ async def show_my_castle_detail(query, user_id: int, terr_id: int):
         defense_val = terr.defense or 0
         wall_max_str = " (Maksimal)" if defense_val >= MAX_WALL_DEFENSE else ""
 
+        tax_status_msg = f"✅ O'lponni yig'ib olishga tayyor! ({hours}/4 soat)" if hours >= 1 else f"⏳ Keyingi o'lpon tayyor bo'lishiga: taxminan {rem_min} daqiqa qoldi"
+
         text = (
             f"🏰 **QAL'A BOSHQARUVI: {c_name}**\n\n"
             f"📍 Hudud: **{terr.name}** ({terr.region})\n"
@@ -464,12 +490,14 @@ async def show_my_castle_detail(query, user_id: int, terr_id: int):
             f"• 🪙 Oltin: **+{acc_gold:,}**\n"
             f"• 🌾 Oziq: **+{acc_food:,}**\n"
             f"• ⛓️ Temir: **+{acc_iron:,}**\n"
-            f"{f'⏳ Keyingi o\'lpon tayyor bo\'lishiga: {rem_min} daqiqa' if hours < 1 else '✅ O\'lponni yig\'ib olishga tayyor!'}\n"
+            f"{tax_status_msg}\n"
         )
 
         buttons = []
         if hours >= 1:
             buttons.append([InlineKeyboardButton(f"💰 O'lpon Olish ({hours} soatlik: +{acc_gold:,}🪙)", callback_data=f"collect_tax:{terr.id}")])
+        else:
+            buttons.append([InlineKeyboardButton(f"⏳ O'lpon to'planmoqda (~{rem_min} daqiqa)", callback_data=f"tax_wait_info:{rem_min}")])
 
         buttons.append([InlineKeyboardButton("🛡️ Garnizonga Askar Joylashtirish", callback_data=f"def_rf_menu:{terr.id}")])
         is_lord = (user.house and user.house.lord_user_id == user.telegram_id) or (user.rank == "king")
@@ -528,7 +556,7 @@ async def collect_tax_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             return
         ok, msg, res = await crud.collect_castle_tax(session, user.id, terr_id)
 
-    await query.answer(msg if not ok else "✅ O'lpon muvaffaqiyatli qabul qilindi!", show_alert=True)
+    await query.answer(msg[:150] if not ok else f"✅ O'lpon olindi! (+{res.get('gold', 0):,}🪙)", show_alert=True)
     await show_my_castle_detail(query, user_id, terr_id)
 
 
@@ -548,7 +576,40 @@ async def collect_all_tax_callback(update: Update, context: ContextTypes.DEFAULT
         await query.answer(f"✅ Barcha qal'alardan o'lpon yig'ildi! (+{res.get('gold', 0):,}🪙)", show_alert=True)
     else:
         await query.answer(msg[:150], show_alert=True)
-    await show_my_castles(query, user_id)
+    await show_my_castles(query, user_id, is_message=False)
+
+
+async def tax_wait_info_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Qal'ada o'lpon to'planishi kutilayotgani haqida bildirishnoma"""
+    query = update.callback_query
+    rem_min = query.data.split(":")[1] if ":" in query.data else "60"
+    await query.answer(
+        f"⏳ Ushbu qal'ada o'lpon to'planmoqda.\n1 soatlik o'lpon tayyor bo'lishiga taxminan {rem_min} daqiqa qoldi!",
+        show_alert=True
+    )
+
+
+async def tax_all_wait_info_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Barcha qal'alarda o'lpon to'planishi kutilayotgani haqida bildirishnoma"""
+    query = update.callback_query
+    await query.answer(
+        "⏳ Qal'alarda o'lpon har 1 soatda to'planadi (maksimal 4 soat).\n"
+        "Hozircha kamida 1 soat to'plangan qal'a mavjud emas. Birozdan so'ng qayta tekshiring!",
+        show_alert=True
+    )
+
+
+async def choose_house_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Qal'alarim bo'limidan xonadon tanlashga o'tish"""
+    query = update.callback_query
+    await query.answer()
+    from keyboards.menus import regions_keyboard
+    text = (
+        "👑 **THE IRON THRONE — XONADON TANLASH**\n\n"
+        "Vesterosning 50 ta xonadoni taxt uchun kurashmoqda.\n\n"
+        "Qal'alarga ega bo'lish va o'lpon yig'ish uchun avval mintaqangizni tanlang:"
+    )
+    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=regions_keyboard())
 
 
 async def upgrade_walls_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -798,6 +859,9 @@ def register_map_handlers(app):
     app.add_handler(CallbackQueryHandler(my_castle_detail_callback, pattern="^my_c_detail:"))
     app.add_handler(CallbackQueryHandler(collect_tax_callback, pattern="^collect_tax:"))
     app.add_handler(CallbackQueryHandler(collect_all_tax_callback, pattern="^collect_all_tax$"))
+    app.add_handler(CallbackQueryHandler(tax_wait_info_callback, pattern="^tax_wait_info:"))
+    app.add_handler(CallbackQueryHandler(tax_all_wait_info_callback, pattern="^tax_all_wait_info$"))
+    app.add_handler(CallbackQueryHandler(choose_house_callback, pattern="^menu_choose_house$"))
     app.add_handler(CallbackQueryHandler(upgrade_walls_callback, pattern="^upgrade_walls:"))
     app.add_handler(CallbackQueryHandler(upgrade_castle_callback, pattern="^upgrade_castle:"))
     app.add_handler(CallbackQueryHandler(def_withdraw_rf_callback, pattern="^def_withdraw_rf:"))

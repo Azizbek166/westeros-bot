@@ -2,7 +2,7 @@ import json
 import random
 from datetime import datetime, timedelta
 from typing import Optional, List, Tuple, Dict, Any
-from sqlalchemy import select, update, delete, desc, func
+from sqlalchemy import select, update, delete, desc, func, or_
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from database import models
@@ -2120,32 +2120,83 @@ async def equip_dragon_artifact(session: AsyncSession, user_id: int, dragon_id: 
     return True, f"✨ {dragon.name} ga {art_info['name']} taqildi! Ajdarning quvvati +{pwr_bonus} ga oshdi! (+120 Prestige)"
 
 
+def get_user_castle_tax_hours(user: models.User, territory: models.Territory, now: Optional[datetime] = None) -> Tuple[int, int]:
+    """Foydalanuvchi uchun ushbu qal'adan o'lpon olish taymerini hisoblash (har bir o'yinchi uchun mustaqil).
+    Qaytaradi: (hours, rem_min)
+    hours: 1 dan 4 gacha to'plangan soatlar miqdori
+    rem_min: agar hours < 4 bo'lsa, keyingi soatlik o'lpon tayyor bo'lishiga qolgan daqiqalar soni
+    """
+    if not now:
+        now = datetime.utcnow()
+
+    last_tax = None
+    if getattr(user, "castle_taxes_json", None):
+        try:
+            taxes = json.loads(user.castle_taxes_json)
+            if str(territory.id) in taxes:
+                last_tax = datetime.fromisoformat(taxes[str(territory.id)])
+        except Exception:
+            last_tax = None
+
+    if not last_tax:
+        # Foydalanuvchi hali bu qal'adan o'lpon olmagan bo'lsa, 4 soatlik to'liq o'lpon tayyor holatda beriladi!
+        last_tax = now - timedelta(hours=4)
+
+    elapsed_seconds = max(0, (now - last_tax).total_seconds())
+    hours = min(4, int(elapsed_seconds // 3600))
+    rem_min = max(1, int((3600 - (elapsed_seconds % 3600)) // 60)) if hours < 4 else 0
+    return hours, rem_min
+
+
+async def get_user_and_house_castles(session: AsyncSession, user: models.User) -> List[models.Territory]:
+    """Foydalanuvchi xonadoniga tegishli yoki shaxsan o'zi zabt etgan barcha qal'alar"""
+    conditions = []
+    if user.house_id:
+        conditions.append(models.Territory.owner_house_id == user.house_id)
+    if user.id:
+        conditions.append(models.Territory.conquered_by_user_id == user.id)
+
+    if not conditions:
+        return []
+
+    res = await session.execute(
+        select(models.Territory).where(or_(*conditions)).order_by(models.Territory.id)
+    )
+    return list(res.scalars().all())
+
+
 async def collect_castle_tax(session: AsyncSession, user_id: int, territory_id: int) -> Tuple[bool, str, Dict[str, int]]:
-    """Qal'adan 4 soatlik to'plangan o'lponni yig'ib olish"""
+    """Qal'adan 1-4 soatlik to'plangan o'lponni yig'ib olish (har bir o'yinchi uchun mustaqil)"""
     user = await get_user_any(session, user_id)
     terr = await session.get(models.Territory, territory_id)
     if not user or not terr:
         return False, "Ma'lumot topilmadi.", {}
 
-    if not user.house_id or terr.owner_house_id != user.house_id:
-        return False, "Bu qal'a sizning xonadoningizga tegishli emas!", {}
+    is_own = (user.house_id and terr.owner_house_id == user.house_id) or (getattr(terr, 'conquered_by_user_id', None) == user.id)
+    if not is_own:
+        return False, "❌ Bu qal'a sizga yoki xonadoningizga tegishli emas!", {}
 
     now = datetime.utcnow()
-    last_tax = terr.last_tax_collected_at or (now - timedelta(hours=4))
-    elapsed_seconds = max(0, (now - last_tax).total_seconds())
-    hours = int(elapsed_seconds // 3600)
+    hours, rem_min = get_user_castle_tax_hours(user, terr, now)
     if hours < 1:
-        remaining_mins = max(1, int((3600 - elapsed_seconds) // 60))
-        return False, f"⏳ O'lpon yig'ishga hali erta! Kamida 1 soat o'tishi kerak ({remaining_mins} daqiqa qoldi).", {}
+        return False, f"⏳ O'lpon yig'ishga hali erta! Kamida 1 soat o'tishi kerak (~{rem_min} daqiqa qoldi).", {}
 
-    hours = min(4, hours)  # Ko'pi bilan 4 soatlik jamlanadi
-    g_inc = terr.gold_income * hours
-    f_inc = terr.food_income * hours
-    i_inc = terr.iron_income * hours
+    g_inc = (terr.gold_income or 200) * hours
+    f_inc = (terr.food_income or 500) * hours
+    i_inc = (terr.iron_income or 100) * hours
 
-    user.gold += g_inc
-    user.food += f_inc
-    user.iron += i_inc
+    user.gold = (user.gold or 0) + g_inc
+    user.food = (user.food or 0) + f_inc
+    user.iron = (user.iron or 0) + i_inc
+
+    user_taxes = {}
+    if getattr(user, "castle_taxes_json", None):
+        try:
+            user_taxes = json.loads(user.castle_taxes_json)
+        except Exception:
+            user_taxes = {}
+    user_taxes[str(terr.id)] = now.isoformat()
+    user.castle_taxes_json = json.dumps(user_taxes)
     terr.last_tax_collected_at = now
     await session.commit()
 
@@ -2160,53 +2211,57 @@ async def collect_castle_tax(session: AsyncSession, user_id: int, territory_id: 
 
 
 async def collect_all_castles_tax(session: AsyncSession, user_id: int) -> Tuple[bool, str, Dict[str, int]]:
-    """Xonadonga tegishli barcha qal'alardan 1-4 soatlik to'plangan o'lponlarni bir vaqtda yig'ib olish"""
+    """Xonadonga tegishli yoki o'zi zabt etgan barcha qal'alardan bir vaqtda o'lpon yig'ib olish"""
     user = await get_user_any(session, user_id)
     if not user:
         return False, "Foydalanuvchi topilmadi.", {}
 
-    if not user.house_id:
-        return False, "Siz biron bir xonadonga tegishli emassiz!", {}
-
-    res = await session.execute(
-        select(models.Territory).where(models.Territory.owner_house_id == user.house_id)
-    )
-    castles = res.scalars().all()
+    castles = await get_user_and_house_castles(session, user)
     if not castles:
-        return False, "Xonadoningizga tegishli birorta ham qal'a yo'q!", {}
+        return False, "Xonadoningizga yoki sizga tegishli birorta ham qal'a yo'q!", {}
 
     now = datetime.utcnow()
     tot_gold = 0
     tot_food = 0
     tot_iron = 0
     collected_castles = []
+    min_rem_wait = 60
+
+    user_taxes = {}
+    if getattr(user, "castle_taxes_json", None):
+        try:
+            user_taxes = json.loads(user.castle_taxes_json)
+        except Exception:
+            user_taxes = {}
 
     for terr in castles:
-        last_tax = terr.last_tax_collected_at or (now - timedelta(hours=4))
-        elapsed_seconds = max(0, (now - last_tax).total_seconds())
-        hours = int(elapsed_seconds // 3600)
+        hours, rem_min = get_user_castle_tax_hours(user, terr, now)
         if hours >= 1:
-            hours = min(4, hours)
-            g_inc = (terr.gold_income or 0) * hours
-            f_inc = (terr.food_income or 0) * hours
-            i_inc = (terr.iron_income or 0) * hours
+            g_inc = (terr.gold_income or 200) * hours
+            f_inc = (terr.food_income or 500) * hours
+            i_inc = (terr.iron_income or 100) * hours
 
             tot_gold += g_inc
             tot_food += f_inc
             tot_iron += i_inc
+            user_taxes[str(terr.id)] = now.isoformat()
             terr.last_tax_collected_at = now
             collected_castles.append({
                 "name": terr.castle_name or terr.name,
                 "hours": hours,
                 "gold": g_inc,
             })
+        else:
+            if rem_min > 0 and rem_min < min_rem_wait:
+                min_rem_wait = rem_min
 
     if not collected_castles:
-        return False, "⏳ Hozirda birorta ham qal'ada o'lpon to'planmagan (kamida 1 soat o'tishi kerak).", {}
+        return False, f"⏳ Hozircha birorta ham qal'ada o'lpon to'planmagan. Keyingi o'lpon tayyor bo'lishiga taxminan {min_rem_wait} daqiqa qoldi.", {}
 
-    user.gold += tot_gold
-    user.food += tot_food
-    user.iron += tot_iron
+    user.gold = (user.gold or 0) + tot_gold
+    user.food = (user.food or 0) + tot_food
+    user.iron = (user.iron or 0) + tot_iron
+    user.castle_taxes_json = json.dumps(user_taxes)
     await session.commit()
 
     details = "\n".join([f"• 🏰 **{c['name']}**: {c['hours']} soatlik (+{c['gold']:,}🪙)" for c in collected_castles])
