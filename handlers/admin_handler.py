@@ -1251,6 +1251,9 @@ async def admin_war_control_callback(update: Update, context: ContextTypes.DEFAU
         ])
 
     buttons.append([
+        InlineKeyboardButton("👾 21:00 Urush & NPC Bosqinini Boshlash", callback_data="adm_war_trigger_daily_npc"),
+    ])
+    buttons.append([
         InlineKeyboardButton("🔄 Yangilash", callback_data="admin_war_control"),
         InlineKeyboardButton("🔙 Admin Panel", callback_data="admin_panel"),
     ])
@@ -1348,12 +1351,32 @@ async def admin_war_action_callback(update: Update, context: ContextTypes.DEFAUL
             else:
                 alert_msg = "Urush hozir yopiq."
 
+        elif data == "adm_war_trigger_daily_npc":
+            from core.tick_engine import execute_daily_2100_war_and_npc_raids
+            await execute_daily_2100_war_and_npc_raids(bot_app=context.application, force=True)
+            alert_msg = "✅ 21:00 Urushi va NPC bosqinlari muvaffaqiyatli ishga tushirildi!"
+
     try:
         await query.answer(alert_msg, show_alert=True)
     except Exception:
         pass
 
     await admin_war_control_callback(update, context)
+
+
+async def admin_daily_war_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/dailywar yoki /trigger_npc_raid orqali kunlik 21:00 urushini va NPC bosqinlarini majburiy ishga tushirish"""
+    user_id = update.effective_user.id
+    if not is_admin(user_id):
+        return
+
+    from core.tick_engine import execute_daily_2100_war_and_npc_raids
+    await update.message.reply_text("⏳ 21:00 Urushi va NPC bosqinlari hisoblanmoqda va boshlanmoqda...", parse_mode="Markdown")
+    await execute_daily_2100_war_and_npc_raids(bot_app=context.application, force=True)
+    await update.message.reply_text(
+        "✅ **21:00 Kunlik urush va NPC bosqinlari muvaffaqiyatli ishga tushirildi!**\nBarcha o'yinchilarga e'lon yuborildi va qal'alar mudofaasi sinovdan o'tkazildi.",
+        parse_mode="Markdown"
+    )
 
 
 async def set_war_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3191,7 +3214,8 @@ def register_admin_handlers(app):
     app.add_handler(CallbackQueryHandler(admin_wipe_ask_callback, pattern="^admin_wipe_ask$"))
     app.add_handler(CallbackQueryHandler(admin_wipe_confirm_callback, pattern="^admin_wipe_confirm$"))
     app.add_handler(CommandHandler(["setwar", "warcontrol"], set_war_command))
+    app.add_handler(CommandHandler(["dailywar", "trigger_npc_raid", "daily2100"], admin_daily_war_command))
     app.add_handler(CallbackQueryHandler(admin_war_control_callback, pattern="^admin_war_control$"))
-    app.add_handler(CallbackQueryHandler(admin_war_action_callback, pattern="^(adm_war_set:|adm_war_add:|adm_war_bcast_now)"))
+    app.add_handler(CallbackQueryHandler(admin_war_action_callback, pattern="^(adm_war_set:|adm_war_add:|adm_war_bcast_now|adm_war_trigger_daily_npc)"))
 
 

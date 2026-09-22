@@ -113,7 +113,12 @@ async def view_territory_callback(update: Update, context: ContextTypes.DEFAULT_
                 except Exception:
                     pass
 
-            owner_name = f"{terr.owner_house.emoji} {terr.owner_house.name}" if terr.owner_house else "Egaliksiz (Qaroqchilar)"
+            if terr.owner_house:
+                owner_name = f"{terr.owner_house.emoji} {terr.owner_house.name}"
+            elif terr.code == "kings_landing":
+                owner_name = "👑 Qirollik Soqchilari (NPC Temir Taxt)"
+            else:
+                owner_name = "⚔️ NPC Qal'asi (Fath etish uchun ochiq)"
             clean_owner = owner_name.replace("*", "").replace("_", "").replace("`", "")
 
         dragon_info_str = "Mavjud emas"

@@ -3343,7 +3343,7 @@ async def reset_entire_game(session: AsyncSession) -> None:
     all_terrs = terrs_res.scalars().all()
     for t in all_terrs:
         t_info = TERRITORIES_DATA.get(t.code, {})
-        t.owner_house_id = t_info.get("initial_owner_id", 1)
+        t.owner_house_id = t_info.get("initial_owner_id")
         t.garrison_infantry = t_info.get("garrison_infantry", 200)
         t.garrison_archers = t_info.get("garrison_archers", 100)
         t.garrison_cavalry = t_info.get("garrison_cavalry", 50)

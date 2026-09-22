@@ -5,7 +5,7 @@ if hasattr(sys.stdout, "reconfigure"):
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, time as dt_time, timezone, timedelta
 from telegram import Update
 from telegram.ext import Application, ContextTypes, TypeHandler
 from config import BOT_TOKEN, escape_md
@@ -17,6 +17,8 @@ from core.tick_engine import (
     process_npc_growth_and_raids,
     check_house_election_expiration,
     check_war_mode_expiration,
+    execute_daily_2100_war_and_npc_raids,
+    check_and_trigger_daily_war_failsafe,
 )
 from core.economy_engine import process_hourly_tick
 from handlers import register_all_handlers
@@ -54,8 +56,18 @@ async def hourly_economy_job(context: ContextTypes.DEFAULT_TYPE):
             await crud.check_and_resolve_weekly_tournament(session, bot_app=context.application)
         logger.info("💰 Soatlik iqtisodiyot, ob-havo va turnir hisoblandi.")
         await check_house_election_expiration(bot_app=context.application)
+        # Failsafe: Agar 21:00-22:59 oralig'ida bot restart bo'lsa yoki o'chib qolsa, kunlik urushni o'tkazish
+        await check_and_trigger_daily_war_failsafe(bot_app=context.application)
     except Exception as e:
         logger.error(f"Economy / election / season tick xatosi: {e}")
+
+
+async def daily_war_and_npc_job(context: ContextTypes.DEFAULT_TYPE):
+    """Har kuni soat 21:00 (O'zbekiston vaqti UTC+5) da urushni ochish va 10 ta NPC bosqinlarini o'tkazish"""
+    try:
+        await execute_daily_2100_war_and_npc_raids(bot_app=context.application, force=False)
+    except Exception as e:
+        logger.error(f"Daily 21:00 war job xatosi: {e}")
 
 
 async def npc_tick_job(context: ContextTypes.DEFAULT_TYPE):
@@ -197,9 +209,17 @@ def main():
         first=60,
     )
 
+    # Har kuni soat 21:00 da (O'zbekiston vaqti UTC+5) kunlik urush va NPC hujumlari
+    uzbekistan_tz = timezone(timedelta(hours=5))
+    app.job_queue.run_daily(
+        daily_war_and_npc_job,
+        time=dt_time(hour=21, minute=0, second=0, tzinfo=uzbekistan_tz),
+        name="daily_2100_war_job",
+    )
+
     print("==================================================")
     print("👑 THE IRON THRONE — 500+ PLAYER MMORPG ISHGA TUSHDI")
-    print("🏰 50 ta Xonadon | 21 ta Qal'a | Tosh-Qaychi-Qog'oz Janglar")
+    print("🏰 50 ta Xonadon | 60 ta Qal'a (10 ta NPC) | 21:00 Urush")
     print("==================================================")
 
     # Polling rejimida ishga tushirish

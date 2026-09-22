@@ -252,7 +252,7 @@ async def init_db():
                     name=t_info["name"],
                     region=t_info["region"],
                     castle_name=t_info["castle"],
-                    owner_house_id=t_info.get("initial_owner_id", 1),
+                    owner_house_id=t_info.get("initial_owner_id"),
                     population=t_info.get("population", 50000),
                     gold_income=t_info.get("gold_income", 200),
                     food_income=t_info.get("food_income", 500),
@@ -266,6 +266,10 @@ async def init_db():
                     castle_level=1,
                 )
                 session.add(new_territory)
+            else:
+                if not result.conquered_by_user_id:
+                    result.owner_house_id = t_info.get("initial_owner_id")
+
 
         # Tun Qiroli (White Walkers) global eventini 500,000 HP ga yangilash
         import json

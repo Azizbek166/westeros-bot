@@ -3,14 +3,14 @@ import random
 import logging
 import asyncio
 import html
-from datetime import datetime
+from datetime import datetime, timedelta
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from database import models, AsyncSessionLocal, crud
 from core.battle_engine import calculate_battle
 from core.economy_engine import process_hourly_tick
 from core.leveling import check_user_level_up
-from core.notifier import notify_house_group
+from core.notifier import notify_house_group, notify_owner
 from data.artifacts_data import ARTIFACTS_DATA
 
 logger = logging.getLogger(__name__)
@@ -794,5 +794,268 @@ async def process_due_trade_caravans(bot_app=None):
             await session.commit()
     except Exception as e:
         logger.error(f"process_due_trade_caravans xatosi: {e}")
+
+
+# ============================================================
+# KUNLIK 21:00 (UZT) URUSH VA FAOL NPC BOSQINLARI
+# ============================================================
+
+NPC_WAR_RAIDERS = [
+    {"name": "Qirollik Temir Qo'shini (King's Landing)", "origin": "King's Landing", "emoji": "👑"},
+    {"name": "Harrenhal Qarg'alari va Qora Ritsarlari", "origin": "Harrenhal", "emoji": "💀"},
+    {"name": "Botqoqlik Xavfli Qaroqchilari", "origin": "Moat Cailin", "emoji": "🌿"},
+    {"name": "Qonli Darvoza Tog' Qabilalari", "origin": "Bloody Gate", "emoji": "🦅"},
+    {"name": "Qizil Reynlarning Qasoskor Otryadi", "origin": "Castamere", "emoji": "🩸"},
+    {"name": "Dengiz Qaroqchilari Flotiliyasi", "origin": "White Harbor", "emoji": "⚓"},
+    {"name": "G'arbiy Yollanma Qo'shin", "origin": "Lannisport", "emoji": "🦁"},
+    {"name": "Daryo Bo'yi Talonchi Qaroqchilari", "origin": "Maidenpool", "emoji": "🐟"},
+    {"name": "Beynfort Dengiz Bo'rilari", "origin": "Banefort", "emoji": "🌊"},
+    {"name": "Sitadel Qasamyodchilari va Fanatiklar", "origin": "Oldtown", "emoji": "🏛️"},
+    {"name": "Mance Rayderning Yovvoyi Armiyasi", "origin": "Devor Orti", "emoji": "🏹"},
+    {"name": "Tun Qiroli va Oq Ko'lankalar", "origin": "Abadiy Qish", "emoji": "🧟"},
+]
+
+
+async def execute_daily_2100_war_and_npc_raids(bot_app=None, force: bool = False):
+    """
+    Har kuni soat 21:00 (O'zbekiston vaqti UTC+5) da avtomatik ishga tushadi:
+    1. Urush rejimini (war_mode) 2 soatga (21:00 dan 23:00 gacha) ochadi.
+    2. Barcha o'yinchilar va xonadon guruhlariga e'lon yuboradi.
+    3. 10 ta NPC qal'asi va erkin NPC lashkarlari o'yinchi qal'alariga reyd (bosqin) uyushtiradi.
+    4. Mudofaa janglari hisoblanadi, garnizon talofatlari va o'ljalar yozilib, Lordlarga hisobot beriladi.
+    """
+    try:
+        async with AsyncSessionLocal() as session:
+            uzb_now = datetime.utcnow() + timedelta(hours=5)
+            today_str = uzb_now.strftime("%Y-%m-%d")
+
+            # 1. Kunlik tekshiruv (agar force=False bo'lsa)
+            ev_res = await session.execute(
+                select(models.EventState).where(models.EventState.event_name == "daily_2100_war")
+            )
+            daily_ev = ev_res.scalar_one_or_none()
+            if not daily_ev:
+                daily_ev = models.EventState(
+                    event_name="daily_2100_war",
+                    data_json=json.dumps({"last_war_date": None, "history": []}),
+                    is_active=True,
+                )
+                session.add(daily_ev)
+                await session.flush()
+
+            data = {}
+            try:
+                data = json.loads(daily_ev.data_json or "{}")
+            except Exception:
+                data = {}
+
+            if not force and data.get("last_war_date") == today_str:
+                logger.info(f"Bugungi ({today_str}) 21:00 urushi allaqachon o'tkazilgan.")
+                return
+
+            # Urush sanasini yangilaymiz
+            data["last_war_date"] = today_str
+            data["last_triggered_at"] = uzb_now.isoformat()
+            daily_ev.data_json = json.dumps(data)
+            await session.commit()
+
+            logger.info(f"⚔️ SOAT 21:00: KUNLIK URUSH VA NPC BOSQINLARI BOSHLANDI! ({today_str})")
+
+            # 2. Urush rejimini 2.0 soatga ochamiz (21:00 dan 23:00 gacha)
+            await crud.set_war_status(session, is_active=True, duration_hours=2.0, opened_by=0)
+
+            # 3. Server-wide broadcast (Barcha o'yinchilarga e'lon)
+            war_announcement = (
+                "⚔️🔥 **QIROL FARMONI: SOAT 21:00 — KUNLIK URUSH BOSHLANDI!** 🔥⚔️\n\n"
+                "Vesteros uzra qonli jang darvozalari 2 soatga (21:00 dan 23:00 gacha) keng ochildi!\n\n"
+                "🏰 Barcha dushman qal'alariga harbiy yurishlar va qamallar boshlandi.\n"
+                "👾 **OGOHLANTIRISH:** 10 ta NPC qo'rg'onlari va yovvoyi erkin qo'shinlar ham o'yinchilar qal'alariga qaqshatqich bosqin boshladi!\n\n"
+                "🛡️ O'z qal'angizni himoya qiling, qo'shinlarni safarbar qiling va xonadoningiz sha'nini saqlang!\n\n"
+                "*(Xaritadan dushman qal'asini tanlang va harbiy yurish boshlang!)*"
+            )
+
+            if bot_app:
+                users_res = await session.execute(select(models.User.telegram_id))
+                all_ids = users_res.scalars().all()
+                for tg_id in all_ids:
+                    try:
+                        await bot_app.bot.send_message(
+                            chat_id=tg_id,
+                            text=war_announcement,
+                            parse_mode="Markdown",
+                        )
+                    except Exception:
+                        pass
+
+            # 4. NPC Qal'alarga Hujum (Raid)
+            # NPC bo'lmagan xonadonlar (o'yinchilar)
+            npc_h_res = await session.execute(
+                select(models.House.id).where(models.House.is_npc == True)
+            )
+            npc_house_ids = set(npc_h_res.scalars().all())
+
+            player_terrs_res = await session.execute(
+                select(models.Territory).where(
+                    models.Territory.owner_house_id.is_not(None),
+                    ~models.Territory.owner_house_id.in_(npc_house_ids),
+                )
+            )
+            player_terrs = player_terrs_res.scalars().all()
+
+            if not player_terrs:
+                logger.info("O'yinchilar nazoratidagi qal'alar topilmadi.")
+                return
+
+            # Qal'alarni aralashtirib hujum uyushtiramiz
+            candidates = list(player_terrs)
+            random.shuffle(candidates)
+            num_targets = min(len(candidates), random.randint(5, 10))
+            raided_count = 0
+
+            # Ob-havoni olish
+            weather_info = await crud.get_current_weather(session)
+            weather_type = weather_info.get("weather_type", "normal")
+
+            for target_terr in candidates[:num_targets]:
+                def_house = await session.get(models.House, target_terr.owner_house_id)
+                if not def_house:
+                    continue
+
+                # Tinchlik qalqoni tekshiruvi
+                lord_user = None
+                if def_house.lord_user_id:
+                    lord_user = await crud.get_user_by_telegram_id(session, def_house.lord_user_id)
+                    if lord_user and lord_user.peace_shield_until and lord_user.peace_shield_until > datetime.utcnow():
+                        # Qalqonda, bu qal'aga hujum qilmaymiz
+                        continue
+
+                raider = random.choice(NPC_WAR_RAIDERS)
+                # NPC armiyasi (kuchli bosqinchi otryad)
+                raid_infantry = random.randint(150, 320)
+                raid_archers = random.randint(80, 180)
+                raid_cavalry = random.randint(40, 100)
+                raid_spearmen = random.randint(60, 140)
+                raid_cats = random.randint(1, 4)
+
+                att_army = {
+                    "infantry": raid_infantry,
+                    "archers": raid_archers,
+                    "cavalry": raid_cavalry,
+                    "spearmen": raid_spearmen,
+                    "special_troops": 0,
+                }
+                def_garrison = {
+                    "infantry": target_terr.garrison_infantry,
+                    "archers": target_terr.garrison_archers,
+                    "cavalry": target_terr.garrison_cavalry,
+                    "spearmen": target_terr.garrison_spearmen,
+                    "special_troops": 0,
+                }
+
+                # Mudofaadagi ajdar kuchi
+                def_dr_info = crud.get_stationed_dragon_info(target_terr)
+                def_dr_pwr = def_dr_info.get("power", 0) if def_dr_info else 0
+
+                # Jang hisoblash
+                battle_res = calculate_battle(
+                    attacker_army=att_army,
+                    defender_garrison=def_garrison,
+                    castle_defense=target_terr.defense,
+                    dragon_power=0,
+                    defender_dragon_power=def_dr_pwr,
+                    catapults=raid_cats,
+                    siege_towers=0,
+                    wildfire_count=getattr(target_terr, "wildfire_count", 0) or 0,
+                    weather_type=weather_type,
+                )
+
+                # Qal'a garnizoni yangilash
+                target_terr.garrison_infantry = battle_res["remaining_defender"]["infantry"]
+                target_terr.garrison_archers = battle_res["remaining_defender"]["archers"]
+                target_terr.garrison_cavalry = battle_res["remaining_defender"]["cavalry"]
+                target_terr.garrison_spearmen = battle_res["remaining_defender"]["spearmen"]
+
+                raided_count += 1
+
+                if battle_res["winner"] == "attacker":
+                    loot_gold = battle_res["loot"]["gold"]
+                    loot_food = battle_res["loot"]["food"]
+                    def_house.gold = max(0, def_house.gold - loot_gold)
+                    def_house.food = max(0, def_house.food - loot_food)
+
+                    raid_report = (
+                        f"🚨 **SOAT 21:00 NPC BOSQINI: QAL'ANGIZ HUJUMGA UCHRADI!** 🚨\n\n"
+                        f"🏰 Qal'a: **{target_terr.name} ({target_terr.castle_name})**\n"
+                        f"👾 Bosqinchi kuch: **{raider['emoji']} {raider['name']}**\n\n"
+                        f"{battle_res['details']}\n\n"
+                        f"⚠️ **Natija:** Qal'a garnizoni og'ir talofat ko'rdi!\n"
+                        f"💸 Yo'qotilgan o'lja: **-{loot_gold:,}** oltin, **-{loot_food:,}** g'alla.\n\n"
+                        f"🛡️ *Garnizonni to'ldirish uchun zudlik bilan yangi qo'shin yuboring!*"
+                    )
+                else:
+                    def_house.prestige += 35
+                    raid_report = (
+                        f"🛡️⚔️ **SOAT 21:00 NPC BOSQINI QAYTARILDI!** ⚔️🛡️\n\n"
+                        f"🏰 Qal'a: **{target_terr.name} ({target_terr.castle_name})**\n"
+                        f"👾 Bosqinchi kuch: **{raider['emoji']} {raider['name']}**\n\n"
+                        f"{battle_res['details']}\n\n"
+                        f"🏆 **Natija:** Qal'angiz garnizoni bosqinchilarni tor-mor qildi!\n"
+                        f"🎖️ Xonadonga **+35 Prestige** berildi."
+                    )
+
+                # Lordga shaxsiy xabar
+                if bot_app and lord_user and lord_user.telegram_id:
+                    try:
+                        await bot_app.bot.send_message(
+                            chat_id=lord_user.telegram_id,
+                            text=raid_report,
+                            parse_mode="Markdown",
+                        )
+                    except Exception:
+                        pass
+
+                # Xonadon guruhiga xabar
+                if bot_app and def_house.group_chat_id:
+                    try:
+                        await notify_house_group(
+                            bot_app,
+                            def_house.id,
+                            raid_report,
+                            parse_mode="Markdown",
+                        )
+                    except Exception:
+                        pass
+
+            await session.commit()
+
+            # Bosh egaga (Owner) hisobot
+            try:
+                await notify_owner(
+                    bot_app,
+                    f"👾 *21:00 KUNLIK URUSH & NPC BOSQINLARI O'TKAZILDI!*\n\n"
+                    f"📅 Sana: `{today_str}` (UZT)\n"
+                    f"⚔️ Hujumga uchragan qal'alar soni: *{raided_count}*\n"
+                    f"⏱️ Urush rejimi: *2 soat (23:00 gacha faol)*"
+                )
+            except Exception:
+                pass
+
+    except Exception as e:
+        logger.error(f"execute_daily_2100_war_and_npc_raids xatosi: {e}", exc_info=True)
+
+
+async def check_and_trigger_daily_war_failsafe(bot_app=None):
+    """
+    Agar bot 21:00 da o'chiq bo'lgan bo'lsa yoki restart bo'lgan bo'lsa,
+    soat 21:00 va 22:59 (UZT) oralig'ida bugungi urush o'tkazilganligini tekshiradi
+    va agar hali ochilmagan bo'lsa, avtomatik ochadi va bosqinlarni o'tkazadi.
+    """
+    try:
+        uzb_now = datetime.utcnow() + timedelta(hours=5)
+        if uzb_now.hour in [21, 22]:
+            await execute_daily_2100_war_and_npc_raids(bot_app=bot_app, force=False)
+    except Exception as e:
+        logger.error(f"check_and_trigger_daily_war_failsafe xatosi: {e}")
+
 
 
