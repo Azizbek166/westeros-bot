@@ -37,19 +37,14 @@ async def show_raven_hub(target, user_id: int, is_message: bool):
                 await target.edit_message_text(msg)
             return
 
-        already_sent = await crud.get_daily_raven_gold_sent(session, user.id)
-        rem_limit = max(0, crud.MAX_DAILY_RAVEN_GOLD - already_sent)
-
         text = (
             "🐦 **QORA QARG'ALAR QAL'ASI (XAT TIZIMI)**\n\n"
             "Vesterosning eng ishonchli pochtasi! Qarg'alar orqali boshqa lordlarga "
-            "sirli maktublar va oltin xazinalarini jo'natishingiz mumkin.\n\n"
+            "diplomatik maktublar va maxfiy xabarlarni jo'natishingiz mumkin.\n\n"
             "📜 **Qanday yuboriladi?**\n"
-            "Buyruq orqali oson yuborish:\n"
-            "• Oddiy xat:\n`/xat @username Salom ittifoqdosh!`\n"
-            "• Oltin bilan xat:\n`/xat @username 200 Bizga qo'shin yordami bering!`\n\n"
-            f"💰 Hamyoningiz: **{user.gold:,}**🪙 oltin\n"
-            f"📦 Kunlik oltin jo'natish limiti: **{already_sent:,} / {crud.MAX_DAILY_RAVEN_GOLD:,}**🪙 (Qoldi: **{rem_limit:,}**🪙)\n"
+            "Buyruq orqali tezkor yuborish:\n"
+            "• Username orqali:\n`/xat @username Salom ittifoqdosh!`\n"
+            "• ID orqali:\n`/xat 123456789 Bizga qo'shin yordami bering!`\n"
         )
 
         buttons = [
@@ -110,14 +105,12 @@ async def raven_help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     text = (
         "✍️ **QARG'A YUBORISH YO'RIQNOMASI**\n\n"
-        "Boshqa lordga xat va oltin yuborish uchun chatga quyidagicha yozing:\n\n"
-        "1️⃣ **Faqat xat:**\n"
+        "Boshqa lordga maktub yuborish uchun chatga quyidagicha yozing:\n\n"
+        "• **Username orqali:**\n"
         "`/xat @foydalanuvchi_nomi Xabaringiz matni...`\n\n"
-        "2️⃣ **Xat + Oltin biriktirish:**\n"
-        "`/xat @foydalanuvchi_nomi 150 Qal'angizni mustahkamlash uchun sovg'a!`\n\n"
-        "⚠️ *Limit: Qarg'a orqali bir kunda jami ko'pi bilan 5,000🪙 oltin jo'natish mumkin.*\n\n"
-        "💡 *Telegram ID orqali ham yuborish mumkin, masalan:*\n"
-        "`/xat 123456789 Salom!`"
+        "• **Telegram ID orqali:**\n"
+        "`/xat 123456789 Salom, ittifoqdosh!`\n\n"
+        "💡 *Eslatma: Qarg'alar faqat yozma xabarlarni yetkazadi.*"
     )
 
     buttons = [
@@ -127,27 +120,19 @@ async def raven_help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def handle_quick_send_raven(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/xat @username [gold] text orqali tezkor jo'natish"""
+    """/xat @username matn orqali tezkor jo'natish"""
     sender_tg_id = update.effective_user.id
     args = context.args
     if not args or len(args) < 2:
         await update.message.reply_text(
-            "❌ Xatolik! Foydalanish: `/xat @username [oltin] matn`\n"
-            "Masalan: `/xat @lord_stark 100 Qal'amizga xush kelibsiz!`",
+            "❌ Xatolik! Foydalanish: `/xat @username matn`\n"
+            "Masalan: `/xat @lord_stark Qal'amizga xush kelibsiz!`",
             parse_mode="Markdown"
         )
         return
 
     recipient_target = args[0]
-    gold = 0
-    message_start_idx = 1
-
-    # Agar 2-argument son bo'lsa, oltin deb hisoblaymiz
-    if args[1].isdigit() and len(args) >= 3:
-        gold = int(args[1])
-        message_start_idx = 2
-
-    message_text = " ".join(args[message_start_idx:]).strip()
+    message_text = " ".join(args[1:]).strip()
     if not message_text:
         await update.message.reply_text("❌ Maktub matnini yozishingiz kerak!")
         return
@@ -163,7 +148,7 @@ async def handle_quick_send_raven(update: Update, context: ContextTypes.DEFAULT_
             sender_id=sender.id,
             recipient_username_or_id=recipient_target,
             text=message_text,
-            gold=gold
+            gold=0
         )
 
         if not ok:
@@ -173,7 +158,6 @@ async def handle_quick_send_raven(update: Update, context: ContextTypes.DEFAULT_
         # Yuboruvchiga muvaffaqiyat xabari
         await update.message.reply_text(
             f"🐦 **QARG'A UCHIB KETDI!**\n\n{msg}\n"
-            f"🪙 Biriktirilgan oltin: **{gold}**\n"
             f"📜 Matn: *\"{html.escape(message_text)}\"*",
             parse_mode="Markdown"
         )

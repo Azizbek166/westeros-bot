@@ -165,7 +165,7 @@ async def raid_night_king_callback(update: Update, context: ContextTypes.DEFAULT
         # Mukofot
         user.gold += 88
         user.iron += 45
-        user.prestige += 50
+        user.prestige += 12
         user.xp += 180
 
         # Agar Tun Qiroli yengilgan bo'lsa (HP == 0), Top 1 ga "Shimol Najotkori" unvoni va +500 Prestige beriladi
@@ -373,15 +373,15 @@ async def plague_action_callback(update: Update, context: ContextTypes.DEFAULT_T
 
             user.gold -= 300
             user.iron -= 100
-            user.prestige += 40
+            user.prestige += 10
             user.xp += 100
             user.daily_plague_count = plague_count + 1
 
             lvl_up, new_lvl, lvl_msg = check_user_level_up(user)
             await session.commit()
 
-            alert_msg = f"✅ Dorilar tayyorlandi! Vabo bartaraf etildi. (+40 Prestige, +100 XP, {user.daily_plague_count}/2)"
-            result_note = f"✅ **Maesterlar dorivor giyohlar tayyorladi!**\nMintaqadagi vabo bartaraf etildi. Sizga +40🏆 Prestige va +100⚡ XP berildi."
+            alert_msg = f"✅ Dorilar tayyorlandi! Vabo bartaraf etildi. (+10 Prestige, +100 XP, {user.daily_plague_count}/2)"
+            result_note = f"✅ **Maesterlar dorivor giyohlar tayyorladi!**\nMintaqadagi vabo bartaraf etildi. Sizga +10🏆 Prestige va +100⚡ XP berildi."
             if lvl_up:
                 result_note += f"\n🎉 {lvl_msg}"
 
@@ -402,7 +402,7 @@ async def plague_action_callback(update: Update, context: ContextTypes.DEFAULT_T
                     if to_remove <= 0:
                         break
 
-            user.prestige += 15
+            user.prestige += 3
             user.xp += 40
             user.daily_plague_count = plague_count + 1
 
@@ -410,8 +410,8 @@ async def plague_action_callback(update: Update, context: ContextTypes.DEFAULT_T
             await session.commit()
 
             loss_str = f"{dead_troops} ta askar qurbon bo'ldi" if dead_troops > 0 else "harbiy talafotsiz"
-            alert_msg = f"🚪 Karantin joriy qilindi ({loss_str}). (+15 Prestige, +40 XP, {user.daily_plague_count}/2)"
-            result_note = f"🚪 **Mintaqada qat'iy harbiy karantin o'rnatildi!**\n{loss_str.capitalize()}, ammo aholi saqlab qolindi. Sizga +15🏆 Prestige va +40⚡ XP berildi."
+            alert_msg = f"🚪 Karantin joriy qilindi ({loss_str}). (+3 Prestige, +40 XP, {user.daily_plague_count}/2)"
+            result_note = f"🚪 **Mintaqada qat'iy harbiy karantin o'rnatildi!**\n{loss_str.capitalize()}, ammo aholi saqlab qolindi. Sizga +3🏆 Prestige va +40⚡ XP berildi."
             if lvl_up:
                 result_note += f"\n🎉 {lvl_msg}"
 
@@ -516,14 +516,14 @@ async def bandits_action_callback(update: Update, context: ContextTypes.DEFAULT_
 
             user.gold += 200
             user.food += 75
-            user.prestige += 35
+            user.prestige += 8
             user.xp += 120
             user.daily_bandit_count = b_cnt + 1
 
             from core.leveling import check_user_level_up
             lvl_up, new_lvl, lvl_msg = check_user_level_up(user)
             await session.commit()
-            msg = f"🏆 G'alaba! Qaroqchilar tor-mor etildi: +200🪙 oltin, +75🌾 oziq-ovqat, +35 Prestige! ({user.daily_bandit_count}/3)"
+            msg = f"🏆 G'alaba! Qaroqchilar tor-mor etildi: +200🪙 oltin, +75🌾 oziq-ovqat, +8 Prestige! ({user.daily_bandit_count}/3)"
         else:
             user.gold = max(0, user.gold - 50)
             await session.commit()

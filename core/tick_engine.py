@@ -208,7 +208,7 @@ async def process_due_marches(bot_app=None):
                     attacker.gold += int(tot_gold * 0.7)
                     attacker.food += int(tot_food * 0.7)
                     attacker.iron += int(tot_iron * 0.7)
-                    attacker.prestige += 50
+                    attacker.prestige += 12
                     attacker.xp += 250
                     check_user_level_up(attacker)
 
@@ -219,7 +219,7 @@ async def process_due_marches(bot_app=None):
                         att_house.gold += int(tot_gold * 0.3)
                         att_house.food += int(tot_food * 0.3)
                         att_house.iron += int(tot_iron * 0.3)
-                        att_house.prestige += 25
+                        att_house.prestige += 6
 
                     # Himoyachi Lordiga boy berish xabari (faqat qal'a haqiqatda egallangan bo'lsa)
                     if can_annex and bot_app and def_lord_id and old_owner_house_id != attacker.house_id:
@@ -544,7 +544,7 @@ async def process_npc_growth_and_raids(bot_app=None):
                     else:
                         # Himoyachi g'alaba qozondi
                         if def_house:
-                            def_house.prestige += 20
+                            def_house.prestige += 5
 
                         if bot_app and def_lord_id:
                             try:
@@ -555,7 +555,7 @@ async def process_npc_growth_and_raids(bot_app=None):
                                         f"🏰 **{target_terr.name} ({target_terr.castle_name})** qal'angiz garnizoni **{attacking_house.emoji} {attacking_house.name}** "
                                         f"bosqinchilarining shafqatsiz hujumini jasorat bilan qaytardi!\n\n"
                                         f"{battle_res['details']}\n\n"
-                                        f"🏆 Xonadonga +20 Prestige berildi."
+                                        f"🏆 Xonadonga +5 Prestige berildi."
                                     ),
                                     parse_mode="Markdown",
                                 )
@@ -762,7 +762,7 @@ async def process_due_trade_caravans(bot_app=None):
 
                 # Foyda va nufuzni berish
                 gold_gain = caravan.expected_gold_reward or 625
-                prestige_gain = 15 if caravan.resource_amount < 10000 else (30 if caravan.resource_amount < 20000 else 60)
+                prestige_gain = 3 if caravan.resource_amount < 10000 else (7 if caravan.resource_amount < 20000 else 15)
                 owner.gold += gold_gain
                 owner.prestige += prestige_gain
 
@@ -993,14 +993,14 @@ async def execute_daily_2100_war_and_npc_raids(bot_app=None, force: bool = False
                         f"🛡️ *Garnizonni to'ldirish uchun zudlik bilan yangi qo'shin yuboring!*"
                     )
                 else:
-                    def_house.prestige += 35
+                    def_house.prestige += 8
                     raid_report = (
                         f"🛡️⚔️ **SOAT 21:00 NPC BOSQINI QAYTARILDI!** ⚔️🛡️\n\n"
                         f"🏰 Qal'a: **{target_terr.name} ({target_terr.castle_name})**\n"
                         f"👾 Bosqinchi kuch: **{raider['emoji']} {raider['name']}**\n\n"
                         f"{battle_res['details']}\n\n"
                         f"🏆 **Natija:** Qal'angiz garnizoni bosqinchilarni tor-mor qildi!\n"
-                        f"🎖️ Xonadonga **+35 Prestige** berildi."
+                        f"🎖️ Xonadonga **+8 Prestige** berildi."
                     )
 
                 # Lordga shaxsiy xabar

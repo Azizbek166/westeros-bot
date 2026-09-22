@@ -16,9 +16,33 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/start buyrug'i"""
     user_id = update.effective_user.id
     full_name = update.effective_user.full_name
+    username = update.effective_user.username
+
+    # 1. Telegram username majburiyligi
+    if not username:
+        await update.message.reply_text(
+            "❌ **KECHIRASIZ, O'YINDA QATNASHISH UCHUN TELEGRAM USERNAME BO'LISHI SHART!**\n\n"
+            "Vesteros olamida har bir lordning o'z noyob nomi va `@username` nishoni bo'lishi talab etiladi.\n\n"
+            "📌 **Nima qilish kerak?**\n"
+            "1. Telegram sozlamalariga kiring (`Settings` -> `Edit Profile`).\n"
+            "2. O'zingizga foydalanuvchi nomi (`Username`, masalan: `@lord_westeros`) o'rnating.\n"
+            "3. Shundan so'ng botga qaytib **/start** buyrug'ini bosing!",
+            parse_mode="Markdown",
+        )
+        return
 
     async with AsyncSessionLocal() as session:
         user = await crud.get_user_with_relations(session, user_id)
+
+        # 2. Bloklangan o'yinchi tekshiruvi
+        if user and getattr(user, "is_banned", False):
+            await update.message.reply_text(
+                "🚫 **SIZNING HISOBINGIZ BLOKLANGAN!**\n\n"
+                "Qoidabuzarlik sababli bot ma'muriyati tomonidan hisobingiz muzlatilgan.\n"
+                "Agar bu xatolik deb hisoblasangiz, bosh administratorga murojaat qiling.",
+                parse_mode="Markdown",
+            )
+            return
 
         if user and user.house:
             h_emoji = user.house.emoji
@@ -124,6 +148,15 @@ async def handle_custom_name_input(update: Update, context: ContextTypes.DEFAULT
     user_id = update.effective_user.id
     username = update.effective_user.username
     full_name = update.effective_user.full_name
+    username = update.effective_user.username
+
+    if not username:
+        await update.effective_message.reply_text(
+            "❌ **KECHIRASIZ, O'YINDA QATNASHISH UCHUN TELEGRAM USERNAME BO'LISHI SHART!**\n\n"
+            "Iltimos, Telegram sozlamalaridan o'zingizga `@username` o'rnating va qaytadan /start bosing!",
+            parse_mode="Markdown"
+        )
+        return
 
     # Uzunlik tekshiruvi
     if len(raw_name) < 2 or len(raw_name) > 30:
@@ -142,6 +175,13 @@ async def handle_custom_name_input(update: Update, context: ContextTypes.DEFAULT
 
     async with AsyncSessionLocal() as session:
         existing = await crud.get_user_by_telegram_id(session, user_id)
+        if existing and getattr(existing, "is_banned", False):
+            await update.effective_message.reply_text(
+                "🚫 **SIZNING HISOBINGIZ BLOKLANGAN!**",
+                parse_mode="Markdown"
+            )
+            return
+
         if existing and existing.house_id:
             context.user_data.pop("awaiting_custom_name", None)
             await update.effective_message.reply_text(

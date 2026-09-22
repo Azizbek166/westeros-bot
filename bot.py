@@ -7,8 +7,8 @@ import asyncio
 import logging
 from datetime import datetime, time as dt_time, timezone, timedelta
 from telegram import Update
-from telegram.ext import Application, ContextTypes, TypeHandler
-from config import BOT_TOKEN, escape_md
+from telegram.ext import Application, ContextTypes, TypeHandler, ApplicationHandlerStop
+from config import BOT_TOKEN, ADMIN_IDS, OWNER_ID, escape_md
 from core.notifier import notify_owner
 from database import init_db, AsyncSessionLocal
 from core.tick_engine import (
@@ -122,6 +122,44 @@ async def on_startup(app: Application):
     )
 
 
+async def ban_check_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Bloklangan (banned) foydalanuvchilarning harakatlarini butunlay to'xtatish"""
+    user = update.effective_user
+    if not user:
+        return
+
+    try:
+        uid = int(user.id)
+        if uid in [int(x) for x in ADMIN_IDS] or uid == int(OWNER_ID):
+            return
+    except Exception:
+        pass
+
+    async with AsyncSessionLocal() as session:
+        is_banned = await crud.is_user_banned(session, user.id)
+
+    if is_banned:
+        if update.callback_query:
+            try:
+                await update.callback_query.answer(
+                    "🚫 Sizning hisobingiz bloklangan! Botdan foydalana olmaysiz.",
+                    show_alert=True
+                )
+            except Exception:
+                pass
+        elif update.effective_message:
+            try:
+                await update.effective_message.reply_text(
+                    "🚫 **SIZNING PROFILINGIZ BLOKLANGAN!**\n\n"
+                    "Administrator tomonidan botdan foydalanish huquqingiz cheklangan.\n"
+                    "Savollar yoki murojaat uchun administrator bilan bog'laning.",
+                    parse_mode="Markdown"
+                )
+            except Exception:
+                pass
+        raise ApplicationHandlerStop
+
+
 async def command_audit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Foydalanuvchilar va adminlar tomonidan botga berilgan barcha buyruqlarni bosh egaga xabar qilish"""
     if not update.effective_message or not update.effective_message.text:
@@ -180,6 +218,9 @@ def main():
 
     # Global error handler
     app.add_error_handler(global_error_handler)
+
+    # Bloklangan (banned) foydalanuvchilarni barcha handlerlardan oldin to'xtatish
+    app.add_handler(TypeHandler(Update, ban_check_callback), group=-2)
 
     # Buyruqlar auditi (har qanday buyruq bosh egaga yuboriladi)
     app.add_handler(TypeHandler(Update, command_audit_callback), group=-1)

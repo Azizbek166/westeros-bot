@@ -41,6 +41,9 @@ class User(Base):
     # Tinchlik qalqoni (yangi o'yinchilarni himoya qilish)
     peace_shield_until = Column(DateTime, nullable=True)
 
+    # Bloklanganlik holati (Ban)
+    is_banned = Column(Boolean, default=False)
+
     # Kunlik limitlar
     daily_quiz_count = Column(Integer, default=0)
     daily_council_count = Column(Integer, default=0)

@@ -87,7 +87,7 @@ async def quest_main_do_callback(update: Update, context: ContextTypes.DEFAULT_T
         user.food += target_quest["reward_food"]
         user.iron += target_quest["reward_iron"]
         user.xp += target_quest["reward_xp"]
-        user.prestige += 30
+        user.prestige += 7
 
         from core.leveling import check_user_level_up
         lvl_up, new_lvl, lvl_msg = check_user_level_up(user)
@@ -372,12 +372,12 @@ async def council_answer_callback(update: Update, context: ContextTypes.DEFAULT_
         user.daily_council_count += 1
         if user_ans == correct_idx:
             user.gold += reward
-            user.prestige += 20
+            user.prestige += 5
             await session.commit()
             text = (
                 f"✅ **DONO QAROR!**\n\n"
                 f"Lordlar sizning tadbirkorligingizga qoyil qolishdi.\n"
-                f"💰 Xazinaga: **+{reward}🪙 oltin, +20 Prestige**\n"
+                f"💰 Xazinaga: **+{reward}🪙 oltin, +5 Prestige**\n"
                 f"📊 Qolgan masalalar: **{max(0, DAILY_COUNCIL_LIMIT - user.daily_council_count)}/{DAILY_COUNCIL_LIMIT}**"
             )
         else:
@@ -417,22 +417,22 @@ RANK_DUTIES = {
                 "id": "king_tax",
                 "title": "💰 Viloyat soliqlari va hisobotlarni qabul qilish",
                 "desc": "Viloyat maesterlari va mirzaboshilari hisobotlarini ko'rib chiqasiz.",
-                "reward_text": "+100🪙 Oltin, +25🏆 Prestige, +80 XP",
-                "gold": 100, "food": 25, "iron": 12, "prestige": 25, "xp": 80
+                "reward_text": "+100🪙 Oltin, +6🏆 Prestige, +80 XP",
+                "gold": 100, "food": 25, "iron": 12, "prestige": 6, "xp": 80
             },
             {
                 "id": "king_fortify",
                 "title": "🏰 Bosh Qal'a istehkomlarini mustahkamlash",
                 "desc": "Mudofaa devorlarini ko'zdan kechirib, muhandislarga buyruq berasiz.",
-                "reward_text": "+75🌾 Oziq, +38⛓️ Temir, +30🏆 Prestige",
-                "gold": 25, "food": 75, "iron": 38, "prestige": 30, "xp": 70
+                "reward_text": "+75🌾 Oziq, +38⛓️ Temir, +7🏆 Prestige",
+                "gold": 25, "food": 75, "iron": 38, "prestige": 7, "xp": 70
             },
             {
                 "id": "king_inspire",
                 "title": "🗣️ Xonadon a'zolariga murojaat va qasamyod",
                 "desc": "Xonadon a'zolari bilan uchrashib, ularga jangovar ruh bag'ishlaysiz.",
-                "reward_text": "+125🪙 Oltin, +40🏆 Prestige, +100 XP",
-                "gold": 125, "food": 50, "iron": 25, "prestige": 40, "xp": 100
+                "reward_text": "+125🪙 Oltin, +10🏆 Prestige, +100 XP",
+                "gold": 125, "food": 50, "iron": 25, "prestige": 10, "xp": 100
             },
         ]
     },
@@ -443,22 +443,22 @@ RANK_DUTIES = {
                 "id": "cmd_drill",
                 "title": "🛡️ Askar va otliqlarni harbiy mashg'ulotdan o'tkazish",
                 "desc": "Piyoda va kamonchilarning saf intizomini yuqori darajaga ko'tarasiz.",
-                "reward_text": "+62🪙 Oltin, +38⛓️ Temir, +25🏆 Prestige",
-                "gold": 62, "food": 38, "iron": 38, "prestige": 25, "xp": 80
+                "reward_text": "+62🪙 Oltin, +38⛓️ Temir, +6🏆 Prestige",
+                "gold": 62, "food": 38, "iron": 38, "prestige": 6, "xp": 80
             },
             {
                 "id": "cmd_scout",
                 "title": "🗺️ Chegara chiziqlariga patrul razvedka yuborish",
                 "desc": "Dushman xonadonlar harakatini kuzatib, harbiy xarita tuzasiz.",
-                "reward_text": "+75🪙 Oltin, +50🌾 Oziq, +70 XP",
-                "gold": 75, "food": 50, "iron": 12, "prestige": 20, "xp": 70
+                "reward_text": "+75🪙 Oltin, +50🌾 Oziq, +5🏆 Prestige, +70 XP",
+                "gold": 75, "food": 50, "iron": 12, "prestige": 5, "xp": 70
             },
             {
                 "id": "cmd_arsenal",
                 "title": "🗡️ Qurol-yarog' omborlarini to'ldirish",
                 "desc": "Temirchilar ishini nazorat qilib, nayza va qilichlar zaxirasini tekshirasiz.",
-                "reward_text": "+50⛓️ Temir, +38🪙 Oltin, +20🏆 Prestige",
-                "gold": 38, "food": 25, "iron": 50, "prestige": 20, "xp": 75
+                "reward_text": "+50⛓️ Temir, +38🪙 Oltin, +5🏆 Prestige",
+                "gold": 38, "food": 25, "iron": 50, "prestige": 5, "xp": 75
             },
         ]
     },
@@ -469,22 +469,22 @@ RANK_DUTIES = {
                 "id": "knt_joust",
                 "title": "🏇 Qirollik ritsarlar turnirida qatnashish",
                 "desc": "Nayzabozlik maydonida xonadon bayrog'i sharafini himoya qilasiz.",
-                "reward_text": "+88🪙 Oltin, +30🏆 Prestige, +90 XP",
-                "gold": 88, "food": 25, "iron": 20, "prestige": 30, "xp": 90
+                "reward_text": "+88🪙 Oltin, +7🏆 Prestige, +90 XP",
+                "gold": 88, "food": 25, "iron": 20, "prestige": 7, "xp": 90
             },
             {
                 "id": "knt_bandits",
                 "title": "⚔️ Qishloqni talonchi qaroqchilardan tozalash",
                 "desc": "Qo'rqmasdan qaroqchilar to'dasiga zarba berib, xalqni qutqarasiz.",
-                "reward_text": "+62🪙 Oltin, +62🌾 Oziq, +80 XP",
-                "gold": 62, "food": 62, "iron": 25, "prestige": 25, "xp": 80
+                "reward_text": "+62🪙 Oltin, +62🌾 Oziq, +6🏆 Prestige, +80 XP",
+                "gold": 62, "food": 62, "iron": 25, "prestige": 6, "xp": 80
             },
             {
                 "id": "knt_sword",
                 "title": "⚔️ Qilichbozlik mahoratini oshirish",
                 "desc": "Qal'a poligonida chempionlar bilan yakkama-yakka qilich charxlaysiz.",
-                "reward_text": "+38⛓️ Temir, +15🏆 Prestige, +100 XP",
-                "gold": 38, "food": 25, "iron": 38, "prestige": 15, "xp": 100
+                "reward_text": "+38⛓️ Temir, +3🏆 Prestige, +100 XP",
+                "gold": 38, "food": 25, "iron": 38, "prestige": 3, "xp": 100
             },
         ]
     },
@@ -495,22 +495,22 @@ RANK_DUTIES = {
                 "id": "cpt_gate",
                 "title": "🚪 Qal'a darvozalari va devor qorovulligi",
                 "desc": "Tungi soqchilar hushyorligini ta'minlaysiz va shubhali shaxslarni ushlaysiz.",
-                "reward_text": "+50🪙 Oltin, +38🌾 Oziq, +60 XP",
-                "gold": 50, "food": 38, "iron": 20, "prestige": 15, "xp": 60
+                "reward_text": "+50🪙 Oltin, +38🌾 Oziq, +3🏆 Prestige, +60 XP",
+                "gold": 50, "food": 38, "iron": 20, "prestige": 3, "xp": 60
             },
             {
                 "id": "cpt_spies",
                 "title": "🕵️ Shahardagi ayg'oqchilarni aniqlash",
                 "desc": "Mayxonalarda dushman josuslarining sirli izlarini fosh etasiz.",
-                "reward_text": "+62🪙 Oltin, +20🏆 Prestige, +75 XP",
-                "gold": 62, "food": 25, "iron": 12, "prestige": 20, "xp": 75
+                "reward_text": "+62🪙 Oltin, +5🏆 Prestige, +75 XP",
+                "gold": 62, "food": 25, "iron": 12, "prestige": 5, "xp": 75
             },
             {
                 "id": "cpt_convoy",
                 "title": "📦 Savdo karvonlarini xavfsiz kuzatib borish",
                 "desc": "Tog' dovonlaridan o'tuvchi oziq-ovqat karvonlarini himoya qilasiz.",
-                "reward_text": "+75🌾 Oziq, +38🪙 Oltin, +70 XP",
-                "gold": 38, "food": 75, "iron": 12, "prestige": 15, "xp": 70
+                "reward_text": "+75🌾 Oziq, +38🪙 Oltin, +3🏆 Prestige, +70 XP",
+                "gold": 38, "food": 75, "iron": 12, "prestige": 3, "xp": 70
             },
         ]
     },
@@ -521,22 +521,22 @@ RANK_DUTIES = {
                 "id": "mbr_harvest",
                 "title": "🌾 Qishloq xo'jaligi va hosil yig'ishga yordam",
                 "desc": "Xonadon omborlarini to'ldirishda dehqonlarga yordam berasiz.",
-                "reward_text": "+88🌾 Oziq, +25🪙 Oltin, +50 XP",
-                "gold": 25, "food": 88, "iron": 8, "prestige": 10, "xp": 50
+                "reward_text": "+88🌾 Oziq, +25🪙 Oltin, +2🏆 Prestige, +50 XP",
+                "gold": 25, "food": 88, "iron": 8, "prestige": 2, "xp": 50
             },
             {
                 "id": "mbr_mine",
                 "title": "⛏️ Temir konlarida ishlash va ma'dan qazish",
                 "desc": "Xonadon qurollari uchun tog'lardan sof temir ma'danlarini qazib chiqarasiz.",
-                "reward_text": "+45⛓️ Temir, +25🪙 Oltin, +50 XP",
-                "gold": 25, "food": 12, "iron": 45, "prestige": 10, "xp": 50
+                "reward_text": "+45⛓️ Temir, +25🪙 Oltin, +2🏆 Prestige, +50 XP",
+                "gold": 25, "food": 12, "iron": 45, "prestige": 2, "xp": 50
             },
             {
                 "id": "mbr_patrol",
                 "title": "👣 Xonadon chegaralarida patrul xizmati",
                 "desc": "Qal'a atrofidagi o'rmon yo'llarini ko'zdan kechirasiz.",
-                "reward_text": "+38🪙 Oltin, +38🌾 Oziq, +50 XP",
-                "gold": 38, "food": 38, "iron": 12, "prestige": 10, "xp": 50
+                "reward_text": "+38🪙 Oltin, +38🌾 Oziq, +2🏆 Prestige, +50 XP",
+                "gold": 38, "food": 38, "iron": 12, "prestige": 2, "xp": 50
             },
         ]
     },

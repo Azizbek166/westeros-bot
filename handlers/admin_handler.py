@@ -108,6 +108,9 @@ async def show_admin_dashboard(target, is_message: bool):
             [InlineKeyboardButton("🏯 Qalalar va Mintaqalar (Castles)", callback_data="admin_castles_list:0")],
             [InlineKeyboardButton("🏆 Egallangan Qal'alar (O'yinchilar bo'yicha)", callback_data="admin_player_castles:0")],
             [InlineKeyboardButton("⚔️ Harbiy Holat & Urush Boshqaruvi", callback_data="admin_war_control")],
+            [InlineKeyboardButton("🏦 Temir Bank & Qarzlar Boshqaruvi", callback_data="admin_bank_menu")],
+            [InlineKeyboardButton("🌦️ Ob-havo Boshqaruvi", callback_data="admin_weather_menu")],
+            [InlineKeyboardButton("🐪 Savdo Karvonlari & Bozor", callback_data="admin_trade_menu")],
             [InlineKeyboardButton("🏇 Ritsarlar Turniri Boshqaruvi", callback_data="admin_tourney_menu")],
             [InlineKeyboardButton("🐉 Barcha Ajdarlar (Dragon Manager)", callback_data="admin_dragons_list:0")],
             [InlineKeyboardButton("❄️ Global Hodisalar & Tun Qiroli", callback_data="admin_events_menu")],
@@ -115,10 +118,10 @@ async def show_admin_dashboard(target, is_message: bool):
             [InlineKeyboardButton("🔄 Barcha Kunlik Limitlarni Yangilash", callback_data="admin_reset_all_limits")],
             [InlineKeyboardButton("📢 Global E'lon (Broadcast)", callback_data="admin_broadcast_info")],
             [InlineKeyboardButton("🛡️ Adminlar Ro'yxati & Huquqlar", callback_data="admin_admins_list")],
+            [InlineKeyboardButton("🔄 MAVSUMNI RESTART QILISH & 0 DAN BOSHLASH", callback_data="admin_season_menu")],
         ]
 
         if is_admin(target_user_id) or str(target_user_id) == str(OWNER_ID):
-            buttons.append([InlineKeyboardButton("👑 MAVSUMNI TUGATISH & YANGI MAVSUM (RESET)", callback_data="admin_season_menu")])
             buttons.append([InlineKeyboardButton("⚠️ O'YINNI 0 QILISH (MAVSUM RESET)", callback_data="admin_wipe_ask")])
 
         buttons.append([InlineKeyboardButton("🔙 Bosh Menyu", callback_data="menu_main")])
@@ -196,10 +199,18 @@ async def admin_user_detail_callback(update: Update, context: ContextTypes.DEFAU
         char_name = user.characters[0].name if user.characters else user.full_name
         title_line = f"• 🎖️ Sharafli Unvon: **{escape_md(user.title)}**\n" if user.title else "• 🎖️ Sharafli Unvon: _Biriktirilmagan_\n"
 
+        bank_res = await session.execute(select(models.IronBank).where(models.IronBank.user_id == user.id))
+        user_bank = bank_res.scalar_one_or_none()
+        dep_gold = user_bank.deposit_gold if user_bank else 0
+        loan_gold = user_bank.loan_gold if user_bank else 0
+        is_banned = getattr(user, "is_banned", False) or False
+        ban_status_str = "🚫 BLOKLANGAN (BAN)" if is_banned else "✅ Faol"
+
         text = (
             f"👤 **LORD MA'LUMOTLARI: {escape_md(char_name)}**\n\n"
             f"• Telegram ID: `{user.telegram_id}`\n"
             f"• Username: @{escape_md(user.username or 'yoq')}\n"
+            f"• 🛡️ Holat: **{ban_status_str}**\n"
             f"• 🏰 Xonadon: **{escape_md(h_name)}**\n"
             f"• 👑 Lavozim: **{user.rank}** | Daraja: **{user.level}**\n"
             f"{title_line}"
@@ -207,7 +218,8 @@ async def admin_user_detail_callback(update: Update, context: ContextTypes.DEFAU
             f"💰 **RESURSLAR:**\n"
             f"• 🪙 Oltin: **{user.gold:,}**\n"
             f"• 🌾 Oziq-ovqat: **{user.food:,}**\n"
-            f"• ⛓️ Temir: **{user.iron:,}**\n\n"
+            f"• ⛓️ Temir: **{user.iron:,}**\n"
+            f"• 🏦 Bank Depozit: **{dep_gold:,}**🪙 | Qarz: **{loan_gold:,}**🪙\n\n"
             f"⚔️ **ARMIYA:**\n"
             f"• 🗡️ Piyoda: {army.infantry:,} | 🏹 Kamonchi: {army.archers:,}\n"
             f"• 🏇 Otliq: {army.cavalry:,} | 🔱 Nayzachi: {army.spearmen:,} | 🛡️ Maxsus: {army.special_troops:,}\n\n"
@@ -254,11 +266,22 @@ async def admin_user_detail_callback(update: Update, context: ContextTypes.DEFAU
                 InlineKeyboardButton("🔄 Kunlik Limitlarni 0 qilish", callback_data=f"adm_act:{user.id}:reset:0"),
                 InlineKeyboardButton("🛡️ +72 soat Qalqon", callback_data=f"adm_act:{user.id}:shield:72"),
             ],
-            [
-                InlineKeyboardButton("❌ Adminlikdan Olish" if user.telegram_id in ADMIN_IDS else "⭐️ Admin Qilish", callback_data=f"adm_act:{user.id}:toggle_admin:0"),
-            ],
-            [InlineKeyboardButton("🔙 O'yinchilar Ro'yxati", callback_data="admin_users_list:0")],
         ]
+
+        if loan_gold > 0:
+            buttons.append([InlineKeyboardButton("❌ Bank Qarzini Kechirish (0 ga tushirish)", callback_data=f"adm_u_forgive_loan:{user.id}")])
+
+        ban_btn = (
+            InlineKeyboardButton("✅ Blokdan Chiqarish (Unban)", callback_data=f"adm_u_ban:{user.id}:0")
+            if is_banned
+            else InlineKeyboardButton("🚫 O'yinchini Bloklash (Ban)", callback_data=f"adm_u_ban:{user.id}:1")
+        )
+        buttons.append([ban_btn])
+
+        buttons.append([
+            InlineKeyboardButton("❌ Adminlikdan Olish" if user.telegram_id in ADMIN_IDS else "⭐️ Admin Qilish", callback_data=f"adm_act:{user.id}:toggle_admin:0"),
+        ])
+        buttons.append([InlineKeyboardButton("🔙 O'yinchilar Ro'yxati", callback_data="admin_users_list:0")])
         try:
             await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
         except Exception:
@@ -3146,10 +3169,336 @@ async def wipe_game_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
 
 
+# ============================================================
+# USER BAN / UNBAN CONTROLS
+# ============================================================
+
+async def admin_user_ban_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """O'yinchini bloklash yoki blokdan chiqarish"""
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+
+    parts = query.data.split(":")
+    user_id = int(parts[1])
+    ban_state = bool(int(parts[2]))
+
+    async with AsyncSessionLocal() as session:
+        ok, msg = await crud.admin_set_user_ban(session, user_id, ban_state)
+
+    await query.answer(msg, show_alert=True)
+    await admin_user_detail_callback(update, context)
+
+
+async def ban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/ban @username yoki /ban user_id"""
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("❌ Administrator huquqi talab etiladi!")
+        return
+
+    if not context.args:
+        await update.message.reply_text("ℹ️ Foydalanish: `/ban @username` yoki `/ban 123456789`", parse_mode="Markdown")
+        return
+
+    target_str = context.args[0].replace("@", "").strip()
+    async with AsyncSessionLocal() as session:
+        target_user = None
+        if target_str.isdigit():
+            target_user = await crud.get_user_by_telegram_id(session, int(target_str))
+            if not target_user:
+                target_user = await crud.get_user_any(session, int(target_str))
+        else:
+            target_user = await crud.get_user_by_username(session, target_str)
+
+        if not target_user:
+            await update.message.reply_text(f"❌ O'yinchi topilmadi: {target_str}")
+            return
+
+        ok, msg = await crud.admin_set_user_ban(session, target_user.id, True)
+        await update.message.reply_text(msg)
+
+
+async def unban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/unban @username yoki /unban user_id"""
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("❌ Administrator huquqi talab etiladi!")
+        return
+
+    if not context.args:
+        await update.message.reply_text("ℹ️ Foydalanish: `/unban @username` yoki `/unban 123456789`", parse_mode="Markdown")
+        return
+
+    target_str = context.args[0].replace("@", "").strip()
+    async with AsyncSessionLocal() as session:
+        target_user = None
+        if target_str.isdigit():
+            target_user = await crud.get_user_by_telegram_id(session, int(target_str))
+            if not target_user:
+                target_user = await crud.get_user_any(session, int(target_str))
+        else:
+            target_user = await crud.get_user_by_username(session, target_str)
+
+        if not target_user:
+            await update.message.reply_text(f"❌ O'yinchi topilmadi: {target_str}")
+            return
+
+        ok, msg = await crud.admin_set_user_ban(session, target_user.id, False)
+        await update.message.reply_text(msg)
+
+
+# ============================================================
+# BANK & LOAN MANAGEMENT
+# ============================================================
+
+async def admin_bank_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin: Temir Bank va Qarzlar boshqaruvi menyusi"""
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+
+    async with AsyncSessionLocal() as session:
+        loans_enabled = await crud.is_bank_loans_enabled(session)
+        stats = await crud.admin_get_bank_stats(session)
+
+    status_icon = "🟢 Faol (Qarz olish ochiq)" if loans_enabled else "🔴 O'chirilgan (Qarz berilmaydi)"
+    toggle_text = "🔴 Qarz Olishni O'chirish" if loans_enabled else "🟢 Qarz Olishni Yoqish"
+
+    text = (
+        f"🏦 **TEMIR BANK & QARZLAR BOSHQARUVI**\n\n"
+        f"• Qarz berish tizimi: **{status_icon}**\n"
+        f"• 💰 Jami depozitlar: **{stats['total_deposits']:,}**🪙 oltin\n"
+        f"• 📜 Jami faol qarzlar: **{stats['total_loans']:,}**🪙 oltin\n"
+        f"• 👥 Qarzdor lordlar soni: **{stats['debtor_count']}** ta\n"
+        f"• ⚠️ To'lov muddati o'tganlar: **{stats['defaulted_count']}** ta\n\n"
+        f"Kerakli amalni tanlang:"
+    )
+
+    buttons = [
+        [InlineKeyboardButton(toggle_text, callback_data="admin_bank_toggle_loans")],
+        [InlineKeyboardButton("📋 Qarzdorlar Ro'yxati", callback_data="admin_bank_debtors:0")],
+        [InlineKeyboardButton("🧹 Barcha Qarzlarni Kechirish (0 qilish)", callback_data="admin_bank_forgive_all_ask")],
+        [InlineKeyboardButton("🔙 Admin Panel", callback_data="admin_panel")],
+    ]
+
+    try:
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+    except Exception:
+        await query.edit_message_text(text, parse_mode=None, reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def admin_bank_toggle_loans_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin: Qarz olish tizimini yoqish/o'chirish"""
+    query = update.callback_query
+    if not is_admin(query.from_user.id):
+        return
+
+    async with AsyncSessionLocal() as session:
+        new_state, state_msg = await crud.admin_toggle_bank_loans(session)
+
+    await query.answer(state_msg, show_alert=True)
+    await admin_bank_menu_callback(update, context)
+
+
+async def admin_bank_debtors_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin: Qarzdor lordlar ro'yxati"""
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+
+    offset = int(query.data.split(":")[1])
+    limit = 6
+
+    async with AsyncSessionLocal() as session:
+        debtors = await crud.admin_get_loan_debtors(session, limit=limit, offset=offset)
+        total_res = await session.execute(
+            select(func.count(models.IronBank.id)).where(models.IronBank.loan_gold > 0)
+        )
+        total_debtors = total_res.scalar() or 0
+
+    if not debtors:
+        text = "🏦 **QARZDORLAR RO'YXATI**\n\nHozirda bankdan qarzdor bo'lgan lordlar yo'q!"
+        buttons = [[InlineKeyboardButton("🔙 Bank Menyusi", callback_data="admin_bank_menu")]]
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        return
+
+    text = (
+        f"📋 **TEMIR BANK QARZDORLARI** (Jami: {total_debtors} ta)\n\n"
+        f"Qarzni kechirish yoki profilini ko'rish uchun tanlang:\n\n"
+    )
+
+    buttons = []
+    for d in debtors:
+        u = d["user"]
+        u_name = escape_md(u.full_name or u.username or f"User {u.id}")
+        warn = " ⚠️ MUDDATI O'TGAN!" if d["is_defaulted"] else ""
+        text += f"• **{u_name}**: `{d['loan_gold']:,}`🪙{warn}\n"
+        buttons.append([
+            InlineKeyboardButton(f"👤 {u_name[:15]}: {d['loan_gold']:,}🪙", callback_data=f"admin_u_detail:{u.id}"),
+            InlineKeyboardButton("❌ Kechirish", callback_data=f"adm_u_forgive_loan:{u.id}"),
+        ])
+
+    nav_row = []
+    if offset >= limit:
+        nav_row.append(InlineKeyboardButton("⬅️ Oldingi", callback_data=f"admin_bank_debtors:{offset - limit}"))
+    if offset + limit < total_debtors:
+        nav_row.append(InlineKeyboardButton("Keyingi ➡️", callback_data=f"admin_bank_debtors:{offset + limit}"))
+    if nav_row:
+        buttons.append(nav_row)
+
+    buttons.append([InlineKeyboardButton("🔙 Bank Menyusi", callback_data="admin_bank_menu")])
+
+    try:
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+    except Exception:
+        await query.edit_message_text(text, parse_mode=None, reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def admin_forgive_user_loan_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Muayyan o'yinchining qarzini kechirish"""
+    query = update.callback_query
+    if not is_admin(query.from_user.id):
+        return
+
+    user_id = int(query.data.split(":")[1])
+    async with AsyncSessionLocal() as session:
+        ok, msg = await crud.admin_forgive_user_loan(session, user_id)
+
+    await query.answer(msg, show_alert=True)
+    await admin_user_detail_callback(update, context)
+
+
+async def admin_bank_forgive_all_ask_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Barcha qarzlarni kechirishni so'rash"""
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+
+    text = (
+        "⚠️ **DIQQAT: BARCHA QARZLARNI KECHIRISH!**\n\n"
+        "Haqiqatan ham barcha o'yinchilarning Temir Bankdan olgan qarzlarini 0 ga tushirmoqchimisiz?\n\n"
+        "Ushbu amal barcha foizlar va jarimalarni ham bekor qiladi!"
+    )
+    buttons = [
+        [InlineKeyboardButton("✅ HA, BARCHA QARZLARNI KECHIRISH", callback_data="admin_bank_forgive_all_do")],
+        [InlineKeyboardButton("❌ Bekor Qilish", callback_data="admin_bank_menu")],
+    ]
+    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def admin_bank_forgive_all_do_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Barcha qarzlarni kechirish ijrosi"""
+    query = update.callback_query
+    if not is_admin(query.from_user.id):
+        return
+
+    async with AsyncSessionLocal() as session:
+        cnt, total = await crud.admin_forgive_all_loans(session)
+
+    await query.answer(f"✅ {cnt} ta o'yinchidan jami {total:,}🪙 qarz kechirildi!", show_alert=True)
+    await admin_bank_menu_callback(update, context)
+
+
+# ============================================================
+# WEATHER & TRADE CONTROLS
+# ============================================================
+
+async def admin_weather_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin: Ob-havo va fasllar boshqaruvi"""
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+
+    from database.crud import WEATHER_TYPES
+
+    async with AsyncSessionLocal() as session:
+        curr = await crud.get_current_weather(session)
+
+    text = (
+        f"🌦️ **WESTEROS OB-HAVO VA FASLLAR BOSHQARUVI**\n\n"
+        f"• Hozirgi Ob-havo: {curr['emoji']} **{curr['name']}**\n"
+        f"• Ta'siri: _{curr['description']}_\n\n"
+        f"Global fasl/ob-havoni majburiy o'zgartirish uchun tanlang:"
+    )
+
+    buttons = []
+    for w_key, w_val in WEATHER_TYPES.items():
+        is_curr = " (Hozirgi)" if curr.get("weather_type") == w_key else ""
+        buttons.append([InlineKeyboardButton(f"{w_val['emoji']} {w_val['name']}{is_curr}", callback_data=f"adm_w_set:{w_key}")])
+
+    buttons.append([InlineKeyboardButton("🔙 Admin Panel", callback_data="admin_panel")])
+
+    try:
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+    except Exception:
+        await query.edit_message_text(text, parse_mode=None, reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def admin_weather_set_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin: Ob-havoni o'zgartirish"""
+    query = update.callback_query
+    if not is_admin(query.from_user.id):
+        return
+
+    w_key = query.data.split(":")[1]
+    async with AsyncSessionLocal() as session:
+        ok, msg = await crud.admin_set_weather(session, w_key)
+
+    await query.answer(msg, show_alert=True)
+    await admin_weather_menu_callback(update, context)
+
+
+async def admin_trade_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin: Savdo karvonlari boshqaruvi va monitoringi"""
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+
+    async with AsyncSessionLocal() as session:
+        caravans = await crud.get_active_trade_caravans(session)
+        total_delivered_res = await session.execute(
+            select(func.count(models.TradeCaravan.id)).where(models.TradeCaravan.status == "arrived")
+        )
+        total_delivered = total_delivered_res.scalar() or 0
+
+    text = (
+        f"🐪 **SAVDO KARVONLARI & BOZOR BOSHQARUVI**\n\n"
+        f"• 🐫 Yo'ldagi faol karvonlar: **{len(caravans)}** ta\n"
+        f"• 📦 Manziliga yetib borgan karvonlar: **{total_delivered}** ta\n\n"
+    )
+
+    if caravans:
+        text += "📍 **Harakatdagi eng yaqin karvonlar:**\n"
+        now = datetime.utcnow()
+        for c in caravans[:8]:
+            u_name = c.owner.character_name if (c.owner and getattr(c.owner, "character_name", None)) else (c.owner.full_name if c.owner else f"User #{c.owner_user_id}")
+            dest = c.destination_territory.name if c.destination_territory else "Qal'a"
+            rem_s = max(0, int((c.arrival_time - now).total_seconds()))
+            rem_m = rem_s // 60
+            text += f"• **{escape_md(str(u_name))}**: {c.resource_amount:,} {c.resource_type} ➔ {dest} (⏳ {rem_m} daq)\n"
+    else:
+        text += "• _Hozircha yo'lda hech qanday savdo karvoni yo'q._\n"
+
+    buttons = [
+        [InlineKeyboardButton("🔙 Admin Panel", callback_data="admin_panel")]
+    ]
+    try:
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+    except Exception:
+        await query.edit_message_text(text, parse_mode=None, reply_markup=InlineKeyboardMarkup(buttons))
+
+
 def register_admin_handlers(app):
     app.add_handler(CommandHandler(["wipe_game", "reset_game", "restart_game"], wipe_game_command))
     app.add_handler(CommandHandler("admin", admin_command))
     app.add_handler(CommandHandler("adminsearch", admin_search_command))
+    app.add_handler(CommandHandler("ban", ban_command))
+    app.add_handler(CommandHandler("unban", unban_command))
     app.add_handler(CommandHandler("sethouse", set_house_command))
     app.add_handler(CommandHandler("givearmy", give_army_command))
     app.add_handler(CommandHandler("addadmin", add_admin_command))
@@ -3173,12 +3522,22 @@ def register_admin_handlers(app):
     app.add_handler(CallbackQueryHandler(admin_reset_votes_callback, pattern="^adm_reset_votes:"))
     app.add_handler(CallbackQueryHandler(admin_users_list_callback, pattern="^admin_users_list:"))
     app.add_handler(CallbackQueryHandler(admin_user_detail_callback, pattern="^admin_u_detail:"))
+    app.add_handler(CallbackQueryHandler(admin_user_ban_callback, pattern="^adm_u_ban:"))
     app.add_handler(CallbackQueryHandler(admin_user_action_callback, pattern="^adm_act:"))
     app.add_handler(CallbackQueryHandler(admin_user_house_pick_callback, pattern="^adm_u_house_pick:"))
     app.add_handler(CallbackQueryHandler(admin_user_house_do_callback, pattern="^adm_u_house_do:"))
     app.add_handler(CallbackQueryHandler(admin_user_remhouse_callback, pattern="^adm_u_remhouse:"))
     app.add_handler(CallbackQueryHandler(admin_user_army_menu_callback, pattern="^adm_u_army_menu:"))
     app.add_handler(CallbackQueryHandler(admin_user_army_act_callback, pattern="^adm_u_army_act:"))
+    app.add_handler(CallbackQueryHandler(admin_bank_menu_callback, pattern="^admin_bank_menu$"))
+    app.add_handler(CallbackQueryHandler(admin_bank_toggle_loans_callback, pattern="^admin_bank_toggle_loans$"))
+    app.add_handler(CallbackQueryHandler(admin_bank_debtors_callback, pattern="^admin_bank_debtors(:[0-9]+)?$"))
+    app.add_handler(CallbackQueryHandler(admin_forgive_user_loan_callback, pattern="^adm_u_forgive_loan:"))
+    app.add_handler(CallbackQueryHandler(admin_bank_forgive_all_ask_callback, pattern="^admin_bank_forgive_all_ask$"))
+    app.add_handler(CallbackQueryHandler(admin_bank_forgive_all_do_callback, pattern="^admin_bank_forgive_all_do$"))
+    app.add_handler(CallbackQueryHandler(admin_weather_menu_callback, pattern="^admin_weather_menu$"))
+    app.add_handler(CallbackQueryHandler(admin_weather_set_callback, pattern="^adm_w_set:"))
+    app.add_handler(CallbackQueryHandler(admin_trade_menu_callback, pattern="^admin_trade_menu$"))
     app.add_handler(CallbackQueryHandler(admin_houses_list_callback, pattern="^admin_houses_list(:[0-9]+)?$"))
     app.add_handler(CallbackQueryHandler(admin_house_detail_callback, pattern="^adm_h_detail:"))
     app.add_handler(CallbackQueryHandler(admin_house_action_callback, pattern="^adm_h_act:"))

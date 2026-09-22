@@ -326,6 +326,26 @@ async def leave_house(session: AsyncSession, user_id: int) -> Tuple[bool, str]:
     return False, "❌ Westeros qonunlariga ko'ra, xonadonga berilgan qasamyod umrboddir! Xonadonni tark etish yoki almashtirish taqiqlanadi."
 
 
+async def is_user_banned(session: AsyncSession, telegram_id: int) -> bool:
+    """Foydalanuvchi bloklanganligini tekshirish"""
+    res = await session.execute(
+        select(models.User.is_banned).where(models.User.telegram_id == telegram_id)
+    )
+    return bool(res.scalar_one_or_none())
+
+
+async def admin_set_user_ban(session: AsyncSession, user_id: int, is_banned: bool = True) -> Tuple[bool, str]:
+    """Admin tomonidan foydalanuvchini bloklash yoki blokdan chiqarish"""
+    user = await get_user_any(session, user_id)
+    if not user:
+        return False, "❌ Foydalanuvchi topilmadi."
+
+    user.is_banned = is_banned
+    await session.commit()
+    status_str = "bloklandi (ban berildi) 🚫" if is_banned else "blokdan chiqarildi (unban) ✅"
+    return True, f"✅ Foydalanuvchi {user.full_name} ({user.telegram_id}) muvaffaqiyatli {status_str}!"
+
+
 # ============================================================
 # HOUSE CRUD
 # ============================================================
@@ -783,9 +803,9 @@ async def claim_vacant_house_lord(session: AsyncSession, user_id: int) -> Tuple[
     house.lord_user_id = user.telegram_id
     house.lord_elected_at = datetime.utcnow()
     user.rank = "king"
-    user.prestige += 100
+    user.prestige += 25
     await session.commit()
-    return True, f"👑 Qasamyod qabul qilindi! Siz {house.name} xonadoni Lordi (King) etib tayinlandingiz! (+100 Prestige)"
+    return True, f"👑 Qasamyod qabul qilindi! Siz {house.name} xonadoni Lordi (King) etib tayinlandingiz! (+25 Prestige)"
 
 
 async def abdicate_house_lord(session: AsyncSession, user_id: int) -> Tuple[bool, str]:
@@ -862,7 +882,7 @@ async def transfer_troops_to_lord(
     lord_army.cavalry += cavalry
     lord_army.spearmen += spearmen
 
-    prestige_gain = max(10, tot // 4)
+    prestige_gain = max(2, tot // 16)
     sender.prestige += prestige_gain
     await session.commit()
     return True, f"✅ Lord armiyasiga +{tot} askar safarbar qilindi! (+{prestige_gain} Prestige)"
@@ -1306,9 +1326,9 @@ async def send_castle_reinforcements(
     territory.garrison_spearmen += spearmen
 
     # Yordamchi hisobi
-    user.prestige += 30
+    user.prestige += 7
     await session.commit()
-    return True, f"✅ Qal'a mudofaasiga +{total_sent} askar safarbar qilindi! (+30 Prestige)"
+    return True, f"✅ Qal'a mudofaasiga +{total_sent} askar safarbar qilindi! (+7 Prestige)"
 
 
 async def send_castle_reinforcements_proportional(
@@ -1577,9 +1597,8 @@ async def station_dragon_in_castle(session: AsyncSession, user_id: int, territor
     reinf_data["stationed_dragon"] = best_dr
 
     territory.reinforcements_json = json.dumps(reinf_data)
-    user.prestige += 50
     await session.commit()
-    return True, f"🐉🔥 Ulug'vor {dragon.name} (Kuch: {dragon.power}⚡) {territory.name} qal'asi mudofaasiga joylashtirildi! (+50 Prestige)"
+    return True, f"🐉🔥 Ulug'vor {dragon.name} (Kuch: {dragon.power}⚡) {territory.name} qal'asi mudofaasiga muvaffaqiyatli joylashtirildi!"
 
 
 async def recall_dragon_from_castle(session: AsyncSession, user_id: int, territory_id: int, dragon_id: Optional[int] = None) -> Tuple[bool, str]:
@@ -1980,11 +1999,11 @@ async def hatch_dragon(session: AsyncSession, user_id: int, dragon_id: Optional[
     user.gold -= 1000
     dragon.stage = "baby"
     dragon.power += 80
-    user.prestige += 150
+    user.prestige += 37
     user.xp += 400
 
     await session.commit()
-    return True, f"🔥 AJOYIB MO'JIZA! {dragon.name} olov bag'rida tuxumdan chiqdi! (+150 Prestige)"
+    return True, f"🔥 AJOYIB MO'JIZA! {dragon.name} olov bag'rida tuxumdan chiqdi! (+37 Prestige)"
 
 
 async def feed_dragon(session: AsyncSession, user_id: int, dragon_id: Optional[int] = None) -> Tuple[bool, str]:
@@ -2119,10 +2138,10 @@ async def dragon_lay_egg(session: AsyncSession, user_id: int, dragon_id: int) ->
         last_fed=datetime.utcnow(),
     )
     session.add(new_egg)
-    user.prestige += 200
+    user.prestige += 50
     user.xp += 600
     await session.commit()
-    return True, f"🥚 AJOYIB MO'JIZA! {dragon.name} yangi ajdar tuxumini qo'ydi! Endi sizda 2 ta ajdar bo'ladi! (+200 Prestige)"
+    return True, f"🥚 AJOYIB MO'JIZA! {dragon.name} yangi ajdar tuxumini qo'ydi! Endi sizda 2 ta ajdar bo'ladi! (+50 Prestige)"
 
 
 async def equip_dragon_artifact(session: AsyncSession, user_id: int, dragon_id: int, artifact_code: str) -> Tuple[bool, str]:
@@ -2151,10 +2170,10 @@ async def equip_dragon_artifact(session: AsyncSession, user_id: int, dragon_id: 
     dragon.artifact_code = artifact_code
     pwr_bonus = int(dragon.power * art_info.get("dragon_bonus", 0.35))
     dragon.power += pwr_bonus
-    user.prestige += 120
+    user.prestige += 30
 
     await session.commit()
-    return True, f"✨ {dragon.name} ga {art_info['name']} taqildi! Ajdarning quvvati +{pwr_bonus} ga oshdi! (+120 Prestige)"
+    return True, f"✨ {dragon.name} ga {art_info['name']} taqildi! Ajdarning quvvati +{pwr_bonus} ga oshdi! (+30 Prestige)"
 
 
 def get_user_castle_tax_hours(user: models.User, territory: models.Territory, now: Optional[datetime] = None) -> Tuple[int, int]:
@@ -2392,10 +2411,10 @@ async def buy_artifact(session: AsyncSession, user_id: int, code: str) -> Tuple[
 
     session.add(new_art)
     user.equipped_artifact_id = new_art.id
-    user.prestige += 100
+    user.prestige += 25
     user.xp += 300
     await session.commit()
-    return True, f"🏆 TABRIKLAYMIZ! Siz {art_info['name']} sohibigalandingiz! (+100 Prestige)"
+    return True, f"🏆 TABRIKLAYMIZ! Siz {art_info['name']} sohibigalandingiz! (+25 Prestige)"
 
 
 # ============================================================
@@ -2590,11 +2609,11 @@ async def fight_ai_champion(
     won = player_score >= champ_score
     if won:
         user.gold += 125
-        user.prestige += 3
+        user.prestige += 1
         user.xp += 15
         outcome = (
             f"🏆 **G'ALABA!** Sizning qilich zarbangiz {champion_name}ning mudofaasini teshib o'tdi!\n"
-            f"🎁 Mukofot: **+125🪙 Oltin, +3 Prestige, +15 XP** ({user.daily_duel_count}/10)"
+            f"🎁 Mukofot: **+125🪙 Oltin, +1 Prestige, +15 XP** ({user.daily_duel_count}/10)"
         )
     else:
         if bet_gold > 0:
@@ -2769,9 +2788,9 @@ async def resolve_pvp_duel(
     else:
         winner.gold += 50
 
-    winner.prestige += 35
+    winner.prestige += 8
     winner.xp += 150
-    loser.prestige = max(0, loser.prestige - 5)
+    loser.prestige = max(0, loser.prestige - 2)
     loser.xp += 50
 
     from core.leveling import check_user_level_up
@@ -2817,19 +2836,12 @@ async def reject_pvp_duel(session: AsyncSession, duel_id: int, user_tg_or_id: in
 # RAVEN MAIL CRUD
 # ============================================================
 
-MAX_DAILY_RAVEN_GOLD = 5000
+MAX_DAILY_RAVEN_GOLD = 0
 
 
 async def get_daily_raven_gold_sent(session: AsyncSession, user_id: int) -> int:
     """Foydalanuvchining bugun qarg'alar orqali yuborgan jami oltini"""
-    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-    res = await session.execute(
-        select(func.sum(models.RavenMessage.gold_attached)).where(
-            models.RavenMessage.sender_id == user_id,
-            models.RavenMessage.created_at >= today_start,
-        )
-    )
-    return res.scalar() or 0
+    return 0
 
 
 async def send_raven(
@@ -2839,28 +2851,13 @@ async def send_raven(
     text: str,
     gold: int = 0,
 ) -> Tuple[bool, str, Optional[int]]:
-    """Qarg'a orqali xat va oltin jo'natish (kunlik max 5,000 oltin limiti bilan)"""
+    """Qarg'a orqali xat jo'natish (faqat yozma maktublar)"""
+    if gold > 0:
+        return False, "❌ Xat orqali oltin jo'natish butunlay to'xtatilgan! Qarg'alar faqat yozma maktublarni tashiydi.", None
+
     sender = await get_user_any(session, sender_id)
     if not sender:
         return False, "Foydalanuvchi topilmadi.", None
-
-    if gold < 0:
-        return False, "Oltin miqdori musbat bo'lishi kerak!", None
-
-    if gold > 0:
-        if sender.gold < gold:
-            return False, "Xatga biriktirish uchun yetarli oltiningiz yo'q!", None
-
-        already_sent = await get_daily_raven_gold_sent(session, sender.id)
-        if already_sent + gold > MAX_DAILY_RAVEN_GOLD:
-            remaining = max(0, MAX_DAILY_RAVEN_GOLD - already_sent)
-            return (
-                False,
-                f"❌ Kunlik qarg'a orqali oltin jo'natish limiti: {MAX_DAILY_RAVEN_GOLD:,}🪙 oltin!\n"
-                f"Bugun jo'natilgan: {already_sent:,}🪙\n"
-                f"Siz yana ko'pi bilan {remaining:,}🪙 yuborishingiz mumkin.",
-                None,
-            )
 
     # Qabul qiluvchini qidirish
     recipient = None
@@ -3147,7 +3144,7 @@ async def upgrade_iron_mine(session: AsyncSession, user_id: int) -> Tuple[bool, 
     user.gold -= gold_cost
     user.food -= food_cost
     user.iron_mine_level = next_lvl
-    user.prestige += next_lvl * 10
+    user.prestige += max(1, (next_lvl * 10) // 4)
     user.xp += next_lvl * 50
 
     from core.leveling import check_user_level_up
@@ -4218,6 +4215,9 @@ async def claim_iron_bank_interest(session: AsyncSession, user_id: int) -> Tuple
 
 async def take_iron_bank_loan(session: AsyncSession, user_id: int, amount: int) -> Tuple[bool, str]:
     """Temir Bankdan kredit (qarz) olish"""
+    if not await is_bank_loans_enabled(session):
+        return False, "❌ Hozirda Temir Bank tomonidan qarz berish xizmati to'xtatilgan! Ma'muriyat bilan bog'laning."
+
     user = await get_user_with_relations(session, user_id)
     if not user:
         return False, "Foydalanuvchi topilmadi."
@@ -4286,6 +4286,157 @@ async def repay_iron_bank_loan(session: AsyncSession, user_id: int) -> Tuple[boo
         f"Temir Bankka {total_due:,}🪙 Oltin to'landi va shartnoma bekor qilindi.\n"
         f"Endi sizning bank oldidagi obro'yingiz toza! 🏛️"
     )
+
+
+# ============================================================
+# BANK & LOANS ADMIN CRUD
+# ============================================================
+
+async def is_bank_loans_enabled(session: AsyncSession) -> bool:
+    """Bank qarz berish tizimi yoqilganligini tekshirish"""
+    res = await session.execute(
+        select(models.EventState).where(models.EventState.event_name == "bank_loan_system")
+    )
+    ev = res.scalar_one_or_none()
+    if not ev:
+        return True  # Standart holatda ochiq
+    return bool(ev.is_active)
+
+
+async def admin_toggle_bank_loans(session: AsyncSession) -> Tuple[bool, str]:
+    """Admin tomonidan bank qarz tizimini yoqish yoki o'chirish"""
+    res = await session.execute(
+        select(models.EventState).where(models.EventState.event_name == "bank_loan_system")
+    )
+    ev = res.scalar_one_or_none()
+    if not ev:
+        ev = models.EventState(event_name="bank_loan_system", is_active=True, data_json="{}")
+        session.add(ev)
+        await session.flush()
+
+    ev.is_active = not ev.is_active
+    await session.commit()
+    state_str = "YOQILDI 🟢 (O'yinchilar qarz olishi mumkin)" if ev.is_active else "O'CHIRILDI 🔴 (Qarz berish to'xtatildi)"
+    return ev.is_active, f"✅ Temir Bank qarz berish xizmati {state_str}!"
+
+
+async def admin_get_bank_stats(session: AsyncSession) -> Dict[str, Any]:
+    """Bank statistikasi: jami depozit, jami qarz, qarzdorlar soni"""
+    dep_res = await session.execute(select(func.sum(models.IronBank.deposit_gold)))
+    total_deposits = dep_res.scalar() or 0
+
+    loan_res = await session.execute(
+        select(func.sum(models.IronBank.loan_gold)).where(models.IronBank.loan_gold > 0)
+    )
+    total_loans = loan_res.scalar() or 0
+
+    debtors_res = await session.execute(
+        select(func.count(models.IronBank.id)).where(models.IronBank.loan_gold > 0)
+    )
+    debtors_count = debtors_res.scalar() or 0
+
+    loans_enabled = await is_bank_loans_enabled(session)
+
+    return {
+        "total_deposits": total_deposits,
+        "total_loans": total_loans,
+        "debtors_count": debtors_count,
+        "loans_enabled": loans_enabled,
+    }
+
+
+async def admin_get_loan_debtors(session: AsyncSession, limit: int = 15) -> List[Tuple[models.User, models.IronBank]]:
+    """Qarzga ega bo'lgan o'yinchilar ro'yxati"""
+    res = await session.execute(
+        select(models.User, models.IronBank)
+        .join(models.IronBank, models.User.id == models.IronBank.user_id)
+        .where(models.IronBank.loan_gold > 0)
+        .order_by(models.IronBank.loan_gold.desc())
+        .limit(limit)
+    )
+    return list(res.all())
+
+
+async def admin_forgive_user_loan(session: AsyncSession, user_id: int) -> Tuple[bool, str]:
+    """Admin tomonidan bitta o'yinchining qarzini kechirish (nollash)"""
+    user = await get_user_any(session, user_id)
+    if not user:
+        return False, "❌ Foydalanuvchi topilmadi."
+
+    bank = await get_or_create_iron_bank(session, user.id)
+    if not bank or (bank.loan_gold or 0) <= 0:
+        return False, f"⚠️ {user.full_name} da to'lanmagan qarz mavjud emas."
+
+    old_loan = bank.loan_gold
+    bank.loan_gold = 0
+    bank.is_defaulted = False
+    bank.loan_due_at = None
+    await session.commit()
+    return True, f"✅ {user.full_name}ning {old_loan:,}🪙 miqdoridagi qarzi to'liq kechirildi va nollashtirildi!"
+
+
+async def admin_forgive_all_loans(session: AsyncSession) -> Tuple[int, str]:
+    """Admin tomonidan barcha o'yinchilarning qarzlarini nollash"""
+    res = await session.execute(
+        select(models.IronBank).where(models.IronBank.loan_gold > 0)
+    )
+    all_loans = res.scalars().all()
+    count = len(all_loans)
+    for b in all_loans:
+        b.loan_gold = 0
+        b.is_defaulted = False
+        b.loan_due_at = None
+    await session.commit()
+    return count, f"✅ Jami {count} ta o'yinchining qarzlari to'liq kechirildi va nollashtirildi!"
+
+
+async def admin_grant_user_loan(session: AsyncSession, user_id: int, amount: int) -> Tuple[bool, str]:
+    """Admin tomonidan foydalanuvchiga to'g'ridan-to'g'ri qarz/grant berish"""
+    user = await get_user_any(session, user_id)
+    if not user:
+        return False, "❌ Foydalanuvchi topilmadi."
+
+    bank = await get_or_create_iron_bank(session, user.id)
+    bank.loan_gold = (bank.loan_gold or 0) + amount
+    bank.loan_due_at = datetime.utcnow() + timedelta(days=LOAN_DAYS)
+    bank.is_defaulted = False
+    user.gold = (user.gold or 0) + amount
+    await session.commit()
+    return True, f"✅ {user.full_name} ga +{amount:,}🪙 qarz mablag'i o'tkazildi! (Jami qarzi: {bank.loan_gold:,}🪙)"
+
+
+async def admin_set_weather(session: AsyncSession, weather_type: str) -> Tuple[bool, str]:
+    """Admin tomonidan ob-havoni majburiy o'zgartirish"""
+    if weather_type not in WEATHER_TYPES:
+        return False, "Noto'g'ri ob-havo turi!"
+
+    w_info = WEATHER_TYPES[weather_type]
+    res = await session.execute(
+        select(models.EventState).where(models.EventState.event_name == "world_weather")
+    )
+    ev = res.scalar_one_or_none()
+    data = {
+        "weather_type": weather_type,
+        "name": w_info["name"],
+        "description": w_info["description"],
+        "emoji": w_info["emoji"],
+        "updated_at": datetime.utcnow().isoformat(),
+        "expires_at": (datetime.utcnow() + timedelta(days=7)).isoformat(),
+        "manual_override": True,
+    }
+    if not ev:
+        ev = models.EventState(
+            event_name="world_weather",
+            data_json=json.dumps(data),
+            is_active=True,
+        )
+        session.add(ev)
+    else:
+        ev.data_json = json.dumps(data)
+        ev.is_active = True
+
+    await session.commit()
+    return True, f"✅ Dunyo ob-havosi {w_info['emoji']} {w_info['name']} ga o'zgartirildi!"
 
 
 # ============================================================
@@ -4932,7 +5083,7 @@ async def send_spy_mission(
     # MUVAFFAQIYATLI TOPSHIRIQ
     if mission_type == "scout":
         # Razvedka
-        user.prestige += 10
+        user.prestige += 2
         # Ajdar bormi?
         dr_info = get_stationed_dragon_info(territory)
         dr_text = "🐉 Ajdar: *Qal'ada ajdar yo'q*"
@@ -4952,7 +5103,7 @@ async def send_spy_mission(
             f"• 🏹 Kamonchilar: **{territory.garrison_archers:,}**\n"
             f"• 🐎 Otliqlar: **{territory.garrison_cavalry:,}**\n"
             f"• 🔱 Nayzadorlar: **{territory.garrison_spearmen:,}**\n\n"
-            f"🎖️ Nufuz: +10 ball qo'shildi.{limit_str}"
+            f"🎖️ Nufuz: +2 ball qo'shildi.{limit_str}"
         )
         report_data = {
             "infantry": territory.garrison_infantry,
@@ -4965,7 +5116,7 @@ async def send_spy_mission(
 
     elif mission_type == "sabotage":
         # Sabotaj
-        user.prestige += 20
+        user.prestige += 5
         sabotage_effect = ""
         if territory.wildfire_count > 0:
             destroyed_wf = min(territory.wildfire_count, random.randint(1, 2))
@@ -4980,7 +5131,7 @@ async def send_spy_mission(
             f"🔥🕵️ **SABOTAJ MUVAFFAQIYATLI AMALGA OSHIRILDI!**\n\n"
             f"🏰 Qal'a: **{territory.name}**\n"
             f"{sabotage_effect}\n\n"
-            f"🎖️ Jasorat uchun +20 Nufuz berildi.{limit_str}"
+            f"🎖️ Jasorat uchun +5 Nufuz berildi.{limit_str}"
         )
         report_data = {
             "status": "success",
@@ -5004,14 +5155,14 @@ async def send_spy_mission(
 
     elif mission_type == "open_gates":
         # Darvozalarni ochish
-        user.prestige += 30
+        user.prestige += 7
         territory.gates_compromised_until = now + timedelta(hours=2)
         report_text = (
             f"🚪🔓 **DARVOZALAR OCHILDI (QIZIL TO'Y NIFOG'I)!**\n\n"
             f"🏰 Qal'a: **{territory.name}**\n"
             f"Siz yuborgan josus soqchilarni chalg'itib, qal'aning temir darvoza zanjirini buzdi va ichkaridan ochib qo'ydi!\n\n"
             f"⏱️ Muddat: **2 soat** davomida ushbu qal'aga qilingan har qanday hujumda devor himoyasi **-30%** ga pasayadi!\n"
-            f"🎖️ Nufuz: +30 ball qo'shildi.{limit_str}"
+            f"🎖️ Nufuz: +7 ball qo'shildi.{limit_str}"
         )
         report_data = {
             "status": "success",
@@ -5621,14 +5772,14 @@ async def raid_trade_caravan(
             raider.iron += stolen_res
 
         raider.gold += bounty_gold
-        raider.prestige += 20
+        raider.prestige += 5
 
         msg = (
             f"⚔️💰 **PISTIRMA MUVAFFAQIYATLI BO'LDI!**\n\n"
             f"Siz savdo karvonini tor-mor keltirib, yuklarni talon-toroj qildingiz!\n\n"
             f"📦 O'lja: **+{stolen_res:,}** {caravan.resource_type.capitalize()}\n"
             f"💰 O'lja Oltin: **+{bounty_gold:,}** Oltin\n"
-            f"🎖️ Nufuz: **+20** ball\n"
+            f"🎖️ Nufuz: **+5** ball\n"
             f"📉 Yo'qotishlaringiz: -{battle_res['raider_losses']['infantry']} Piyoda, -{battle_res['raider_losses']['cavalry']} Otliq.\n"
             f"📊 Bugungi pistirma limitingiz: **{raider.daily_caravan_raid_count}/2** ta"
         )
