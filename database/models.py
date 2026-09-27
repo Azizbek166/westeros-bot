@@ -593,6 +593,7 @@ class Tournament(Base):
     winner_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     winner_name = Column(String(100), nullable=True)
     details = Column(Text, default="")
+    bracket_json = Column(Text, default="{}")
     created_at = Column(DateTime, default=datetime.utcnow)
     concluded_at = Column(DateTime, nullable=True)
 
@@ -609,6 +610,8 @@ class TournamentParticipant(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     fighter_name = Column(String(100), nullable=False)
     fighter_power = Column(Integer, default=100)
+    tactic = Column(String(30), default="rock")  # rock (tosh), scissors (qaychi), paper (qog'oz), random
+    tactics_seq = Column(String(100), default="rock,scissors,paper")  # 3-round sequence e.g. "rock,scissors,paper"
     score = Column(Integer, default=0)
     is_eliminated = Column(Boolean, default=False)
     joined_at = Column(DateTime, default=datetime.utcnow)

@@ -104,6 +104,9 @@ async def init_db():
                 "ALTER TABLE users ADD COLUMN daily_spy_gates_count INTEGER DEFAULT 0",
                 "ALTER TABLE users ADD COLUMN castle_taxes_json TEXT DEFAULT '{}'",
                 "ALTER TABLE users ADD COLUMN is_banned BOOLEAN DEFAULT 0",
+                "ALTER TABLE tournaments ADD COLUMN bracket_json TEXT DEFAULT '{}'",
+                "ALTER TABLE tournament_participants ADD COLUMN tactic VARCHAR(30) DEFAULT 'rock'",
+                "ALTER TABLE tournament_participants ADD COLUMN tactics_seq VARCHAR(100) DEFAULT 'rock,scissors,paper'",
             ]:
                 try:
                     await conn.execute(text(alter_stmt))
@@ -121,6 +124,9 @@ async def init_db():
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_spy_gates_count INTEGER DEFAULT 0",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS castle_taxes_json TEXT DEFAULT '{}'",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_banned BOOLEAN DEFAULT FALSE",
+                "ALTER TABLE tournaments ADD COLUMN IF NOT EXISTS bracket_json TEXT DEFAULT '{}'",
+                "ALTER TABLE tournament_participants ADD COLUMN IF NOT EXISTS tactic VARCHAR(30) DEFAULT 'rock'",
+                "ALTER TABLE tournament_participants ADD COLUMN IF NOT EXISTS tactics_seq VARCHAR(100) DEFAULT 'rock,scissors,paper'",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS iron_mine_level INTEGER DEFAULT 1",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS grain_mill_level INTEGER DEFAULT 1",
                 "ALTER TABLE territories ADD COLUMN IF NOT EXISTS castle_level INTEGER DEFAULT 1",

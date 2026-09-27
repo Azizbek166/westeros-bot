@@ -491,12 +491,53 @@ def calculate_caravan_raid(
 
 
 # ============================================================
-# RITSARLAR TURNIRI DUELI (TOURNAMENT KNIGHT DUEL)
+# RITSARLAR TURNIRI DUELI (TOSH-QAYCHI-QOG'OZ / RPS DUEL)
 # ============================================================
+
+RPS_MOVES = {
+    "rock": {
+        "name": "🪨 Tosh (Og'ir Zarba)",
+        "short": "🪨 Tosh",
+        "beats": "scissors",
+        "desc": "Qaychini yanchadi",
+    },
+    "scissors": {
+        "name": "✂️ Qaychi (Epchil Hamla)",
+        "short": "✂️ Qaychi",
+        "beats": "paper",
+        "desc": "Qog'ozni kesadi",
+    },
+    "paper": {
+        "name": "📜 Qog'oz (Qalqonli Mudofaa)",
+        "short": "📜 Qog'oz",
+        "beats": "rock",
+        "desc": "Toshni o'rab oladi",
+    },
+}
+
+
+def get_fighter_move(fighter: Dict[str, Any], round_num: int) -> str:
+    """Ritsarning joriy raunddagi taktikasini aniqlash"""
+    seq_str = fighter.get("tactics_seq", "")
+    if seq_str:
+        moves = [m.strip().lower() for m in seq_str.split(",") if m.strip().lower() in RPS_MOVES]
+        if len(moves) >= round_num:
+            return moves[round_num - 1]
+
+    tactic = str(fighter.get("tactic", "random")).lower()
+    if tactic in RPS_MOVES:
+        return tactic
+
+    return random.choice(["rock", "scissors", "paper"])
+
 
 def resolve_tourney_duel(f1: Dict[str, Any], f2: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Turnirdagi ikki ritsar o'rtasidagi nayza va qilich jangi (Jousting & Melee).
+    Turnirdagi ikki ritsar o'rtasidagi Tosh-Qaychi-Qog'oz qoidasiga asoslangan 3 raundlik jang.
+    - 🪨 Tosh > ✂️ Qaychi
+    - ✂️ Qaychi > 📜 Qog'oz
+    - 📜 Qog'oz > 🪨 Tosh
+    - Durrang bo'lsa: Jangchilarning quvvati (power roll) to'qnashadi.
     """
     p1 = f1.get("power", 100)
     p2 = f2.get("power", 100)
@@ -504,31 +545,71 @@ def resolve_tourney_duel(f1: Dict[str, Any], f2: Dict[str, Any]) -> Dict[str, An
     score1 = 0
     score2 = 0
     rounds_log = []
+    round_details = []
 
-    actions = [
-        ("Ot ustidagi Nayza zarbasi (Jousting)", 2),
-        ("Qalqon va qilich to'qnashuvi (Sword Melee)", 1),
-        ("Hal qiluvchi halqa jangi (Finisher)", 2),
-    ]
+    for r in range(1, 4):
+        m1 = get_fighter_move(f1, r)
+        m2 = get_fighter_move(f2, r)
+        info1 = RPS_MOVES.get(m1, RPS_MOVES["rock"])
+        info2 = RPS_MOVES.get(m2, RPS_MOVES["rock"])
 
-    for action_name, pts in actions:
-        roll1 = p1 * random.uniform(0.80, 1.25)
-        roll2 = p2 * random.uniform(0.80, 1.25)
-        if roll1 >= roll2:
-            score1 += pts
-            rounds_log.append(f"• *{action_name}:* {f1['name']} aniq zarba bilan ustun keldi! (+{pts})")
+        if info1["beats"] == m2:
+            score1 += 1
+            rounds_log.append(f"• {r}-Raund: {f1['name']} [{info1['short']}] ⚔️ [{info2['short']}] {f2['name']} ➔ **{f1['name']}** g'alaba! (+1)")
+            round_details.append({"round": r, "m1": m1, "m2": m2, "winner": 1})
+        elif info2["beats"] == m1:
+            score2 += 1
+            rounds_log.append(f"• {r}-Raund: {f1['name']} [{info1['short']}] ⚔️ [{info2['short']}] {f2['name']} ➔ **{f2['name']}** g'alaba! (+1)")
+            round_details.append({"round": r, "m1": m1, "m2": m2, "winner": 2})
         else:
-            score2 += pts
-            rounds_log.append(f"• *{action_name}:* {f2['name']} raqibini egaridan surib chiqardi! (+{pts})")
+            # Durrang (Same tactic): Jang kuchi (power) to'qnashuvi
+            roll1 = p1 * random.uniform(0.85, 1.15)
+            roll2 = p2 * random.uniform(0.85, 1.15)
+            if roll1 >= roll2:
+                score1 += 1
+                rounds_log.append(
+                    f"• {r}-Raund: [{info1['short']}] vs [{info2['short']}] (Durrang!) ➔ Kuchlar to'qnashuvida **{f1['name']}** ({int(roll1)}⚡ vs {int(roll2)}⚡) ustun keldi! (+1)"
+                )
+                round_details.append({"round": r, "m1": m1, "m2": m2, "winner": 1, "tie_power": True})
+            else:
+                score2 += 1
+                rounds_log.append(
+                    f"• {r}-Raund: [{info1['short']}] vs [{info2['short']}] (Durrang!) ➔ Kuchlar to'qnashuvida **{f2['name']}** ({int(roll2)}⚡ vs {int(roll1)}⚡) ustun keldi! (+1)"
+                )
+                round_details.append({"round": r, "m1": m1, "m2": m2, "winner": 2, "tie_power": True})
 
-    winner = f1 if score1 >= score2 else f2
-    loser = f2 if score1 >= score2 else f1
+    # Agar 3 raunddan so'ng durrang bo'lsa, qo'shimcha hal qiluvchi to'qnashuv
+    if score1 == score2:
+        sd_m1 = random.choice(["rock", "scissors", "paper"])
+        sd_m2 = random.choice(["rock", "scissors", "paper"])
+        sd_info1 = RPS_MOVES[sd_m1]
+        sd_info2 = RPS_MOVES[sd_m2]
+
+        if sd_info1["beats"] == sd_m2:
+            score1 += 1
+            rounds_log.append(f"• ⚡ *Hal qiluvchi zarba:* {f1['name']} [{sd_info1['short']}] ⚔️ [{sd_info2['short']}] {f2['name']} ➔ **{f1['name']}** egaridan tushirdi! (+1)")
+        elif sd_info2["beats"] == sd_m1:
+            score2 += 1
+            rounds_log.append(f"• ⚡ *Hal qiluvchi zarba:* {f1['name']} [{sd_info1['short']}] ⚔️ [{sd_info2['short']}] {f2['name']} ➔ **{f2['name']}** egaridan tushirdi! (+1)")
+        else:
+            sd_roll1 = p1 * random.uniform(0.90, 1.10)
+            sd_roll2 = p2 * random.uniform(0.90, 1.10)
+            if sd_roll1 >= sd_roll2:
+                score1 += 1
+                rounds_log.append(f"• ⚡ *Hal qiluvchi kuch jangi:* **{f1['name']}** so'nggi nafasda ustun keldi! (+1)")
+            else:
+                score2 += 1
+                rounds_log.append(f"• ⚡ *Hal qiluvchi kuch jangi:* **{f2['name']}** so'nggi nafasda ustun keldi! (+1)")
+
+    winner = f1 if score1 > score2 else f2
+    loser = f2 if score1 > score2 else f1
 
     return {
         "winner": winner,
         "loser": loser,
         "score_winner": max(score1, score2),
         "score_loser": min(score1, score2),
+        "rounds": round_details,
         "log": "\n".join(rounds_log),
     }
 

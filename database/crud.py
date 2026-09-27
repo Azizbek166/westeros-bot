@@ -5342,11 +5342,16 @@ async def enter_tournament(
     session: AsyncSession,
     user_id: int,
     use_champion: bool = False,
+    tactic: str = "rock",
+    tactics_seq: str = "rock,scissors,paper",
 ) -> Tuple[bool, str]:
-    """Turnirga qatnashish (Kirish to'lovi: 2,000 Oltin)"""
+    """Turnirga qatnashish (Kirish to'lovi: 2,000 Oltin, Maksimal: 8 ritsar)"""
     tourney = await get_active_tournament(session)
     if not tourney:
         return False, "❌ Ayni paytda faol ritsarlar turniri mavjud emas. Yangi turnir e'lon qilinishini kuting!"
+
+    if len(tourney.participants or []) >= 8:
+        return False, "❌ Ushbu turnirning barcha 8 ta o'rni to'lgan! Navbatdagi turnirni kuting."
 
     user_res = await session.execute(select(models.User).where(models.User.id == user_id))
     user = user_res.scalar_one_or_none()
@@ -5396,18 +5401,176 @@ async def enter_tournament(
         user_id=user.id,
         fighter_name=fighter_name,
         fighter_power=fighter_power,
+        tactic=tactic,
+        tactics_seq=tactics_seq,
         joined_at=datetime.utcnow(),
     )
     session.add(part)
     await session.commit()
 
+    tactic_labels = {
+        "rock": "🪨 Tosh (Og'ir Zarba)",
+        "scissors": "✂️ Qaychi (Epchil Hamla)",
+        "paper": "📜 Qog'oz (Qalqonli Mudofaa)",
+        "random": "🎲 Aralash / Tasodifiy",
+    }
+    t_label = tactic_labels.get(tactic, "🪨 Tosh")
+
     return True, (
         f"🏇⚔️ **TURNIRGA QO'SHILDINGIZ!**\n\n"
         f"Jangchi: **{fighter_name}**\n"
         f"Jang kuchi: **{fighter_power}** quvvat\n"
+        f"🎯 Jang Taktikasi: **{t_label}**\n"
         f"💰 Xazinaga +{fee:,} Oltin qo'shildi. Umumiy Jamg'arma: **{tourney.prize_pool:,}** Oltin!\n\n"
-        f"G'oliblik sari omad yor bo'lsin!"
+        f"Turnir setkasi shakllantirilmoqda. G'oliblik sari omad yor bo'lsin!"
     )
+
+
+async def update_tournament_tactic(
+    session: AsyncSession,
+    user_id: int,
+    tactic: str,
+    tactics_seq: Optional[str] = None,
+) -> Tuple[bool, str]:
+    """Turnir ishtirokchisining jang taktikasini o'zgartirish"""
+    tourney = await get_active_tournament(session)
+    if not tourney:
+        return False, "❌ Faol turnir topilmadi."
+
+    part_res = await session.execute(
+        select(models.TournamentParticipant).where(
+            models.TournamentParticipant.tournament_id == tourney.id,
+            models.TournamentParticipant.user_id == user_id,
+        )
+    )
+    part = part_res.scalar_one_or_none()
+    if not part:
+        return False, "❌ Siz ushbu turnirda ishtirok etmayapsiz."
+
+    part.tactic = tactic
+    if tactics_seq:
+        part.tactics_seq = tactics_seq
+
+    await session.commit()
+
+    tactic_labels = {
+        "rock": "🪨 Tosh (Og'ir Zarba)",
+        "scissors": "✂️ Qaychi (Epchil Hamla)",
+        "paper": "📜 Qog'oz (Qalqonli Mudofaa)",
+        "random": "🎲 Aralash / Tasodifiy",
+    }
+    t_label = tactic_labels.get(tactic, tactic)
+    return True, f"✅ Turnirdagi jang taktikangiz muvaffaqiyatli tanlandi: **{t_label}**!"
+
+
+def format_tournament_bracket_view(bracket_data: dict, is_completed: bool = False) -> str:
+    """Turnir setkasini chiroyli matn va grafik ko'rinishda formatlash"""
+    if not bracket_data or not bracket_data.get("quarterfinals"):
+        return "📊 *Turnir setkasi hali shakllantirilmagan.*"
+
+    qfs = bracket_data.get("quarterfinals", [])
+    sfs = bracket_data.get("semifinals", [])
+    fn = bracket_data.get("final", {})
+    champ = bracket_data.get("champion", {})
+    runner = bracket_data.get("runner_up", {})
+
+    lines = [
+        "📊 ══════ ⚔️ **TURNIR SETKASI (8 TALIK)** ⚔️ ══════ 📊\n"
+    ]
+
+    # 1/4 Final
+    lines.append("🤺 **1/4 CHORAK FINALLAR (Tosh-Qaychi-Qog'oz):**")
+    for idx, q in enumerate(qfs, 1):
+        f1_name = q.get("f1_name", "Noma'lum")
+        f2_name = q.get("f2_name", "Noma'lum")
+        score = q.get("score", "-:-")
+        win_name = q.get("winner_name", "Kutilmoqda")
+        lines.append(f"  **Q{idx}:** {f1_name} 🆚 {f2_name}")
+        lines.append(f"       ┗ 🏅 G'olib: **{win_name}** ({score})\n")
+
+    # 1/2 Final
+    if sfs:
+        lines.append("⚡ **1/2 YARIM FINALLAR:**")
+        for idx, s in enumerate(sfs, 1):
+            f1_name = s.get("f1_name", "Noma'lum")
+            f2_name = s.get("f2_name", "Noma'lum")
+            score = s.get("score", "-:-")
+            win_name = s.get("winner_name", "Kutilmoqda")
+            lines.append(f"  **SF{idx}:** {f1_name} 🆚 {f2_name}")
+            lines.append(f"        ┗ 🏅 G'olib: **{win_name}** ({score})\n")
+
+    # Final
+    if fn:
+        f1_name = fn.get("f1_name", "Noma'lum")
+        f2_name = fn.get("f2_name", "Noma'lum")
+        score = fn.get("score", "-:-")
+        lines.append("👑 **GRAND FINAL:**")
+        lines.append(f"  🏆 {f1_name} 🆚 {f2_name}")
+        lines.append(f"      ┗ 👑 CHEMPION: **{champ.get('name', 'Noma\'lum')}** ({score})\n")
+
+    if is_completed and champ:
+        lines.append(f"🥇 **QIROLLIK CHEMPIONI:** {champ.get('name')}")
+        if runner:
+            lines.append(f"🥈 **2-O'RIN (Finalist):** {runner.get('name')}")
+
+    return "\n".join(lines)
+
+
+async def get_tournament_bracket_display(session: AsyncSession, tourney_id: Optional[int] = None) -> str:
+    """Turnir setkasini ko'rish uchun formatlangan xabar olish"""
+    tourney = None
+    if tourney_id:
+        tourney = await session.get(models.Tournament, tourney_id)
+    else:
+        tourney = await get_active_tournament(session)
+        if not tourney:
+            # So'nggi yakunlangan turnirni tekshirish
+            last_res = await session.execute(
+                select(models.Tournament)
+                .where(models.Tournament.status == "completed")
+                .order_by(desc(models.Tournament.id))
+                .limit(1)
+            )
+            tourney = last_res.scalar_one_or_none()
+
+    if not tourney:
+        return "❌ Turnirlar ma'lumoti topilmadi."
+
+    # Agar allaqachon hisoblangan bracket_json bo'lsa
+    if tourney.bracket_json and tourney.bracket_json != "{}":
+        try:
+            b_data = json.loads(tourney.bracket_json)
+            return format_tournament_bracket_view(b_data, is_completed=(tourney.status == "completed"))
+        except Exception:
+            pass
+
+    # Faol turnirning kutilayotgan setkasi (ro'yxatdan o'tganlar asosida)
+    parts = list(tourney.participants or [])
+    lines = [
+        f"📊 ══════ ⚔️ **{tourney.name} SETKASI** ⚔️ ══════ 📊\n",
+        f"📋 **Holat:** 🟢 Ro'yxatdan o'tish davom etmoqda ({len(parts)}/8 ritsar)",
+        f"💰 **Jamg'arma:** **{tourney.prize_pool:,}** Oltin\n",
+        "⚔️ **1/4 Chorak Final Qur'asi (8 Talik Setka):**",
+    ]
+
+    slots = []
+    for i in range(8):
+        if i < len(parts):
+            p = parts[i]
+            tactic_icon = "🪨" if getattr(p, "tactic", "rock") == "rock" else ("✂️" if getattr(p, "tactic", "") == "scissors" else "📜")
+            slots.append(f"[{i+1}] {p.fighter_name} ({p.fighter_power}⚡ {tactic_icon})")
+        else:
+            slots.append(f"[{i+1}] _(Kutilayotgan ritsar / NPC)_")
+
+    lines.append(f"  **Q1:** {slots[0]} 🆚 {slots[1]}")
+    lines.append(f"  **Q2:** {slots[2]} 🆚 {slots[3]}")
+    lines.append(f"  **Q3:** {slots[4]} 🆚 {slots[5]}")
+    lines.append(f"  **Q4:** {slots[6]} 🆚 {slots[7]}\n")
+    lines.append("⚡ **1/2 Yarim Final:** G'olib(Q1) vs G'olib(Q2)  |  G'olib(Q3) vs G'olib(Q4)")
+    lines.append("👑 **Final:** Yarim final g'oliblari to'qnashuvi\n")
+    lines.append("💡 *Turnir boshlanganda bo'sh o'rinlar Vesteros afsonalari bilan to'ldiriladi va barcha janglar Tosh-Qaychi-Qog'oz qoidasi bilan hal etiladi!*")
+
+    return "\n".join(lines)
 
 
 async def place_tournament_bet(
@@ -5472,74 +5635,182 @@ async def place_tournament_bet(
 
 
 async def resolve_tournament(session: AsyncSession, bot_app=None) -> Tuple[bool, str]:
-    """Turnirni yakunlash va g'oliblarni taqdirlash"""
+    """
+    Turnirni yakunlash va g'oliblarni taqdirlash.
+    8 talik saralash setkasi (Quarterfinals -> Semifinals -> Final) va Tosh-Qaychi-Qog'oz jangi.
+    """
     from core.battle_engine import resolve_tourney_duel
 
     tourney = await get_active_tournament(session)
     if not tourney:
         return False, "❌ Faol turnir topilmadi."
 
-    parts = list(tourney.participants)
+    parts = list(tourney.participants or [])
 
-    # Agar kamida 2 ishtirokchi bo'lmasa, turnirga afsonaviy NPC ritsarlar qo'shiladi
-    npc_knights = [
-        {"name": "🛡️ Ser Barristan Selmy (Jasur)", "power": 230},
-        {"name": "⚔️ Ser Gregor Clegane (Tog')", "power": 240},
-        {"name": "🗡️ Ser Arthur Dayne (Tong Qilichi)", "power": 250},
-        {"name": "🐎 Ser Loras Tyrell (Gullar Ritsari)", "power": 215},
+    # NPC afsonaviy ritsarlar zaxirasi
+    npc_pool = [
+        {"name": "🗡️ Ser Arthur Dayne (Tong Qilichi)", "power": 250, "tactic": "random", "tactics_seq": "rock,scissors,paper"},
+        {"name": "⚔️ Ser Gregor Clegane (Tog')", "power": 245, "tactic": "rock", "tactics_seq": "rock,rock,rock"},
+        {"name": "🦁 Ser Jaime Lannister (Qirolo'ldiruvchi)", "power": 240, "tactic": "scissors", "tactics_seq": "scissors,rock,scissors"},
+        {"name": "🛡️ Ser Barristan Selmy (Jasur)", "power": 235, "tactic": "paper", "tactics_seq": "paper,rock,paper"},
+        {"name": "🐍 Oberyn Martell (Qizil Ilon)", "power": 235, "tactic": "scissors", "tactics_seq": "scissors,paper,scissors"},
+        {"name": "🐺 Jon Snow (Oq Bo'ri)", "power": 225, "tactic": "rock", "tactics_seq": "rock,paper,rock"},
+        {"name": "🐕 Sandor Clegane (Tazi)", "power": 225, "tactic": "rock", "tactics_seq": "rock,scissors,rock"},
+        {"name": "🌹 Ser Loras Tyrell (Gullar Ritsari)", "power": 215, "tactic": "paper", "tactics_seq": "paper,scissors,paper"},
     ]
-    while len(parts) < 2:
-        npc = npc_knights.pop(0)
+
+    # Agar 8 tadan kam bo'lsa, NPC lar bilan to'ldirish
+    existing_names = {p.fighter_name for p in parts}
+    npc_ids = set()
+
+    # Biror mavjud user_id olish (tizim/NPC bog'lanishi uchun)
+    sys_uid_res = await session.execute(select(models.User.id).limit(1))
+    sys_uid = sys_uid_res.scalar() or 1
+
+    for npc in npc_pool:
+        if len(parts) >= 8:
+            break
+        if npc["name"] in existing_names:
+            continue
         npc_part = models.TournamentParticipant(
             tournament_id=tourney.id,
-            user_id=tourney.winner_user_id or 1,  # Tizim ishtirokchisi
+            user_id=sys_uid,
             fighter_name=npc["name"],
             fighter_power=npc["power"],
+            tactic=npc["tactic"],
+            tactics_seq=npc["tactics_seq"],
+            joined_at=datetime.utcnow(),
         )
         session.add(npc_part)
-        tourney.prize_pool += 500
+        tourney.prize_pool += 500  # NPC kirish to'lovi bonusi
         parts.append(npc_part)
 
-    # Turnir duellari: barcha ishtirokchilarni juftlab saralash
-    duel_chronicle = []
-    current_round_fighters = [
-        {"id": p.id, "user_id": p.user_id, "name": p.fighter_name, "power": p.fighter_power, "obj": p}
-        for p in parts
+    await session.flush()
+    for p in parts:
+        if any(npc["name"] == p.fighter_name for npc in npc_pool):
+            npc_ids.add(p.id)
+
+    # 8 ritsarni tasodifiy qur'a bilan setkaga joylashtirish
+    random.shuffle(parts)
+    fighters = [
+        {
+            "id": p.id,
+            "user_id": p.user_id,
+            "name": p.fighter_name,
+            "power": p.fighter_power,
+            "tactic": getattr(p, "tactic", "rock") or "rock",
+            "tactics_seq": getattr(p, "tactics_seq", "rock,scissors,paper") or "rock,scissors,paper",
+            "is_npc": (p.id in npc_ids),
+        }
+        for p in parts[:8]
     ]
 
-    round_num = 1
-    runner_up = None
-    while len(current_round_fighters) > 1:
-        next_round_fighters = []
-        random.shuffle(current_round_fighters)
-        is_final = (len(current_round_fighters) == 2)
-        stage_title = "FINAL JANGI" if is_final else f"{round_num}-BOSQICH JANGILARI"
-        duel_chronicle.append(f"\n🏆 **{stage_title}:**")
+    duel_chronicle = []
 
-        for i in range(0, len(current_round_fighters), 2):
-            if i + 1 < len(current_round_fighters):
-                f1 = current_round_fighters[i]
-                f2 = current_round_fighters[i + 1]
-                duel_res = resolve_tourney_duel(f1, f2)
-                winner = duel_res["winner"]
-                loser = duel_res["loser"]
-                if is_final:
-                    runner_up = loser
-                duel_chronicle.append(
-                    f"⚔️ **{f1['name']}** VS **{f2['name']}**\n"
-                    f"{duel_res['log']}\n"
-                    f"🏅 G'olib: **{winner['name']}** ({duel_res['score_winner']}:{duel_res['score_loser']})\n"
-                )
-                next_round_fighters.append(winner)
-            else:
-                # Toq ishtirokchi keyingi bosqichga o'tadi
-                next_round_fighters.append(current_round_fighters[i])
-                duel_chronicle.append(f"• **{current_round_fighters[i]['name']}** qur'a bo'yicha to'g'ridan-to'g'ri o'tdi.")
+    # ============================================================
+    # 1/4 FINAL (4 TA JANG)
+    # ============================================================
+    duel_chronicle.append("🤺 **1/4 CHORAK FINAL JANGILARI (Tosh-Qaychi-Qog'oz):**")
+    qf_matches = []
+    sf_fighters = []
 
-        current_round_fighters = next_round_fighters
-        round_num += 1
+    for i in range(4):
+        f1 = fighters[i * 2]
+        f2 = fighters[i * 2 + 1]
+        res = resolve_tourney_duel(f1, f2)
+        winner = res["winner"]
+        loser = res["loser"]
+        sf_fighters.append(winner)
 
-    champion = current_round_fighters[0]
+        qf_matches.append({
+            "match": i + 1,
+            "f1_id": f1["id"],
+            "f1_name": f1["name"],
+            "f2_id": f2["id"],
+            "f2_name": f2["name"],
+            "winner_id": winner["id"],
+            "winner_name": winner["name"],
+            "score": f"{res['score_winner']}:{res['score_loser']}",
+            "log": res["log"],
+        })
+
+        duel_chronicle.append(
+            f"\n⚔️ **Q{i+1}: {f1['name']}** VS **{f2['name']}**\n"
+            f"{res['log']}\n"
+            f"🏅 G'olib: **{winner['name']}** ({res['score_winner']}:{res['score_loser']})"
+        )
+
+    # ============================================================
+    # 1/2 FINAL (2 TA JANG)
+    # ============================================================
+    duel_chronicle.append("\n\n⚡ **1/2 YARIM FINAL JANGILARI:**")
+    sf_matches = []
+    final_fighters = []
+
+    for i in range(2):
+        f1 = sf_fighters[i * 2]
+        f2 = sf_fighters[i * 2 + 1]
+        res = resolve_tourney_duel(f1, f2)
+        winner = res["winner"]
+        loser = res["loser"]
+        final_fighters.append(winner)
+
+        sf_matches.append({
+            "match": i + 1,
+            "f1_id": f1["id"],
+            "f1_name": f1["name"],
+            "f2_id": f2["id"],
+            "f2_name": f2["name"],
+            "winner_id": winner["id"],
+            "winner_name": winner["name"],
+            "score": f"{res['score_winner']}:{res['score_loser']}",
+            "log": res["log"],
+        })
+
+        duel_chronicle.append(
+            f"\n⚔️ **SF{i+1}: {f1['name']}** VS **{f2['name']}**\n"
+            f"{res['log']}\n"
+            f"🏅 G'olib: **{winner['name']}** ({res['score_winner']}:{res['score_loser']})"
+        )
+
+    # ============================================================
+    # GRAND FINAL (1 TA JANG)
+    # ============================================================
+    duel_chronicle.append("\n\n👑 **GRAND FINAL (QIROLLIK CHEMPIONLIGI UCHUN):**")
+    f_final1 = final_fighters[0]
+    f_final2 = final_fighters[1]
+    final_res = resolve_tourney_duel(f_final1, f_final2)
+    champion = final_res["winner"]
+    runner_up = final_res["loser"]
+
+    final_match_dict = {
+        "f1_id": f_final1["id"],
+        "f1_name": f_final1["name"],
+        "f2_id": f_final2["id"],
+        "f2_name": f_final2["name"],
+        "winner_id": champion["id"],
+        "winner_name": champion["name"],
+        "score": f"{final_res['score_winner']}:{final_res['score_loser']}",
+        "log": final_res["log"],
+    }
+
+    duel_chronicle.append(
+        f"\n🏆 **FINAL: {f_final1['name']}** VS **{f_final2['name']}**\n"
+        f"{final_res['log']}\n"
+        f"👑 **QIROLLIK CHEMPIONI:** **{champion['name']}** ({final_res['score_winner']}:{final_res['score_loser']})"
+    )
+
+    # Setka ma'lumotlarini JSON formatda saqlash
+    bracket_dict = {
+        "quarterfinals": qf_matches,
+        "semifinals": sf_matches,
+        "final": final_match_dict,
+        "champion": {"id": champion["id"], "user_id": champion["user_id"], "name": champion["name"], "is_npc": champion["is_npc"]},
+        "runner_up": {"id": runner_up["id"], "user_id": runner_up["user_id"], "name": runner_up["name"], "is_npc": runner_up["is_npc"]},
+    }
+    tourney.bracket_json = json.dumps(bracket_dict, ensure_ascii=False)
+
+    # Mukofotlarni hisoblash
     first_prize = int(tourney.prize_pool * 0.70)
     second_prize = int(tourney.prize_pool * 0.30)
 
@@ -5548,20 +5819,28 @@ async def resolve_tournament(session: AsyncSession, bot_app=None) -> Tuple[bool,
     tourney.winner_user_id = champion["user_id"]
     tourney.winner_name = champion["name"]
 
-    # 1-O'rin: Chempion o'yinchiga mukofot
-    champ_user = await session.get(models.User, champion["user_id"])
-    if champ_user:
-        champ_user.gold = (champ_user.gold or 0) + first_prize
-        champ_user.prestige = (champ_user.prestige or 0) + 100
-        champ_user.title = "Qirollik Chempioni"
+    # 1-O'rin: Chempion
+    champ_prize_info = ""
+    if not champion.get("is_npc"):
+        champ_user = await session.get(models.User, champion["user_id"])
+        if champ_user:
+            champ_user.gold = (champ_user.gold or 0) + first_prize
+            champ_user.prestige = (champ_user.prestige or 0) + 100
+            champ_user.title = "Qirollik Chempioni"
+            champ_prize_info = f"💰 Mukofot: **+{first_prize:,}** Oltin va **+100** Nufuz!\n👑 Sharafli unvon: **Qirollik Chempioni**"
+    else:
+        champ_prize_info = f"🛡️ Afsonaviy Vesteros ritsari g'olib bo'ldi! Sovrin fondi qirollik xazinasida saqlanadi."
 
-    # 2-O'rin: Finalist (runner-up) o'yinchiga mukofot
-    runner_up_name = runner_up["name"] if runner_up else "Noma'lum"
-    if runner_up:
+    # 2-O'rin: Finalist
+    runner_prize_info = ""
+    if not runner_up.get("is_npc") and runner_up["user_id"] != champion["user_id"]:
         runner_user = await session.get(models.User, runner_up["user_id"])
-        if runner_user and runner_user.id != champion["user_id"]:
+        if runner_user:
             runner_user.gold = (runner_user.gold or 0) + second_prize
             runner_user.prestige = (runner_user.prestige or 0) + 50
+            runner_prize_info = f"💰 Mukofot: **+{second_prize:,}** Oltin va **+50** Nufuz!"
+    else:
+        runner_prize_info = f"🥈 2-O'rin sharafi topshirildi."
 
     # Stavkalarni to'lash
     bets_res = await session.execute(
@@ -5577,19 +5856,21 @@ async def resolve_tournament(session: AsyncSession, bot_app=None) -> Tuple[bool,
             bet_user = await session.get(models.User, bet.user_id)
             if bet_user:
                 bet_user.gold += payout
-                payout_summary.append(f"• {bet_user.username or bet_user.full_name}: +{payout:,}💰")
+                payout_summary.append(f"• {bet_user.username or bet_user.full_name}: +{payout:,}💰 (1.8x)")
         else:
             bet.status = "lost"
 
-    payout_text = "\n".join(payout_summary) if payout_summary else "• Hech kim stavka yutib olmadi."
+    payout_text = "\n".join(payout_summary) if payout_summary else "• Hech kim to'g'ri stavka tikmagan."
+
+    visual_bracket_text = format_tournament_bracket_view(bracket_dict, is_completed=True)
 
     full_report = (
         f"👑🏆 **QIROL QO'LI RITSARLAR TURNIRI YAKUNLANDI!**\n\n"
+        f"{visual_bracket_text}\n\n"
         f"🥇 **QIROLLIK CHEMPIONI (1-O'rin):** {champion['name']}\n"
-        f"💰 Mukofot: **+{first_prize:,}** Oltin va **+100** Nufuz!\n"
-        f"👑 Sharafli unvon: **Qirollik Chempioni**\n\n"
-        f"🥈 **FINALIST (2-O'rin):** {runner_up_name}\n"
-        f"💰 Mukofot: **+{second_prize:,}** Oltin va **+50** Nufuz!\n\n"
+        f"{champ_prize_info}\n\n"
+        f"🥈 **FINALIST (2-O'rin):** {runner_up['name']}\n"
+        f"{runner_prize_info}\n\n"
         f"{''.join(duel_chronicle)}\n\n"
         f"🎰 **YUTUQLI STAVKALAR TO'LOVI (1.8x):**\n"
         f"{payout_text}\n\n"
