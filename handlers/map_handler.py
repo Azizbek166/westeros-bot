@@ -428,6 +428,11 @@ async def show_my_castles(target, user_id: int, is_message: bool = False):
             btn_tag = f"{hours}/4s o'lpon" if hours >= 1 else f"~{rem_min} daq"
             buttons.append([InlineKeyboardButton(f"🏰 {c.castle_name} ({btn_tag})", callback_data=f"my_c_detail:{c.id}")])
 
+        # Egallangan qalalarni ozod qilish tugmasi (agar mavjud bo'lsa)
+        conquered_castles = await crud.get_user_conquered_castles(session, user_id)
+        if conquered_castles:
+            buttons.append([InlineKeyboardButton(f"🏳️ Egallangan Qal'alarni Ozod Qilish ({len(conquered_castles)} ta)", callback_data="menu_liberate_castles")])
+
         buttons.append([InlineKeyboardButton("🗺️ Butun Xarita", callback_data="menu_map")])
         buttons.append([InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")])
 
@@ -534,6 +539,10 @@ async def show_my_castle_detail(query, user_id: int, terr_id: int):
                 buttons.append([InlineKeyboardButton(f"💚 Yovvoyi Olov O'rnatish ({curr_wf}/5: 1.5k🪙, 800⛓️)", callback_data=f"buy_wildfire:{terr.id}")])
             else:
                 buttons.append([InlineKeyboardButton("💚 Yovvoyi Olov Zaxirasi To'liq (5/5)", callback_data="wf_max_alert")])
+
+        # Agar qal'a zabt etilgan bo'lsa, uni ozod qilish tugmasi
+        if getattr(terr, 'conquered_by_user_id', None) == user.id or (is_lord and getattr(terr, 'conquered_by_user_id', None)):
+            buttons.append([InlineKeyboardButton("🏳️ Ushbu Qal'ani Ozod Qilish (NPCga topshirish)", callback_data=f"liberate_confirm:{terr.id}")])
 
         buttons.append([InlineKeyboardButton("🔙 Qalalarim Ro'yxati", callback_data="menu_castles")])
         buttons.append([InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")])
@@ -862,10 +871,148 @@ async def wf_max_alert_callback(update: Update, context: ContextTypes.DEFAULT_TY
     await update.callback_query.answer("💚 Qal'ada Yovvoyi Olov zaxirasi maksimal (5/5 dona)!", show_alert=True)
 
 
+# ============================================================
+# EGALLANGAN QAL'ALARNI OZOD QILISH (CASTLE LIBERATION HANDLERS)
+# ============================================================
+
+async def liberate_castles_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/liberate yoki /ozod buyrug'i"""
+    user_id = update.effective_user.id
+    await show_liberate_castles_menu(update, user_id, is_message=True)
+
+
+async def liberate_castles_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """menu_liberate_castles callback"""
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    await show_liberate_castles_menu(query, user_id, is_message=False)
+
+
+async def show_liberate_castles_menu(target, user_id: int, is_message: bool = False):
+    """Egallangan qalalarni ozod qilish tanlov menyusi"""
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_any(session, user_id)
+        if not user:
+            return
+
+        conquered = await crud.get_user_conquered_castles(session, user.id)
+        if not conquered:
+            text = (
+                "🏳️ **EGALLANGAN QAL'ALARNI OZOD QILISH**\n\n"
+                "Sizda yoki xonadoningizda ayni paytda ozod qilish uchun egallangan qal'alar mavjud emas.\n\n"
+                "💡 *Dushman qal'alarini zabt etganingizdan so'ng, ularni ixtiyoriy ravishda mustaqil NPC xonadonlariga topshirishingiz mumkin.*"
+            )
+            buttons = [
+                [InlineKeyboardButton("🏰 Qal'alarim Ro'yxati", callback_data="menu_castles")],
+                [InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")],
+            ]
+            if is_message:
+                await target.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+            else:
+                await target.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+            return
+
+        text = (
+            "🏳️ **EGALLANGAN QAL'ALARNI OZOD QILISH (LIBERATE CASTLES)**\n\n"
+            "Quyida siz yoki xonadoningiz tomonidan zabt etilgan qal'alar ro'yxati keltirilgan.\n"
+            "Qaysi qal'ani ozod qilib, mustaqil NPC xonadoniga topshirmoqchisiz?\n\n"
+            "*(Qal'a ozod qilinganda, uning garnizonidagi barcha shaxsiy askarlaringiz armiyangizga to'liq qaytariladi)*\n\n"
+        )
+
+        buttons = []
+        for idx, c in enumerate(conquered, 1):
+            c_name = escape_md(c["castle_name"])
+            t_name = escape_md(c["name"])
+            reg = escape_md(c["region"])
+            npc_name = escape_md(c["npc_house_name"])
+            npc_emoji = c["npc_house_emoji"]
+
+            text += (
+                f"{idx}. 🏰 **{c_name}** ({t_name})\n"
+                f"   └ 📍 Mintaqa: **{reg}**\n"
+                f"   └ 🛡️ Qaytariladigan askarlar: **{c['garrison_total']:,} ta**\n"
+                f"   └ 🤝 Topshiriladigan NPC: **{npc_emoji} {npc_name}**\n\n"
+            )
+            buttons.append([InlineKeyboardButton(f"🏳️ {c['castle_name']} Qal'asini Ozod Qilish", callback_data=f"liberate_confirm:{c['id']}")])
+
+        buttons.append([InlineKeyboardButton("🏰 Qal'alarim Ro'yxati", callback_data="menu_castles")])
+        buttons.append([InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")])
+
+        if is_message:
+            await target.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        else:
+            await target.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def liberate_castle_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Qal'ani ozod qilish tasdiqlash sahifasi"""
+    query = update.callback_query
+    await query.answer()
+    terr_id = int(query.data.split(":")[1])
+    user_id = query.from_user.id
+
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_any(session, user_id)
+        terr = await session.get(models.Territory, terr_id)
+        if not user or not terr:
+            await query.answer("Ma'lumot topilmadi.", show_alert=True)
+            return
+
+        npc_house = await crud.get_npc_house_for_liberation(session, terr)
+        tot_gar = (terr.garrison_infantry or 0) + (terr.garrison_archers or 0) + (terr.garrison_cavalry or 0) + (terr.garrison_spearmen or 0)
+        c_name = escape_md(terr.castle_name or terr.name)
+
+        text = (
+            f"⚠️ **QAL'ANI OZOD QILISHNI TASDIQLASH**\n\n"
+            f"🏰 **Qal'a:** **{c_name}** ({escape_md(terr.region)})\n"
+            f"👑 **Topshiriladigan Yangi Xo'jayin:** **{npc_house.emoji} {escape_md(npc_house.name)} (NPC Xonadon)**\n\n"
+            f"👥 **SHAXSIY ARMIYANGIZGA QAYTADIGAN ASKARLAR:**\n"
+            f"• 🛡️ Piyoda: **+{terr.garrison_infantry or 0:,}**\n"
+            f"• 🏹 Kamonchi: **+{terr.garrison_archers or 0:,}**\n"
+            f"• 🐎 Otliq: **+{terr.garrison_cavalry or 0:,}**\n"
+            f"• 🗡️ Nayzachi: **+{terr.garrison_spearmen or 0:,}**\n"
+            f"*(Jami: {tot_gar:,} ta jangchi to'liq zaxirangizga qaytariladi)*\n\n"
+            f"✨ **MUKOFOT:** Mardlik va adolat uchun **+25 Nufuz (Prestige)** olasiz!\n\n"
+            f"Haqiqatan ham ushbu qal'ani ozod qilib, NPC xonadoniga topshirishni tasdiqlaysizmi?"
+        )
+        buttons = [
+            [InlineKeyboardButton("✅ Ha, Qal'ani Ozod Qilish", callback_data=f"liberate_do:{terr_id}")],
+            [InlineKeyboardButton("❌ Bekor Qilish", callback_data="menu_liberate_castles")],
+        ]
+        try:
+            await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        except Exception:
+            clean = text.replace("**", "").replace("*", "")
+            await query.edit_message_text(clean, reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def liberate_castle_do_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Qal'ani ozod qilish amaliyoti"""
+    query = update.callback_query
+    terr_id = int(query.data.split(":")[1])
+    user_id = query.from_user.id
+
+    async with AsyncSessionLocal() as session:
+        ok, msg = await crud.liberate_conquered_castle(session, user_id, terr_id)
+
+    await query.answer()
+    buttons = [
+        [InlineKeyboardButton("🏳️ Boshqa Qal'alarni Ozod Qilish", callback_data="menu_liberate_castles")],
+        [InlineKeyboardButton("🏰 Qal'alarim Ro'yxati", callback_data="menu_castles")],
+    ]
+    try:
+        await query.edit_message_text(msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+    except Exception:
+        clean = msg.replace("**", "").replace("*", "")
+        await query.edit_message_text(clean, reply_markup=InlineKeyboardMarkup(buttons))
+
+
 def register_map_handlers(app):
     app.add_handler(CommandHandler("map", map_command))
     app.add_handler(CommandHandler("territory", map_command))
     app.add_handler(CommandHandler(["castles", "mycastles"], my_castles_command))
+    app.add_handler(CommandHandler(["liberate", "ozod"], liberate_castles_command))
     app.add_handler(CallbackQueryHandler(map_callback, pattern="^menu_map$"))
     app.add_handler(CallbackQueryHandler(my_castles_callback, pattern="^menu_castles$"))
     app.add_handler(CallbackQueryHandler(my_castle_detail_callback, pattern="^my_c_detail:"))
@@ -888,3 +1035,6 @@ def register_map_handlers(app):
     app.add_handler(CallbackQueryHandler(max_walls_alert_callback, pattern="^max_walls_alert:"))
     app.add_handler(CallbackQueryHandler(buy_wildfire_callback, pattern="^buy_wildfire:"))
     app.add_handler(CallbackQueryHandler(wf_max_alert_callback, pattern="^wf_max_alert$"))
+    app.add_handler(CallbackQueryHandler(liberate_castles_menu_callback, pattern="^menu_liberate_castles$"))
+    app.add_handler(CallbackQueryHandler(liberate_castle_confirm_callback, pattern="^liberate_confirm:\\d+$"))
+    app.add_handler(CallbackQueryHandler(liberate_castle_do_callback, pattern="^liberate_do:\\d+$"))

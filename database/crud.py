@@ -2351,6 +2351,231 @@ async def collect_all_castles_tax(session: AsyncSession, user_id: int) -> Tuple[
     return True, msg, {"gold": tot_gold, "food": tot_food, "iron": tot_iron, "count": len(collected_castles)}
 
 
+# ============================================================
+# EGALLANGAN QAL'ALARNI OZOD QILISH (CASTLE LIBERATION CRUD)
+# ============================================================
+
+async def get_npc_house_for_liberation(session: AsyncSession, territory: models.Territory) -> models.House:
+    """
+    Qal'a ozod qilinganda uni qabul qilib oluvchi NPC xonadonini aniqlash.
+    Kanonik initial_owner yoki mintaqaviy NPC xonadoni tanlanadi.
+    """
+    from data.map_data import TERRITORIES_DATA
+
+    t_info = TERRITORIES_DATA.get(territory.code, {})
+    init_owner_id = t_info.get("initial_owner_id")
+
+    # 1. Kanonik boshlang'ich xonadonni tekshirish
+    if init_owner_id:
+        init_house = await session.get(models.House, init_owner_id)
+        if init_house and (init_house.is_npc or not init_house.lord_user_id):
+            init_house.is_npc = True
+            return init_house
+
+    # 2. Mintaqaga mos rasmiy NPC xonadonini tanlash
+    region = territory.region or ""
+    regional_npc_map = {
+        "The North": [6, 48, 3, 4],           # Bolton (6, is_npc), Night's Watch (48), Umber, Karstark
+        "Beyond the Wall": [49, 50, 48],      # Free Folk (49, is_npc), White Walkers (50), Night's Watch
+        "Riverlands": [33, 32, 34],           # Blackwood (33, is_npc), Frey, Bracken
+        "Essos": [46, 47],                    # Golden Company (46, is_npc), Iron Bank (47)
+        "Westerlands": [11, 9, 12, 10],       # Lefford, Crakehall, Brax, Marbrand
+        "The Reach": [21, 20, 18, 19],        # Rowan, Redwyne, Hightower, Tarly
+        "The Vale": [29, 30, 28],             # Waynwood, Corbray, Royce
+        "Dorne": [25, 26, 24, 23],            # Fowler, Uller, Yronwood, Dayne
+        "Stormlands": [44, 45, 41, 42],       # Caron, Connington, Swann, Dondarrion
+        "Crownlands": [16, 14, 15],           # Darklyn, Velaryon, Blackfyre
+        "Iron Islands": [38, 39, 37],         # Goodbrother, Drumm, Harlaw
+    }
+
+    candidates = regional_npc_map.get(region, [6, 33, 46, 49, 50])
+    for h_id in candidates:
+        h = await session.get(models.House, h_id)
+        if h and (h.is_npc or not h.lord_user_id):
+            h.is_npc = True
+            return h
+
+    # 3. Istalgan faol is_npc=True xonadonni olish
+    npc_res = await session.execute(select(models.House).where(models.House.is_npc == True).limit(1))
+    npc_house = npc_res.scalar_one_or_none()
+    if npc_house:
+        return npc_house
+
+    # 4. Fallback: Bolton (6) yoki Golden Company (46)
+    fb = await session.get(models.House, 6)
+    if fb:
+        fb.is_npc = True
+        return fb
+    fb2 = await session.get(models.House, 46)
+    if fb2:
+        fb2.is_npc = True
+        return fb2
+
+    first_h = (await session.execute(select(models.House).limit(1))).scalar_one()
+    first_h.is_npc = True
+    return first_h
+
+
+async def get_user_conquered_castles(session: AsyncSession, user_id: int) -> List[Dict[str, Any]]:
+    """
+    Foydalanuvchi tomonidan zabt etilgan yoki uning xonadoni qo'l ostidagi barcha zabt etilgan qal'alar.
+    Har bir qal'a uchun topshiriladigan aniq NPC xonadoni bilan birga qaytaradi.
+    """
+    user = await get_user_any(session, user_id)
+    if not user:
+        return []
+
+    conditions = [models.Territory.conquered_by_user_id == user.id]
+    if user.house_id:
+        user_house = await session.get(models.House, user.house_id)
+        is_lord = (user_house and user_house.lord_user_id == user.telegram_id) or (user.rank == "king")
+        if is_lord:
+            conditions.append(models.Territory.owner_house_id == user.house_id)
+
+    from config import ADMIN_IDS, OWNER_ID
+    is_admin_user = (user.telegram_id in [int(x) for x in ADMIN_IDS] or user.telegram_id == int(OWNER_ID))
+    if is_admin_user:
+        # Admin barcha zabt etilgan qal'alarni ko'ra oladi
+        res = await session.execute(
+            select(models.Territory)
+            .where(models.Territory.conquered_by_user_id.isnot(None))
+            .order_by(models.Territory.id)
+        )
+    else:
+        res = await session.execute(
+            select(models.Territory)
+            .where(or_(*conditions))
+            .where(models.Territory.conquered_by_user_id.isnot(None))
+            .order_by(models.Territory.id)
+        )
+    terrs = res.scalars().all()
+
+    result = []
+    seen_ids = set()
+    for t in terrs:
+        if t.id in seen_ids:
+            continue
+        seen_ids.add(t.id)
+
+        target_npc = await get_npc_house_for_liberation(session, t)
+        conqueror_user = await session.get(models.User, t.conquered_by_user_id) if t.conquered_by_user_id else user
+        tot_gar = (t.garrison_infantry or 0) + (t.garrison_archers or 0) + (t.garrison_cavalry or 0) + (t.garrison_spearmen or 0)
+
+        result.append({
+            "id": t.id,
+            "code": t.code,
+            "name": t.name,
+            "castle_name": t.castle_name or t.name,
+            "region": t.region,
+            "defense": t.defense or 0,
+            "garrison_total": tot_gar,
+            "garrison_infantry": t.garrison_infantry or 0,
+            "garrison_archers": t.garrison_archers or 0,
+            "garrison_cavalry": t.garrison_cavalry or 0,
+            "garrison_spearmen": t.garrison_spearmen or 0,
+            "conquered_by_name": conqueror_user.full_name if conqueror_user else "Siz",
+            "conquered_by_user_id": t.conquered_by_user_id,
+            "npc_house_id": target_npc.id,
+            "npc_house_name": target_npc.name,
+            "npc_house_emoji": target_npc.emoji or "🏰",
+        })
+
+    return result
+
+
+async def liberate_conquered_castle(session: AsyncSession, user_id: int, territory_id: int) -> Tuple[bool, str]:
+    """
+    Egallangan qal'ani ozod qilish va mustaqil NPC xonadoniga topshirish.
+    Garnizondagi barcha askarlar o'yinchining shaxsiy armiyasiga to'liq qaytariladi.
+    """
+    user = await get_user_any(session, user_id)
+    terr = await session.get(models.Territory, territory_id)
+    if not user or not terr:
+        return False, "❌ Foydalanuvchi yoki qal'a topilmadi."
+
+    # Qal'aga egalik huquqi
+    is_conqueror = (getattr(terr, "conquered_by_user_id", None) == user.id)
+    is_house_lord = False
+    if user.house_id and terr.owner_house_id == user.house_id:
+        user_house = await session.get(models.House, user.house_id)
+        if user_house and (user_house.lord_user_id == user.telegram_id or user.rank == "king"):
+            is_house_lord = True
+
+    from config import ADMIN_IDS, OWNER_ID
+    is_admin_user = (user.telegram_id in [int(x) for x in ADMIN_IDS] or user.telegram_id == int(OWNER_ID))
+
+    if not (is_conqueror or is_house_lord or is_admin_user):
+        return False, "❌ Siz ushbu qal'aning zabt etuvchisi yoki xonadon Lordi emassiz!"
+
+    # 1. Garnizon askarlarini o'yinchining armiyasiga qaytarish
+    army = await get_user_army(session, user.id)
+    gar_inf = terr.garrison_infantry or 0
+    gar_arc = terr.garrison_archers or 0
+    gar_cav = terr.garrison_cavalry or 0
+    gar_sp = terr.garrison_spearmen or 0
+    tot_gar = gar_inf + gar_arc + gar_cav + gar_sp
+
+    if army and tot_gar > 0:
+        army.infantry = (army.infantry or 0) + gar_inf
+        army.archers = (army.archers or 0) + gar_arc
+        army.cavalry = (army.cavalry or 0) + gar_cav
+        army.spearmen = (army.spearmen or 0) + gar_sp
+
+    # 2. Ajdarni zaxiraga qaytarish (agar qal'ada bo'lsa)
+    st_dragons = get_stationed_dragons_list(terr)
+    recalled_dragons = []
+    for d_info in st_dragons:
+        d_id = d_info.get("dragon_id")
+        d_user_id = d_info.get("user_id")
+        if d_id and d_user_id:
+            d_obj = await session.get(models.Dragon, d_id)
+            if d_obj:
+                d_obj.stage = "adult"
+                recalled_dragons.append(d_obj.name)
+
+    # 3. Topshiriladigan NPC xonadonini aniqlash
+    npc_house = await get_npc_house_for_liberation(session, terr)
+
+    old_castle_name = terr.castle_name or terr.name
+    terr.conquered_by_user_id = None
+    terr.owner_house_id = npc_house.id
+    terr.defense = 500  # Standart mudofaa tiklanadi
+    terr.castle_level = 1
+    terr.wildfire_count = 0
+    terr.reinforcements_json = "{}"
+    terr.gates_compromised_until = None
+
+    # NPC garnizoni tiklanadi
+    terr.garrison_infantry = 200
+    terr.garrison_archers = 100
+    terr.garrison_cavalry = 50
+    terr.garrison_spearmen = 50
+
+    # 4. Foydalanuvchiga nufuz (prestige) mukofoti
+    prestige_reward = 25
+    user.prestige = (user.prestige or 0) + prestige_reward
+
+    await session.commit()
+
+    dragon_msg = f"\n🐉 Qal'adan qaytarilgan ajdarlar: **{', '.join(recalled_dragons)}**" if recalled_dragons else ""
+    troops_msg = (
+        f"• 🛡️ Piyoda: +{gar_inf:,}\n"
+        f"• 🏹 Kamonchi: +{gar_arc:,}\n"
+        f"• 🐎 Otliq: +{gar_cav:,}\n"
+        f"• 🗡️ Nayzachi: +{gar_sp:,}"
+    ) if tot_gar > 0 else "• Qal'ada shaxsiy garnizon askarlari yo'q edi."
+
+    return True, (
+        f"🏳️🕊️ **QAL'A MUVAFFAQIYATLI OZOD QILINDI!**\n\n"
+        f"🏰 Qal'a: **{old_castle_name}** ({terr.region})\n"
+        f"👑 Yangi Xo'jayin: **{npc_house.emoji} {npc_house.name} (NPC Xonadon)**\n\n"
+        f"👥 **SHAXSIY ARMIYANGIZGA QAYTARILGAN ASKARLAR ({tot_gar:,} ta):**\n"
+        f"{troops_msg}"
+        f"{dragon_msg}\n\n"
+        f"✨ **MUKOFOT:** Mardlik va tinchlikparvarlik uchun **+{prestige_reward} Nufuz (Prestige)** berildi!\n\n"
+        f"Qal'a endi mustaqil NPC xonadoni tasarrufiga o'tdi."
+    )
+
 
 # ============================================================
 # ARTIFACTS CRUD
@@ -5396,25 +5621,37 @@ async def enter_tournament(
             }
             fighter_power = champ_powers.get(army.champion, 210)
 
+    presets = {
+        "wall": ("paper", "paper,paper,rock", "🛡️ Devor Mudofaasi (📜 Qog'oz ➔ 📜 Qog'oz ➔ 🪨 Tosh)"),
+        "strike": ("rock", "rock,scissors,rock", "⚔️ Shiddatli Hujum (🪨 Tosh ➔ ✂️ Qaychi ➔ 🪨 Tosh)"),
+        "viper": ("scissors", "scissors,scissors,paper", "⚡ Ilon Hamlasi (✂️ Qaychi ➔ ✂️ Qaychi ➔ 📜 Qog'oz)"),
+        "whirlwind": ("rock", "rock,scissors,paper", "🌪️ Girdob Taktikasi (🪨 Tosh ➔ ✂️ Qaychi ➔ 📜 Qog'oz)"),
+        "random": ("random", "random,random,random", "🎲 Aralash / Kutilmagan"),
+    }
+    if tactic in presets:
+        eff_tactic, eff_seq, t_label = presets[tactic]
+    else:
+        eff_tactic = tactic
+        eff_seq = tactics_seq if tactics_seq else f"{tactic},{tactic},{tactic}"
+        tactic_labels = {
+            "rock": "🪨 Tosh (Og'ir Zarba)",
+            "scissors": "✂️ Qaychi (Epchil Hamla)",
+            "paper": "📜 Qog'oz (Qalqonli Mudofaa)",
+            "random": "🎲 Aralash / Tasodifiy",
+        }
+        t_label = tactic_labels.get(tactic, "🪨 Tosh")
+
     part = models.TournamentParticipant(
         tournament_id=tourney.id,
         user_id=user.id,
         fighter_name=fighter_name,
         fighter_power=fighter_power,
-        tactic=tactic,
-        tactics_seq=tactics_seq,
+        tactic=eff_tactic,
+        tactics_seq=eff_seq,
         joined_at=datetime.utcnow(),
     )
     session.add(part)
     await session.commit()
-
-    tactic_labels = {
-        "rock": "🪨 Tosh (Og'ir Zarba)",
-        "scissors": "✂️ Qaychi (Epchil Hamla)",
-        "paper": "📜 Qog'oz (Qalqonli Mudofaa)",
-        "random": "🎲 Aralash / Tasodifiy",
-    }
-    t_label = tactic_labels.get(tactic, "🪨 Tosh")
 
     return True, (
         f"🏇⚔️ **TURNIRGA QO'SHILDINGIZ!**\n\n"
@@ -5432,7 +5669,7 @@ async def update_tournament_tactic(
     tactic: str,
     tactics_seq: Optional[str] = None,
 ) -> Tuple[bool, str]:
-    """Turnir ishtirokchisining jang taktikasini o'zgartirish"""
+    """Turnir ishtirokchisining jang taktikasini o'zgartirish (Shablonlar va 3-raundlik ketma-ketlik)"""
     tourney = await get_active_tournament(session)
     if not tourney:
         return False, "❌ Faol turnir topilmadi."
@@ -5447,20 +5684,64 @@ async def update_tournament_tactic(
     if not part:
         return False, "❌ Siz ushbu turnirda ishtirok etmayapsiz."
 
-    part.tactic = tactic
-    if tactics_seq:
+    presets = {
+        "wall": {
+            "tactic": "paper",
+            "seq": "paper,paper,rock",
+            "label": "🛡️ Devor Mudofaasi (📜 Qog'oz ➔ 📜 Qog'oz ➔ 🪨 Tosh)",
+        },
+        "strike": {
+            "tactic": "rock",
+            "seq": "rock,scissors,rock",
+            "label": "⚔️ Shiddatli Hujum (🪨 Tosh ➔ ✂️ Qaychi ➔ 🪨 Tosh)",
+        },
+        "viper": {
+            "tactic": "scissors",
+            "seq": "scissors,scissors,paper",
+            "label": "⚡ Ilon Hamlasi (✂️ Qaychi ➔ ✂️ Qaychi ➔ 📜 Qog'oz)",
+        },
+        "whirlwind": {
+            "tactic": "rock",
+            "seq": "rock,scissors,paper",
+            "label": "🌪️ Girdob Taktikasi (🪨 Tosh ➔ ✂️ Qaychi ➔ 📜 Qog'oz)",
+        },
+        "random": {
+            "tactic": "random",
+            "seq": "random,random,random",
+            "label": "🎲 Aralash / Kutilmagan (Har raundda tasodifiy)",
+        },
+    }
+
+    if tactic in presets:
+        preset_info = presets[tactic]
+        part.tactic = preset_info["tactic"]
+        part.tactics_seq = preset_info["seq"]
+        display_label = preset_info["label"]
+    elif tactics_seq and "," in tactics_seq:
+        part.tactic = tactic
         part.tactics_seq = tactics_seq
+        # Chiroyli ketma-ketlik matni
+        seq_parts = [p.strip().lower() for p in tactics_seq.split(",")]
+        icons = {"rock": "🪨 Tosh", "scissors": "✂️ Qaychi", "paper": "📜 Qog'oz", "random": "🎲 Tasodifiy"}
+        seq_str = " ➔ ".join([icons.get(x, x) for x in seq_parts[:3]])
+        display_label = f"🛠️ Maxsus Ketma-ketlik ({seq_str})"
+    else:
+        part.tactic = tactic
+        if tactic != "random":
+            part.tactics_seq = f"{tactic},{tactic},{tactic}"
+        else:
+            part.tactics_seq = "random,random,random"
+
+        tactic_labels = {
+            "rock": "🪨 Tosh (Og'ir Zarba)",
+            "scissors": "✂️ Qaychi (Epchil Hamla)",
+            "paper": "📜 Qog'oz (Qalqonli Mudofaa)",
+            "random": "🎲 Aralash / Tasodifiy",
+        }
+        display_label = tactic_labels.get(tactic, tactic)
 
     await session.commit()
-
-    tactic_labels = {
-        "rock": "🪨 Tosh (Og'ir Zarba)",
-        "scissors": "✂️ Qaychi (Epchil Hamla)",
-        "paper": "📜 Qog'oz (Qalqonli Mudofaa)",
-        "random": "🎲 Aralash / Tasodifiy",
-    }
-    t_label = tactic_labels.get(tactic, tactic)
-    return True, f"✅ Turnirdagi jang taktikangiz muvaffaqiyatli tanlandi: **{t_label}**!"
+    return True, f"✅ Turnirdagi jang taktikangiz muvaffaqiyatli belgilandi:\n**{display_label}**!"
 
 
 def format_tournament_bracket_view(bracket_data: dict, is_completed: bool = False) -> str:
@@ -5571,6 +5852,34 @@ async def get_tournament_bracket_display(session: AsyncSession, tourney_id: Opti
     lines.append("💡 *Turnir boshlanganda bo'sh o'rinlar Vesteros afsonalari bilan to'ldiriladi va barcha janglar Tosh-Qaychi-Qog'oz qoidasi bilan hal etiladi!*")
 
     return "\n".join(lines)
+
+
+async def get_tournament_history(session: AsyncSession, limit: int = 5) -> List[Dict[str, Any]]:
+    """O'tgan yakunlangan turnirlar tarixi va shon-sharaf zalini olish"""
+    res = await session.execute(
+        select(models.Tournament)
+        .where(models.Tournament.status == "completed")
+        .order_by(desc(models.Tournament.id))
+        .limit(limit)
+    )
+    tourneys = res.scalars().all()
+    history = []
+    for t in tourneys:
+        b_data = {}
+        if t.bracket_json and t.bracket_json != "{}":
+            try:
+                b_data = json.loads(t.bracket_json)
+            except Exception:
+                b_data = {}
+        history.append({
+            "id": t.id,
+            "name": t.name,
+            "winner_name": t.winner_name or "Noma'lum",
+            "prize_pool": t.prize_pool or 0,
+            "concluded_at": t.concluded_at,
+            "bracket": b_data,
+        })
+    return history
 
 
 async def place_tournament_bet(

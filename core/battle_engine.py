@@ -515,6 +515,64 @@ RPS_MOVES = {
     },
 }
 
+CHAMPION_PERKS = {
+    "jaime": {
+        "title": "🦁 Oltin Nayza (Golden Lance)",
+        "desc": "🪨 Tosh bilan zarba berganda qo'shimcha bosim beradi (+20% quvvat)",
+        "favored_move": "rock",
+    },
+    "oberyn": {
+        "title": "🐍 Qizil Ilon Zahri (Viper's Strike)",
+        "desc": "✂️ Qaychi bilan g'alabada raqib quvvatini -20% zaiflashtiradi",
+        "favored_move": "scissors",
+    },
+    "jon_snow": {
+        "title": "🐺 Valiriya Po'lati (Longclaw)",
+        "desc": "Durrang to'qnashuvlarda valiriya po'lati +20% ustunlik beradi",
+        "favored_move": "tie",
+    },
+    "arya": {
+        "title": "🗡️ Suv Raqsi (Water Dance)",
+        "desc": "✂️ Qaychi bilan chaqqon harakat qiladi",
+        "favored_move": "scissors",
+    },
+    "brienne": {
+        "title": "🛡️ Qasamyod Qalqoni (Oathkeeper)",
+        "desc": "📜 Qog'oz (Mudofaa) bilan zarbalarni to'sib, aks-sado beradi",
+        "favored_move": "paper",
+    },
+    "dayne": {
+        "title": "🗡️ Tong Qilichi (Sword of the Morning)",
+        "desc": "Afsonaviy qilichbozlik mahorati (+15% umumiy quvvat)",
+        "favored_move": "all",
+    },
+    "clegane": {
+        "title": "⚔️ Yanchuvchi Tog' (The Mountain)",
+        "desc": "🪨 Tosh bilan raqib qalqonini maydalab tashlaydi",
+        "favored_move": "rock",
+    },
+}
+
+
+def get_fighter_perk(fighter_name: str) -> Optional[Dict[str, Any]]:
+    """Jangchining afsonaviy sarkarda qobiliyatini aniqlash"""
+    fn = fighter_name.lower()
+    if "jaime" in fn:
+        return CHAMPION_PERKS["jaime"]
+    elif "oberyn" in fn:
+        return CHAMPION_PERKS["oberyn"]
+    elif "jon snow" in fn or "oq bo'ri" in fn:
+        return CHAMPION_PERKS["jon_snow"]
+    elif "arya" in fn:
+        return CHAMPION_PERKS["arya"]
+    elif "brienne" in fn:
+        return CHAMPION_PERKS["brienne"]
+    elif "arthur dayne" in fn or "dayne" in fn:
+        return CHAMPION_PERKS["dayne"]
+    elif "gregor" in fn or "clegane" in fn:
+        return CHAMPION_PERKS["clegane"]
+    return None
+
 
 def get_fighter_move(fighter: Dict[str, Any], round_num: int) -> str:
     """Ritsarning joriy raunddagi taktikasini aniqlash"""
@@ -538,9 +596,19 @@ def resolve_tourney_duel(f1: Dict[str, Any], f2: Dict[str, Any]) -> Dict[str, An
     - ✂️ Qaychi > 📜 Qog'oz
     - 📜 Qog'oz > 🪨 Tosh
     - Durrang bo'lsa: Jangchilarning quvvati (power roll) to'qnashadi.
+    - Maxsus qobiliyatlar (Champion Perks) hisobga olinadi.
     """
     p1 = f1.get("power", 100)
     p2 = f2.get("power", 100)
+
+    perk1 = get_fighter_perk(f1["name"])
+    perk2 = get_fighter_perk(f2["name"])
+
+    # Arthur Dayne passiv bonusi
+    if perk1 and perk1.get("favored_move") == "all":
+        p1 = int(p1 * 1.15)
+    if perk2 and perk2.get("favored_move") == "all":
+        p2 = int(p2 * 1.15)
 
     score1 = 0
     score2 = 0
@@ -555,26 +623,45 @@ def resolve_tourney_duel(f1: Dict[str, Any], f2: Dict[str, Any]) -> Dict[str, An
 
         if info1["beats"] == m2:
             score1 += 1
-            rounds_log.append(f"• {r}-Raund: {f1['name']} [{info1['short']}] ⚔️ [{info2['short']}] {f2['name']} ➔ **{f1['name']}** g'alaba! (+1)")
+            perk_note = ""
+            if perk1 and perk1.get("favored_move") == m1:
+                perk_note = f" (*{perk1['title']}*)"
+                if "oberyn" in f1["name"].lower():
+                    p2 = max(50, int(p2 * 0.80))
+            rounds_log.append(f"• {r}-Raund: {f1['name']} [{info1['short']}] ⚔️ [{info2['short']}] {f2['name']} ➔ **{f1['name']}** g'alaba!{perk_note} (+1)")
             round_details.append({"round": r, "m1": m1, "m2": m2, "winner": 1})
         elif info2["beats"] == m1:
             score2 += 1
-            rounds_log.append(f"• {r}-Raund: {f1['name']} [{info1['short']}] ⚔️ [{info2['short']}] {f2['name']} ➔ **{f2['name']}** g'alaba! (+1)")
+            perk_note = ""
+            if perk2 and perk2.get("favored_move") == m2:
+                perk_note = f" (*{perk2['title']}*)"
+                if "oberyn" in f2["name"].lower():
+                    p1 = max(50, int(p1 * 0.80))
+            rounds_log.append(f"• {r}-Raund: {f1['name']} [{info1['short']}] ⚔️ [{info2['short']}] {f2['name']} ➔ **{f2['name']}** g'alaba!{perk_note} (+1)")
             round_details.append({"round": r, "m1": m1, "m2": m2, "winner": 2})
         else:
             # Durrang (Same tactic): Jang kuchi (power) to'qnashuvi
             roll1 = p1 * random.uniform(0.85, 1.15)
             roll2 = p2 * random.uniform(0.85, 1.15)
+
+            # Jon Snow durrang bonusi
+            if perk1 and perk1.get("favored_move") == "tie":
+                roll1 *= 1.20
+            if perk2 and perk2.get("favored_move") == "tie":
+                roll2 *= 1.20
+
             if roll1 >= roll2:
                 score1 += 1
+                perk_str = f" (*{perk1['title']}*)" if perk1 and perk1.get("favored_move") == "tie" else ""
                 rounds_log.append(
-                    f"• {r}-Raund: [{info1['short']}] vs [{info2['short']}] (Durrang!) ➔ Kuchlar to'qnashuvida **{f1['name']}** ({int(roll1)}⚡ vs {int(roll2)}⚡) ustun keldi! (+1)"
+                    f"• {r}-Raund: [{info1['short']}] vs [{info2['short']}] (Durrang!) ➔ Kuchlar to'qnashuvida **{f1['name']}** ({int(roll1)}⚡ vs {int(roll2)}⚡) ustun keldi!{perk_str} (+1)"
                 )
                 round_details.append({"round": r, "m1": m1, "m2": m2, "winner": 1, "tie_power": True})
             else:
                 score2 += 1
+                perk_str = f" (*{perk2['title']}*)" if perk2 and perk2.get("favored_move") == "tie" else ""
                 rounds_log.append(
-                    f"• {r}-Raund: [{info1['short']}] vs [{info2['short']}] (Durrang!) ➔ Kuchlar to'qnashuvida **{f2['name']}** ({int(roll2)}⚡ vs {int(roll1)}⚡) ustun keldi! (+1)"
+                    f"• {r}-Raund: [{info1['short']}] vs [{info2['short']}] (Durrang!) ➔ Kuchlar to'qnashuvida **{f2['name']}** ({int(roll2)}⚡ vs {int(roll1)}⚡) ustun keldi!{perk_str} (+1)"
                 )
                 round_details.append({"round": r, "m1": m1, "m2": m2, "winner": 2, "tie_power": True})
 
