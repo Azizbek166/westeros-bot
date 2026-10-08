@@ -377,7 +377,7 @@ async def daily_chest_already_callback(update: Update, context: ContextTypes.DEF
 def register_daily_handlers(app):
     """Kunlik tuhfalar bo'yicha barcha handlerlarni ro'yxatdan o'tkazish"""
     # Buyruqlar
-    app.add_handler(CommandHandler(["daily", "bonus", "tuhfa", "sovga", "sovg'a", "sandiq", "omad"], daily_menu_callback))
+    app.add_handler(CommandHandler(["daily", "bonus", "tuhfa", "sovga", "sovgalar", "sandiq", "omad"], daily_menu_callback))
 
     # Callbacklar
     app.add_handler(CallbackQueryHandler(daily_menu_callback, pattern="^menu_daily$"))
