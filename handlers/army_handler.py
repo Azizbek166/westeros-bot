@@ -167,7 +167,7 @@ async def rec_custom_pick_callback(update: Update, context: ContextTypes.DEFAULT
             f"• 1 ta askar: **{g_cost}**🪙 oltin, **{i_cost}**⛓️ temir\n"
             f"• Xazinangiz yetadi: **{max_count:,}** tagacha\n\n"
             f"Qancha askar yollamoqchisiz? Sonini chatga yozing:\n"
-            f"*(Masalan: `250` yoki `1000`)*"
+            f"*(Maksimal: 10,000,000 tagacha, masalan: `1000` yoki `50000`)*"
         )
 
         buttons = []
@@ -249,8 +249,8 @@ async def handle_recruit_text_input(update: Update, context: ContextTypes.DEFAUL
         return
 
     amount = int(text)
-    if amount <= 0 or amount > 50000:
-        await update.message.reply_text("❌ Miqdor 1 dan 50,000 gacha bo'lishi kerak!")
+    if amount <= 0 or amount > 10_000_000:
+        await update.message.reply_text("❌ Miqdor 1 dan 10,000,000 gacha bo'lishi kerak!")
         return
 
     context.user_data.pop("awaiting_recruit_input", None)

@@ -812,7 +812,7 @@ async def send_custom_march_callback(update: Update, context: ContextTypes.DEFAU
             h_castles = await crud.get_house_castle_count(session, user.house_id)
             if h_castles >= crud.MAX_HOUSE_CASTLES:
                 await query.answer(
-                    f"❌ Xonadoningiz allaqachon {h_castles}/{crud.MAX_HOUSE_CASTLES} ta qal'aga ega! Maksimal limit: {crud.MAX_HOUSE_CASTLES} ta qal'a.",
+                    f"❌ Xonadoningiz allaqachon {h_castles}/{crud.MAX_HOUSE_CASTLES} ta qal'aga ega (Limit: {crud.MAX_HOUSE_CASTLES} ta)!\nYangi qal'a egallash uchun /castles orqali keraksiz qal'alardan birini ozod qiling.",
                     show_alert=True
                 )
                 return
@@ -1019,7 +1019,7 @@ async def send_march_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             h_castles = await crud.get_house_castle_count(session, user.house_id)
             if h_castles >= crud.MAX_HOUSE_CASTLES:
                 await query.answer(
-                    f"❌ Xonadoningiz allaqachon {h_castles}/{crud.MAX_HOUSE_CASTLES} ta qal'aga ega! Maksimal limit: {crud.MAX_HOUSE_CASTLES} ta qal'a.",
+                    f"❌ Xonadoningiz allaqachon {h_castles}/{crud.MAX_HOUSE_CASTLES} ta qal'aga ega (Limit: {crud.MAX_HOUSE_CASTLES} ta)!\nYangi qal'a egallash uchun /castles orqali keraksiz qal'alardan birini ozod qiling.",
                     show_alert=True
                 )
                 return

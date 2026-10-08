@@ -366,7 +366,8 @@ async def process_due_marches(bot_app=None):
                             res_title = "🏆 **G'ALABA! (O'LJA QO'LGA KIRITILDI)**"
                             res_outcome = (
                                 f"⚔️ Dushman mag'lub etildi va o'ljalar qo'lga kiritildi! "
-                                f"Biroq xonadoningiz allaqachon maksimal {crud.MAX_HOUSE_CASTLES} ta qal'aga ega bo'lgani tufayli qal'a xonadoningizga qo'shilmadi."
+                                f"Biroq xonadoningiz allaqachon maksimal {crud.MAX_HOUSE_CASTLES} ta qal'aga ega bo'lgani tufayli qal'a xonadoningizga qo'shilmadi. "
+                                f"Yangi qal'alarni zabt etish uchun /castles orqali keraksiz qal'alardan birini ozod qiling (NPCga topshiring)."
                             )
                     else:
                         res_title = "🛡️ **MAG'LUBIYAT! HUJUM QAYTARILDI.**"

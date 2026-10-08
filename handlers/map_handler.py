@@ -429,7 +429,7 @@ async def show_my_castles(target, user_id: int, is_message: bool = False):
             buttons.append([InlineKeyboardButton(f"🏰 {c.castle_name} ({btn_tag})", callback_data=f"my_c_detail:{c.id}")])
 
         # Egallangan qalalarni ozod qilish tugmasi (agar mavjud bo'lsa)
-        conquered_castles = await crud.get_user_conquered_castles(session, user_id)
+        conquered_castles = await crud.get_user_conquered_castles(session, user.id)
         if conquered_castles:
             buttons.append([InlineKeyboardButton(f"🏳️ Egallangan Qal'alarni Ozod Qilish ({len(conquered_castles)} ta)", callback_data="menu_liberate_castles")])
 
@@ -540,8 +540,9 @@ async def show_my_castle_detail(query, user_id: int, terr_id: int):
             else:
                 buttons.append([InlineKeyboardButton("💚 Yovvoyi Olov Zaxirasi To'liq (5/5)", callback_data="wf_max_alert")])
 
-        # Agar qal'a zabt etilgan bo'lsa, uni ozod qilish tugmasi
-        if getattr(terr, 'conquered_by_user_id', None) == user.id or (is_lord and getattr(terr, 'conquered_by_user_id', None)):
+        # Agar qal'a zabt etilgan bo'lsa yoki ozod qilish mumkin bo'lsa
+        h_count = await crud.get_house_castle_count(session, user.house_id) if user.house_id else 1
+        if crud.is_castle_liberable(user, terr, user_castles_count=h_count):
             buttons.append([InlineKeyboardButton("🏳️ Ushbu Qal'ani Ozod Qilish (NPCga topshirish)", callback_data=f"liberate_confirm:{terr.id}")])
 
         buttons.append([InlineKeyboardButton("🔙 Qalalarim Ro'yxati", callback_data="menu_castles")])

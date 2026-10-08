@@ -2416,38 +2416,64 @@ async def get_npc_house_for_liberation(session: AsyncSession, territory: models.
     return first_h
 
 
+def is_ancestral_capital_of_house(terr: models.Territory, house_id: int) -> bool:
+    """Territory berilgan xonadonning asl poytaxt qal'asi ekanligini aniqlash"""
+    from data.map_data import TERRITORIES_DATA
+    t_info = TERRITORIES_DATA.get(terr.code, {})
+    return bool(
+        terr.is_capital
+        and t_info.get("initial_owner_id") == house_id
+    )
+
+
+def is_castle_liberable(user: models.User, terr: models.Territory, user_castles_count: int = 5) -> bool:
+    """Qal'ani ozod qilish mumkinligini tekshirish"""
+    # 1. Shaxsan o'zi zabt etgan bo'lsa
+    if getattr(terr, "conquered_by_user_id", None) == user.id:
+        return True
+
+    # 2. Xonadoniga qarashli bo'lsa
+    if user.house_id and terr.owner_house_id == user.house_id:
+        # Agar xonadonning yagona qal'asi bo'lsa, xonadonsiz qolib ketmaslik uchun saqlanadi
+        if user_castles_count <= 1:
+            return False
+        # Asl poytaxt qal'a bo'lmasa, har qanday qo'shimcha/egallangan qal'ani ozod qilsa bo'ladi!
+        if not is_ancestral_capital_of_house(terr, user.house_id):
+            return True
+
+    return False
+
+
 async def get_user_conquered_castles(session: AsyncSession, user_id: int) -> List[Dict[str, Any]]:
     """
-    Foydalanuvchi tomonidan zabt etilgan yoki uning xonadoni qo'l ostidagi barcha zabt etilgan qal'alar.
+    Foydalanuvchi yoki uning xonadoni tomonidan ozod qilish mumkin bo'lgan barcha qal'alar.
     Har bir qal'a uchun topshiriladigan aniq NPC xonadoni bilan birga qaytaradi.
     """
     user = await get_user_any(session, user_id)
     if not user:
         return []
 
-    conditions = [models.Territory.conquered_by_user_id == user.id]
-    if user.house_id:
-        user_house = await session.get(models.House, user.house_id)
-        is_lord = (user_house and user_house.lord_user_id == user.telegram_id) or (user.rank == "king")
-        if is_lord:
-            conditions.append(models.Territory.owner_house_id == user.house_id)
+    h_castles_count = await get_house_castle_count(session, user.house_id) if user.house_id else 0
 
     from config import ADMIN_IDS, OWNER_ID
     is_admin_user = (user.telegram_id in [int(x) for x in ADMIN_IDS] or user.telegram_id == int(OWNER_ID))
+
     if is_admin_user:
-        # Admin barcha zabt etilgan qal'alarni ko'ra oladi
         res = await session.execute(
             select(models.Territory)
-            .where(models.Territory.conquered_by_user_id.isnot(None))
+            .where(or_(models.Territory.conquered_by_user_id.isnot(None), models.Territory.owner_house_id.isnot(None)))
             .order_by(models.Territory.id)
         )
     else:
+        conditions = [models.Territory.conquered_by_user_id == user.id]
+        if user.house_id:
+            conditions.append(models.Territory.owner_house_id == user.house_id)
         res = await session.execute(
             select(models.Territory)
             .where(or_(*conditions))
-            .where(models.Territory.conquered_by_user_id.isnot(None))
             .order_by(models.Territory.id)
         )
+
     terrs = res.scalars().all()
 
     result = []
@@ -2455,10 +2481,14 @@ async def get_user_conquered_castles(session: AsyncSession, user_id: int) -> Lis
     for t in terrs:
         if t.id in seen_ids:
             continue
+
+        if not is_admin_user and not is_castle_liberable(user, t, user_castles_count=h_castles_count):
+            continue
+
         seen_ids.add(t.id)
 
         target_npc = await get_npc_house_for_liberation(session, t)
-        conqueror_user = await session.get(models.User, t.conquered_by_user_id) if t.conquered_by_user_id else user
+        conqueror_user = await session.get(models.User, t.conquered_by_user_id) if t.conquered_by_user_id else None
         tot_gar = (t.garrison_infantry or 0) + (t.garrison_archers or 0) + (t.garrison_cavalry or 0) + (t.garrison_spearmen or 0)
 
         result.append({
@@ -2473,7 +2503,7 @@ async def get_user_conquered_castles(session: AsyncSession, user_id: int) -> Lis
             "garrison_archers": t.garrison_archers or 0,
             "garrison_cavalry": t.garrison_cavalry or 0,
             "garrison_spearmen": t.garrison_spearmen or 0,
-            "conquered_by_name": conqueror_user.full_name if conqueror_user else "Siz",
+            "conquered_by_name": conqueror_user.full_name if conqueror_user else (user.full_name or "Xonadoningiz"),
             "conquered_by_user_id": t.conquered_by_user_id,
             "npc_house_id": target_npc.id,
             "npc_house_name": target_npc.name,
@@ -2493,19 +2523,18 @@ async def liberate_conquered_castle(session: AsyncSession, user_id: int, territo
     if not user or not terr:
         return False, "❌ Foydalanuvchi yoki qal'a topilmadi."
 
-    # Qal'aga egalik huquqi
-    is_conqueror = (getattr(terr, "conquered_by_user_id", None) == user.id)
-    is_house_lord = False
-    if user.house_id and terr.owner_house_id == user.house_id:
-        user_house = await session.get(models.House, user.house_id)
-        if user_house and (user_house.lord_user_id == user.telegram_id or user.rank == "king"):
-            is_house_lord = True
+    h_castles_count = await get_house_castle_count(session, user.house_id) if user.house_id else 0
 
     from config import ADMIN_IDS, OWNER_ID
     is_admin_user = (user.telegram_id in [int(x) for x in ADMIN_IDS] or user.telegram_id == int(OWNER_ID))
 
-    if not (is_conqueror or is_house_lord or is_admin_user):
-        return False, "❌ Siz ushbu qal'aning zabt etuvchisi yoki xonadon Lordi emassiz!"
+    if not is_admin_user:
+        if not is_castle_liberable(user, terr, user_castles_count=h_castles_count):
+            if user.house_id and terr.owner_house_id == user.house_id and is_ancestral_capital_of_house(terr, user.house_id):
+                return False, "❌ Bu sizning xonadoningizning asosiy poytaxt qal'asi! Poytaxt qal'ani ozod qilib bo'lmaydi."
+            if h_castles_count <= 1:
+                return False, "❌ Sizning xonadoningizda faqat bitta qal'a qolgan. Yagona qal'adan voz kechib bo'lmaydi."
+            return False, "❌ Siz ushbu qal'aning egasi yoki xonadoni a'zosi emassiz!"
 
     # 1. Garnizon askarlarini o'yinchining armiyasiga qaytarish
     army = await get_user_army(session, user.id)
@@ -2536,6 +2565,7 @@ async def liberate_conquered_castle(session: AsyncSession, user_id: int, territo
     # 3. Topshiriladigan NPC xonadonini aniqlash
     npc_house = await get_npc_house_for_liberation(session, terr)
 
+    was_house_castle = bool(user.house_id and terr.owner_house_id == user.house_id)
     old_castle_name = terr.castle_name or terr.name
     terr.conquered_by_user_id = None
     terr.owner_house_id = npc_house.id
@@ -2565,6 +2595,8 @@ async def liberate_conquered_castle(session: AsyncSession, user_id: int, territo
         f"• 🗡️ Nayzachi: +{gar_sp:,}"
     ) if tot_gar > 0 else "• Qal'ada shaxsiy garnizon askarlari yo'q edi."
 
+    new_h_count = max(0, h_castles_count - 1) if was_house_castle else h_castles_count
+
     return True, (
         f"🏳️🕊️ **QAL'A MUVAFFAQIYATLI OZOD QILINDI!**\n\n"
         f"🏰 Qal'a: **{old_castle_name}** ({terr.region})\n"
@@ -2573,7 +2605,8 @@ async def liberate_conquered_castle(session: AsyncSession, user_id: int, territo
         f"{troops_msg}"
         f"{dragon_msg}\n\n"
         f"✨ **MUKOFOT:** Mardlik va tinchlikparvarlik uchun **+{prestige_reward} Nufuz (Prestige)** berildi!\n\n"
-        f"Qal'a endi mustaqil NPC xonadoni tasarrufiga o'tdi."
+        f"📊 Xonadoningiz qal'alari: **{new_h_count}/{MAX_HOUSE_CASTLES} ta**.\n"
+        f"⚔️ Endi bemalol boshqa dushman qal'alariga yurish qilib, yangi qal'a zabt etishingiz mumkin!"
     )
 
 

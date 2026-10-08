@@ -38,17 +38,17 @@ def validate_recruitment(
     if unit_type not in UNITS_DATA:
         return False, 0, 0, "Noto'g'ri askar turi."
 
-    if amount <= 0 or amount > 50000:
-        return False, 0, 0, "Noto'g'ri miqdor."
+    if amount <= 0 or amount > 10_000_000:
+        return False, 0, 0, "Noto'g'ri miqdor (1 dan 10,000,000 gacha bo'lishi kerak)."
 
     unit_info = UNITS_DATA[unit_type]
     req_gold = unit_info["gold_cost"] * amount
     req_iron = unit_info["iron_cost"] * amount
 
     if user.gold < req_gold:
-        return False, req_gold, req_iron, f"❌ Oltin yetarli emas! Kerak: {req_gold}, mavjud: {user.gold}"
+        return False, req_gold, req_iron, f"❌ Oltin yetarli emas! Kerak: {req_gold:,}, mavjud: {user.gold:,}"
 
     if user.iron < req_iron:
-        return False, req_gold, req_iron, f"❌ Temir yetarli emas! Kerak: {req_iron}, mavjud: {user.iron}"
+        return False, req_gold, req_iron, f"❌ Temir yetarli emas! Kerak: {req_iron:,}, mavjud: {user.iron:,}"
 
     return True, req_gold, req_iron, "OK"
