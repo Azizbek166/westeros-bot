@@ -3358,13 +3358,13 @@ def format_streak_calendar(current_streak: int, claimed_today: bool) -> str:
     for day in range(1, 8):
         info = STREAK_REWARDS[day]
         if day < current_streak or (day == current_streak and claimed_today):
-            status = "✅ [Olingan]"
+            status = "✅ (Olingan)"
         elif day == current_streak and not claimed_today:
-            status = "🎁 [Bugun oling!]"
+            status = "🎁 (Bugun oling!)"
         elif claimed_today and day == ((current_streak % 7) + 1):
-            status = "⏳ [Ertaga]"
+            status = "⏳ (Ertaga)"
         else:
-            status = "🔒 [Kutilmoqda]"
+            status = "🔒 (Kutilmoqda)"
 
         bonus_summary = f"{info['gold']:,}🪙 {info['food']:,}🌾 {info['iron']:,}⛓️"
         if info.get("troops"):

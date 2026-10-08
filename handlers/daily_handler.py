@@ -60,13 +60,15 @@ async def show_daily_menu(target, user_id: int, is_message: bool = False):
 
         # Taqvimi
         calendar_text = crud.format_streak_calendar(streak_count, claimed_today=is_streak_claimed)
-        house = user.house
+        house = await session.get(models.House, user.house_id) if getattr(user, "house_id", None) else None
+        user_name_str = user.username or "Lord"
+        house_name_str = f" ({house.name})" if house else ""
 
         text = (
             f"╔══════════════════════════════╗\n"
             f"   👑 **QIROLLIK TUHFALARI VA MUKOFOTLARI** 🎁\n"
             f"╚══════════════════════════════╝\n\n"
-            f"Hurmatli Lord **{user.username}**{f' ({house.name})' if house else ''}!\n"
+            f"Hurmatli Lord **{user_name_str}**{house_name_str}!\n"
             f"Vesteros qirollik saroyi va xazinaboni siz uchun har kungi in'omlarni taqdim etadi:\n\n"
             f"🔥 **Uzluksiz Kirish (Streak):** `{streak_count}/7-kun`\n"
             f"{streak_status_line}\n\n"
@@ -132,7 +134,10 @@ async def daily_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     """Kunlik tuhfalar bo'limi ochilishi"""
     query = update.callback_query
     if query:
-        await query.answer()
+        try:
+            await query.answer()
+        except Exception:
+            pass
         await show_daily_menu(query, update.effective_user.id, is_message=False)
     else:
         await show_daily_menu(update.effective_message, update.effective_user.id, is_message=True)
@@ -231,7 +236,7 @@ async def show_daily_quests_menu(target, user_id: int, is_message: bool = False)
             status_icon = "✅" if q["is_claimed"] else ("🎁" if q["is_done"] else "⏳")
             status_text = "Olingan" if q["is_claimed"] else ("Mukofot tayyor!" if q["is_done"] else f"Bajarilmagan ({q['current']}/{q['target']})")
 
-            lines.append(f"**{num}. {q['title']}** [{status_icon} {status_text}]")
+            lines.append(f"**{num}. {q['title']}** ({status_icon} {status_text})")
             lines.append(f"   _{q['desc']}_")
             lines.append(f"   💰 Mukofot: {q['reward_desc']}\n")
 
@@ -247,7 +252,7 @@ async def show_daily_quests_menu(target, user_id: int, is_message: bool = False)
         g_status = "Olingan" if grand_claimed else ("TAYYOR! OLISHINGIZ MUMKIN!" if grand_done else f"{done_count}/4 ta bajarildi")
 
         lines.append("───────────────────────────────")
-        lines.append(f"👑 **BARCHA VAZIFALAR GRAND-BONUSI** [{g_icon} {g_status}]")
+        lines.append(f"👑 **BARCHA VAZIFALAR GRAND-BONUSI** ({g_icon} {g_status})")
         lines.append(f"   _{grand_q['desc']}_")
         lines.append(f"   🌟 Mukofot: {grand_q['reward_desc']}")
 
@@ -278,7 +283,11 @@ async def show_daily_quests_menu(target, user_id: int, is_message: bool = False)
 async def daily_quests_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Vazifalar menyusi callback"""
     query = update.callback_query
-    await query.answer()
+    if query:
+        try:
+            await query.answer()
+        except Exception:
+            pass
     await show_daily_quests_menu(query, update.effective_user.id, is_message=False)
 
 
@@ -346,7 +355,11 @@ async def show_daily_calendar_menu(target, user_id: int):
 async def daily_calendar_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Kalendar ko'rish callback"""
     query = update.callback_query
-    await query.answer()
+    if query:
+        try:
+            await query.answer()
+        except Exception:
+            pass
     await show_daily_calendar_menu(query, update.effective_user.id)
 
 
