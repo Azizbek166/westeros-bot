@@ -150,6 +150,9 @@ async def view_territory_callback(update: Update, context: ContextTypes.DEFAULT_
             else:
                 buttons.append([InlineKeyboardButton(f"🛡️ Devorni Kuchaytirish (+150: {defense_val:,}/{MAX_WALL_DEFENSE:,})", callback_data=f"upgrade_walls:{terr.id}")])
             buttons.append([InlineKeyboardButton("💰 Qal'a Boshqaruvi & O'lpon", callback_data=f"my_c_detail:{terr.id}")])
+            h_count = await crud.get_house_castle_count(session, user.house_id) if user.house_id else 1
+            if crud.is_castle_liberable(user, terr, user_castles_count=h_count):
+                buttons.append([InlineKeyboardButton("🏳️ Ushbu Qal'ani Ozod Qilish (NPCga topshirish)", callback_data=f"liberate_confirm:{terr.id}")])
         elif is_ally:
             buttons.append([InlineKeyboardButton(f"🤝 Qal'a Mudofaasiga Yordam Yuborish{alliance_type_str}", callback_data=f"def_rf_menu:{terr.id}")])
             if user_st_dragon:
@@ -415,18 +418,26 @@ async def show_my_castles(target, user_id: int, is_message: bool = False):
             min_rem = min((rem for _, h, rem in castles_data if h < 1 and rem > 0), default=60)
             buttons.append([InlineKeyboardButton(f"⏳ O'lpon to'planmoqda (~{min_rem} daqiqa)", callback_data="tax_all_wait_info")])
 
+        h_castles_len = len(castles)
         for c, hours, rem_min in castles_data:
             tot_gar = (c.garrison_infantry or 0) + (c.garrison_archers or 0) + (c.garrison_cavalry or 0) + (c.garrison_spearmen or 0)
             tax_tag = f"💰 {hours}/4 soat o'lpon tayyor" if hours >= 1 else f"⏳ To'planmoqda (~{rem_min} daq)"
 
+            is_lib = crud.is_castle_liberable(user, c, user_castles_count=h_castles_len)
+            is_cap = crud.is_ancestral_capital_of_house(c, user.house_id) if user.house_id else c.is_capital
+            role_tag = "👑 [Poytaxt Qal'a]" if is_cap else ("⚔️ [Egallangan Qal'a — 🏳️ Ozod qilish mumkin]" if is_lib else "")
+
             text += (
-                f"• 🏰 **{c.castle_name}** ({c.name})\n"
+                f"• 🏰 **{c.castle_name}** ({c.name}) {role_tag}\n"
                 f"  └ 🛡️ Garnizon: **{tot_gar:,}** askar | Mudofaa: **{c.defense}**\n"
                 f"  └ 💰 Daromad: +{c.gold_income}🪙, +{c.food_income}🌾, +{c.iron_income}⛓️/soat\n"
                 f"  └ ✨ Holat: _{tax_tag}_\n\n"
             )
             btn_tag = f"{hours}/4s o'lpon" if hours >= 1 else f"~{rem_min} daq"
-            buttons.append([InlineKeyboardButton(f"🏰 {c.castle_name} ({btn_tag})", callback_data=f"my_c_detail:{c.id}")])
+            row = [InlineKeyboardButton(f"🏰 {c.castle_name} ({btn_tag})", callback_data=f"my_c_detail:{c.id}")]
+            if is_lib:
+                row.append(InlineKeyboardButton(f"🏳️ Ozod Qilish", callback_data=f"liberate_confirm:{c.id}"))
+            buttons.append(row)
 
         # Egallangan qalalarni ozod qilish tugmasi (agar mavjud bo'lsa)
         conquered_castles = await crud.get_user_conquered_castles(session, user.id)
