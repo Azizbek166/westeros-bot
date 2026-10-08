@@ -71,6 +71,8 @@ class User(Base):
     last_daily_bonus = Column(DateTime, nullable=True)
     streak_count = Column(Integer, default=0)              # 7 kunlik uzluksiz kirish (1-7)
     last_streak_date = Column(String(10), default="")      # YYYY-MM-DD
+    daily_chest_date = Column(String(10), default="")      # YYYY-MM-DD (Qirollik omad sandig'i)
+    daily_quests_claimed_json = Column(Text, default="{}") # {quest_key: true} (Kunlik faollik mukofotlari)
     referred_by_id = Column(Integer, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)

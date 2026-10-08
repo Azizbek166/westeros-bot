@@ -20,10 +20,12 @@ from handlers.espionage_handler import register_espionage_handlers
 from handlers.tourney_handler import register_tourney_handlers
 from handlers.caravan_handler import register_caravan_handlers
 from handlers.weather_handler import register_weather_handlers
+from handlers.daily_handler import register_daily_handlers
 
 def register_all_handlers(app):
     """Barcha bot handlerlarini Application ga ro'yxatdan o'tkazish"""
     register_start_handlers(app)
+    register_daily_handlers(app)
     register_profile_handlers(app)
     register_house_handlers(app)
     register_army_handlers(app)

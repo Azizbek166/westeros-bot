@@ -93,39 +93,10 @@ async def show_profile(target, user_id: int, is_message: bool):
 
 
 async def daily_bonus_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Kunlik sovg'ani olish"""
-    query = update.callback_query if update.callback_query else None
-    user_id = update.effective_user.id
+    """Kunlik sovg'alar markaziga yo'naltirish"""
+    from handlers.daily_handler import daily_menu_callback
+    await daily_menu_callback(update, context)
 
-    async with AsyncSessionLocal() as session:
-        user = await crud.get_user_by_telegram_id(session, user_id)
-        if not user:
-            if query:
-                await query.answer("❌ Avval /start bosing.", show_alert=True)
-            else:
-                await update.message.reply_text("❌ Avval /start bosing.")
-            return
-
-        ok, msg = await crud.claim_daily_bonus(session, user.id)
-
-    if query:
-        alert_title = "🎁 Kunlik Qirol Tuhfasi qabul qilindi!" if ok else "⏳ Bugungi tuhfa allaqachon olingan!"
-        try:
-            await query.answer(alert_title, show_alert=False)
-        except Exception:
-            pass
-
-        buttons = [
-            [InlineKeyboardButton("👤 Profilga Qaytish", callback_data="menu_profile")],
-            [InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")],
-        ]
-        markup = InlineKeyboardMarkup(buttons)
-        try:
-            await query.edit_message_text(msg, parse_mode="Markdown", reply_markup=markup)
-        except Exception:
-            await query.message.reply_text(msg, parse_mode="Markdown", reply_markup=markup)
-    else:
-        await update.message.reply_text(msg, parse_mode="Markdown")
 
 
 async def show_artifacts_menu(target, user_id: int, is_message: bool = False, page: int = 0):
@@ -529,13 +500,11 @@ async def unequip_artifact_callback(update: Update, context: ContextTypes.DEFAUL
 
 def register_profile_handlers(app):
     app.add_handler(CommandHandler("profile", profile_command))
-    app.add_handler(CommandHandler(["daily", "bonus"], daily_bonus_callback))
     app.add_handler(CommandHandler(["mine", "iron", "kon", "tegirmon"], iron_mine_command))
     app.add_handler(CommandHandler(["buyfood", "food", "oziq", "bozor"], buy_food_command))
     app.add_handler(CommandHandler(["sellfood", "don_sotish"], sell_food_command))
     app.add_handler(CommandHandler(["selliron", "temir_sotish"], sell_iron_command))
     app.add_handler(CallbackQueryHandler(profile_callback, pattern="^menu_profile$"))
-    app.add_handler(CallbackQueryHandler(daily_bonus_callback, pattern="^claim_daily_bonus$"))
     app.add_handler(CallbackQueryHandler(artifacts_menu_callback, pattern="^menu_artifacts$"))
     app.add_handler(CallbackQueryHandler(artifacts_page_callback, pattern="^menu_art_pg:"))
     app.add_handler(CallbackQueryHandler(buy_artifact_callback, pattern="^buy_art_"))
