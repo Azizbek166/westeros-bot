@@ -2428,15 +2428,20 @@ def is_ancestral_capital_of_house(terr: models.Territory, house_id: int) -> bool
 
 def is_castle_liberable(user: models.User, terr: models.Territory, user_castles_count: int = 5) -> bool:
     """Qal'ani ozod qilish mumkinligini tekshirish"""
+    from config import ADMIN_IDS, OWNER_ID
+    try:
+        if user.telegram_id in [int(x) for x in ADMIN_IDS] or user.telegram_id == int(OWNER_ID):
+            if getattr(terr, "conquered_by_user_id", None) is not None or not is_ancestral_capital_of_house(terr, terr.owner_house_id or 0):
+                return True
+    except Exception:
+        pass
+
     # 1. Shaxsan o'zi zabt etgan bo'lsa
-    if getattr(terr, "conquered_by_user_id", None) == user.id:
+    if user.id is not None and getattr(terr, "conquered_by_user_id", None) is not None and terr.conquered_by_user_id == user.id:
         return True
 
     # 2. Xonadoniga qarashli bo'lsa
     if user.house_id and terr.owner_house_id == user.house_id:
-        # Agar xonadonning yagona qal'asi bo'lsa, xonadonsiz qolib ketmaslik uchun saqlanadi
-        if user_castles_count <= 1:
-            return False
         # Asl poytaxt qal'a bo'lmasa, har qanday qo'shimcha/egallangan qal'ani ozod qilsa bo'ladi!
         if not is_ancestral_capital_of_house(terr, user.house_id):
             return True

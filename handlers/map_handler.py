@@ -121,50 +121,51 @@ async def view_territory_callback(update: Update, context: ContextTypes.DEFAULT_
                 owner_name = "⚔️ NPC Qal'asi (Fath etish uchun ochiq)"
             clean_owner = owner_name.replace("*", "").replace("_", "").replace("`", "")
 
-        dragon_info_str = "Mavjud emas"
-        st_dragons = crud.get_stationed_dragons_list(terr)
-        if st_dragons:
-            dragon_info_str = ", ".join([f"🔥 **{d.get('dragon_name')}** ({d.get('power')}⚡)" for d in st_dragons])
+            dragon_info_str = "Mavjud emas"
+            st_dragons = crud.get_stationed_dragons_list(terr)
+            if st_dragons:
+                dragon_info_str = ", ".join([f"🔥 **{d.get('dragon_name')}** ({d.get('power')}⚡)" for d in st_dragons])
 
-        buttons = []
-        c_lvl = getattr(terr, "castle_level", 1) or 1
-        is_lord = is_own and ((user.house and user.house.lord_user_id == user.telegram_id) or (user.rank == "king"))
-        user_st_dragon = next((d for d in st_dragons if d.get("user_id") == user.id), None)
+            buttons = []
+            c_lvl = getattr(terr, "castle_level", 1) or 1
+            is_lord = is_own and ((user.house and user.house.lord_user_id == user.telegram_id) or (user.rank == "king"))
+            user_st_dragon = next((d for d in st_dragons if d.get("user_id") == user.id), None)
 
-        if is_own:
-            buttons.append([InlineKeyboardButton("🛡️ Qal'ani Himoya Qilish (Askar Joylash)", callback_data=f"def_rf_menu:{terr.id}")])
-            if is_lord:
-                buttons.append([InlineKeyboardButton("↩️ Garnizondan Askarlarni Qaytarish", callback_data=f"def_withdraw_rf:{terr.id}")])
-            if user_st_dragon:
-                buttons.append([InlineKeyboardButton(f"🚫 {user_st_dragon.get('dragon_name')}ni Qal'adan Qaytarish", callback_data=f"def_recall_dragon:{terr.id}:{user_st_dragon.get('dragon_id')}")])
-            elif is_lord and st_dragons:
-                buttons.append([InlineKeyboardButton(f"🚫 {st_dragons[0].get('dragon_name')}ni Qal'adan Qaytarish", callback_data=f"def_recall_dragon:{terr.id}:{st_dragons[0].get('dragon_id')}")])
-            buttons.append([InlineKeyboardButton("🐉 Ajdarni Mudofaaga Joylashtirish", callback_data=f"def_station_dragon:{terr.id}")])
-            if c_lvl < 5:
-                c_cost_g = c_lvl * 3000
-                c_cost_i = c_lvl * 2500
-                buttons.append([InlineKeyboardButton(f"🏰 Qal'ani Kengaytirish (Tier {c_lvl+1}: {c_cost_g:,}🪙/{c_cost_i:,}⛓️)", callback_data=f"upgrade_castle:{terr.id}")])
-            defense_val = terr.defense or 0
-            if defense_val >= MAX_WALL_DEFENSE:
-                buttons.append([InlineKeyboardButton(f"🛡️ Devor Maksimal ({defense_val:,}/{MAX_WALL_DEFENSE:,})", callback_data=f"max_walls_alert:{terr.id}")])
+            if is_own:
+                buttons.append([InlineKeyboardButton("🛡️ Qal'ani Himoya Qilish (Askar Joylash)", callback_data=f"def_rf_menu:{terr.id}")])
+                if is_lord:
+                    buttons.append([InlineKeyboardButton("↩️ Garnizondan Askarlarni Qaytarish", callback_data=f"def_withdraw_rf:{terr.id}")])
+                if user_st_dragon:
+                    buttons.append([InlineKeyboardButton(f"🚫 {user_st_dragon.get('dragon_name')}ni Qal'adan Qaytarish", callback_data=f"def_recall_dragon:{terr.id}:{user_st_dragon.get('dragon_id')}")])
+                elif is_lord and st_dragons:
+                    buttons.append([InlineKeyboardButton(f"🚫 {st_dragons[0].get('dragon_name')}ni Qal'adan Qaytarish", callback_data=f"def_recall_dragon:{terr.id}:{st_dragons[0].get('dragon_id')}")])
+                buttons.append([InlineKeyboardButton("🐉 Ajdarni Mudofaaga Joylashtirish", callback_data=f"def_station_dragon:{terr.id}")])
+                if c_lvl < 5:
+                    c_cost_g = c_lvl * 3000
+                    c_cost_i = c_lvl * 2500
+                    buttons.append([InlineKeyboardButton(f"🏰 Qal'ani Kengaytirish (Tier {c_lvl+1}: {c_cost_g:,}🪙/{c_cost_i:,}⛓️)", callback_data=f"upgrade_castle:{terr.id}")])
+                defense_val = terr.defense or 0
+                if defense_val >= MAX_WALL_DEFENSE:
+                    buttons.append([InlineKeyboardButton(f"🛡️ Devor Maksimal ({defense_val:,}/{MAX_WALL_DEFENSE:,})", callback_data=f"max_walls_alert:{terr.id}")])
+                else:
+                    buttons.append([InlineKeyboardButton(f"🛡️ Devorni Kuchaytirish (+150: {defense_val:,}/{MAX_WALL_DEFENSE:,})", callback_data=f"upgrade_walls:{terr.id}")])
+                buttons.append([InlineKeyboardButton("💰 Qal'a Boshqaruvi & O'lpon", callback_data=f"my_c_detail:{terr.id}")])
+            elif is_ally:
+                buttons.append([InlineKeyboardButton(f"🤝 Qal'a Mudofaasiga Yordam Yuborish{alliance_type_str}", callback_data=f"def_rf_menu:{terr.id}")])
+                if user_st_dragon:
+                    buttons.append([InlineKeyboardButton(f"🚫 {user_st_dragon.get('dragon_name')}ni Qal'adan Qaytarish", callback_data=f"def_recall_dragon:{terr.id}:{user_st_dragon.get('dragon_id')}")])
+                else:
+                    buttons.append([InlineKeyboardButton("🐉 Ittifoqchi Qal'aga Ajdar Yuborish", callback_data=f"def_station_dragon:{terr.id}")])
             else:
-                buttons.append([InlineKeyboardButton(f"🛡️ Devorni Kuchaytirish (+150: {defense_val:,}/{MAX_WALL_DEFENSE:,})", callback_data=f"upgrade_walls:{terr.id}")])
-            buttons.append([InlineKeyboardButton("💰 Qal'a Boshqaruvi & O'lpon", callback_data=f"my_c_detail:{terr.id}")])
-            h_count = await crud.get_house_castle_count(session, user.house_id) if user.house_id else 1
-            if crud.is_castle_liberable(user, terr, user_castles_count=h_count):
+                war_st = await crud.get_war_status(session)
+                if war_st["is_active"]:
+                    buttons.append([InlineKeyboardButton("⚔️ Ushbu Qal'aga Yurish Qilish", callback_data=f"march_prep:{terr.id}")])
+                else:
+                    buttons.append([InlineKeyboardButton("🕊️ Sulh Davri (Urush Yopiq)", callback_data="war_closed_notice")])
+
+            # Aniq shu qal'ani ozod qilish tugmasi (egallangan bo'lsa yoki admin bo'lsa)
+            if user and crud.is_castle_liberable(user, terr):
                 buttons.append([InlineKeyboardButton("🏳️ Ushbu Qal'ani Ozod Qilish (NPCga topshirish)", callback_data=f"liberate_confirm:{terr.id}")])
-        elif is_ally:
-            buttons.append([InlineKeyboardButton(f"🤝 Qal'a Mudofaasiga Yordam Yuborish{alliance_type_str}", callback_data=f"def_rf_menu:{terr.id}")])
-            if user_st_dragon:
-                buttons.append([InlineKeyboardButton(f"🚫 {user_st_dragon.get('dragon_name')}ni Qal'adan Qaytarish", callback_data=f"def_recall_dragon:{terr.id}:{user_st_dragon.get('dragon_id')}")])
-            else:
-                buttons.append([InlineKeyboardButton("🐉 Ittifoqchi Qal'aga Ajdar Yuborish", callback_data=f"def_station_dragon:{terr.id}")])
-        else:
-            war_st = await crud.get_war_status(session)
-            if war_st["is_active"]:
-                buttons.append([InlineKeyboardButton("⚔️ Ushbu Qal'aga Yurish Qilish", callback_data=f"march_prep:{terr.id}")])
-            else:
-                buttons.append([InlineKeyboardButton("🕊️ Sulh Davri (Urush Yopiq)", callback_data="war_closed_notice")])
 
         buttons.append([InlineKeyboardButton("🔙 Xaritaga Qaytish", callback_data="menu_map")])
 
@@ -496,9 +497,13 @@ async def show_my_castle_detail(query, user_id: int, terr_id: int):
 
         tax_status_msg = f"✅ O'lponni yig'ib olishga tayyor! ({hours}/4 soat)" if hours >= 1 else f"⏳ Keyingi o'lpon tayyor bo'lishiga: taxminan {rem_min} daqiqa qoldi"
 
+        can_lib = bool(user and crud.is_castle_liberable(user, terr))
+        status_tag = "⚔️ **Qal'a Maqomi:** Egallangan Qal'a *(🏳️ Ozod qilish mumkin)*\n" if can_lib else "👑 **Qal'a Maqomi:** Xonadonning Asosiy Poytaxti\n"
+
         text = (
             f"🏰 **QAL'A BOSHQARUVI: {c_name}**\n\n"
             f"📍 Hudud: **{escape_md(terr.name)}** ({escape_md(terr.region)})\n"
+            f"{status_tag}"
             f"🏛️ Qal'a Bosqichi: **{tier_str}**\n"
             f"🛡️ Mudofaa Devori: **{defense_val:,}** / {MAX_WALL_DEFENSE:,} ball{wall_max_str}\n"
             f"💚 Yovvoyi Olov (Wildfire): **{getattr(terr, 'wildfire_count', 0) or 0} / 5 ta**\n"
@@ -552,11 +557,10 @@ async def show_my_castle_detail(query, user_id: int, terr_id: int):
                 buttons.append([InlineKeyboardButton("💚 Yovvoyi Olov Zaxirasi To'liq (5/5)", callback_data="wf_max_alert")])
 
         # Agar qal'a zabt etilgan bo'lsa yoki ozod qilish mumkin bo'lsa
-        h_count = await crud.get_house_castle_count(session, user.house_id) if user.house_id else 1
-        if crud.is_castle_liberable(user, terr, user_castles_count=h_count):
+        if user and crud.is_castle_liberable(user, terr):
             buttons.append([InlineKeyboardButton("🏳️ Ushbu Qal'ani Ozod Qilish (NPCga topshirish)", callback_data=f"liberate_confirm:{terr.id}")])
 
-        buttons.append([InlineKeyboardButton("🔙 Qalalarim Ro'yxati", callback_data="menu_castles")])
+        buttons.append([InlineKeyboardButton("🔙 Qal'alarim Ro'yxati", callback_data="menu_castles")])
         buttons.append([InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")])
 
         try:
