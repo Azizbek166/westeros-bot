@@ -1,5 +1,5 @@
 import random
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, Optional, List
 from data.units_data import UNITS_DATA, RPS_ADVANTAGES
 
 
