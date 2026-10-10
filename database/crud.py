@@ -3352,6 +3352,17 @@ DAILY_ACTIVITY_QUESTS = {
 }
 
 
+UNIT_NAMES_UZ = {
+    "infantry": "Piyoda",
+    "archers": "Kamonchi",
+    "cavalry": "Otliq",
+    "spearmen": "Nayzachi",
+    "special_troops": "Maxsus Gvardiya",
+    "catapults": "Katapulta",
+    "siege_towers": "Qamal Minorasi",
+}
+
+
 def format_streak_calendar(current_streak: int, claimed_today: bool) -> str:
     """7 kunlik kirish taqvimini chiroyli vizual ko'rinishda shakllantirish"""
     lines = []
@@ -3368,7 +3379,7 @@ def format_streak_calendar(current_streak: int, claimed_today: bool) -> str:
 
         bonus_summary = f"{info['gold']:,}🪙 {info['food']:,}🌾 {info['iron']:,}⛓️"
         if info.get("troops"):
-            t_parts = [f"+{cnt} {t_name}" for t_name, cnt in info["troops"].items()]
+            t_parts = [f"+{cnt} {UNIT_NAMES_UZ.get(t_name, t_name)}" for t_name, cnt in info["troops"].items()]
             bonus_summary += f" | {', '.join(t_parts)}"
         if info.get("dragon_power"):
             bonus_summary += f" | 🔥+{info['dragon_power']} Ajdar"
@@ -3498,9 +3509,11 @@ async def open_daily_lucky_chest(session: AsyncSession, user_id: int) -> Tuple[b
     if chest_date == today_str:
         remaining_hours = 23 - now.hour
         remaining_mins = 59 - now.minute
+        safe_user_name = str(user.username or user.full_name or "Lord").replace("_", " ").replace("*", "").replace("`", "")
+        safe_title = str(user.title).replace("_", " ").replace("*", "").replace("`", "") + " " if user.title else ""
         msg = (
             f"⏳ **QIROLLIK OMAD SANDIG'I BUGUN OCHILGAN!**\n\n"
-            f"Hurmatli Lord {user.title or ''} {user.username or ''}, har bir xonadon kuniga faqat **1 marta** omad sandig'ini bepul ochish huquqiga ega.\n\n"
+            f"Hurmatli Lord {safe_title}{safe_user_name}, har bir xonadon kuniga faqat **1 marta** omad sandig'ini bepul ochish huquqiga ega.\n\n"
             f"⏱️ Yangi sandiq: **{remaining_hours} soat {remaining_mins} daqiqadan so'ng** (ertaga) ochiladi.\n\n"
             f"💡 _Ertaga kirib o'z omadingizni yana sinab ko'ring!_"
         )
@@ -3526,7 +3539,8 @@ async def open_daily_lucky_chest(session: AsyncSession, user_id: int) -> Tuple[b
             if amt > 0 and hasattr(army, t_col):
                 cur = getattr(army, t_col) or 0
                 setattr(army, t_col, cur + amt)
-                troops_awarded.append(f"+{amt} {t_col}")
+                u_name = UNIT_NAMES_UZ.get(t_col, t_col)
+                troops_awarded.append(f"+{amt} {u_name}")
 
     # Award dragon power
     dragon_msg = ""
@@ -3543,7 +3557,7 @@ async def open_daily_lucky_chest(session: AsyncSession, user_id: int) -> Tuple[b
             user.gold += 15000
             if army:
                 army.special_troops = (army.special_troops or 0) + 20
-            dragon_msg = "\n*(Ajdar mavjud bo'lmagani uchun +15,000🪙 va +20 Maxsus askar qo'shildi)*"
+            dragon_msg = "\n_(Ajdar mavjud bo'lmagani uchun +15,000🪙 va +20 Maxsus askar qo'shildi)_"
 
     # Mark as opened today
     user.daily_chest_date = today_str

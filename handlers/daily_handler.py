@@ -1,10 +1,58 @@
 import json
+import logging
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
+from sqlalchemy import select
 
 from database.db import AsyncSessionLocal
 from database import crud, models
+
+logger = logging.getLogger(__name__)
+
+
+def sanitize_md(text: str) -> str:
+    """Markdown formatida entity parsing xatosi bermasligi uchun belgilarni tozalash"""
+    if not text:
+        return ""
+    return str(text).replace("*", "").replace("_", " ").replace("`", "").replace("[", "(").replace("]", ")").strip()
+
+
+async def safe_send_or_edit(target, text: str, reply_markup=None, is_message: bool = False):
+    """
+    Xabarni tahrirlash yoki yuborishning xavfsiz mexanizmi:
+    1. Markdown parse rejimi bilan urinadi.
+    2. Agar Telegram Markdown entity parsing xatoligi (BadRequest) bersa, plain-text da xabar chiqaradi.
+    3. Agar tahrirlash imkoni bo'lmasa, reply orqali javob qaytaradi.
+    Bu o'yinchilarda hech qachon tugma qotib qolmasligini ta'minlaydi.
+    """
+    try:
+        if is_message:
+            return await target.reply_text(text, parse_mode="Markdown", reply_markup=reply_markup)
+        else:
+            return await target.edit_message_text(text, parse_mode="Markdown", reply_markup=reply_markup)
+    except Exception as e:
+        err_msg = str(e).lower()
+        if "message is not modified" in err_msg:
+            return None
+        logger.warning(f"Markdown send/edit failed ({type(e).__name__}: {e}), attempting fallback...")
+
+        plain_text = text.replace("**", "").replace("*", "").replace("_", "").replace("`", "")
+
+        # 1-urinish: edit plain text
+        if not is_message and hasattr(target, "edit_message_text"):
+            try:
+                return await target.edit_message_text(plain_text, parse_mode=None, reply_markup=reply_markup)
+            except Exception:
+                pass
+
+        # 2-urinish: reply plain text
+        msg_obj = target if is_message else getattr(target, "message", None)
+        if msg_obj and hasattr(msg_obj, "reply_text"):
+            try:
+                return await msg_obj.reply_text(plain_text, parse_mode=None, reply_markup=reply_markup)
+            except Exception as e2:
+                logger.error(f"Plain text reply fallback failed: {e2}")
 
 
 async def show_daily_menu(target, user_id: int, is_message: bool = False):
@@ -61,8 +109,15 @@ async def show_daily_menu(target, user_id: int, is_message: bool = False):
         # Taqvimi
         calendar_text = crud.format_streak_calendar(streak_count, claimed_today=is_streak_claimed)
         house = await session.get(models.House, user.house_id) if getattr(user, "house_id", None) else None
-        user_name_str = user.username or "Lord"
-        house_name_str = f" ({house.name})" if house else ""
+
+        # Ismni xavfsiz formatlash (maxsus belgilar tozalangan)
+        char_res = await session.execute(
+            select(models.Character.name).where(models.Character.user_id == user.id, models.Character.is_alive == True)
+        )
+        char_name = char_res.scalar_one_or_none()
+        raw_name = char_name or user.full_name or user.username or "Lord"
+        user_name_str = sanitize_md(raw_name)
+        house_name_str = f" ({sanitize_md(house.name)})" if house else ""
 
         text = (
             f"╔══════════════════════════════╗\n"
@@ -120,14 +175,7 @@ async def show_daily_menu(target, user_id: int, is_message: bool = False):
         ])
 
         markup = InlineKeyboardMarkup(buttons)
-
-        if is_message:
-            await target.reply_text(text, parse_mode="Markdown", reply_markup=markup)
-        else:
-            try:
-                await target.edit_message_text(text, parse_mode="Markdown", reply_markup=markup)
-            except Exception:
-                await target.message.reply_text(text, parse_mode="Markdown", reply_markup=markup)
+        await safe_send_or_edit(target, text, reply_markup=markup, is_message=is_message)
 
 
 async def daily_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -167,11 +215,7 @@ async def daily_claim_streak_callback(update: Update, context: ContextTypes.DEFA
         [InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")],
     ]
     markup = InlineKeyboardMarkup(buttons)
-
-    try:
-        await query.edit_message_text(msg, parse_mode="Markdown", reply_markup=markup)
-    except Exception:
-        await query.message.reply_text(msg, parse_mode="Markdown", reply_markup=markup)
+    await safe_send_or_edit(query, msg, reply_markup=markup, is_message=False)
 
 
 async def daily_open_chest_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -198,11 +242,7 @@ async def daily_open_chest_callback(update: Update, context: ContextTypes.DEFAUL
         [InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")],
     ]
     markup = InlineKeyboardMarkup(buttons)
-
-    try:
-        await query.edit_message_text(msg, parse_mode="Markdown", reply_markup=markup)
-    except Exception:
-        await query.message.reply_text(msg, parse_mode="Markdown", reply_markup=markup)
+    await safe_send_or_edit(query, msg, reply_markup=markup, is_message=False)
 
 
 async def show_daily_quests_menu(target, user_id: int, is_message: bool = False):
@@ -270,14 +310,7 @@ async def show_daily_quests_menu(target, user_id: int, is_message: bool = False)
 
         markup = InlineKeyboardMarkup(buttons)
         text = "\n".join(lines)
-
-        if is_message:
-            await target.reply_text(text, parse_mode="Markdown", reply_markup=markup)
-        else:
-            try:
-                await target.edit_message_text(text, parse_mode="Markdown", reply_markup=markup)
-            except Exception:
-                await target.message.reply_text(text, parse_mode="Markdown", reply_markup=markup)
+        await safe_send_or_edit(target, text, reply_markup=markup, is_message=is_message)
 
 
 async def daily_quests_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -308,7 +341,8 @@ async def daily_claim_quest_callback(update: Update, context: ContextTypes.DEFAU
     if ok:
         await query.answer("🎁 Mukofot qabul qilindi!", show_alert=False)
     else:
-        await query.answer(f"⚠️ {msg}", show_alert=True)
+        clean_alert = str(msg).replace("**", "").replace("*", "").replace("_", "")[:180]
+        await query.answer(f"⚠️ {clean_alert}", show_alert=True)
         return
 
     # Menyuni yangilash
@@ -345,11 +379,7 @@ async def show_daily_calendar_menu(target, user_id: int):
     ]
     markup = InlineKeyboardMarkup(buttons)
     text = "\n".join(lines)
-
-    try:
-        await target.edit_message_text(text, parse_mode="Markdown", reply_markup=markup)
-    except Exception:
-        await target.message.reply_text(text, parse_mode="Markdown", reply_markup=markup)
+    await safe_send_or_edit(target, text, reply_markup=markup, is_message=False)
 
 
 async def daily_calendar_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
