@@ -1130,14 +1130,40 @@ async def get_active_alliances_for_house(session: AsyncSession, house_id: int) -
 
 
 async def get_pending_alliances_for_house(session: AsyncSession, house_id: int) -> List[models.Alliance]:
-    """Xonadonga kelgan kutish holatidagi ittifoq takliflari"""
+    """Xonadonga kelgan kutish holatidagi ittifoq takliflari (Kiruvchi)"""
     res = await session.execute(
         select(models.Alliance).where(
             models.Alliance.house_b_id == house_id,
             models.Alliance.status == "pending",
-        )
+        ).order_by(desc(models.Alliance.created_at))
     )
     return list(res.scalars().all())
+
+
+async def get_sent_pending_alliances_for_house(session: AsyncSession, house_id: int) -> List[models.Alliance]:
+    """Xonadondan boshqa xonadonlarga yuborilgan kutilayotgan ittifoq takliflari (Chiquvchi)"""
+    res = await session.execute(
+        select(models.Alliance).where(
+            models.Alliance.house_a_id == house_id,
+            models.Alliance.status == "pending",
+        ).order_by(desc(models.Alliance.created_at))
+    )
+    return list(res.scalars().all())
+
+
+async def cancel_pending_alliance(session: AsyncSession, alliance_id: int, house_id: int) -> Tuple[bool, str]:
+    """Yuborilgan kutilayotgan ittifoq taklifini bekor qilish"""
+    alliance = await session.get(models.Alliance, alliance_id)
+    if not alliance:
+        return False, "Taklif topilmadi."
+    if alliance.house_a_id != house_id:
+        return False, "Siz faqat o'zingiz yuborgan taklifni bekor qila olasiz."
+    if alliance.status != "pending":
+        return False, "Ushbu taklif allaqachon qabul qilingan yoki bekor qilingan."
+
+    alliance.status = "cancelled"
+    await session.commit()
+    return True, "Ittifoq taklifi muvaffaqiyatli bekor qilindi."
 
 
 async def propose_alliance(
@@ -1185,27 +1211,32 @@ async def propose_alliance(
     if to_existing.scalars().first():
         return False, f"❌ {to_house.name} xonadonida allaqachon 1 ta faol {type_name_uz} mavjud!"
 
-    # Ushbu ikki xonadon o'rtasidagi mavjud aloqani tekshirish
+    # Ushbu ikki xonadon o'rtasidagi aynan shu toifadagi mavjud aloqani tekshirish
     res = await session.execute(
         select(models.Alliance).where(
-            ((models.Alliance.house_a_id == from_house_id) & (models.Alliance.house_b_id == to_house_id)) |
-            ((models.Alliance.house_a_id == to_house_id) & (models.Alliance.house_b_id == from_house_id))
-        )
+            models.Alliance.type == alliance_type,
+            (
+                ((models.Alliance.house_a_id == from_house_id) & (models.Alliance.house_b_id == to_house_id)) |
+                ((models.Alliance.house_a_id == to_house_id) & (models.Alliance.house_b_id == from_house_id))
+            )
+        ).order_by(desc(models.Alliance.created_at))
     )
-    existing = res.scalar_one_or_none()
+    existing = res.scalars().first()
     if existing:
         if existing.status == "active":
-            return False, f"Ushbu xonadon bilan allaqachon faol ittifoq mavjud ({existing.type})!"
+            return False, f"Ushbu xonadon bilan allaqachon faol {type_name_uz} mavjud!"
         elif existing.status == "pending":
-            return False, "Ittifoq taklifi allaqachon yuborilgan, javob kutilmoqda."
+            if existing.house_a_id == from_house_id:
+                return False, f"Ushbu xonadonga allaqachon {type_name_uz} taklifi yuborilgan, javob kutilmoqda."
+            else:
+                return False, f"{to_house.name} xonadoni allaqachon sizga {type_name_uz} taklif qilgan! Uni qabul qilishingiz mumkin."
         else:
             existing.status = "pending"
-            existing.type = alliance_type
             existing.house_a_id = from_house_id
             existing.house_b_id = to_house_id
             existing.created_at = datetime.utcnow()
             await session.commit()
-            return True, f"💍 {type_name_uz} taklifi qaytadan yuborildi!"
+            return True, f"🤝 {to_house.name} xonadoniga {type_name_uz} taklifi muvaffaqiyatli yuborildi!"
 
     new_alliance = models.Alliance(
         house_a_id=from_house_id,
@@ -1218,19 +1249,38 @@ async def propose_alliance(
     return True, f"🤝 {to_house.name} xonadoniga {type_name_uz} taklifi muvaffaqiyatli yuborildi!"
 
 
-async def respond_to_alliance(session: AsyncSession, alliance_id: int, accept: bool) -> Tuple[bool, str]:
+async def respond_to_alliance(
+    session: AsyncSession,
+    alliance_id: int,
+    accept: bool
+) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
     """Ittifoq taklifini qabul qilish yoki rad etish"""
     alliance = await session.get(models.Alliance, alliance_id)
     if not alliance:
-        return False, "Taklif topilmadi."
+        return False, "Taklif topilmadi.", None
+
+    sender_house = await session.get(models.House, alliance.house_a_id)
+    receiver_house = await session.get(models.House, alliance.house_b_id)
+    type_name_uz = "Harbiy Ittifoq" if alliance.type == "military" else "To'y Ittifoqi"
+
+    info = {
+        "sender_house_id": alliance.house_a_id,
+        "sender_house_name": sender_house.name if sender_house else "Xonadon",
+        "sender_house_emoji": sender_house.emoji if sender_house else "🏰",
+        "sender_lord_id": sender_house.lord_user_id if sender_house else None,
+        "receiver_house_id": alliance.house_b_id,
+        "receiver_house_name": receiver_house.name if receiver_house else "Xonadon",
+        "receiver_house_emoji": receiver_house.emoji if receiver_house else "🏰",
+        "type_name": type_name_uz,
+        "accepted": accept,
+    }
 
     if not accept:
         alliance.status = "rejected"
         await session.commit()
-        return True, "Ittifoq taklifi rad etildi."
+        return True, "Ittifoq taklifi rad etildi.", info
 
     # Qabul qilishda ham 1 ta harbiy / 1 ta to'y limiti buzilmaganini tekshirish
-    type_name_uz = "Harbiy Ittifoq" if alliance.type == "military" else "To'y Ittifoqi"
     for h_id in [alliance.house_a_id, alliance.house_b_id]:
         active_check = await session.execute(
             select(models.Alliance).where(
@@ -1243,11 +1293,68 @@ async def respond_to_alliance(session: AsyncSession, alliance_id: int, accept: b
         if active_check.scalars().first():
             h_obj = await session.get(models.House, h_id)
             h_name = h_obj.name if h_obj else "Xonadon"
-            return False, f"❌ {h_name} allaqachon boshqa xonadon bilan {type_name_uz} tuzgan!"
+            return False, f"❌ {h_name} allaqachon boshqa xonadon bilan {type_name_uz} tuzgan!", None
 
     alliance.status = "active"
     await session.commit()
-    return True, f"🎉 {type_name_uz} rasman kuchga kirdi!"
+    return True, f"🎉 {type_name_uz} rasman kuchga kirdi!", info
+
+
+async def get_houses_for_alliance_picker(
+    session: AsyncSession,
+    my_house_id: int,
+    offset: int = 0,
+    limit: int = 8
+) -> Tuple[List[Dict[str, Any]], int]:
+    """
+    Ittifoq taklif qilish uchun xonadonlar ro'yxati:
+    O'yinchilari bor xonadonlar doimo yuqorida (birinchi bo'lib) chiqadi.
+    """
+    res = await session.execute(
+        select(
+            models.House,
+            func.count(models.User.id).label("player_count")
+        )
+        .outerjoin(models.User, models.User.house_id == models.House.id)
+        .where(
+            models.House.id != my_house_id,
+            models.House.id.not_in(NPC_HOUSE_IDS),
+            models.House.is_npc.is_(False),
+        )
+        .group_by(models.House.id)
+        .order_by(
+            desc(func.count(models.User.id)),
+            models.House.region,
+            models.House.name,
+        )
+    )
+    all_rows = res.all()
+    total_count = len(all_rows)
+    page_rows = all_rows[offset:offset + limit]
+
+    pending_sent = await get_sent_pending_alliances_for_house(session, my_house_id)
+    pending_sent_map = {p.house_b_id: p.type for p in pending_sent}
+
+    active_allies = await get_active_alliances_for_house(session, my_house_id)
+    active_map = {}
+    for a in active_allies:
+        other_id = a.house_b_id if a.house_a_id == my_house_id else a.house_a_id
+        active_map.setdefault(other_id, []).append(a.type)
+
+    result = []
+    for h, p_cnt in page_rows:
+        result.append({
+            "id": h.id,
+            "name": h.name,
+            "emoji": h.emoji,
+            "region": h.region,
+            "player_count": p_cnt or 0,
+            "has_lord": bool(h.lord_user_id),
+            "pending_sent_type": pending_sent_map.get(h.id),
+            "active_types": active_map.get(h.id, []),
+        })
+
+    return result, total_count
 
 
 async def break_alliance(
