@@ -3324,145 +3324,95 @@ async def get_inbox_ravens(session: AsyncSession, user_id: int, limit: int = 5) 
 # DAILY BONUS, LUCKY CHEST & DAILY QUESTS RETENTION SYSTEM
 # ============================================================
 
+# ============================================================
+# DAILY BONUS & DAILY QUESTS RETENTION SYSTEM
+# ============================================================
+
 STREAK_REWARDS = {
     1: {
         "title": "1-Kun: Boshlang'ich Safarbarlik",
-        "gold": 2000, "food": 4000, "iron": 1000, "prestige": 50, "xp": 100,
+        "gold": 500, "food": 1000, "iron": 250, "prestige": 15, "xp": 25,
         "troops": {},
         "extra_desc": ""
     },
     2: {
         "title": "2-Kun: Xonadon Zaxirasi",
-        "gold": 3500, "food": 7000, "iron": 2000, "prestige": 75, "xp": 150,
+        "gold": 875, "food": 1750, "iron": 500, "prestige": 20, "xp": 40,
         "troops": {},
         "extra_desc": ""
     },
     3: {
         "title": "3-Kun: Qalqonbardorlar Kelishi",
-        "gold": 5000, "food": 10000, "iron": 3000, "prestige": 100, "xp": 200,
-        "troops": {"infantry": 40},
-        "extra_desc": "🛡️ +40 ta Piyoda saflaringizga qo'shildi!"
+        "gold": 1250, "food": 2500, "iron": 750, "prestige": 25, "xp": 50,
+        "troops": {"infantry": 10},
+        "extra_desc": "🛡️ +10 ta Piyoda saflaringizga qo'shildi!"
     },
     4: {
         "title": "4-Kun: Mohir Merganlar",
-        "gold": 8000, "food": 15000, "iron": 4500, "prestige": 150, "xp": 300,
-        "troops": {"archers": 30},
-        "extra_desc": "🏹 +30 ta Kamonchi armiyangizga qo'shildi!"
+        "gold": 2000, "food": 3750, "iron": 1125, "prestige": 35, "xp": 75,
+        "troops": {"archers": 8},
+        "extra_desc": "🏹 +8 ta Kamonchi armiyangizga qo'shildi!"
     },
     5: {
         "title": "5-Kun: Ritsarlar Hamlasi",
-        "gold": 12000, "food": 20000, "iron": 6500, "prestige": 200, "xp": 400,
-        "troops": {"cavalry": 20},
-        "extra_desc": "🐎 +20 ta Og'ir Otliq bayrog'ingiz ostida!"
+        "gold": 3000, "food": 5000, "iron": 1625, "prestige": 50, "xp": 100,
+        "troops": {"cavalry": 5},
+        "extra_desc": "🐎 +5 ta Og'ir Otliq bayrog'ingiz ostida!"
     },
     6: {
         "title": "6-Kun: Nayzadorlar Qal'asi",
-        "gold": 18000, "food": 30000, "iron": 9000, "prestige": 250, "xp": 500,
-        "troops": {"spearmen": 20, "archers": 15},
-        "extra_desc": "🗡️ +20 ta Nayzachi va 🏹 +15 ta Kamonchi armiyangizda!"
+        "gold": 4500, "food": 7500, "iron": 2250, "prestige": 60, "xp": 125,
+        "troops": {"spearmen": 5, "archers": 4},
+        "extra_desc": "🗡️ +5 ta Nayzachi va 🏹 +4 ta Kamonchi armiyangizda!"
     },
     7: {
-        "title": "7-Kun: 👑 SUPER VALIRIYA TUHFASI",
-        "gold": 35000, "food": 50000, "iron": 18000, "prestige": 500, "xp": 1000,
-        "troops": {"special_troops": 35},
-        "dragon_power": 100,
-        "extra_desc": "🔥 +35 ta Maxsus Gvardiya va Ajdaringizga +100 Quvvat (Ozuqa)!"
+        "title": "7-Kun: 👑 VALIRIYA TUHFASI",
+        "gold": 8750, "food": 12500, "iron": 4500, "prestige": 125, "xp": 250,
+        "troops": {"special_troops": 8},
+        "dragon_power": 25,
+        "extra_desc": "🔥 +8 ta Maxsus Gvardiya va Ajdaringizga +25 Quvvat (Ozuqa)!"
     },
 }
 
-LUCKY_CHEST_POOLS = [
-    {
-        "id": "jackpot",
-        "weight": 6,
-        "badge": "🌟",
-        "title": "JACKPOT: AFSONAVIY VALIRIYA XAZINASI!",
-        "desc": "Qadimgi Valiriya xarobalaridan topilgan tilsimli sandiq ochildi! Ichidan afsonaviy xazina, qadimiy qurollar va sehrli ajdar gavhari chiqdi!",
-        "gold": 50000, "food": 50000, "iron": 25000, "prestige": 250, "xp": 600,
-        "special_troops": 50, "dragon_power": 80
-    },
-    {
-        "id": "gold_sack",
-        "weight": 26,
-        "badge": "💰",
-        "title": "QIROLLIK XAZINASI OLTIN XALTASI!",
-        "desc": "Bravos Temir Banki tamg'asi bosilgan muhrlangan tangalar xazinangizni to'ldirdi!",
-        "gold": 25000, "food": 12000, "iron": 6000, "prestige": 100, "xp": 250,
-        "special_troops": 10
-    },
-    {
-        "id": "supply_caravan",
-        "weight": 24,
-        "badge": "🌾",
-        "title": "BOY HOSILDORLIK VA TEMIR KARVONI!",
-        "desc": "Janubning serhosil zaminlaridan oziq-ovqat va shimol tog'laridan pishiq temir to'la ulkan karvon yetib keldi!",
-        "gold": 8000, "food": 40000, "iron": 20000, "prestige": 80, "xp": 200,
-    },
-    {
-        "id": "elite_troops",
-        "weight": 20,
-        "badge": "⚔️",
-        "title": "VESTEROS ELITA QO'SHINI HAMORALIGI!",
-        "desc": "Sizning shon-shuhratingizni eshitib, tajribali jangchilar armiyangiz saflariga qo'shildi!",
-        "gold": 6000, "food": 15000, "iron": 5000, "prestige": 120, "xp": 250,
-        "infantry": 60, "archers": 35, "cavalry": 20
-    },
-    {
-        "id": "siege_arms",
-        "weight": 14,
-        "badge": "🔥",
-        "title": "QAMAL MUHANDISLARI VA VALIRIYA OLOVI!",
-        "desc": "Qal'alarni zabt etish uchun usta muhandislar tomonidan katapultalar va qamal minoralari yetkazildi!",
-        "gold": 10000, "food": 10000, "iron": 10000, "prestige": 150, "xp": 300,
-        "catapults": 2, "siege_towers": 1, "special_troops": 15
-    },
-    {
-        "id": "dragon_blessing",
-        "weight": 10,
-        "badge": "🐉",
-        "title": "QADIMGI AJDARLAR AFSONAVIY NE'MATI!",
-        "desc": "Valiriya olovining qadimiy siri ajdaringizga beqiyos alangali quvvat bag'ishladi!",
-        "gold": 15000, "food": 20000, "iron": 8000, "prestige": 180, "xp": 350,
-        "dragon_power": 100, "special_troops": 25
-    },
-]
+LUCKY_CHEST_POOLS = []
 
 DAILY_ACTIVITY_QUESTS = {
     "duel": {
         "title": "⚔️ Ritsarlar Duela yoki Mashg'ulot",
         "desc": "Bugun kamida 1 marta duel o'tkazing yoki mashg'ulot qiling",
         "target": 1,
-        "reward_desc": "+2,500 🪙 | +3,000 🌾 | +50 🏆 | +100 ⭐",
-        "gold": 2500, "food": 3000, "iron": 0, "prestige": 50, "xp": 100,
+        "reward_desc": "+625 🪙 | +750 🌾 | +15 🏆 | +25 ⭐",
+        "gold": 625, "food": 750, "iron": 0, "prestige": 15, "xp": 25,
     },
     "citadel": {
         "title": "🏛️ Sitadel Viktorinasi / Kengash",
         "desc": "Sitadel viktorinasida qatnashing yoki Buyuk Kengashda ovoz bering",
         "target": 1,
-        "reward_desc": "+2,000 🪙 | +1,500 ⛓️ | +40 🏆 | +80 ⭐",
-        "gold": 2000, "food": 0, "iron": 1500, "prestige": 40, "xp": 80,
+        "reward_desc": "+500 🪙 | +375 ⛓️ | +10 🏆 | +20 ⭐",
+        "gold": 500, "food": 0, "iron": 375, "prestige": 10, "xp": 20,
     },
     "recruit": {
         "title": "🛡️ Qo'shin Yollash",
         "desc": "Kazarmada yangi askarlarni saflarga qo'shing",
         "target": 1,
-        "reward_desc": "+2,500 🪙 | +4,000 🌾 | +30 🛡️ Piyoda | +50 🏆",
-        "gold": 2500, "food": 4000, "iron": 0, "prestige": 50, "xp": 100,
-        "infantry": 30,
+        "reward_desc": "+625 🪙 | +1,000 🌾 | +8 🛡️ Piyoda | +15 🏆",
+        "gold": 625, "food": 1000, "iron": 0, "prestige": 15, "xp": 25,
+        "infantry": 8,
     },
     "caravan": {
         "title": "🐪 Savdo Karvoni / Qaroqchilik",
         "desc": "Savdo karvonini jo'nating yoki qaroqchilarga zarba bering",
         "target": 1,
-        "reward_desc": "+3,000 🪙 | +2,000 ⛓️ | +60 🏆 | +120 ⭐",
-        "gold": 3000, "food": 0, "iron": 2000, "prestige": 60, "xp": 120,
+        "reward_desc": "+750 🪙 | +500 ⛓️ | +15 🏆 | +30 ⭐",
+        "gold": 750, "food": 0, "iron": 500, "prestige": 15, "xp": 30,
     },
     "grand": {
         "title": "👑 BARCHA VAZIFALAR GRAND-BONUSI",
         "desc": "Bugungi barcha 4 ta vazifani muvaffaqiyatli yakunlang",
         "target": 4,
-        "reward_desc": "+12,000 🪙 | +20,000 🌾 | +8,000 ⛓️ | +25 🛡️ | +50 🔥 | +200 🏆",
-        "gold": 12000, "food": 20000, "iron": 8000, "prestige": 200, "xp": 500,
-        "special_troops": 25, "dragon_power": 50,
+        "reward_desc": "+3,000 🪙 | +5,000 🌾 | +2,000 ⛓️ | +6 🛡️ | +15 🔥 | +50 🏆",
+        "gold": 3000, "food": 5000, "iron": 2000, "prestige": 50, "xp": 125,
+        "special_troops": 6, "dragon_power": 15,
     }
 }
 
@@ -3610,107 +3560,8 @@ async def claim_daily_bonus(session: AsyncSession, user_id: int) -> Tuple[bool, 
 
 
 async def open_daily_lucky_chest(session: AsyncSession, user_id: int) -> Tuple[bool, str, Optional[dict]]:
-    """Qirollik Omad Sandig'i (har kuni 1 marta bepul ochish)"""
-    import random
-    user = await get_user_any(session, user_id)
-    if not user:
-        return False, "Foydalanuvchi topilmadi.", None
-
-    now = datetime.utcnow()
-    today_str = now.strftime("%Y-%m-%d")
-    await check_and_reset_daily_limits(session, user)
-
-    chest_date = getattr(user, "daily_chest_date", "") or ""
-    if chest_date == today_str:
-        remaining_hours = 23 - now.hour
-        remaining_mins = 59 - now.minute
-        safe_user_name = str(user.username or user.full_name or "Lord").replace("_", " ").replace("*", "").replace("`", "")
-        safe_title = str(user.title).replace("_", " ").replace("*", "").replace("`", "") + " " if user.title else ""
-        msg = (
-            f"⏳ **QIROLLIK OMAD SANDIG'I BUGUN OCHILGAN!**\n\n"
-            f"Hurmatli Lord {safe_title}{safe_user_name}, har bir xonadon kuniga faqat **1 marta** omad sandig'ini bepul ochish huquqiga ega.\n\n"
-            f"⏱️ Yangi sandiq: **{remaining_hours} soat {remaining_mins} daqiqadan so'ng** (ertaga) ochiladi.\n\n"
-            f"💡 _Ertaga kirib o'z omadingizni yana sinab ko'ring!_"
-        )
-        return False, msg, None
-
-    # Weighted random selection
-    weights = [item["weight"] for item in LUCKY_CHEST_POOLS]
-    selected = random.choices(LUCKY_CHEST_POOLS, weights=weights, k=1)[0]
-
-    # Award resources
-    user.gold = (user.gold or 0) + selected.get("gold", 0)
-    user.food = (user.food or 0) + selected.get("food", 0)
-    user.iron = (user.iron or 0) + selected.get("iron", 0)
-    user.prestige = (user.prestige or 0) + selected.get("prestige", 0)
-    user.xp = (user.xp or 0) + selected.get("xp", 0)
-
-    # Award troops & siege weapons
-    army = await get_user_army(session, user.id)
-    troops_awarded = []
-    if army:
-        for t_col in ["infantry", "archers", "cavalry", "spearmen", "special_troops", "catapults", "siege_towers"]:
-            amt = selected.get(t_col, 0)
-            if amt > 0 and hasattr(army, t_col):
-                cur = getattr(army, t_col) or 0
-                setattr(army, t_col, cur + amt)
-                u_name = UNIT_NAMES_UZ.get(t_col, t_col)
-                troops_awarded.append(f"+{amt} {u_name}")
-
-    # Award dragon power
-    dragon_msg = ""
-    dp = selected.get("dragon_power", 0)
-    if dp > 0:
-        dragons = await get_user_dragons(session, user.id)
-        if dragons:
-            best_dragon = max(dragons, key=lambda d: d.power)
-            best_dragon.power += dp
-            best_dragon.hunger = min(100, (best_dragon.hunger or 50) + 40)
-            dragon_msg = f"\n🐉 Ajdaringiz ({best_dragon.name}) quvvati: +{dp} oshdi!"
-        else:
-            # Ajdari bo'lmasa kompensatsiya sifatida qo'shimcha oltin va askar
-            user.gold += 15000
-            if army:
-                army.special_troops = (army.special_troops or 0) + 20
-            dragon_msg = "\n_(Ajdar mavjud bo'lmagani uchun +15,000🪙 va +20 Maxsus askar qo'shildi)_"
-
-    # Mark as opened today
-    user.daily_chest_date = today_str
-
-    # Level up check
-    from core.leveling import check_user_level_up
-    lvl_up, new_lvl, lvl_msg = check_user_level_up(user)
-    extra_lvl = f"\n\n{lvl_msg}" if lvl_up else ""
-
-    await session.commit()
-
-    reward_lines = []
-    if selected.get("gold"):
-        reward_lines.append(f"• 🪙 Oltin: **+{selected['gold']:,}**")
-    if selected.get("food"):
-        reward_lines.append(f"• 🌾 Oziq-ovqat: **+{selected['food']:,}**")
-    if selected.get("iron"):
-        reward_lines.append(f"• ⛓️ Temir: **+{selected['iron']:,}**")
-    if selected.get("prestige"):
-        reward_lines.append(f"• 🏆 Nufuz: **+{selected['prestige']:,}**")
-    if selected.get("xp"):
-        reward_lines.append(f"• ⭐ Tajriba: **+{selected['xp']:,} XP**")
-    if troops_awarded:
-        reward_lines.append(f"• ⚔️ Qo'shinlar: **{', '.join(troops_awarded)}**")
-
-    rewards_text = "\n".join(reward_lines)
-
-    result_msg = (
-        f"🎰 **QIROLLIK OMAD SANDIG'I OCHILDI!**\n\n"
-        f"{selected['badge']} **{selected['title']}**\n\n"
-        f"_{selected['desc']}_\n\n"
-        f"🎁 **Qo'lga kiritilgan ne'matlar:**\n"
-        f"{rewards_text}"
-        f"{dragon_msg}"
-        f"{extra_lvl}\n\n"
-        f"✨ _Har kuni botga kiring va yangi omad sandiqlarini oching!_"
-    )
-    return True, result_msg, selected
+    """Qirollik Omad Sandig'i (olib tashlangan)"""
+    return False, "⚠️ Qirollik omad sandig'i tizimi olib tashlangan.", None
 
 
 async def get_daily_quests_data(session: AsyncSession, user: models.User) -> dict:
@@ -6800,9 +6651,9 @@ async def dispatch_trade_caravan(
         return False, "❌ Karvon faqat Oziq-ovqat (food) yoki Temir (iron) tashiydi."
 
     valid_tiers = {
-        5000: 625,
-        10000: 1375,
-        20000: 3000,
+        5000: 150,
+        10000: 340,
+        20000: 750,
     }
     if amount not in valid_tiers:
         return False, "❌ Karvon yuki miqdori 5,000, 10,000 yoki 20,000 bo'lishi kerak."
@@ -6972,7 +6823,7 @@ async def raid_trade_caravan(
         caravan.raid_report = battle_res["details"]
 
         stolen_res = int(caravan.resource_amount * 0.175)
-        bounty_gold = 250
+        bounty_gold = 60
 
         if caravan.resource_type == "food":
             raider.food += stolen_res

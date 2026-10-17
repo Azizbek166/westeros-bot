@@ -50,10 +50,10 @@ async def caravan_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
             f"• 🐪 Karvon jo'natish: **{send_cnt}/2** ta\n"
             f"• ⚔️ Pistirma / Qaroqchilik: **{raid_cnt}/2** ta\n\n"
             "📜 **Karvon tizimi imkoniyatlari:**\n"
-            "• 5,000 resurs ➔ **+625** Oltin (30 daqiqa)\n"
-            "• 10,000 resurs ➔ **+1,375** Oltin (30 daqiqa)\n"
-            "• 20,000 resurs ➔ **+3,000** Oltin (30 daqiqa)\n\n"
-            "⚔️ **Qaroqchilik (Raid):** Yo'ldagi dushman karvonlariga hujum qilib, ularning 17.5% yukini va 250 Oltin o'ljani tortib olishingiz mumkin!"
+            "• 5,000 resurs ➔ **+150** Oltin (30 daqiqa)\n"
+            "• 10,000 resurs ➔ **+340** Oltin (30 daqiqa)\n"
+            "• 20,000 resurs ➔ **+750** Oltin (30 daqiqa)\n\n"
+            "⚔️ **Qaroqchilik (Raid):** Yo'ldagi dushman karvonlariga hujum qilib, ularning 17.5% yukini va 60 Oltin o'ljani tortib olishingiz mumkin!"
             f"{my_status}"
         )
 
@@ -97,9 +97,9 @@ async def caravan_wizard_amt_callback(update: Update, context: ContextTypes.DEFA
         "Qancha miqdorda yuk eksport qilmoqchisiz?"
     )
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📦 5,000 yuk (Kutilayotgan foyda: +625💰)", callback_data=f"caravan_step_dest:{res_type}:5000")],
-        [InlineKeyboardButton("📦 10,000 yuk (Kutilayotgan foyda: +1,375💰)", callback_data=f"caravan_step_dest:{res_type}:10000")],
-        [InlineKeyboardButton("📦 20,000 yuk (Kutilayotgan foyda: +3,000💰)", callback_data=f"caravan_step_dest:{res_type}:20000")],
+        [InlineKeyboardButton("📦 5,000 yuk (Kutilayotgan foyda: +150💰)", callback_data=f"caravan_step_dest:{res_type}:5000")],
+        [InlineKeyboardButton("📦 10,000 yuk (Kutilayotgan foyda: +340💰)", callback_data=f"caravan_step_dest:{res_type}:10000")],
+        [InlineKeyboardButton("📦 20,000 yuk (Kutilayotgan foyda: +750💰)", callback_data=f"caravan_step_dest:{res_type}:20000")],
         [InlineKeyboardButton("🔙 Orqaga", callback_data="caravan_wizard_res")],
     ])
     await query.edit_message_text(text, reply_markup=keyboard, parse_mode="Markdown")

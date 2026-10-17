@@ -84,17 +84,7 @@ async def show_daily_menu(target, user_id: int, is_message: bool = False):
             cur_reward = crud.STREAK_REWARDS.get(streak_count, crud.STREAK_REWARDS[1])
             streak_status_line = f"🎁 **Bugungi {streak_count}-kun tuhfasi tayyor!**\n└ _Sovrin: {cur_reward['gold']:,}🪙 {cur_reward['food']:,}🌾 {cur_reward['iron']:,}⛓️_"
 
-        # 2. Omad Sandig'i holati
-        chest_date = getattr(user, "daily_chest_date", "") or ""
-        is_chest_claimed = (chest_date == today_str)
-        if is_chest_claimed:
-            remaining_hours = 23 - now.hour
-            remaining_mins = 59 - now.minute
-            chest_status_line = f"⏳ Bugun ochilgan (Yangi sandiq `{remaining_hours}s {remaining_mins}d` dan so'ng)"
-        else:
-            chest_status_line = "🔓 **1 marta bepul ochishga tayyor!** (Valiriya xazinasi, oltinlar, qo'shinlar)"
-
-        # 3. Kunlik Vazifalar holati
+        # 2. Kunlik Vazifalar holati
         q_data = await crud.get_daily_quests_data(session, user)
         done_count = q_data["done_count"]
         unclaimed_count = sum(1 for q in q_data["quests"].values() if q["is_done"] and not q["is_claimed"])
@@ -127,13 +117,11 @@ async def show_daily_menu(target, user_id: int, is_message: bool = False):
             f"Vesteros qirollik saroyi va xazinaboni siz uchun har kungi in'omlarni taqdim etadi:\n\n"
             f"🔥 **Uzluksiz Kirish (Streak):** `{streak_count}/7-kun`\n"
             f"{streak_status_line}\n\n"
-            f"🎰 **Qirollik Omad Sandig'i:**\n"
-            f"{chest_status_line}\n\n"
             f"🎯 **Kunlik Faollik Vazifalari:** `{done_count}/4 ta bajarildi`\n"
             f"{quest_alert}\n\n"
             f"📅 **7 Kunlik Tuhfalar Taqvimi:**\n"
             f"{calendar_text}\n\n"
-            f"💡 _Har kuni kiring: 7-kunda Katta Valiriya Xazinasi va doimiy Omad Sandig'ini qo'lga kiriting!_"
+            f"💡 _Har kuni kiring: 7-kunda Katta Valiriya Xazinasini qo'lga kiriting!_"
         )
 
         buttons = []
@@ -148,17 +136,7 @@ async def show_daily_menu(target, user_id: int, is_message: bool = False):
                 InlineKeyboardButton(f"✅ Bugungi Tuhfa Olingan ({streak_count}/7)", callback_data="daily_streak_already")
             ])
 
-        # Row 2: Lucky Chest
-        if not is_chest_claimed:
-            buttons.append([
-                InlineKeyboardButton("🎰 Qirollik Omad Sandig'i (Bepul Ochish)", callback_data="daily_open_chest")
-            ])
-        else:
-            buttons.append([
-                InlineKeyboardButton("⏳ Omad Sandig'i Ochilgan", callback_data="daily_chest_already")
-            ])
-
-        # Row 3: Daily Quests
+        # Row 2: Daily Quests
         quest_btn_text = f"🎯 Kunlik Vazifalar ({done_count}/4)"
         if unclaimed_count > 0:
             quest_btn_text += f" 🎁+{unclaimed_count}"
@@ -209,7 +187,6 @@ async def daily_claim_streak_callback(update: Update, context: ContextTypes.DEFA
         await query.answer("⏳ Bugungi tuhfa allaqachon olingan!", show_alert=True)
 
     buttons = [
-        [InlineKeyboardButton("🎰 Omad Sandig'ini Ochish", callback_data="daily_open_chest")],
         [InlineKeyboardButton("🎯 Kunlik Faollik Vazifalari", callback_data="daily_quests_menu")],
         [InlineKeyboardButton("🎁 Kunlik Tuhfalar Markazi", callback_data="menu_daily")],
         [InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")],
@@ -219,30 +196,10 @@ async def daily_claim_streak_callback(update: Update, context: ContextTypes.DEFA
 
 
 async def daily_open_chest_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Qirollik Omad Sandig'ini ochish"""
+    """Qirollik Omad Sandig'i (olib tashlangan)"""
     query = update.callback_query
-    user_id = update.effective_user.id
-
-    async with AsyncSessionLocal() as session:
-        user = await crud.get_user_by_telegram_id(session, user_id)
-        if not user:
-            await query.answer("❌ Avval /start bosing.", show_alert=True)
-            return
-        ok, msg, reward = await crud.open_daily_lucky_chest(session, user.id)
-
-    if ok:
-        await query.answer("🎰 Omad Sandig'i ochildi!", show_alert=False)
-    else:
-        await query.answer("⏳ Bugun omad sandig'ini ochib bo'lgansiz!", show_alert=True)
-
-    buttons = [
-        [InlineKeyboardButton("🎁 7 Kunlik Tuhfani Olish", callback_data="daily_claim_streak")],
-        [InlineKeyboardButton("🎯 Kunlik Vazifalar", callback_data="daily_quests_menu")],
-        [InlineKeyboardButton("🎁 Kunlik Tuhfalar Markazi", callback_data="menu_daily")],
-        [InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")],
-    ]
-    markup = InlineKeyboardMarkup(buttons)
-    await safe_send_or_edit(query, msg, reply_markup=markup, is_message=False)
+    if query:
+        await query.answer("⚠️ Qirollik omad sandig'i tizimi olib tashlangan.", show_alert=True)
 
 
 async def show_daily_quests_menu(target, user_id: int, is_message: bool = False):
@@ -298,7 +255,7 @@ async def show_daily_quests_menu(target, user_id: int, is_message: bool = False)
 
         if grand_done and not grand_claimed:
             buttons.insert(0, [
-                InlineKeyboardButton("👑 GRAND-BONUSNI OLISH (+12,000🪙, +25 Gvardiya...) 👑", callback_data="daily_claim_quest:grand")
+                InlineKeyboardButton("👑 GRAND-BONUSNI OLISH (+3,000🪙, +6 Gvardiya...) 👑", callback_data="daily_claim_quest:grand")
             ])
 
         # Pastki navigatsiya
@@ -371,7 +328,6 @@ async def show_daily_calendar_menu(target, user_id: int):
     lines.append("📌 **Muhim qoidalar:**")
     lines.append("1. Agar biror kun botga kirmasangiz, streak 1-kunga qaytib ketadi!")
     lines.append("2. 7-kunning Super Valiriya Tuhfasini olganingizdan so'ng, yangi 7 kunlik tsikl boshlanadi.")
-    lines.append("3. Har kuni bundan tashqari **Qirollik Omad Sandig'i**ni 1 marta bepul ochishingiz mumkin!")
 
     buttons = [
         [InlineKeyboardButton("🎁 Kunlik Tuhfalar Saroyiga Qaytish", callback_data="menu_daily")],
@@ -406,21 +362,16 @@ async def daily_streak_already_callback(update: Update, context: ContextTypes.DE
 
 
 async def daily_chest_already_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Omad sandig'i allaqachon ochilgan bo'lsa xabar berish"""
+    """Omad sandig'i (olib tashlangan)"""
     query = update.callback_query
-    now = datetime.utcnow()
-    remaining_hours = 23 - now.hour
-    remaining_mins = 59 - now.minute
-    await query.answer(
-        f"⏳ Qirollik omad sandig'ini bugun ochib bo'lgansiz!\nYangi bepul sandiq {remaining_hours} soat {remaining_mins} daqiqadan so'ng ochiladi.",
-        show_alert=True
-    )
+    if query:
+        await query.answer("⚠️ Qirollik omad sandig'i tizimi olib tashlangan.", show_alert=True)
 
 
 def register_daily_handlers(app):
     """Kunlik tuhfalar bo'yicha barcha handlerlarni ro'yxatdan o'tkazish"""
     # Buyruqlar
-    app.add_handler(CommandHandler(["daily", "bonus", "tuhfa", "sovga", "sovgalar", "sandiq", "omad"], daily_menu_callback))
+    app.add_handler(CommandHandler(["daily", "bonus", "tuhfa", "sovga", "sovgalar"], daily_menu_callback))
 
     # Callbacklar
     app.add_handler(CallbackQueryHandler(daily_menu_callback, pattern="^menu_daily$"))
