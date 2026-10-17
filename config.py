@@ -129,3 +129,161 @@ def escape_md(text: str) -> str:
     for ch in ("\\", "_", "*", "`", "[", "]", "(", ")", "~", ">", "#", "+", "-", "=", "|", "{", "}", ".", "!"):
         text = str(text).replace(ch, "\\" + ch)
     return text
+
+
+# ============================================================
+# DONATE & VIP TIZIMI REKVIZITLARI
+# ============================================================
+DONATE_CARD_NUMBER = os.getenv("DONATE_CARD_NUMBER", "5614688804228251")
+DONATE_CARD_HOLDER = os.getenv("DONATE_CARD_HOLDER", "Shavkatov Azizbek")
+
+# ============================================================
+# RASMIY HAMJAMIYAT (KANAL & GURUH)
+# ============================================================
+COMMUNITY_CHANNEL_URL = os.getenv("COMMUNITY_CHANNEL_URL", "https://t.me/northremembers1")
+COMMUNITY_GROUP_URL = os.getenv("COMMUNITY_GROUP_URL", "https://t.me/northremember2")
+
+# ============================================================
+# AFSONAVIY DONATE / VIP TARIFLARI
+# ============================================================
+DONATE_TIERS = {
+    "knight": {
+        "id": "knight",
+        "name": "🗡️ Ritsar To'plami",
+        "subtitle": "Boshlang'ich jangchi to'plami",
+        "price_uzs": 15000,
+        "price_label": "15,000 so'm",
+        "gold": 1500,
+        "food": 3000,
+        "iron": 1000,
+        "infantry": 200,
+        "archers": 100,
+        "cavalry": 0,
+        "spearmen": 0,
+        "special_troops": 0,
+        "shield_hours": 48,
+        "prestige": 50,
+        "wildfire": 0,
+        "dragon": None,
+        "title": None,
+        "description": (
+            "• 🪙 Oltin: +1,500\n"
+            "• 🌾 Oziq-ovqat: +3,000\n"
+            "• ⛓️ Temir: +1,000\n"
+            "• 🛡️ Piyoda: +200 ta\n"
+            "• 🏹 Kamonchi: +100 ta\n"
+            "• 🕊️ Tinchlik Qalqoni: 48 soat\n"
+            "• ⭐ Prestige: +50 shon-sharaf"
+        ),
+    },
+    "lord": {
+        "id": "lord",
+        "name": "🏰 Lordlar Xazinasi",
+        "subtitle": "Hukmdorlar tanlovi (Mashhur)",
+        "price_uzs": 35000,
+        "price_label": "35,000 so'm",
+        "gold": 4500,
+        "food": 10000,
+        "iron": 3000,
+        "infantry": 0,
+        "archers": 0,
+        "cavalry": 150,
+        "spearmen": 200,
+        "special_troops": 0,
+        "shield_hours": 72,
+        "prestige": 150,
+        "wildfire": 3,
+        "dragon": None,
+        "title": "Saxiy Lord",
+        "description": (
+            "• 🪙 Oltin: +4,500\n"
+            "• 🌾 Oziq-ovqat: +10,000\n"
+            "• ⛓️ Temir: +3,000\n"
+            "• 🐎 Otliq askar: +150 ta\n"
+            "• 🗡️ Nayzador: +200 ta\n"
+            "• 💚 Yovvoyi Olov (Wildfire): +3 bochka\n"
+            "• 🕊️ Tinchlik Qalqoni: 72 soat (3 kun)\n"
+            "• 👑 Maxsus unvon: «Saxiy Lord»\n"
+            "• ⭐ Prestige: +150 shon-sharaf"
+        ),
+    },
+    "dragonlord": {
+        "id": "dragonlord",
+        "name": "🐉 Valyriya Merosi",
+        "subtitle": "Ajdaho Hukmdori to'plami",
+        "price_uzs": 75000,
+        "price_label": "75,000 so'm",
+        "gold": 12000,
+        "food": 25000,
+        "iron": 8000,
+        "infantry": 0,
+        "archers": 0,
+        "cavalry": 0,
+        "spearmen": 0,
+        "special_troops": 100,
+        "shield_hours": 120,
+        "prestige": 400,
+        "wildfire": 5,
+        "dragon": {
+            "name": "Syrax",
+            "grade": "B",
+            "stage": "adult",
+            "level": 10,
+            "power": 1500,
+            "hunger": 100,
+        },
+        "title": "Ajdaho Hukmdori",
+        "description": (
+            "• 🪙 Oltin: +12,000\n"
+            "• 🌾 Oziq-ovqat: +25,000\n"
+            "• ⛓️ Temir: +8,000\n"
+            "• 🔥 Xonadon Maxsus Askari: +100 ta\n"
+            "• 🐉 Afsonaviy Jangovar Ajdar: 10-darajali (1,500 quvvat!)\n"
+            "• 💚 Yovvoyi Olov (Wildfire): +5 bochka (Maksimal)\n"
+            "• 🕊️ Tinchlik Qalqoni: 120 soat (5 kun)\n"
+            "• 👑 Maxsus unvon: «Ajdaho Hukmdori»\n"
+            "• ⭐ Prestige: +400 shon-sharaf"
+        ),
+    },
+    "sovereign": {
+        "id": "sovereign",
+        "name": "👑 Temir Taxt Sohibi",
+        "subtitle": "Eksklyuziv Imperator to'plami",
+        "price_uzs": 149000,
+        "price_label": "149,000 so'm",
+        "gold": 30000,
+        "food": 60000,
+        "iron": 20000,
+        "infantry": 1000,
+        "archers": 600,
+        "cavalry": 400,
+        "spearmen": 400,
+        "special_troops": 250,
+        "shield_hours": 168,
+        "prestige": 1000,
+        "wildfire": 5,
+        "dragon": {
+            "name": "Balerion",
+            "grade": "A",
+            "stage": "adult",
+            "level": 15,
+            "power": 2500,
+            "hunger": 100,
+        },
+        "title": "Vesteros Himoyachisi",
+        "broadcast": True,
+        "description": (
+            "• 🪙 Oltin: +30,000\n"
+            "• 🌾 Oziq-ovqat: +60,000\n"
+            "• ⛓️ Temir: +20,000\n"
+            "• 🛡️ Katta Armiya: +1,000 Piyoda, +600 Kamonchi, +400 Otliq, +400 Nayzador, +250 Maxsus!\n"
+            "• 🐉 Bahaybat Qora Ajdar: Balerion 15-darajali (2,500 quvvat!)\n"
+            "• 💚 Yovvoyi Olov (Wildfire): +5 bochka (Maksimal)\n"
+            "• 🕊️ Tinchlik Qalqoni: 168 soat (7 kun daxlsizlik)\n"
+            "• 👑 Maxsus unvon: «Vesteros Himoyachisi»\n"
+            "• ⭐ Prestige: +1,000 shon-sharaf\n"
+            "• 📣 Butun Vesteros bo'ylab Qirollik E'loni!"
+        ),
+    },
+}
+

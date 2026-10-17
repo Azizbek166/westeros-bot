@@ -7154,6 +7154,121 @@ async def check_and_rotate_weather(session: AsyncSession, bot_app=None) -> None:
         pass
 
 
+# ============================================================
+# VIP & DONATE MUKOFOTLARI
+# ============================================================
+
+async def apply_donate_rewards(session: AsyncSession, telegram_id: int, tier_id: str) -> Tuple[bool, str, dict]:
+    """
+    VIP / Donate to'plami bo'yicha mukofotlarni taqdim etish:
+    - Oltin, oziq-ovqat, temir, nufuz (prestige)
+    - Armiya askarlari (piyoda, kamonchi, otliq, nayzachi, maxsus)
+    - Tinchlik qalqoni (peace shield)
+    - Wildfire (agar xonadon qal'asi mavjud bo'lsa)
+    - Faxriy unvon (title)
+    - Afsonaviy ajdaho (agar to'plamda ko'rsatilgan bo'lsa)
+    """
+    from config import DONATE_TIERS
+    tier = DONATE_TIERS.get(tier_id)
+    if not tier:
+        return False, f"Bunday to'plam topilmadi: {tier_id}", {}
+
+    user = await get_user_with_relations(session, telegram_id)
+    if not user:
+        return False, "Foydalanuvchi ma'lumotlar bazasidan topilmadi.", {}
+
+    applied_details = {
+        "tier_name": tier["name"],
+        "price_label": tier["price_label"],
+        "gold": tier["gold"],
+        "food": tier["food"],
+        "iron": tier["iron"],
+        "prestige": tier["prestige"],
+        "troops": {},
+        "dragon": None,
+        "title": tier.get("title"),
+        "shield_hours": tier["shield_hours"],
+    }
+
+    # 1. Resurslar va nufuz
+    user.gold = (user.gold or 0) + tier["gold"]
+    user.food = (user.food or 0) + tier["food"]
+    user.iron = (user.iron or 0) + tier["iron"]
+    user.prestige = (user.prestige or 0) + tier["prestige"]
+
+    # 2. Armiya
+    army = user.army
+    if not army:
+        army = models.Army(user_id=user.id)
+        session.add(army)
+
+    if tier.get("infantry"):
+        army.infantry = (army.infantry or 0) + tier["infantry"]
+        applied_details["troops"]["infantry"] = tier["infantry"]
+    if tier.get("archers"):
+        army.archers = (army.archers or 0) + tier["archers"]
+        applied_details["troops"]["archers"] = tier["archers"]
+    if tier.get("cavalry"):
+        army.cavalry = (army.cavalry or 0) + tier["cavalry"]
+        applied_details["troops"]["cavalry"] = tier["cavalry"]
+    if tier.get("spearmen"):
+        army.spearmen = (army.spearmen or 0) + tier["spearmen"]
+        applied_details["troops"]["spearmen"] = tier["spearmen"]
+    if tier.get("special_troops"):
+        army.special_troops = (army.special_troops or 0) + tier["special_troops"]
+        applied_details["troops"]["special_troops"] = tier["special_troops"]
+
+    # 3. Tinchlik Qalqoni (Peace Shield)
+    now = datetime.utcnow()
+    current_shield = user.peace_shield_until
+    base_time = current_shield if (current_shield and current_shield > now) else now
+    user.peace_shield_until = base_time + timedelta(hours=tier["shield_hours"])
+
+    # 4. Faxriy Unvon
+    if tier.get("title"):
+        user.title = tier["title"]
+
+    # 5. Wildfire
+    wf_amount = tier.get("wildfire", 0)
+    if wf_amount > 0 and user.house_id:
+        terr_res = await session.execute(
+            select(models.Territory)
+            .where(models.Territory.owner_house_id == user.house_id)
+            .order_by(models.Territory.is_capital.desc(), models.Territory.id.asc())
+        )
+        terr = terr_res.scalars().first()
+        if terr:
+            terr.wildfire_count = min(5, (terr.wildfire_count or 0) + wf_amount)
+            applied_details["wildfire_castle"] = terr.name
+            applied_details["wildfire_count"] = terr.wildfire_count
+
+    # 6. Ajdaho
+    dragon_data = tier.get("dragon")
+    if dragon_data:
+        dragons = await get_user_dragons(session, user.id)
+        if len(dragons) < 3:
+            new_dragon = models.Dragon(
+                user_id=user.id,
+                name=dragon_data["name"],
+                grade=dragon_data["grade"],
+                stage=dragon_data["stage"],
+                level=dragon_data["level"],
+                power=dragon_data["power"],
+                hunger=dragon_data["hunger"],
+            )
+            session.add(new_dragon)
+            applied_details["dragon"] = f"{new_dragon.name} ({new_dragon.level}-daraja, {new_dragon.power:,} quvvat)"
+        else:
+            top_dragon = max(dragons, key=lambda d: d.power)
+            top_dragon.power += dragon_data["power"]
+            top_dragon.hunger = 100
+            applied_details["dragon_boost"] = f"{top_dragon.name} quvvati +{dragon_data['power']:,} ga oshirildi!"
+
+    await session.commit()
+    return True, "Mukofotlar muvaffaqiyatli taqdim etildi!", applied_details
+
+
+
 
 
 

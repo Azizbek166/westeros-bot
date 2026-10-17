@@ -8,7 +8,8 @@ def persistent_reply_keyboard() -> ReplyKeyboardMarkup:
     """Doimiy pastki klaviatura (emoji bar yonida turuvchi)"""
     return ReplyKeyboardMarkup(
         [
-            [KeyboardButton("🏠 Bosh Menyu"), KeyboardButton("🏰 Qalalarim")]
+            [KeyboardButton("🏠 Bosh Menyu"), KeyboardButton("🏰 Qalalarim")],
+            [KeyboardButton("💎 VIP & Donate"), KeyboardButton("📢 Guruh & Kanal")],
         ],
         resize_keyboard=True,
         is_persistent=True
@@ -20,6 +21,10 @@ def main_menu_keyboard(user_id: int = None) -> InlineKeyboardMarkup:
     """Bosh menyu klaviaturasi (Admin tugmasi faqat ruxsat berilgan adminlar uchun chiqadi)"""
     from config import ADMIN_IDS
     buttons = [
+        [
+            InlineKeyboardButton("💎 VIP & Donate", callback_data="menu_donate"),
+            InlineKeyboardButton("📢 Rasmiy Kanal & Guruh", callback_data="menu_community"),
+        ],
         [
             InlineKeyboardButton("👤 Profil", callback_data="menu_profile"),
             InlineKeyboardButton("🏰 Xonadon", callback_data="menu_house"),
@@ -78,6 +83,7 @@ def main_menu_keyboard(user_id: int = None) -> InlineKeyboardMarkup:
         ])
 
     return InlineKeyboardMarkup(buttons)
+
 
 
 def back_to_main_keyboard() -> InlineKeyboardMarkup:

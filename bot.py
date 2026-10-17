@@ -6,7 +6,7 @@ if hasattr(sys.stdout, "reconfigure"):
 import asyncio
 import logging
 from datetime import datetime, time as dt_time, timezone, timedelta
-from telegram import Update
+from telegram import Update, BotCommand
 from telegram.ext import Application, ContextTypes, TypeHandler, ApplicationHandlerStop
 from config import BOT_TOKEN, ADMIN_IDS, OWNER_ID, escape_md
 from core.notifier import notify_owner
@@ -131,15 +131,41 @@ async def render_keepalive_job(context: ContextTypes.DEFAULT_TYPE):
 
 
 async def on_startup(app: Application):
-    """Bot qayta ishga tushganda yoki start berganda bosh egaga xabar berish"""
+    """Bot qayta ishga tushganda yoki start berganda buyruqlarni o'rnatish va bosh egaga xabar berish"""
+    try:
+        commands = [
+            BotCommand("start", "👑 Asosiy Menyu / Boshlash"),
+            BotCommand("profile", "👤 Lord Profili & Armiya"),
+            BotCommand("castles", "🏰 Qal'alarim & O'lpon"),
+            BotCommand("house", "🏛️ Xonadon Boshqaruvi"),
+            BotCommand("army", "⚔️ Askar Yollash & Garnizon"),
+            BotCommand("map", "🗺️ Westeros Xaritasi & Fath"),
+            BotCommand("dragons", "🐉 Ajdarlar Maskani"),
+            BotCommand("battle", "🛡️ Harbiy Yurishlar"),
+            BotCommand("donate", "💎 VIP & Donate (Homiylik)"),
+            BotCommand("community", "📢 Rasmiy Guruh & Kanal"),
+            BotCommand("daily", "🎁 Kunlik Tuhfalar"),
+            BotCommand("quests", "📜 Vazifalar & Topshiriqlar"),
+            BotCommand("duel", "⚔️ 1v1 Duellar"),
+            BotCommand("trade", "⚖️ Savdo Bozori"),
+            BotCommand("bank", "🏦 Braavos Temir Banki"),
+            BotCommand("rank", "🏆 Qirollik Reytingi"),
+        ]
+        await app.bot.set_my_commands(commands)
+        logger.info("✅ Telegram / buyruqlar menyusi (set_my_commands) muvaffaqiyatli o'rnatildi.")
+    except Exception as e:
+        logger.warning(f"set_my_commands xatosi: {e}")
+
     now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
     await notify_owner(
         app,
         f"🚀 *SERVER: BOT ISHGA TUSHDI / RESTART BERILDI!*\n\n"
         f"🛡️ Holat: Faol va himoyalangan\n"
         f"⏱️ Vaqt: `{now_str}`\n"
-        f"👑 Barcha yangi qoidalar (House Blackfyre, max 5 o'yinchi, noyob ismlar, doimiy audit) to'liq amalda!"
+        f"💎 VIP & Donate tizimi, rasmiy guruh va kanal ulandi!\n"
+        f"👑 Barcha yangi qoidalar to'liq amalda!"
     )
+
 
 
 async def ban_check_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):

@@ -403,11 +403,17 @@ async def bottom_menu_text_handler(update: Update, context: ContextTypes.DEFAULT
     elif text == "🏰 Qalalarim":
         from handlers.map_handler import my_castles_command
         await my_castles_command(update, context)
+    elif text == "💎 VIP & Donate":
+        from handlers.donate_handler import donate_command
+        await donate_command(update, context)
+    elif text == "📢 Guruh & Kanal":
+        from handlers.community_handler import community_command
+        await community_command(update, context)
 
 
 def register_start_handlers(app):
     app.add_handler(CommandHandler("start", start_command))
-    app.add_handler(MessageHandler(filters.Regex("^(🏠 Bosh Menyu|🏰 Qalalarim)$"), bottom_menu_text_handler))
+    app.add_handler(MessageHandler(filters.Regex("^(🏠 Bosh Menyu|🏰 Qalalarim|💎 VIP & Donate|📢 Guruh & Kanal)$"), bottom_menu_text_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_custom_name_input), group=2)
     app.add_handler(CallbackQueryHandler(random_house_pick_callback, pattern="^random_house_pick$"))
     app.add_handler(CallbackQueryHandler(region_selected_callback, pattern="^sel_reg:"))
