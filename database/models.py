@@ -197,9 +197,9 @@ class Territory(Base):
     population = Column(Integer, default=50000)
 
     # Soatlik daromadlar
-    gold_income = Column(Integer, default=50)
-    food_income = Column(Integer, default=125)
-    iron_income = Column(Integer, default=25)
+    gold_income = Column(Integer, default=20)
+    food_income = Column(Integer, default=50)
+    iron_income = Column(Integer, default=15)
 
     defense = Column(Integer, default=500)  # Qal'a mustahkamligi
     garrison_infantry = Column(Integer, default=200)

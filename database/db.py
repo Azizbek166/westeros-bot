@@ -283,9 +283,9 @@ async def init_db():
                     castle_name=t_info["castle"],
                     owner_house_id=t_info.get("initial_owner_id"),
                     population=t_info.get("population", 50000),
-                    gold_income=t_info.get("gold_income", 200),
-                    food_income=t_info.get("food_income", 500),
-                    iron_income=t_info.get("iron_income", 100),
+                    gold_income=t_info.get("gold_income", 20),
+                    food_income=t_info.get("food_income", 50),
+                    iron_income=t_info.get("iron_income", 15),
                     defense=t_info.get("defense", 500),
                     garrison_infantry=t_info.get("garrison_infantry", 200),
                     garrison_archers=t_info.get("garrison_archers", 100),
@@ -298,6 +298,10 @@ async def init_db():
             else:
                 if result.owner_house_id is None and not result.conquered_by_user_id:
                     result.owner_house_id = t_info.get("initial_owner_id")
+                # Barcha qal'alar solig'ini map_data bilan muvofiqlashtirish
+                result.gold_income = t_info.get("gold_income", 20)
+                result.food_income = t_info.get("food_income", 50)
+                result.iron_income = t_info.get("iron_income", 15)
 
 
         # Tun Qiroli (White Walkers) global eventini 500,000 HP ga yangilash
