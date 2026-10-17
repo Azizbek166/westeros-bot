@@ -163,7 +163,7 @@ DONATE_TIERS = {
         "special_troops": 0,
         "catapults": 0,
         "siege_towers": 0,
-        "shield_hours": 72,
+        "shield_hours": 0,
         "prestige": 150,
         "wildfire": 0,
         "dragon": None,
@@ -173,7 +173,6 @@ DONATE_TIERS = {
             "• 🌾 Oziq-ovqat: +30,000\n"
             "• ⛓️ Temir: +15,000\n"
             "• 🛡️ Armiya: +500 Piyoda, +300 Kamonchi, +100 Otliq, +100 Nayzador\n"
-            "• 🕊️ Tinchlik Qalqoni: 72 soat (3 kun daxlsizlik)\n"
             "• 👑 Faxriy unvon: «Jasur Ritsar»\n"
             "• ⭐ Prestige: +150 shon-sharaf"
         ),
@@ -194,7 +193,7 @@ DONATE_TIERS = {
         "special_troops": 100,
         "catapults": 2,
         "siege_towers": 1,
-        "shield_hours": 120,
+        "shield_hours": 0,
         "prestige": 400,
         "wildfire": 3,
         "dragon": {
@@ -213,8 +212,7 @@ DONATE_TIERS = {
             "• 🛡️ Kuchli Armiya: +1,200 Piyoda, +800 Kamonchi, +500 Otliq, +500 Nayzador, +100 Maxsus!\n"
             "• 🏹 Qamal qurollari: +2 Katapulta, +1 Qamal minorasi\n"
             "• 🐉 Afsonaviy Ajdaho: 8-darajali (1,200 quvvat!)\n"
-            "• 💚 Yovvoyi Olov (Wildfire): +3 bochka\n"
-            "• 🕊️ Tinchlik Qalqoni: 120 soat (5 kun daxlsizlik)\n"
+            "• 💚 Yovvoyi Olov (Wildfire): +3 bochka (Qal'a mudofaasiga)\n"
             "• 👑 Maxsus unvon: «Saxiy Lord»\n"
             "• ⭐ Prestige: +400 shon-sharaf"
         ),
@@ -235,7 +233,7 @@ DONATE_TIERS = {
         "special_troops": 500,
         "catapults": 10,
         "siege_towers": 5,
-        "shield_hours": 168,
+        "shield_hours": 0,
         "prestige": 1000,
         "wildfire": 5,
         "dragon": {
@@ -255,7 +253,6 @@ DONATE_TIERS = {
             "• 🏹 Qamal qurollari: +10 Katapulta, +5 Qamal minorasi\n"
             "• 🐉 Qora Ajdaho: Drogon 12-darajali (2,500 quvvat!)\n"
             "• 💚 Yovvoyi Olov (Wildfire): +5 bochka (Maksimal)\n"
-            "• 🕊️ Tinchlik Qalqoni: 168 soat (7 kun daxlsizlik)\n"
             "• 👑 Maxsus unvon: «Ajdaho Hukmdori»\n"
             "• ⭐ Prestige: +1,000 shon-sharaf"
         ),
@@ -276,7 +273,7 @@ DONATE_TIERS = {
         "special_troops": 1500,
         "catapults": 20,
         "siege_towers": 10,
-        "shield_hours": 336,
+        "shield_hours": 0,
         "prestige": 3000,
         "wildfire": 5,
         "dragon": {
@@ -291,17 +288,17 @@ DONATE_TIERS = {
         "broadcast": True,
         "description": (
             "• 🪙 Oltin: +300,000\n"
-            "• 🌾 Oziq-ovqat: +1,000,000 (1 Million!)\n"
+            "• 🌾 Oziq-ovqat: +1000,000 (1 Million!)\n"
             "• ⛓️ Temir: +500,000\n"
             "• 🛡️ Bahaybat Armiya: +8,000 Piyoda, +5,000 Kamonchi, +3,000 Otliq, +3,000 Nayzador, +1,500 Maxsus!\n"
             "• 🏹 Qamal qurollari: +20 Katapulta (Maks), +10 Qamal minorasi (Maks)!\n"
             "• 🐉 Afsonaviy Qora Ajdar: Balerion (5,000 quvvat!)\n"
             "• 💚 Yovvoyi Olov (Wildfire): +5 bochka (Maksimal)\n"
-            "• 🕊️ Tinchlik Qalqoni: 336 soat (14 kun / 2 hafta to'liq daxlsizlik)\n"
             "• 👑 Maxsus unvon: «Vesteros Himoyachisi»\n"
             "• ⭐ Prestige: +3,000 shon-sharaf\n"
             "• 📣 Butun Vesteros bo'ylab Qirollik tantanali e'loni!"
         ),
     },
 }
+
 

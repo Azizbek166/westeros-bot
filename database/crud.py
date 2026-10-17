@@ -7224,11 +7224,17 @@ async def apply_donate_rewards(session: AsyncSession, telegram_id: int, tier_id:
         army.siege_towers = min(10, (army.siege_towers or 0) + tier["siege_towers"])
         applied_details["troops"]["siege_towers"] = tier["siege_towers"]
 
-    # 3. Tinchlik Qalqoni (Peace Shield)
-    now = datetime.utcnow()
-    current_shield = user.peace_shield_until
-    base_time = current_shield if (current_shield and current_shield > now) else now
-    user.peace_shield_until = base_time + timedelta(hours=tier["shield_hours"])
+    # 3. Tinchlik Qalqoni (agar to'plamda ko'rsatilgan bo'lsa)
+    shield_h = tier.get("shield_hours", 0)
+    if shield_h > 0:
+        now = datetime.utcnow()
+        current_shield = user.peace_shield_until
+        base_time = current_shield if (current_shield and current_shield > now) else now
+        user.peace_shield_until = base_time + timedelta(hours=shield_h)
+        applied_details["shield_hours"] = shield_h
+    else:
+        applied_details["shield_hours"] = 0
+
 
     # 4. Faxriy Unvon
     if tier.get("title"):
