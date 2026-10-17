@@ -1,3 +1,4 @@
+import re
 import logging
 from datetime import datetime
 from typing import Tuple, Optional
@@ -1095,7 +1096,7 @@ def register_profile_handlers(app):
     app.add_handler(CommandHandler(["selliron", "temir_sotish"], sell_iron_command))
 
     # Guruhlarda "profil" yoki "profile" deb yozilganda profilni rasm va musiqa bilan chiqarish
-    app.add_handler(MessageHandler(filters.Regex(r"^(?i)(profil|profile|\.profil|\.me|/me)$") & (filters.ChatType.GROUPS), group_profile_handler))
+    app.add_handler(MessageHandler(filters.Regex(re.compile(r"^(profil|profile|\.profil|\.me|/me)$", re.IGNORECASE)) & (filters.ChatType.GROUPS), group_profile_handler))
 
     # Callbacklar
     app.add_handler(CallbackQueryHandler(profile_callback, pattern="^menu_profile$"))
