@@ -636,85 +636,10 @@ async def process_npc_growth_and_raids(bot_app=None):
 
 async def check_house_election_expiration(bot_app=None):
     """
-    Lordlar saylovi har 10 kunda bo'lishi:
-    Lord saylangandan 10 kundan keyin vakolat muddati tugaydi,
-    avtomatik ravishda yangi saylov boshlanadi va xonadon a'zolariga xabar beriladi.
+    Har bir xonadonda 1 kishi bo'lib, u xonadonning yagona va mutlaq Lordi hisoblanadi.
+    Shu sababli Lordlik muddati tugatilmaydi va o'zgarmaydi.
     """
-    async with AsyncSessionLocal() as session:
-        now = datetime.utcnow()
-        result = await session.execute(
-            select(models.House).where(
-                models.House.is_npc == False,
-                models.House.lord_user_id.isnot(None),
-                models.House.lord_elected_at.isnot(None),
-            )
-        )
-        houses = result.scalars().all()
-
-        for house in houses:
-            try:
-                elapsed_sec = (now - house.lord_elected_at).total_seconds()
-                # 10 kun = 10 * 86400 = 864,000 soniya
-                if elapsed_sec >= 10 * 86400:
-                    old_lord_tg_id = house.lord_user_id
-                    old_lord = await crud.get_user_by_telegram_id(session, old_lord_tg_id)
-                    old_lord_name = old_lord.full_name if old_lord else "Lord"
-
-                    # Oldingi lord unvonini a'zoga tushiramiz
-                    if old_lord and old_lord.rank == "king":
-                        old_lord.rank = "member"
-
-                    # Lordlikni vakant qilamiz va elected_at ni yangilaymiz
-                    house.lord_user_id = None
-                    house.lord_elected_at = now
-
-                    # Xonadondagi eski saylov ovozlarini tozalaymiz
-                    await session.execute(
-                        delete(models.HouseVote).where(models.HouseVote.house_id == house.id)
-                    )
-
-                    logger.info(f"🏰 {house.name} xonadoni Lordining 10 kunlik muddati tugadi. Yangi saylov boshlandi.")
-
-                    # Xonadon a'zolariga yangi saylov haqida xabar yuborish
-                    if bot_app:
-                        members_res = await session.execute(
-                            select(models.User).where(models.User.house_id == house.id).limit(50)
-                        )
-                        members = members_res.scalars().all()
-
-                        announcement = (
-                            f"🗳️ **{house.emoji} {house.name} — YANGI LORD SAYLOVI BOSHLANDI!**\n\n"
-                            f"Oldingi Lord **{old_lord_name}** ning 10 kunlik vakolat muddati yakunlandi.\n\n"
-                            f"👑 Xonadon Lordligi hozirda bo'sh (Vakant)!\n"
-                            f"Barcha a'zolar o'z nomzodiga ovoz berishi yoki Lordlikni qabul qilishi mumkin.\n"
-                            f"G'alaba qozonish uchun 50% dan ko'p ovoz kerak bo'ladi.\n\n"
-                            f"👉 /house buyrug'i orqali **Lord Saylovi** bo'limiga kiring!"
-                        )
-
-                        for m in members:
-                            try:
-                                await bot_app.bot.send_message(
-                                    chat_id=m.telegram_id,
-                                    text=announcement,
-                                    parse_mode="Markdown",
-                                )
-                            except Exception:
-                                pass
-
-                        try:
-                            from core.notifier import notify_owner
-                            await notify_owner(
-                                bot_app,
-                                f"🗳️ *SERVER: YANGI SAYLOV BOSHLANDI*\n\n"
-                                f"🏰 Xonadon: *{house.emoji} {house.name}*\n"
-                                f"👑 Sabab: Lord *{old_lord_name}* ning 10 kunlik vakolat muddati tugadi."
-                            )
-                        except Exception:
-                            pass
-            except Exception as e:
-                logger.error(f"House election expiration error for house {house.id}: {e}")
-
-        await session.commit()
+    return
 
 
 async def check_war_mode_expiration(bot_app=None):

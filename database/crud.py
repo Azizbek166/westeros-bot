@@ -140,19 +140,15 @@ async def create_user(
         raise ValueError(f"'{clean_name}' nomi allaqachon band qilingan!")
 
     members_count = await get_house_members_count(session, house_id)
-    if members_count >= 5:
-        raise ValueError("Bu xonadon to'lgan! Maksimal 5 nafar o'yinchi bo'lishi mumkin.")
+    if members_count >= 1:
+        raise ValueError("Bu xonadonda allaqachon Lord bor! Har bir xonadonga faqat 1 nafar hukmdor biriktiriladi.")
 
     shield_expiry = datetime.utcnow() + timedelta(hours=PEACE_SHIELD_HOURS)
     today_str = datetime.utcnow().strftime("%Y-%m-%d")
 
-    # Xonadonda Lord bormi? Agar bo'lmasa, birinchi o'yinchi Lord (King) bo'ladi
+    # Har bir xonadonda 1 kishi bo'ladi va u xonadonning yagona mutlaq Lordi (King) hisoblanadi
     house = await session.get(models.House, house_id)
-    is_first_lord = False
-    if house and (house.lord_user_id is None or house.lord_user_id == 0 or members_count == 0):
-        is_first_lord = True
-
-    user_rank = "king" if is_first_lord else get_rank_for_member_index(members_count)
+    user_rank = "king"
 
     user = models.User(
         telegram_id=telegram_id,
@@ -175,7 +171,7 @@ async def create_user(
     session.add(user)
     await session.flush()
 
-    if is_first_lord and house:
+    if house:
         house.lord_user_id = telegram_id
         house.lord_elected_at = datetime.utcnow()
 
@@ -235,16 +231,14 @@ async def join_house(
         raise ValueError(f"House with id {house_id} not found")
 
     members_count = await get_house_members_count(session, house_id)
-    if members_count >= 5:
-        raise ValueError("Bu xonadon to'lgan! Maksimal 5 nafar o'yinchi bo'lishi mumkin.")
+    if members_count >= 1:
+        raise ValueError("Bu xonadonda allaqachon Lord bor! Har bir xonadonga faqat 1 nafar hukmdor biriktiriladi.")
 
     clean_name = character_name.strip()
     if await is_character_name_taken(session, clean_name, exclude_user_id=user.id):
         raise ValueError(f"'{clean_name}' nomi allaqachon band qilingan!")
 
-    is_first_lord = (house.lord_user_id is None or house.lord_user_id == 0 or members_count == 0)
-    user_rank = "king" if is_first_lord else get_rank_for_member_index(members_count)
-
+    user_rank = "king"
     user.house_id = house_id
     user.rank = user_rank
     if username:
@@ -256,9 +250,8 @@ async def join_house(
     if not user.peace_shield_until or user.peace_shield_until < now:
         user.peace_shield_until = now + timedelta(hours=PEACE_SHIELD_HOURS)
 
-    if is_first_lord:
-        house.lord_user_id = user.telegram_id
-        house.lord_elected_at = now
+    house.lord_user_id = user.telegram_id
+    house.lord_elected_at = now
 
     # Armiya mavjudligini tekshirish
     army_res = await session.execute(
@@ -399,7 +392,7 @@ async def get_all_houses_member_counts(session: AsyncSession) -> Dict[int, int]:
 
 
 async def get_random_available_house(session: AsyncSession) -> Optional[models.House]:
-    """Bo'sh o'rinlari (< 5 a'zo) mavjud bo'lgan o'ynaladigan (non-NPC) xonadonlardan birini tasodifiy tanlash"""
+    """Bo'sh (0 nafar a'zoli) o'ynaladigan (non-NPC) xonadonlardan birini tasodifiy tanlash (har bir xonadonga faqat 1 kishi)"""
     houses_res = await session.execute(
         select(models.House).where(
             or_(models.House.is_npc.is_(False), models.House.is_npc.is_(None))
@@ -413,10 +406,10 @@ async def get_random_available_house(session: AsyncSession) -> Optional[models.H
             return None
 
     member_counts = await get_all_houses_member_counts(session)
-    available_houses = [h for h in all_houses if member_counts.get(h.id, 0) < 5]
+    available_houses = [h for h in all_houses if member_counts.get(h.id, 0) < 1]
 
     if not available_houses:
-        return min(all_houses, key=lambda h: member_counts.get(h.id, 0))
+        return None
 
     return random.choice(available_houses)
 

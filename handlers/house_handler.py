@@ -47,20 +47,14 @@ async def show_house(target, user_id: int, is_message: bool):
         terr_names = ", ".join([t.name for t in territories]) if territories else "Hozircha yo'q"
 
         buttons = [
-            [InlineKeyboardButton("👥 Xonadon A'zolari va Lavozimlar", callback_data="house_members")],
+            [InlineKeyboardButton("👑 Xonadon Hukmdori Ma'lumotlari", callback_data="house_members")],
             [InlineKeyboardButton("💰 G'aznaga Ehson Qilish", callback_data="house_donate_menu"),
              InlineKeyboardButton("🏆 Eng Saxiylar", callback_data="house_top_donors")],
-            [InlineKeyboardButton("🗳️ Lord Saylovi (Ovoz berish)", callback_data="house_election")],
             [InlineKeyboardButton("🏰 Egallangan Qal'alarimiz", callback_data="menu_castles")],
         ]
         is_lord = (house.lord_user_id == user.telegram_id) or user.rank == "king"
         if is_lord:
             buttons.append([InlineKeyboardButton("🏛️ Xonadon G'aznasini Boshqarish (Lord)", callback_data="house_treasury_manage")])
-            buttons.append([InlineKeyboardButton("📢 Harbiy Safarbarlik (Askar So'rash)", callback_data="call_to_arms_broadcast")])
-            buttons.append([InlineKeyboardButton("🎖️ Lavozim Tayinlash (Lord)", callback_data="house_rank_assign_menu")])
-            buttons.append([InlineKeyboardButton("🚫 Lordlikdan Voz Kechish (Iste'fo)", callback_data="house_abdicate_prompt")])
-        elif house.lord_user_id:
-            buttons.append([InlineKeyboardButton("🛡️ Lordga Askar Berish (Safarbarlik)", callback_data="troop_donation_menu")])
 
         buttons.append([InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")])
 
@@ -69,7 +63,7 @@ async def show_house(target, user_id: int, is_message: bool):
             f"{house.emoji} **{house.name}**\n"
             f"📍 Mintaqa: **{house.region}**\n"
             f"👑 Xonadon Lordi: **{escape_md(lord_name)}**\n"
-            f"🎖️ Sizning Lavozimingiz: **{RANKS.get(user.rank, {}).get('name', user.rank.title())}**\n\n"
+            f"🎖️ Sizning Maqomingiz: **Xonadonning Yagona Hukmdori (Lord)**\n\n"
             f"📜 Shior: _{escape_md(house.description)}_\n\n"
             f"🏛️ **Xonadon Umumiy G'aznasi:**\n"
             f"• 🪙 Oltin: **{house.gold:,}** | 🌾 Oziq: **{house.food:,}** | ⛓️ Temir: **{house.iron:,}**\n\n"
@@ -100,14 +94,13 @@ async def house_members_callback(update: Update, context: ContextTypes.DEFAULT_T
 
         members = await crud.get_house_members_with_characters(session, user.house.id)
 
-        text = f"👥 **{user.house.emoji} {user.house.name} — A'ZOLAR VA LAVOZIMLAR:**\n\n"
+        text = f"👑 **{user.house.emoji} {user.house.name} — XONADON HUKMDORI:**\n\n"
         for m in members:
-            rank_info = RANKS.get(m.rank, {}).get("name", m.rank.title())
-            char_name = m.characters[0].name if m.characters else "Ritsar"
-            text += f"• **{escape_md(char_name)}** ({escape_md(m.full_name)})\n  └ Lavozim: {rank_info} | {m.level}-daraja\n"
+            rank_info = "Xonadon Lordi (Mutlaq Hukmdor)" if m.rank == "king" else RANKS.get(m.rank, {}).get("name", m.rank.title())
+            char_name = m.characters[0].name if m.characters else "Lord"
+            text += f"• 👑 **{escape_md(char_name)}** ({escape_md(m.full_name)})\n  └ Maqomi: **{rank_info}** | {m.level}-daraja\n"
 
         buttons = [
-            [InlineKeyboardButton("🗳️ Lord Saylovi", callback_data="house_election")],
             [InlineKeyboardButton("🔙 Xonadonga Qaytish", callback_data="menu_house")],
         ]
         await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))

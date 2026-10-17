@@ -84,33 +84,38 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(text, parse_mode=None, reply_markup=main_menu_keyboard(user_id))
             return
 
-        # Agar yangi o'yinchiga xonadon allaqachon random tushgan bo'lsa, o'shani saqlab qolamiz (faqat 1 marta)
+        # Agar yangi o'yinchiga xonadon allaqachon random tushgan bo'lsa, bo'shligini tekshiramiz
         saved_house_code = context.user_data.get("selected_house")
+        assigned_house = None
         if saved_house_code and saved_house_code in HOUSES_DATA:
-            house_code = saved_house_code
-            house_info = HOUSES_DATA[house_code]
-            house_id = house_info.get("id", 1)
-        else:
-            # Yangi o'yinchi uchun bot avtomatik random xonadon tanlaydi (faqat 1 marta!)
+            h_res = await session.execute(select(models.House).where(models.House.code == saved_house_code))
+            h_candidate = h_res.scalar_one_or_none()
+            if h_candidate and await crud.get_house_members_count(session, h_candidate.id) < 1:
+                assigned_house = h_candidate
+
+        if not assigned_house:
+            # Yangi o'yinchi uchun bot avtomatik bo'sh xonadon tanlaydi (har bir xonadonga faqat 1 kishi!)
             assigned_house = await crud.get_random_available_house(session)
             if not assigned_house:
-                house_code = "stark"
-                house_info = HOUSES_DATA.get("stark", {})
-                house_id = 1
-            else:
-                house_code = assigned_house.code
-                house_id = assigned_house.id
-                house_info = HOUSES_DATA.get(house_code) or {
-                    "id": assigned_house.id,
-                    "name": assigned_house.name,
-                    "emoji": assigned_house.emoji,
-                    "region": assigned_house.region,
-                    "description": assigned_house.description,
-                    "special_troop": assigned_house.special_troop_name,
-                }
-            context.user_data["selected_house"] = house_code
+                await update.message.reply_text(
+                    "❌ **WESTEROSDA BARCHA XONADONLAR BAND!**\n\n"
+                    "Westerosning barcha 50 ta xonadonida o'z Lordlari mavjud.\n"
+                    "Yangi taxt o'rinlari bo'shashini kuting yoki administratorga murojaat qiling.",
+                    parse_mode="Markdown"
+                )
+                return
 
-        member_count = await crud.get_house_members_count(session, house_id)
+        house_code = assigned_house.code
+        house_id = assigned_house.id
+        house_info = HOUSES_DATA.get(house_code) or {
+            "id": assigned_house.id,
+            "name": assigned_house.name,
+            "emoji": assigned_house.emoji,
+            "region": assigned_house.region,
+            "description": assigned_house.description,
+            "special_troop": assigned_house.special_troop_name,
+        }
+        context.user_data["selected_house"] = house_code
 
     context.user_data["awaiting_custom_name"] = True
 
@@ -118,12 +123,12 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "👑 *THE IRON THRONE — WESTEROS MMORPG*\n\n"
         "Qirol Robert Baratheon vafot etdi! Temir Taxt bo'shab qoldi.\n"
         "Westerosda 50 ta xonadon taxt uchun jangga kirishmoqda.\n\n"
-        "🎲 *Taqdir sizni quyidagi xonadon safiga yo'lladi (Faqat 1 marta):*\n\n"
+        "🎲 *Taqdir sizni quyidagi xonadonning YAGONA LORDI qilib tanladi:*\n\n"
         f"{house_info.get('emoji', '🏰')} *{house_info.get('name', 'Xonadon')}*\n"
         f"📍 Mintaqa: *{house_info.get('region', 'Westeros')}*\n"
         f"📜 {house_info.get('description', '')}\n"
         f"🔥 Maxsus Qo'shin: *{house_info.get('special_troop', '')}*\n"
-        f"👥 Hozirgi a'zolar: *{member_count}/5*\n\n"
+        f"👑 Xonadon Maqomi: *Yagona Hukmdor (1/1)*\n\n"
         "🛡️ Yangi o'yinchilarga *3 kunlik Tinchlik Qalqoni (Peace Shield)* beriladi.\n\n"
         "✍️ *Qahramoningiz nomini yozing:*\n"
         "O'zingiz uchun qahramon ismini chatga matn sifatida yuboring (masalan: *Aegon*, *Zafar*, *Shadowblade*).\n\n"
@@ -218,7 +223,7 @@ async def handle_custom_name_input(update: Update, context: ContextTypes.DEFAULT
             )
             return
 
-        # Bo'sh va to'lmagan xonadonni aniqlash
+        # Bo'sh xonadonni aniqlash (har bir xonadonga faqat 1 kishi)
         house_obj = None
         if house_code:
             h_res = await session.execute(
@@ -227,7 +232,7 @@ async def handle_custom_name_input(update: Update, context: ContextTypes.DEFAULT
             found_h = h_res.scalar_one_or_none()
             if found_h:
                 cnt = await crud.get_house_members_count(session, found_h.id)
-                if cnt < 5:
+                if cnt < 1:
                     house_obj = found_h
 
         reassigned_notice = ""
@@ -235,11 +240,11 @@ async def handle_custom_name_input(update: Update, context: ContextTypes.DEFAULT
             house_obj = await crud.get_random_available_house(session)
             if not house_obj:
                 await update.effective_message.reply_text(
-                    "❌ Hozirda bo'sh xonadonlar mavjud emas. Iltimos, keyinroq qayta urinib ko'ring."
+                    "❌ Hozirda barcha 50 ta xonadonda lordlar mavjud. Yangi o'rinlar bo'shashini kuting."
                 )
                 return
             if house_code and house_code != house_obj.code:
-                reassigned_notice = f"\n\n*(Eslatma: Avvalgi xonadon to'lgani sababli, bot sizni tasodifiy **{house_obj.emoji} {house_obj.name}** safiga qabul qildi)*"
+                reassigned_notice = f"\n\n*(Eslatma: Avvalgi xonadon band bo'lgani sababli, bot sizni bo'sh **{house_obj.emoji} {house_obj.name}** safiga Yagona Lord qilib tayinladi)*"
             house_code = house_obj.code
             context.user_data["selected_house"] = house_code
 
@@ -295,7 +300,7 @@ async def handle_custom_name_input(update: Update, context: ContextTypes.DEFAULT
         f"🆔 Telegram: `{user_id}` (@{username or 'yoq'})\n"
         f"🏰 Xonadon: *{house_info['emoji']} {house_info['name']}*\n"
         f"🎖️ Lavozim: *{user.rank.title()}*\n"
-        f"👥 A'zolar soni: *{current_members + 1}/5*"
+        f"👥 A'zolar soni: *1/1 (Yagona Lord)*"
     )
 
     rank_titles = {
