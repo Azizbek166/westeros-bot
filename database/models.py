@@ -672,5 +672,31 @@ class TradeCaravan(Base):
     raider = relationship("User", foreign_keys=[raider_user_id])
 
 
+# ============================================================
+# 28. DONATION REQUESTS (DONAT VA VIP SO'ROVLARI)
+# ============================================================
+class DonationRequest(Base):
+    __tablename__ = "donation_requests"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    telegram_id = Column(BigInteger, nullable=False, index=True)
+    user_full_name = Column(String(150), default="")
+    user_username = Column(String(100), default="")
+    tier_id = Column(String(50), nullable=False)
+    tier_name = Column(String(100), nullable=False)
+    price_uzs = Column(Integer, default=0)
+    price_label = Column(String(50), default="")
+    receipt_file_id = Column(String(255), nullable=True)
+    status = Column(String(20), default="pending", index=True)  # pending, approved, rejected
+    reviewed_by_admin_id = Column(BigInteger, nullable=True)
+    admin_notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    reviewed_at = Column(DateTime, nullable=True)
+
+    user = relationship("User")
+
+
+
 
 

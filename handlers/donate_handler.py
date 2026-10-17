@@ -222,9 +222,27 @@ async def donate_receipt_receiver(update: Update, context: ContextTypes.DEFAULT_
     # Holatni tozalaymiz
     context.user_data.pop("awaiting_receipt_tier", None)
 
+    async with AsyncSessionLocal() as session:
+        user_db = await crud.get_user_with_relations(session, user.id)
+        if not user_db:
+            await update.message.reply_text("Iltimos, avval /start ni bosing.")
+            return
+
+        req = await crud.create_donation_request(
+            session=session,
+            user_id=user_db.id,
+            telegram_id=user.id,
+            user_full_name=user.full_name or "Lord",
+            user_username=user.username or "",
+            tier_id=tier_id,
+            receipt_file_id=photo_file_id
+        )
+
+    req_id = req.id if req else 0
+
     # 1. Foydalanuvchiga tasdiq xabari
     await update.message.reply_text(
-        "✅ **To'lov chekingiz muvaffaqiyatli qabul qilindi!**\n\n"
+        f"✅ **To'lov chekingiz muvaffaqiyatli qabul qilindi (So'rov #{req_id})!**\n\n"
         "Administrator tekshirishi uchun jo'natildi. To'lov tasdiqlanishi bilan hisobingizga barcha mukofotlar to'liq avtomatik yuklanadi va bu yerda bildirishnoma olasiz! ⚔️\n\n"
         "Sabringiz uchun tashakkur!",
         parse_mode="Markdown",
@@ -235,7 +253,7 @@ async def donate_receipt_receiver(update: Update, context: ContextTypes.DEFAULT_
     now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
     username_str = f"@{user.username}" if user.username else "yo'q"
     caption = (
-        f"💎 **YANGI TO'LOV CHEKI (DONATE)!**\n\n"
+        f"💎 **YANGI TO'LOV CHEKI (DONATE #{req_id})!**\n\n"
         f"👤 Hukmdor: *{escape_md(user.full_name)}* ({username_str})\n"
         f"🆔 Telegram ID: `{user.id}`\n"
         f"📦 To'plam: *{tier['name']}*\n"
@@ -247,8 +265,11 @@ async def donate_receipt_receiver(update: Update, context: ContextTypes.DEFAULT_
 
     admin_kb = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("✅ Tasdiqlash va Berish", callback_data=f"admin_donate_approve:{tier_id}:{user.id}"),
-            InlineKeyboardButton("❌ Rad etish", callback_data=f"admin_donate_reject:{tier_id}:{user.id}"),
+            InlineKeyboardButton("✅ Tasdiqlash va Berish", callback_data=f"admin_donate_approve:{req_id}"),
+            InlineKeyboardButton("❌ Rad etish", callback_data=f"admin_donate_reject:{req_id}"),
+        ],
+        [
+            InlineKeyboardButton("📋 Admin Panelda Ko'rish", callback_data=f"admin_donate_view:{req_id}"),
         ]
     ])
 
@@ -286,17 +307,25 @@ async def admin_donate_approve_callback(update: Update, context: ContextTypes.DE
 
     data = query.data or ""
     parts = data.split(":")
-    if len(parts) < 3:
+    if len(parts) < 2:
         return
 
-    tier_id = parts[1]
-    try:
-        target_user_id = int(parts[2])
-    except ValueError:
-        return
-
-    async with AsyncSessionLocal() as session:
-        ok, msg, details = await crud.apply_donate_rewards(session, target_user_id, tier_id)
+    target_user_id = 0
+    if len(parts) == 2 and parts[1].isdigit():
+        req_id = int(parts[1])
+        async with AsyncSessionLocal() as session:
+            ok, msg, details = await crud.approve_donation_request(session, req_id, admin_user.id)
+            req = await crud.get_donation_request_by_id(session, req_id)
+            if req:
+                target_user_id = req.telegram_id
+    else:
+        tier_id = parts[1]
+        try:
+            target_user_id = int(parts[2])
+        except ValueError:
+            return
+        async with AsyncSessionLocal() as session:
+            ok, msg, details = await crud.apply_donate_rewards(session, target_user_id, tier_id)
 
     if not ok:
         await query.answer(f"Xatolik: {msg}", show_alert=True)
@@ -375,16 +404,27 @@ async def admin_donate_reject_callback(update: Update, context: ContextTypes.DEF
 
     data = query.data or ""
     parts = data.split(":")
-    if len(parts) < 3:
+    if len(parts) < 2:
         return
 
-    tier_id = parts[1]
-    try:
-        target_user_id = int(parts[2])
-    except ValueError:
-        return
+    target_user_id = 0
+    tier_name = "VIP To'plam"
+    if len(parts) == 2 and parts[1].isdigit():
+        req_id = int(parts[1])
+        async with AsyncSessionLocal() as session:
+            ok, msg, req = await crud.reject_donation_request(session, req_id, admin_user.id)
+            if req:
+                target_user_id = req.telegram_id
+                tier_name = req.tier_name
+    else:
+        tier_id = parts[1]
+        try:
+            target_user_id = int(parts[2])
+        except ValueError:
+            return
+        tier = DONATE_TIERS.get(tier_id, {"name": "VIP To'plam"})
+        tier_name = tier["name"]
 
-    tier = DONATE_TIERS.get(tier_id, {"name": "VIP To'plam"})
     await query.answer("❌ To'lov rad etildi.")
 
     admin_name = admin_user.full_name
@@ -392,7 +432,7 @@ async def admin_donate_reject_callback(update: Update, context: ContextTypes.DEF
         f"❌ **TO'LOV RAD ETILDI**\n\n"
         f"👑 Rad etgan admin: *{escape_md(admin_name)}*\n"
         f"👤 Foydalanuvchi: `{target_user_id}`\n"
-        f"📦 To'plam: *{tier['name']}*"
+        f"📦 To'plam: *{tier_name}*"
     )
     try:
         if query.message.caption is not None:
@@ -405,7 +445,7 @@ async def admin_donate_reject_callback(update: Update, context: ContextTypes.DEF
     # Foydalanuvchiga xabar berish
     reject_text = (
         f"❌ **TO'LOV TASDIQLANMADI**\n\n"
-        f"Hurmatli Lord, siz yuborgan «**{tier['name']}**» to'plami bo'yicha to'lov cheki ma'muriyat tomonidan tasdiqlanmadi.\n\n"
+        f"Hurmatli Lord, siz yuborgan «**{tier_name}**» to'plami bo'yicha to'lov cheki ma'muriyat tomonidan tasdiqlanmadi.\n\n"
         f"Sababi: Hisobga to'lov kelib tushmagan yoki chek noto'g'ri bo'lishi mumkin.\n"
         f"Agar buni xatolik deb hisoblasangiz, iltimos bosh administrator bilan bog'laning."
     )
@@ -417,6 +457,7 @@ async def admin_donate_reject_callback(update: Update, context: ContextTypes.DEF
         )
     except Exception:
         pass
+
 
 
 def register_donate_handlers(app):

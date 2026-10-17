@@ -7217,6 +7217,12 @@ async def apply_donate_rewards(session: AsyncSession, telegram_id: int, tier_id:
     if tier.get("special_troops"):
         army.special_troops = (army.special_troops or 0) + tier["special_troops"]
         applied_details["troops"]["special_troops"] = tier["special_troops"]
+    if tier.get("catapults"):
+        army.catapults = min(20, (army.catapults or 0) + tier["catapults"])
+        applied_details["troops"]["catapults"] = tier["catapults"]
+    if tier.get("siege_towers"):
+        army.siege_towers = min(10, (army.siege_towers or 0) + tier["siege_towers"])
+        applied_details["troops"]["siege_towers"] = tier["siege_towers"]
 
     # 3. Tinchlik Qalqoni (Peace Shield)
     now = datetime.utcnow()
@@ -7266,6 +7272,128 @@ async def apply_donate_rewards(session: AsyncSession, telegram_id: int, tier_id:
 
     await session.commit()
     return True, "Mukofotlar muvaffaqiyatli taqdim etildi!", applied_details
+
+
+async def create_donation_request(
+    session: AsyncSession,
+    user_id: int,
+    telegram_id: int,
+    user_full_name: str,
+    user_username: str,
+    tier_id: str,
+    receipt_file_id: Optional[str] = None
+) -> Optional[models.DonationRequest]:
+    """Yangi to'lov cheki so'rovini bazaga saqlash"""
+    from config import DONATE_TIERS
+    tier = DONATE_TIERS.get(tier_id)
+    if not tier:
+        return None
+
+    req = models.DonationRequest(
+        user_id=user_id,
+        telegram_id=telegram_id,
+        user_full_name=user_full_name or "",
+        user_username=user_username or "",
+        tier_id=tier_id,
+        tier_name=tier["name"],
+        price_uzs=tier["price_uzs"],
+        price_label=tier["price_label"],
+        receipt_file_id=receipt_file_id,
+        status="pending",
+        created_at=datetime.utcnow()
+    )
+    session.add(req)
+    await session.commit()
+    await session.refresh(req)
+    return req
+
+
+async def get_pending_donations_count(session: AsyncSession) -> int:
+    """Kutilayotgan (tasdiqlanmagan) donat so'rovlari soni"""
+    try:
+        res = await session.execute(
+            select(func.count(models.DonationRequest.id))
+            .where(models.DonationRequest.status == "pending")
+        )
+        return res.scalar() or 0
+    except Exception:
+        return 0
+
+
+async def get_donation_requests(
+    session: AsyncSession,
+    status: Optional[str] = "pending",
+    limit: int = 20,
+    offset: int = 0
+) -> List[models.DonationRequest]:
+    """Donat so'rovlarini olish (status bo'yicha saralangan)"""
+    try:
+        query = select(models.DonationRequest)
+        if status:
+            query = query.where(models.DonationRequest.status == status)
+        query = query.order_by(models.DonationRequest.id.desc()).offset(offset).limit(limit)
+        res = await session.execute(query)
+        return list(res.scalars().all())
+    except Exception:
+        return []
+
+
+async def get_donation_request_by_id(session: AsyncSession, request_id: int) -> Optional[models.DonationRequest]:
+    """ID bo'yicha donat so'rovini olish"""
+    try:
+        res = await session.execute(
+            select(models.DonationRequest).where(models.DonationRequest.id == request_id)
+        )
+        return res.scalar_one_or_none()
+    except Exception:
+        return None
+
+
+async def approve_donation_request(
+    session: AsyncSession,
+    request_id: int,
+    admin_telegram_id: int
+) -> Tuple[bool, str, dict]:
+    """Admin tomonidan donat so'rovini tasdiqlash va mukofotlarni berish (dublikatdan himoyalangan)"""
+    req = await get_donation_request_by_id(session, request_id)
+    if not req:
+        return False, f"#{request_id} so'rovi topilmadi.", {}
+
+    if req.status != "pending":
+        return False, f"Ushbu so'rov allaqachon ko'rib chiqilgan (Holati: {req.status})!", {}
+
+    ok, msg, details = await apply_donate_rewards(session, req.telegram_id, req.tier_id)
+    if not ok:
+        return False, msg, {}
+
+    req.status = "approved"
+    req.reviewed_by_admin_id = admin_telegram_id
+    req.reviewed_at = datetime.utcnow()
+    await session.commit()
+
+    return True, "To'lov muvaffaqiyatli tasdiqlandi va mukofotlar berildi!", details
+
+
+async def reject_donation_request(
+    session: AsyncSession,
+    request_id: int,
+    admin_telegram_id: int
+) -> Tuple[bool, str, Optional[models.DonationRequest]]:
+    """Admin tomonidan donat so'rovini rad etish"""
+    req = await get_donation_request_by_id(session, request_id)
+    if not req:
+        return False, f"#{request_id} so'rovi topilmadi.", None
+
+    if req.status != "pending":
+        return False, f"Ushbu so'rov allaqachon ko'rib chiqilgan (Holati: {req.status})!", req
+
+    req.status = "rejected"
+    req.reviewed_by_admin_id = admin_telegram_id
+    req.reviewed_at = datetime.utcnow()
+    await session.commit()
+
+    return True, "To'lov so'rovi rad etildi.", req
+
 
 
 

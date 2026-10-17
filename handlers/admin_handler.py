@@ -101,9 +101,15 @@ async def show_admin_dashboard(target, is_message: bool):
         )
 
         target_user_id = target.effective_user.id if is_message else target.from_user.id
+
+        pending_donations = await crud.get_pending_donations_count(session)
+        donations_badge = f" ({pending_donations} ta kutilmoqda)" if pending_donations > 0 else ""
+
         buttons = [
+            [InlineKeyboardButton(f"💳 Donat So'rovlari{donations_badge}", callback_data="admin_donations_list:0:pending")],
             [InlineKeyboardButton("👥 O'yinchilarni Boshqarish (User Manager)", callback_data="admin_users_list:0")],
             [InlineKeyboardButton("👑 Xonadon Lordlarini Tayinlash", callback_data="admin_lords_menu")],
+
             [InlineKeyboardButton("🏰 Xonadonlar va G'aznalar", callback_data="admin_houses_list")],
             [InlineKeyboardButton("🏯 Qalalar va Mintaqalar (Castles)", callback_data="admin_castles_list:0")],
             [InlineKeyboardButton("🏆 Egallangan Qal'alar (O'yinchilar bo'yicha)", callback_data="admin_player_castles:0")],
@@ -3602,9 +3608,154 @@ async def admin_trade_menu_callback(update: Update, context: ContextTypes.DEFAUL
         await query.edit_message_text(text, parse_mode=None, reply_markup=InlineKeyboardMarkup(buttons))
 
 
+# ============================================================
+# DONAT VA VIP SO'ROVLARI BOSHQARUVI
+# ============================================================
+
+async def admin_donations_list_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Donat so'rovlari ro'yxati (Kutilayotgan va barcha so'rovlar)"""
+    query = update.callback_query
+    await query.answer()
+
+    user_id = query.from_user.id
+    if not is_admin(user_id):
+        await query.answer("❌ Huquqingiz yetarli emas!", show_alert=True)
+        return
+
+    data = query.data or ""
+    parts = data.split(":")
+    page = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+    filter_status = parts[2] if len(parts) > 2 else "pending"
+
+    limit = 8
+    offset = page * limit
+
+    async with AsyncSessionLocal() as session:
+        requests = await crud.get_donation_requests(session, status=filter_status, limit=limit, offset=offset)
+        total_pending = await crud.get_pending_donations_count(session)
+
+    buttons = []
+    # Status filter switcheri
+    filter_row = [
+        InlineKeyboardButton(f"⏳ Kutilmoqda ({total_pending}) {'✅' if filter_status=='pending' else ''}", callback_data=f"admin_donations_list:0:pending"),
+        InlineKeyboardButton(f"📜 Barchasi {'✅' if filter_status=='' else ''}", callback_data=f"admin_donations_list:0:"),
+    ]
+    buttons.append(filter_row)
+
+    if not requests:
+        text = (
+            f"💳 **DONAT VA VIP SO'ROVLARI**\n\n"
+            f"Hozirda **{filter_status if filter_status else 'umumiy'}** bo'yicha hech qanday so'rovlar mavjud emas.\n"
+            f"⏳ Kutilayotgan yangi so'rovlar: **{total_pending}** ta"
+        )
+    else:
+        text = (
+            f"💳 **DONAT VA VIP SO'ROVLARI (Sahifa {page+1})**\n\n"
+            f"⏳ Kutilayotgan so'rovlar soni: **{total_pending}** ta\n"
+            f"Tafsilotlarini ko'rish va tasdiqlash uchun kerakli so'rovni tanlang:\n"
+        )
+        for req in requests:
+            st_icon = "⏳" if req.status == "pending" else ("✅" if req.status == "approved" else "❌")
+            btn_text = f"{st_icon} #{req.id} | {req.user_full_name[:12]} | {req.price_label}"
+            buttons.append([
+                InlineKeyboardButton(btn_text, callback_data=f"admin_donate_view:{req.id}")
+            ])
+
+    # Pagination tugmalari
+    nav_row = []
+    if page > 0:
+        nav_row.append(InlineKeyboardButton("⬅️ Oldingi", callback_data=f"admin_donations_list:{page-1}:{filter_status}"))
+    if len(requests) == limit:
+        nav_row.append(InlineKeyboardButton("Keyingi ➡️", callback_data=f"admin_donations_list:{page+1}:{filter_status}"))
+    if nav_row:
+        buttons.append(nav_row)
+
+    buttons.append([InlineKeyboardButton("🔙 Admin Panelga Qaytish", callback_data="admin_panel")])
+
+    try:
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+    except Exception:
+        await query.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def admin_donate_view_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Bitta donat so'rovi kartochkasi"""
+    query = update.callback_query
+    await query.answer()
+
+    user_id = query.from_user.id
+    if not is_admin(user_id):
+        await query.answer("❌ Huquqingiz yetarli emas!", show_alert=True)
+        return
+
+    data = query.data or ""
+    parts = data.split(":")
+    if len(parts) < 2 or not parts[1].isdigit():
+        return
+
+    req_id = int(parts[1])
+
+    async with AsyncSessionLocal() as session:
+        req = await crud.get_donation_request_by_id(session, req_id)
+
+    if not req:
+        await query.answer("So'rov topilmadi!", show_alert=True)
+        return
+
+    st_map = {
+        "pending": "⏳ Kutilmoqda (Ko'rib chiqilmagan)",
+        "approved": "✅ TASDIQLANGAN (Mukofot berilgan)",
+        "rejected": "❌ RAD ETILGAN",
+    }
+    status_label = st_map.get(req.status, req.status)
+    date_str = req.created_at.strftime("%Y-%m-%d %H:%M:%S UTC") if req.created_at else "yo'q"
+    username_str = f"@{req.user_username}" if req.user_username else "yo'q"
+
+    text = (
+        f"💳 **DONAT SO'ROVI #{req.id}**\n\n"
+        f"👤 Hukmdor: *{escape_md(req.user_full_name)}* ({username_str})\n"
+        f"🆔 Telegram ID: `{req.telegram_id}`\n"
+        f"📦 Tanlangan To'plam: *{req.tier_name}*\n"
+        f"💰 Narxi: *{req.price_label}* ({req.price_uzs:,} so'm)\n"
+        f"⏱️ Yuborilgan Vaqt: `{date_str}`\n"
+        f"📌 Holati: **{status_label}**\n"
+    )
+    if req.reviewed_at:
+        rev_str = req.reviewed_at.strftime("%Y-%m-%d %H:%M:%S UTC")
+        text += f"👑 Ko'rib chiqilgan: `{rev_str}` (Admin: `{req.reviewed_by_admin_id}`)\n"
+
+    buttons = []
+    if req.status == "pending":
+        buttons.append([
+            InlineKeyboardButton("✅ Tasdiqlash va Berish", callback_data=f"admin_donate_approve:{req.id}"),
+            InlineKeyboardButton("❌ Rad etish", callback_data=f"admin_donate_reject:{req.id}"),
+        ])
+
+    buttons.append([
+        InlineKeyboardButton("🔙 Donatlar Ro'yxatiga Qaytish", callback_data="admin_donations_list:0")
+    ])
+
+    if req.receipt_file_id:
+        try:
+            await query.message.reply_photo(
+                photo=req.receipt_file_id,
+                caption=f"📸 #{req.id} to'lov cheki screenshot rasmi",
+            )
+        except Exception:
+            pass
+
+    try:
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+    except Exception:
+        await query.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
 def register_admin_handlers(app):
+    app.add_handler(CallbackQueryHandler(admin_donations_list_callback, pattern="^admin_donations_list(:.*)?$"))
+    app.add_handler(CallbackQueryHandler(admin_donate_view_callback, pattern="^admin_donate_view:"))
     app.add_handler(CommandHandler(["wipe_game", "reset_game", "restart_game"], wipe_game_command))
     app.add_handler(CommandHandler("admin", admin_command))
+
     app.add_handler(CommandHandler("adminsearch", admin_search_command))
     app.add_handler(CommandHandler("ban", ban_command))
     app.add_handler(CommandHandler("unban", unban_command))

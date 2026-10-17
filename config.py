@@ -150,139 +150,157 @@ DONATE_TIERS = {
     "knight": {
         "id": "knight",
         "name": "🗡️ Ritsar To'plami",
-        "subtitle": "Boshlang'ich jangchi to'plami",
-        "price_uzs": 15000,
-        "price_label": "15,000 so'm",
-        "gold": 1500,
-        "food": 3000,
-        "iron": 1000,
-        "infantry": 200,
-        "archers": 100,
-        "cavalry": 0,
-        "spearmen": 0,
+        "subtitle": "Boshlang'ich jangchi to'plami (Ajoyib start)",
+        "price_uzs": 10000,
+        "price_label": "10,000 so'm",
+        "gold": 10000,
+        "food": 30000,
+        "iron": 15000,
+        "infantry": 500,
+        "archers": 300,
+        "cavalry": 100,
+        "spearmen": 100,
         "special_troops": 0,
-        "shield_hours": 48,
-        "prestige": 50,
+        "catapults": 0,
+        "siege_towers": 0,
+        "shield_hours": 72,
+        "prestige": 150,
         "wildfire": 0,
         "dragon": None,
-        "title": None,
+        "title": "Jasur Ritsar",
         "description": (
-            "• 🪙 Oltin: +1,500\n"
-            "• 🌾 Oziq-ovqat: +3,000\n"
-            "• ⛓️ Temir: +1,000\n"
-            "• 🛡️ Piyoda: +200 ta\n"
-            "• 🏹 Kamonchi: +100 ta\n"
-            "• 🕊️ Tinchlik Qalqoni: 48 soat\n"
-            "• ⭐ Prestige: +50 shon-sharaf"
+            "• 🪙 Oltin: +10,000\n"
+            "• 🌾 Oziq-ovqat: +30,000\n"
+            "• ⛓️ Temir: +15,000\n"
+            "• 🛡️ Armiya: +500 Piyoda, +300 Kamonchi, +100 Otliq, +100 Nayzador\n"
+            "• 🕊️ Tinchlik Qalqoni: 72 soat (3 kun daxlsizlik)\n"
+            "• 👑 Faxriy unvon: «Jasur Ritsar»\n"
+            "• ⭐ Prestige: +150 shon-sharaf"
         ),
     },
     "lord": {
         "id": "lord",
         "name": "🏰 Lordlar Xazinasi",
-        "subtitle": "Hukmdorlar tanlovi (Mashhur)",
-        "price_uzs": 35000,
-        "price_label": "35,000 so'm",
-        "gold": 4500,
-        "food": 10000,
-        "iron": 3000,
-        "infantry": 0,
-        "archers": 0,
-        "cavalry": 150,
-        "spearmen": 200,
-        "special_troops": 0,
-        "shield_hours": 72,
-        "prestige": 150,
+        "subtitle": "Hukmdorlar tanlovi (Eng ommabop)",
+        "price_uzs": 25000,
+        "price_label": "25,000 so'm",
+        "gold": 35000,
+        "food": 100000,
+        "iron": 50000,
+        "infantry": 1200,
+        "archers": 800,
+        "cavalry": 500,
+        "spearmen": 500,
+        "special_troops": 100,
+        "catapults": 2,
+        "siege_towers": 1,
+        "shield_hours": 120,
+        "prestige": 400,
         "wildfire": 3,
-        "dragon": None,
+        "dragon": {
+            "name": "Syrax",
+            "grade": "B",
+            "stage": "adult",
+            "level": 8,
+            "power": 1200,
+            "hunger": 100,
+        },
         "title": "Saxiy Lord",
         "description": (
-            "• 🪙 Oltin: +4,500\n"
-            "• 🌾 Oziq-ovqat: +10,000\n"
-            "• ⛓️ Temir: +3,000\n"
-            "• 🐎 Otliq askar: +150 ta\n"
-            "• 🗡️ Nayzador: +200 ta\n"
+            "• 🪙 Oltin: +35,000\n"
+            "• 🌾 Oziq-ovqat: +100,000\n"
+            "• ⛓️ Temir: +50,000\n"
+            "• 🛡️ Kuchli Armiya: +1,200 Piyoda, +800 Kamonchi, +500 Otliq, +500 Nayzador, +100 Maxsus!\n"
+            "• 🏹 Qamal qurollari: +2 Katapulta, +1 Qamal minorasi\n"
+            "• 🐉 Afsonaviy Ajdaho: 8-darajali (1,200 quvvat!)\n"
             "• 💚 Yovvoyi Olov (Wildfire): +3 bochka\n"
-            "• 🕊️ Tinchlik Qalqoni: 72 soat (3 kun)\n"
+            "• 🕊️ Tinchlik Qalqoni: 120 soat (5 kun daxlsizlik)\n"
             "• 👑 Maxsus unvon: «Saxiy Lord»\n"
-            "• ⭐ Prestige: +150 shon-sharaf"
+            "• ⭐ Prestige: +400 shon-sharaf"
         ),
     },
     "dragonlord": {
         "id": "dragonlord",
         "name": "🐉 Valyriya Merosi",
-        "subtitle": "Ajdaho Hukmdori to'plami",
-        "price_uzs": 75000,
-        "price_label": "75,000 so'm",
-        "gold": 12000,
-        "food": 25000,
-        "iron": 8000,
-        "infantry": 0,
-        "archers": 0,
-        "cavalry": 0,
-        "spearmen": 0,
-        "special_troops": 100,
-        "shield_hours": 120,
-        "prestige": 400,
+        "subtitle": "Ajdaho Hukmdori (Kuchli Imperiya)",
+        "price_uzs": 50000,
+        "price_label": "50,000 so'm",
+        "gold": 100000,
+        "food": 300000,
+        "iron": 150000,
+        "infantry": 3000,
+        "archers": 2000,
+        "cavalry": 1500,
+        "spearmen": 1500,
+        "special_troops": 500,
+        "catapults": 10,
+        "siege_towers": 5,
+        "shield_hours": 168,
+        "prestige": 1000,
         "wildfire": 5,
         "dragon": {
-            "name": "Syrax",
-            "grade": "B",
+            "name": "Drogon",
+            "grade": "A",
             "stage": "adult",
-            "level": 10,
-            "power": 1500,
+            "level": 12,
+            "power": 2500,
             "hunger": 100,
         },
         "title": "Ajdaho Hukmdori",
         "description": (
-            "• 🪙 Oltin: +12,000\n"
-            "• 🌾 Oziq-ovqat: +25,000\n"
-            "• ⛓️ Temir: +8,000\n"
-            "• 🔥 Xonadon Maxsus Askari: +100 ta\n"
-            "• 🐉 Afsonaviy Jangovar Ajdar: 10-darajali (1,500 quvvat!)\n"
+            "• 🪙 Oltin: +100,000\n"
+            "• 🌾 Oziq-ovqat: +300,000\n"
+            "• ⛓️ Temir: +150,000\n"
+            "• 🛡️ Qudratli Armiya: +3,000 Piyoda, +2,000 Kamonchi, +1,500 Otliq, +1,500 Nayzador, +500 Maxsus!\n"
+            "• 🏹 Qamal qurollari: +10 Katapulta, +5 Qamal minorasi\n"
+            "• 🐉 Qora Ajdaho: Drogon 12-darajali (2,500 quvvat!)\n"
             "• 💚 Yovvoyi Olov (Wildfire): +5 bochka (Maksimal)\n"
-            "• 🕊️ Tinchlik Qalqoni: 120 soat (5 kun)\n"
+            "• 🕊️ Tinchlik Qalqoni: 168 soat (7 kun daxlsizlik)\n"
             "• 👑 Maxsus unvon: «Ajdaho Hukmdori»\n"
-            "• ⭐ Prestige: +400 shon-sharaf"
+            "• ⭐ Prestige: +1,000 shon-sharaf"
         ),
     },
     "sovereign": {
         "id": "sovereign",
         "name": "👑 Temir Taxt Sohibi",
-        "subtitle": "Eksklyuziv Imperator to'plami",
-        "price_uzs": 149000,
-        "price_label": "149,000 so'm",
-        "gold": 30000,
-        "food": 60000,
-        "iron": 20000,
-        "infantry": 1000,
-        "archers": 600,
-        "cavalry": 400,
-        "spearmen": 400,
-        "special_troops": 250,
-        "shield_hours": 168,
-        "prestige": 1000,
+        "subtitle": "Vesteros Imperatori (Mutlaq Hukmronlik)",
+        "price_uzs": 99000,
+        "price_label": "99,000 so'm",
+        "gold": 300000,
+        "food": 1000000,
+        "iron": 500000,
+        "infantry": 8000,
+        "archers": 5000,
+        "cavalry": 3000,
+        "spearmen": 3000,
+        "special_troops": 1500,
+        "catapults": 20,
+        "siege_towers": 10,
+        "shield_hours": 336,
+        "prestige": 3000,
         "wildfire": 5,
         "dragon": {
             "name": "Balerion",
             "grade": "A",
             "stage": "adult",
             "level": 15,
-            "power": 2500,
+            "power": 5000,
             "hunger": 100,
         },
         "title": "Vesteros Himoyachisi",
         "broadcast": True,
         "description": (
-            "• 🪙 Oltin: +30,000\n"
-            "• 🌾 Oziq-ovqat: +60,000\n"
-            "• ⛓️ Temir: +20,000\n"
-            "• 🛡️ Katta Armiya: +1,000 Piyoda, +600 Kamonchi, +400 Otliq, +400 Nayzador, +250 Maxsus!\n"
-            "• 🐉 Bahaybat Qora Ajdar: Balerion 15-darajali (2,500 quvvat!)\n"
+            "• 🪙 Oltin: +300,000\n"
+            "• 🌾 Oziq-ovqat: +1,000,000 (1 Million!)\n"
+            "• ⛓️ Temir: +500,000\n"
+            "• 🛡️ Bahaybat Armiya: +8,000 Piyoda, +5,000 Kamonchi, +3,000 Otliq, +3,000 Nayzador, +1,500 Maxsus!\n"
+            "• 🏹 Qamal qurollari: +20 Katapulta (Maks), +10 Qamal minorasi (Maks)!\n"
+            "• 🐉 Afsonaviy Qora Ajdar: Balerion (5,000 quvvat!)\n"
             "• 💚 Yovvoyi Olov (Wildfire): +5 bochka (Maksimal)\n"
-            "• 🕊️ Tinchlik Qalqoni: 168 soat (7 kun daxlsizlik)\n"
+            "• 🕊️ Tinchlik Qalqoni: 336 soat (14 kun / 2 hafta to'liq daxlsizlik)\n"
             "• 👑 Maxsus unvon: «Vesteros Himoyachisi»\n"
-            "• ⭐ Prestige: +1,000 shon-sharaf\n"
-            "• 📣 Butun Vesteros bo'ylab Qirollik E'loni!"
+            "• ⭐ Prestige: +3,000 shon-sharaf\n"
+            "• 📣 Butun Vesteros bo'ylab Qirollik tantanali e'loni!"
         ),
     },
 }
