@@ -27,6 +27,17 @@ if DATABASE_URL.startswith("postgres://"):
 elif DATABASE_URL.startswith("postgresql://") and not DATABASE_URL.startswith("postgresql+asyncpg://"):
     DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
 
+# Neon / asyncpg SSL moslashuvlari (asyncpg sslmode va channel_binding parametrlarini to'g'irlash)
+if "asyncpg" in DATABASE_URL:
+    if "sslmode=require" in DATABASE_URL:
+        DATABASE_URL = DATABASE_URL.replace("sslmode=require", "ssl=require")
+    if "&channel_binding=require" in DATABASE_URL:
+        DATABASE_URL = DATABASE_URL.replace("&channel_binding=require", "")
+    if "?channel_binding=require&" in DATABASE_URL:
+        DATABASE_URL = DATABASE_URL.replace("?channel_binding=require&", "?")
+    if "?channel_binding=require" in DATABASE_URL:
+        DATABASE_URL = DATABASE_URL.replace("?channel_binding=require", "")
+
 # Bosh Administrator / Bot Egasi Telegram ID si
 OWNER_ID = 7689627859
 
