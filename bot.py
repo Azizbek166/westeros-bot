@@ -80,19 +80,26 @@ async def npc_tick_job(context: ContextTypes.DEFAULT_TYPE):
 
 
 # ============================================================
-# HEALTHCHECK HTTP SERVER (RENDER.COM 24/7 UCHUN)
+# HEALTHCHECK HTTP SERVER VA KEEP-ALIVE (RENDER.COM 24/7)
 # ============================================================
 
 import os
+import json
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
-        self.send_header("Content-type", "text/plain; charset=utf-8")
+        self.send_header("Content-type", "application/json; charset=utf-8")
         self.end_headers()
-        self.wfile.write(b"Westeros Bot v2.2 - Live and updated!")
+        resp = {
+            "status": "online",
+            "bot": "@ironthrone_rpgbot",
+            "version": "v2.3 (Diplomacy & 24/7 Keep-Alive)",
+            "server_time_utc": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
+        }
+        self.wfile.write(json.dumps(resp, indent=2).encode("utf-8"))
 
     def do_HEAD(self):
         self.send_response(200)
@@ -108,6 +115,19 @@ def start_health_server():
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         logger.info(f"🌐 Render Web Service port {port} da ishga tushdi.")
+
+
+async def render_keepalive_job(context: ContextTypes.DEFAULT_TYPE):
+    """Render.com bepul tarifida bot 15 daqiqada uxlab qolmasligi uchun o'ziga har 5 daqiqada so'rov yuborish"""
+    render_url = os.getenv("RENDER_EXTERNAL_URL", "https://westeros-bot.onrender.com")
+    if render_url:
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.get(render_url)
+                logger.info(f"💓 Render Keep-Alive ping muvaffaqiyatli: {resp.status_code}")
+        except Exception as e:
+            logger.debug(f"Render keepalive xatosi: {e}")
 
 
 async def on_startup(app: Application):
@@ -247,6 +267,13 @@ def main():
     app.job_queue.run_repeating(
         npc_tick_job,
         interval=900,
+        first=60,
+    )
+
+    # Render.com bepul tarifida bot 15 daqiqada uxlab qolmasligi uchun har 5 daqiqada (300 soniya) keep-alive
+    app.job_queue.run_repeating(
+        render_keepalive_job,
+        interval=300,
         first=60,
     )
 

@@ -47,7 +47,18 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if user and user.house:
             h_emoji = user.house.emoji
             h_name = user.house.name
-            hero_name = user.characters[0].name if user.characters else "Lord"
+            hero_name = user.characters[0].name if (getattr(user, "characters", None) and len(user.characters) > 0) else "Lord"
+
+            army = getattr(user, "army", None)
+            total_troops = 0
+            if army:
+                total_troops = (
+                    (army.infantry or 0) +
+                    (army.archers or 0) +
+                    (army.cavalry or 0) +
+                    (army.spearmen or 0) +
+                    (army.special_troops or 0)
+                )
 
             text = (
                 f"👑 **THE IRON THRONE — MMORPG**\n\n"
@@ -55,15 +66,22 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"🏰 Xonadon: **{h_emoji} {h_name}**\n"
                 f"🎖️ Lavozim: **{user.rank.title()}** | Daraja: **{user.level}**\n\n"
                 f"🪙 Oltin: **{user.gold:,}** | 🌾 Oziq-ovqat: **{user.food:,}** | ⛓️ Temir: **{user.iron:,}**\n"
-                f"🛡️ Armiya: **{(user.army.infantry + user.army.archers + user.army.cavalry + user.army.spearmen + user.army.special_troops):,}** askar\n\n"
+                f"🛡️ Armiya: **{total_troops:,}** askar\n\n"
                 f"Westerosda yangi kun boshlandi. Buyruqni tanlang:"
             )
             # Doimiy pastki menyu (emoji bar yonida)
-            await update.message.reply_text(
-                "⚔️ Westeros dunyosiga xush kelibsiz!",
-                reply_markup=persistent_reply_keyboard()
-            )
-            await update.message.reply_text(text, parse_mode="Markdown", reply_markup=main_menu_keyboard(user_id))
+            try:
+                await update.message.reply_text(
+                    "⚔️ Westeros dunyosiga xush kelibsiz!",
+                    reply_markup=persistent_reply_keyboard()
+                )
+            except Exception:
+                pass
+
+            try:
+                await update.message.reply_text(text, parse_mode="Markdown", reply_markup=main_menu_keyboard(user_id))
+            except Exception:
+                await update.message.reply_text(text, parse_mode=None, reply_markup=main_menu_keyboard(user_id))
             return
 
         # Agar yangi o'yinchiga xonadon allaqachon random tushgan bo'lsa, o'shani saqlab qolamiz (faqat 1 marta)
@@ -111,7 +129,10 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "O'zingiz uchun qahramon ismini chatga matn sifatida yuboring (masalan: *Aegon*, *Zafar*, *Shadowblade*).\n\n"
         "⚠️ _Qoida: Nom 2-30 belgidan iborat bo'lishi va butun Westeros bo'ylab takrorlanmasligi shart!_"
     )
-    await update.message.reply_text(text, parse_mode="Markdown")
+    try:
+        await update.message.reply_text(text, parse_mode="Markdown")
+    except Exception:
+        await update.message.reply_text(text, parse_mode=None)
 
 
 async def random_house_pick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
