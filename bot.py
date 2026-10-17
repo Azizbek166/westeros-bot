@@ -6,7 +6,12 @@ if hasattr(sys.stdout, "reconfigure"):
 import asyncio
 import logging
 from datetime import datetime, time as dt_time, timezone, timedelta
-from telegram import Update, BotCommand
+from telegram import (
+    Update,
+    BotCommand,
+    BotCommandScopeAllPrivateChats,
+    BotCommandScopeAllGroupChats,
+)
 from telegram.ext import Application, ContextTypes, TypeHandler, ApplicationHandlerStop
 from config import BOT_TOKEN, ADMIN_IDS, OWNER_ID, escape_md
 from core.notifier import notify_owner, notify_admins
@@ -145,7 +150,7 @@ async def render_keepalive_job(context: ContextTypes.DEFAULT_TYPE):
 async def on_startup(app: Application):
     """Bot qayta ishga tushganda yoki start berganda buyruqlarni o'rnatish va bosh egaga xabar berish"""
     try:
-        commands = [
+        private_commands = [
             BotCommand("start", "👑 Asosiy Menyu / Boshlash"),
             BotCommand("profile", "👤 Lord Profili & Armiya"),
             BotCommand("castles", "🏰 Qal'alarim & O'lpon"),
@@ -163,8 +168,16 @@ async def on_startup(app: Application):
             BotCommand("bank", "🏦 Braavos Temir Banki"),
             BotCommand("rank", "🏆 Qirollik Reytingi"),
         ]
-        await app.bot.set_my_commands(commands)
-        logger.info("✅ Telegram / buyruqlar menyusi (set_my_commands) muvaffaqiyatli o'rnatildi.")
+        group_commands = [
+            BotCommand("profile", "👤 Lord profilini ko'rish (o'zingiz yoki reply qilib)"),
+        ]
+        try:
+            await app.bot.set_my_commands(private_commands, scope=BotCommandScopeAllPrivateChats())
+            await app.bot.set_my_commands(group_commands, scope=BotCommandScopeAllGroupChats())
+            logger.info("✅ Telegram guruh va shaxsiy buyruqlar menyulari o'rnatildi.")
+        except Exception:
+            await app.bot.set_my_commands(private_commands)
+            logger.info("✅ Telegram umumiy buyruqlar menyusi o'rnatildi.")
     except Exception as e:
         logger.warning(f"set_my_commands xatosi: {e}")
 

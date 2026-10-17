@@ -219,15 +219,20 @@ async def group_profile_handler(update: Update, context: ContextTypes.DEFAULT_TY
 
         text, photo_id, audio_id, audio_title = await format_user_profile_card(user, session, is_group=True)
 
+    # Guruhda chiqariladigan profil ostiga bitta toza tugma:
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("👤 O'z Profilimni Ko'rish", callback_data="group_show_my_profile")]
+    ])
+
     # Guruhga rasm yoki matn bilan yuborish
     if photo_id:
         try:
-            await msg.reply_photo(photo=photo_id, caption=text, parse_mode="Markdown")
+            await msg.reply_photo(photo=photo_id, caption=text, parse_mode="Markdown", reply_markup=kb)
         except Exception as e:
             logger.warning(f"Guruhga rasm bilan profil yuborish xatosi: {e}")
-            await msg.reply_text(text, parse_mode="Markdown")
+            await msg.reply_text(text, parse_mode="Markdown", reply_markup=kb)
     else:
-        await msg.reply_text(text, parse_mode="Markdown")
+        await msg.reply_text(text, parse_mode="Markdown", reply_markup=kb)
 
     # Agar o'yinchi musiqasi bo'lsa audio ham yuboriladi
     if audio_id:
@@ -239,6 +244,43 @@ async def group_profile_handler(update: Update, context: ContextTypes.DEFAULT_TY
             )
         except Exception as e:
             logger.warning(f"Guruhga audio yuborish xatosi: {e}")
+
+
+async def group_show_my_profile_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Guruhda inline tugma orqali har bir lord o'z profilini chaqirishi"""
+    query = update.callback_query
+    await query.answer()
+
+    clicker_tg = query.from_user
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_with_relations(session, clicker_tg.id)
+        if not user:
+            await query.answer("❌ Siz hali Westerosda ro'yxatdan o'tmagansiz!", show_alert=True)
+            return
+
+        text, photo_id, audio_id, audio_title = await format_user_profile_card(user, session, is_group=True)
+
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("👤 O'z Profilimni Ko'rish", callback_data="group_show_my_profile")]
+    ])
+
+    if photo_id:
+        try:
+            await query.message.reply_photo(photo=photo_id, caption=text, parse_mode="Markdown", reply_markup=kb)
+        except Exception:
+            await query.message.reply_text(text, parse_mode="Markdown", reply_markup=kb)
+    else:
+        await query.message.reply_text(text, parse_mode="Markdown", reply_markup=kb)
+
+    if audio_id:
+        try:
+            await query.message.reply_audio(
+                audio=audio_id,
+                title=audio_title or "Lord Gimni",
+                performer=user.full_name or "Westeros Lord"
+            )
+        except Exception:
+            pass
 
 
 async def profile_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -575,12 +617,17 @@ async def vip_input_receiver(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     # 1. Rasm kiritish
     if u_data.get("awaiting_vip_photo"):
+        photo_file_id = None
         if msg.photo:
-            file_id = msg.photo[-1].file_id
+            photo_file_id = msg.photo[-1].file_id
+        elif msg.document and (msg.document.mime_type or "").startswith("image/"):
+            photo_file_id = msg.document.file_id
+
+        if photo_file_id:
             async with AsyncSessionLocal() as session:
                 user = await crud.get_user_by_telegram_id(session, user_id)
                 if user:
-                    ok, res_msg = await crud.update_user_custom_photo(session, user.id, file_id)
+                    ok, res_msg = await crud.update_user_custom_photo(session, user.id, photo_file_id)
             u_data.pop("awaiting_vip_photo", None)
             kb = InlineKeyboardMarkup([
                 [InlineKeyboardButton("✨ VIP Studiyaga Qaytish", callback_data="menu_vip_custom")],
@@ -591,6 +638,9 @@ async def vip_input_receiver(update: Update, context: ContextTypes.DEFAULT_TYPE)
         elif msg.text and msg.text.lower() in ["/cancel", "bekor"]:
             u_data.pop("awaiting_vip_photo", None)
             await msg.reply_text("❌ Rasm o'rnatish bekor qilindi.", reply_markup=back_to_main_keyboard())
+            return
+        else:
+            await msg.reply_text("⚠️ Iltimos, fotosurat (rasm) yuboring yoki bekor qilish uchun /cancel deb yozing.")
             return
 
     # 2. Status / Shior kiritish
@@ -614,13 +664,23 @@ async def vip_input_receiver(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     # 3. Audio kiritish
     if u_data.get("awaiting_vip_audio"):
-        if msg.audio or msg.voice:
-            file_id = msg.audio.file_id if msg.audio else msg.voice.file_id
-            title = (msg.audio.title or msg.audio.file_name or "Lord Shaxsiy Gimni") if msg.audio else "Lord Ovozli Gimni"
+        audio_file_id = None
+        audio_title = "Lord Gimni"
+        if msg.audio:
+            audio_file_id = msg.audio.file_id
+            audio_title = msg.audio.title or msg.audio.file_name or "Lord Shaxsiy Gimni"
+        elif msg.voice:
+            audio_file_id = msg.voice.file_id
+            audio_title = "Lord Ovozli Gimni"
+        elif msg.document and (msg.document.mime_type or "").startswith("audio/"):
+            audio_file_id = msg.document.file_id
+            audio_title = msg.document.file_name or "Lord Audio Gimni"
+
+        if audio_file_id:
             async with AsyncSessionLocal() as session:
                 user = await crud.get_user_by_telegram_id(session, user_id)
                 if user:
-                    ok, res_msg = await crud.update_user_custom_audio(session, user.id, file_id, title)
+                    ok, res_msg = await crud.update_user_custom_audio(session, user.id, audio_file_id, audio_title)
             u_data.pop("awaiting_vip_audio", None)
             kb = InlineKeyboardMarkup([
                 [InlineKeyboardButton("✨ VIP Studiyaga Qaytish", callback_data="menu_vip_custom")],
@@ -631,6 +691,9 @@ async def vip_input_receiver(update: Update, context: ContextTypes.DEFAULT_TYPE)
         elif msg.text and msg.text.lower() in ["/cancel", "bekor"]:
             u_data.pop("awaiting_vip_audio", None)
             await msg.reply_text("❌ Musiqa yuklash bekor qilindi.", reply_markup=back_to_main_keyboard())
+            return
+        else:
+            await msg.reply_text("⚠️ Iltimos, audio musiqa fayli yoki ovozli xabar yuboring (bekor qilish: /cancel).")
             return
 
     # 4. Qirollik Farmoni kiritish (Sovereign)
@@ -1095,11 +1158,9 @@ def register_profile_handlers(app):
     app.add_handler(CommandHandler(["sellfood", "don_sotish"], sell_food_command))
     app.add_handler(CommandHandler(["selliron", "temir_sotish"], sell_iron_command))
 
-    # Guruhlarda "profil" yoki "profile" deb yozilganda profilni rasm va musiqa bilan chiqarish
-    app.add_handler(MessageHandler(filters.Regex(re.compile(r"^(profil|profile|\.profil|\.me|/me)$", re.IGNORECASE)) & (filters.ChatType.GROUPS), group_profile_handler))
-
     # Callbacklar
     app.add_handler(CallbackQueryHandler(profile_callback, pattern="^menu_profile$"))
+    app.add_handler(CallbackQueryHandler(group_show_my_profile_callback, pattern="^group_show_my_profile$"))
     app.add_handler(CallbackQueryHandler(vip_custom_menu_callback, pattern="^menu_vip_custom$"))
     app.add_handler(CallbackQueryHandler(vip_set_photo_callback, pattern="^vip_set_photo$"))
     app.add_handler(CallbackQueryHandler(vip_remove_photo_callback, pattern="^vip_remove_photo$"))
@@ -1125,12 +1186,12 @@ def register_profile_handlers(app):
     app.add_handler(CallbackQueryHandler(buy_food_callback, pattern="^buy_food:"))
     app.add_handler(CallbackQueryHandler(sell_res_callback, pattern="^sell_res:"))
 
-    # VIP Profil sozlamalari (rasm, shior, audio, farmon) qabul qiluvchi handler
+    # VIP Profil sozlamalari (rasm, shior, audio, farmon) qabul qiluvchi handler (group=3)
     app.add_handler(
         MessageHandler(
-            (filters.PHOTO | filters.AUDIO | filters.VOICE | (filters.TEXT & ~filters.COMMAND)) & filters.ChatType.PRIVATE,
+            (filters.PHOTO | filters.AUDIO | filters.VOICE | filters.Document.ALL | (filters.TEXT & ~filters.COMMAND)) & filters.ChatType.PRIVATE,
             vip_input_receiver,
         ),
-        group=2,
+        group=3,
     )
 

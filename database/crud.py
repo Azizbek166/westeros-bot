@@ -7199,9 +7199,13 @@ async def update_user_custom_audio(session: AsyncSession, user_id: int, file_id:
         return False, "❌ Shaxsiy musiqa biriktirish uchun kamida «🐉 Valyriya Merosi» VIP to'plami talab qilinadi."
 
     user.custom_audio_file_id = file_id
-    user.custom_audio_title = (audio_title or "Lord Gimni")[:100] if file_id else None
+    if audio_title or file_id:
+        user.custom_audio_title = (audio_title or "Lord Gimni")[:100]
+    else:
+        user.custom_audio_title = None
+
     await session.commit()
-    if file_id:
+    if user.custom_audio_title or user.custom_audio_file_id:
         return True, f"✅ Profil fon musiqasi saqlandi: 🎶 «{user.custom_audio_title}»"
     else:
         return True, "🗑️ Profil musiqasi olib tashlandi."

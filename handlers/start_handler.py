@@ -14,6 +14,20 @@ from config import escape_md
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/start buyrug'i"""
+    chat = update.effective_chat
+    if chat and chat.type in ["group", "supergroup"]:
+        bot_username = context.bot.username or "ironthrone_rpgbot"
+        await update.effective_message.reply_text(
+            "⚔️ **THE IRON THRONE MMORPG**\n\n"
+            "O'yin panellari va boshqaruv faqat botning o'zida (shaxsiy chatda) ishlaydi.\n"
+            "Guruhda faqat **/profile** (yoki xabarga reply qilib **/profile**) orqali lordlar profilini ko'rishingiz mumkin!",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🎮 O'yinni Botda O'ynash", url=f"https://t.me/{bot_username}?start=group")]
+            ])
+        )
+        return
+
     user_id = update.effective_user.id
     full_name = update.effective_user.full_name
     username = update.effective_user.username
@@ -373,7 +387,9 @@ async def main_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def bottom_menu_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Pastki doimiy menyu tugmalari bosilganda (🏠 Bosh Menyu, 🏰 Qalalarim)"""
+    """Pastki doimiy menyu tugmalari bosilganda (Faqat shaxsiy chatda!)"""
+    if not update.effective_chat or update.effective_chat.type != "private":
+        return
     if not update.message or not update.message.text:
         return
     text = update.message.text.strip()
@@ -413,8 +429,8 @@ async def bottom_menu_text_handler(update: Update, context: ContextTypes.DEFAULT
 
 def register_start_handlers(app):
     app.add_handler(CommandHandler("start", start_command))
-    app.add_handler(MessageHandler(filters.Regex("^(🏠 Bosh Menyu|🏰 Qalalarim|💎 VIP & Donate|📢 Guruh & Kanal)$"), bottom_menu_text_handler))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_custom_name_input), group=2)
+    app.add_handler(MessageHandler(filters.Regex("^(🏠 Bosh Menyu|🏰 Qalalarim|💎 VIP & Donate|📢 Guruh & Kanal)$") & filters.ChatType.PRIVATE, bottom_menu_text_handler))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, handle_custom_name_input), group=2)
     app.add_handler(CallbackQueryHandler(random_house_pick_callback, pattern="^random_house_pick$"))
     app.add_handler(CallbackQueryHandler(region_selected_callback, pattern="^sel_reg:"))
     app.add_handler(CallbackQueryHandler(house_selected_callback, pattern="^sel_house:"))

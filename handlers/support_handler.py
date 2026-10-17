@@ -65,7 +65,11 @@ async def support_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def player_text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Foydalanuvchi erkin matn yuborganda uni barcha adminlarga so'rov sifatida yetkazish"""
+    """Foydalanuvchi erkin matn yuborganda uni barcha adminlarga so'rov sifatida yetkazish (Faqat shaxsiy chatda!)"""
+    # Guruhda hech qachon tasodifiy xabarlarga javob bermaydi
+    if not update.effective_chat or update.effective_chat.type != "private":
+        return
+
     if not update.effective_message or not update.effective_message.text:
         return
 
@@ -133,4 +137,4 @@ async def player_text_message_handler(update: Update, context: ContextTypes.DEFA
 def register_support_handlers(app):
     app.add_handler(CommandHandler(["murojaat", "support", "yordam", "help", "sorov"], support_command))
     app.add_handler(CallbackQueryHandler(support_callback, pattern="^menu_support$"))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, player_text_message_handler), group=5)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, player_text_message_handler), group=5)
