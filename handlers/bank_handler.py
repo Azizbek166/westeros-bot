@@ -107,7 +107,6 @@ async def show_bank_hub(target, user_id: int, is_message: bool = False):
         else:
             buttons.append([InlineKeyboardButton(f"💰 Qarzni Qaytarish ({total_loan_due:,}🪙)", callback_data="bank_repay_loan")])
 
-        buttons.append([InlineKeyboardButton("⚖️ Savdo Bozoriga O'tish", callback_data="menu_trade")])
         buttons.append([InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")])
 
         markup = InlineKeyboardMarkup(buttons)

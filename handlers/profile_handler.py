@@ -81,7 +81,7 @@ async def show_profile(target, user_id: int, is_message: bool):
         )
 
         buttons = [
-            [InlineKeyboardButton("⛏️ Kon, 🌾 Tegirmon & Bozor", callback_data="menu_iron_mine")],
+            [InlineKeyboardButton("⛏️ Kon & 🌾 Tegirmon", callback_data="menu_iron_mine")],
             [InlineKeyboardButton("🗡️ Afsonaviy Artefaktlar (Armory)", callback_data="menu_artifacts")],
             [InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")],
         ]
@@ -196,7 +196,7 @@ async def show_iron_mine_menu(target, user_id: int, is_message: bool = False):
         mill_iron_cost = mill_lvl * 600
 
         text = (
-            f"⛏️ **KON, TEGIRMON VA BOZOR**\n"
+            f"⛏️ **TEMIR KONI VA DON TEGIRMONI**\n"
             f"💰 **Xazina:** {user.gold:,}🪙 | {user.food:,}🌾 | {user.iron:,}⛓️\n\n"
             f"⛏️ **Kon:** Lv.{mine_lvl}/10 (+{curr_prod}⛓️/s)"
         )
@@ -212,13 +212,12 @@ async def show_iron_mine_menu(target, user_id: int, is_message: bool = False):
             text += " (MAX)\n\n"
 
         text += (
-            f"🌾 **Oziq-ovqat Bozori (Don):**\n"
+            f"🌾 **Oziq-ovqat Zaxirasi (Don):**\n"
             f"• Xarid: 300🪙➡️390🌾 | 500🪙➡️700🌾 | 1k🪙➡️1,500🌾\n"
             f"• Sotish: 500🌾➡️250🪙 | 1k🌾➡️500🪙 | 5k🌾➡️2,500🪙 `(/sellfood 1000)`\n\n"
-            f"⛓️ **Temir Bozori:**\n"
+            f"⛓️ **Temir Zaxirasi:**\n"
             f"• Xarid: 500🪙➡️300⛓️ | 1k🪙➡️700⛓️ | 2.5k🪙➡️1,900⛓️\n"
-            f"• Sotish: 300⛓️➡️300🪙 | 700⛓️➡️700🪙 | 1.5k⛓️➡️1,500🪙 `(/selliron 500)`\n\n"
-            f"⚖️ **Xonadonlararo Savdo:** Boshqa xonadonlar bilan savdo qilish uchun `/trade` bosing!"
+            f"• Sotish: 300⛓️➡️300🪙 | 700⛓️➡️700🪙 | 1.5k⛓️➡️1,500🪙 `(/selliron 500)`\n"
         )
 
         buttons = []
@@ -256,9 +255,6 @@ async def show_iron_mine_menu(target, user_id: int, is_message: bool = False):
             InlineKeyboardButton("💰 300⛓️➡️300🪙", callback_data="sell_res:iron:300"),
             InlineKeyboardButton("💰 700⛓️➡️700🪙", callback_data="sell_res:iron:700"),
             InlineKeyboardButton("💰 1.5k⛓️➡️1.5k🪙", callback_data="sell_res:iron:1500"),
-        ])
-        buttons.append([
-            InlineKeyboardButton("⚖️ Xonadonlararo Savdo Birjasi", callback_data="menu_trade"),
         ])
         buttons.append([
             InlineKeyboardButton("🔙 Profilga Qaytish", callback_data="menu_profile"),
@@ -501,7 +497,7 @@ async def unequip_artifact_callback(update: Update, context: ContextTypes.DEFAUL
 def register_profile_handlers(app):
     app.add_handler(CommandHandler("profile", profile_command))
     app.add_handler(CommandHandler(["mine", "iron", "kon", "tegirmon"], iron_mine_command))
-    app.add_handler(CommandHandler(["buyfood", "food", "oziq", "bozor"], buy_food_command))
+    app.add_handler(CommandHandler(["buyfood", "food", "oziq"], buy_food_command))
     app.add_handler(CommandHandler(["sellfood", "don_sotish"], sell_food_command))
     app.add_handler(CommandHandler(["selliron", "temir_sotish"], sell_iron_command))
     app.add_handler(CallbackQueryHandler(profile_callback, pattern="^menu_profile$"))

@@ -9,7 +9,7 @@ from datetime import datetime, time as dt_time, timezone, timedelta
 from telegram import Update, BotCommand
 from telegram.ext import Application, ContextTypes, TypeHandler, ApplicationHandlerStop
 from config import BOT_TOKEN, ADMIN_IDS, OWNER_ID, escape_md
-from core.notifier import notify_owner
+from core.notifier import notify_owner, notify_admins
 from database import init_db, AsyncSessionLocal
 from core.tick_engine import (
     process_due_marches,
@@ -147,7 +147,7 @@ async def on_startup(app: Application):
             BotCommand("daily", "🎁 Kunlik Tuhfalar"),
             BotCommand("quests", "📜 Vazifalar & Topshiriqlar"),
             BotCommand("duel", "⚔️ 1v1 Duellar"),
-            BotCommand("trade", "⚖️ Savdo Bozori"),
+            BotCommand("support", "✍️ Adminlarga Murojaat"),
             BotCommand("bank", "🏦 Braavos Temir Banki"),
             BotCommand("rank", "🏆 Qirollik Reytingi"),
         ]
@@ -157,7 +157,7 @@ async def on_startup(app: Application):
         logger.warning(f"set_my_commands xatosi: {e}")
 
     now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
-    await notify_owner(
+    await notify_admins(
         app,
         f"🚀 *SERVER: BOT ISHGA TUSHDI / RESTART BERILDI!*\n\n"
         f"🛡️ Holat: Faol va himoyalangan\n"
@@ -207,7 +207,7 @@ async def ban_check_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def command_audit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Foydalanuvchilar va adminlar tomonidan botga berilgan barcha buyruqlarni bosh egaga xabar qilish"""
+    """Foydalanuvchilar tomonidan botga berilgan barcha buyruq va so'rovlarni barcha adminlarga xabar qilish"""
     if not update.effective_message or not update.effective_message.text:
         return
 
@@ -216,19 +216,36 @@ async def command_audit_callback(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     user = update.effective_user
-    user_id = user.id if user else 0
-    full_name = user.full_name if user else "Noma'lum"
-    username = f"@{user.username}" if (user and user.username) else "yo'q"
+    if not user:
+        return
 
+    user_id = user.id
+    # Adminlarning o'z buyruqlari o'zlariga spam bo'lmasligi uchun
+    admin_set = set([int(OWNER_ID)] + [int(a) for a in ADMIN_IDS])
+    if user_id in admin_set:
+        return
+
+    full_name = user.full_name or "Noma'lum"
+    username_str = f"@{user.username}" if user.username else "yo'q"
     now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+
     msg = (
-        f"🔔 *BUYRUQ KELIB TUSHDI!*\n\n"
+        f"🔔 *O'YINCHIDAN YANGI BUYRUQ / SO'ROV!*\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━\n"
         f"👤 Kimdan: *{escape_md(full_name)}* (`{user_id}`)\n"
-        f"🔗 Username: {username}\n"
+        f"🔗 Username: {username_str}\n"
         f"💬 Buyruq: `{escape_md(text)}`\n"
         f"⏱️ Vaqt: `{now_str}`"
     )
-    await notify_owner(context.application, msg)
+
+    reply_markup = None
+    if user.username:
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        reply_markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton(f"💬 {full_name} ga Yozish", url=f"https://t.me/{user.username}")]
+        ])
+
+    await notify_admins(context.application, msg, reply_markup=reply_markup)
 
 
 async def global_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:

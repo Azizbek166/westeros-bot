@@ -23,6 +23,7 @@ from handlers.weather_handler import register_weather_handlers
 from handlers.daily_handler import register_daily_handlers
 from handlers.donate_handler import register_donate_handlers
 from handlers.community_handler import register_community_handlers
+from handlers.support_handler import register_support_handlers
 
 def register_all_handlers(app):
     """Barcha bot handlerlarini Application ga ro'yxatdan o'tkazish"""
@@ -30,6 +31,7 @@ def register_all_handlers(app):
     register_daily_handlers(app)
     register_donate_handlers(app)
     register_community_handlers(app)
+    register_support_handlers(app)
     register_profile_handlers(app)
     register_house_handlers(app)
     register_army_handlers(app)

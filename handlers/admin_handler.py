@@ -116,7 +116,7 @@ async def show_admin_dashboard(target, is_message: bool):
             [InlineKeyboardButton("⚔️ Harbiy Holat & Urush Boshqaruvi", callback_data="admin_war_control")],
             [InlineKeyboardButton("🏦 Temir Bank & Qarzlar Boshqaruvi", callback_data="admin_bank_menu")],
             [InlineKeyboardButton("🌦️ Ob-havo Boshqaruvi", callback_data="admin_weather_menu")],
-            [InlineKeyboardButton("🐪 Savdo Karvonlari & Bozor", callback_data="admin_trade_menu")],
+            [InlineKeyboardButton("🐪 Savdo Karvonlari Boshqaruvi", callback_data="admin_trade_menu")],
             [InlineKeyboardButton("🏇 Ritsarlar Turniri Boshqaruvi", callback_data="admin_tourney_menu")],
             [InlineKeyboardButton("🐉 Barcha Ajdarlar (Dragon Manager)", callback_data="admin_dragons_list:0")],
             [InlineKeyboardButton("❄️ Global Hodisalar & Tun Qiroli", callback_data="admin_events_menu")],
