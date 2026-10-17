@@ -19,6 +19,14 @@ from config import (
 from keyboards.menus import back_to_main_keyboard
 
 
+def is_admin(user_id: int) -> bool:
+    try:
+        uid = int(user_id)
+        return uid in [int(x) for x in ADMIN_IDS] or uid == int(OWNER_ID)
+    except Exception:
+        return False
+
+
 def donate_menu_keyboard() -> InlineKeyboardMarkup:
     """VIP to'plamlar ro'yxati klaviaturasi"""
     buttons = []
@@ -301,7 +309,7 @@ async def admin_donate_approve_callback(update: Update, context: ContextTypes.DE
     query = update.callback_query
     admin_user = query.from_user
 
-    if admin_user.id not in ADMIN_IDS and admin_user.id != OWNER_ID:
+    if not is_admin(admin_user.id):
         await query.answer("❌ Sizda bu amalni bajarish huquqi yo'q!", show_alert=True)
         return
 
@@ -328,7 +336,7 @@ async def admin_donate_approve_callback(update: Update, context: ContextTypes.DE
             ok, msg, details = await crud.apply_donate_rewards(session, target_user_id, tier_id)
 
     if not ok:
-        await query.answer(f"Xatolik: {msg}", show_alert=True)
+        await query.answer(f"⚠️ {msg}", show_alert=True)
         return
 
     await query.answer("✅ To'lov tasdiqlandi va mukofotlar to'liq berildi!", show_alert=True)
@@ -343,32 +351,42 @@ async def admin_donate_approve_callback(update: Update, context: ContextTypes.DE
         f"✅ **TO'LOV TASDIQLANDI VA MUKOFOTLAR BERILDI!**\n\n"
         f"👑 Tasdiqlagan admin: *{escape_md(admin_name)}*\n"
         f"👤 Qabul qiluvchi: `{target_user_id}`\n"
-        f"📦 To'plam: *{details['tier_name']}* ({details['price_label']})\n\n"
-        f"🪙 Oltin: +{details['gold']:,} | 🌾 Oziq: +{details['food']:,} | ⛓️ Temir: +{details['iron']:,}\n"
+        f"📦 To'plam: *{details.get('tier_name', 'VIP To\'plam')}* ({details.get('price_label', '')})\n\n"
+        f"🪙 Oltin: +{details.get('gold', 0):,} | 🌾 Oziq: +{details.get('food', 0):,} | ⛓️ Temir: +{details.get('iron', 0):,}\n"
         f"🛡️ Armiya: {troops_summary}\n"
         f"🐉 Ajdaho: {dragon_summary}\n"
-        f"🕊️ Qalqon: +{details['shield_hours']} soat | ⭐ Prestige: +{details['prestige']}\n"
+        f"🕊️ Qalqon: +{details.get('shield_hours', 0)} soat | ⭐ Prestige: +{details.get('prestige', 0)}\n"
         f"👑 Unvon: {title_summary}"
     )
 
+    back_kb = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🔙 Donatlar Ro'yxatiga Qaytish", callback_data="admin_donations_list:0:pending"),
+            InlineKeyboardButton("⚙️ Admin Panel", callback_data="admin_panel"),
+        ]
+    ])
+
     try:
         if query.message.caption is not None:
-            await query.edit_message_caption(caption=new_caption, parse_mode="Markdown")
+            await query.edit_message_caption(caption=new_caption, parse_mode="Markdown", reply_markup=back_kb)
         else:
-            await query.edit_message_text(text=new_caption, parse_mode="Markdown")
+            await query.edit_message_text(text=new_caption, parse_mode="Markdown", reply_markup=back_kb)
     except Exception:
-        pass
+        try:
+            await query.message.reply_text(text=new_caption, parse_mode="Markdown", reply_markup=back_kb)
+        except Exception:
+            pass
 
     # Foydalanuvchiga bayramona xabar yuborish
     congrats_text = (
         f"🎉 **TABRIKLAYMIZ! TO'LOVINGIZ TASDIQLANDI!**\n\n"
-        f"Hurmatli Lord! Siz xarid qilgan «**{details['tier_name']}**» to'plami muvaffaqiyatli tasdiqlandi va hisobingizga yuklandi!\n\n"
+        f"Hurmatli Lord! Siz xarid qilgan «**{details.get('tier_name', 'VIP To\'plam')}**» to'plami muvaffaqiyatli tasdiqlandi va hisobingizga yuklandi!\n\n"
         f"🎁 **Taqdim etilgan boyliklar:**\n"
-        f"• 🪙 Oltin: **+{details['gold']:,}**\n"
-        f"• 🌾 Oziq-ovqat: **+{details['food']:,}**\n"
-        f"• ⛓️ Temir: **+{details['iron']:,}**\n"
-        f"• 🕊️ Tinchlik Qalqoni: **+{details['shield_hours']} soat**\n"
-        f"• ⭐ Nufuz (Prestige): **+{details['prestige']}**\n"
+        f"• 🪙 Oltin: **+{details.get('gold', 0):,}**\n"
+        f"• 🌾 Oziq-ovqat: **+{details.get('food', 0):,}**\n"
+        f"• ⛓️ Temir: **+{details.get('iron', 0):,}**\n"
+        f"• 🕊️ Tinchlik Qalqoni: **+{details.get('shield_hours', 0)} soat**\n"
+        f"• ⭐ Nufuz (Prestige): **+{details.get('prestige', 0)}**\n"
     )
     if details.get("troops"):
         congrats_text += f"• 🛡️ Armiya: **{troops_summary}**\n"
@@ -406,7 +424,7 @@ async def admin_donate_reject_callback(update: Update, context: ContextTypes.DEF
     query = update.callback_query
     admin_user = query.from_user
 
-    if admin_user.id not in ADMIN_IDS and admin_user.id != OWNER_ID:
+    if not is_admin(admin_user.id):
         await query.answer("❌ Sizda bu amalni bajarish huquqi yo'q!", show_alert=True)
         return
 
@@ -421,6 +439,9 @@ async def admin_donate_reject_callback(update: Update, context: ContextTypes.DEF
         req_id = int(parts[1])
         async with AsyncSessionLocal() as session:
             ok, msg, req = await crud.reject_donation_request(session, req_id, admin_user.id)
+            if not ok:
+                await query.answer(f"⚠️ {msg}", show_alert=True)
+                return
             if req:
                 target_user_id = req.telegram_id
                 tier_name = req.tier_name
@@ -433,29 +454,41 @@ async def admin_donate_reject_callback(update: Update, context: ContextTypes.DEF
         tier = DONATE_TIERS.get(tier_id, {"name": "VIP To'plam"})
         tier_name = tier["name"]
 
-    await query.answer("❌ To'lov rad etildi.")
+    await query.answer("❌ To'lov rad etildi.", show_alert=True)
 
     admin_name = admin_user.full_name
     new_caption = (
-        f"❌ **TO'LOV RAD ETILDI**\n\n"
+        f"❌ **TO'LOV SO'ROVI RAD ETILDI**\n\n"
         f"👑 Rad etgan admin: *{escape_md(admin_name)}*\n"
         f"👤 Foydalanuvchi: `{target_user_id}`\n"
-        f"📦 To'plam: *{tier_name}*"
+        f"📦 To'plam: *{tier_name}*\n"
+        f"📌 Holati: Rad etilgan"
     )
+
+    back_kb = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🔙 Donatlar Ro'yxatiga Qaytish", callback_data="admin_donations_list:0:pending"),
+            InlineKeyboardButton("⚙️ Admin Panel", callback_data="admin_panel"),
+        ]
+    ])
+
     try:
         if query.message.caption is not None:
-            await query.edit_message_caption(caption=new_caption, parse_mode="Markdown")
+            await query.edit_message_caption(caption=new_caption, parse_mode="Markdown", reply_markup=back_kb)
         else:
-            await query.edit_message_text(text=new_caption, parse_mode="Markdown")
+            await query.edit_message_text(text=new_caption, parse_mode="Markdown", reply_markup=back_kb)
     except Exception:
-        pass
+        try:
+            await query.message.reply_text(text=new_caption, parse_mode="Markdown", reply_markup=back_kb)
+        except Exception:
+            pass
 
     # Foydalanuvchiga xabar berish
     reject_text = (
         f"❌ **TO'LOV TASDIQLANMADI**\n\n"
         f"Hurmatli Lord, siz yuborgan «**{tier_name}**» to'plami bo'yicha to'lov cheki ma'muriyat tomonidan tasdiqlanmadi.\n\n"
         f"Sababi: Hisobga to'lov kelib tushmagan yoki chek noto'g'ri bo'lishi mumkin.\n"
-        f"Agar buni xatolik deb hisoblasangiz, iltimos bosh administrator bilan bog'laning."
+        f"Agar buni xatolik deb hisoblasangiz, iltimos ma'muriyat bilan bog'laning."
     )
     try:
         await context.bot.send_message(

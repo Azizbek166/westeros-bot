@@ -3628,7 +3628,7 @@ async def admin_donations_list_callback(update: Update, context: ContextTypes.DE
     page = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
     filter_status = parts[2] if len(parts) > 2 else "pending"
 
-    limit = 8
+    limit = 6
     offset = page * limit
 
     async with AsyncSessionLocal() as session:
@@ -3638,8 +3638,8 @@ async def admin_donations_list_callback(update: Update, context: ContextTypes.DE
     buttons = []
     # Status filter switcheri
     filter_row = [
-        InlineKeyboardButton(f"⏳ Kutilmoqda ({total_pending}) {'✅' if filter_status=='pending' else ''}", callback_data=f"admin_donations_list:0:pending"),
-        InlineKeyboardButton(f"📜 Barchasi {'✅' if filter_status=='' else ''}", callback_data=f"admin_donations_list:0:"),
+        InlineKeyboardButton(f"⏳ Kutilmoqda ({total_pending}) {'✅' if filter_status=='pending' else ''}", callback_data="admin_donations_list:0:pending"),
+        InlineKeyboardButton(f"📜 Barchasi {'✅' if filter_status=='' else ''}", callback_data="admin_donations_list:0:"),
     ]
     buttons.append(filter_row)
 
@@ -3653,14 +3653,25 @@ async def admin_donations_list_callback(update: Update, context: ContextTypes.DE
         text = (
             f"💳 **DONAT VA VIP SO'ROVLARI (Sahifa {page+1})**\n\n"
             f"⏳ Kutilayotgan so'rovlar soni: **{total_pending}** ta\n"
-            f"Tafsilotlarini ko'rish va tasdiqlash uchun kerakli so'rovni tanlang:\n"
+            f"Tafsilotlarini ko'rish yoki darhol tasdiqlash / rad etish:\n"
         )
         for req in requests:
             st_icon = "⏳" if req.status == "pending" else ("✅" if req.status == "approved" else "❌")
-            btn_text = f"{st_icon} #{req.id} | {req.user_full_name[:12]} | {req.price_label}"
-            buttons.append([
-                InlineKeyboardButton(btn_text, callback_data=f"admin_donate_view:{req.id}")
-            ])
+            user_title = req.user_full_name[:12] if req.user_full_name else f"User {req.telegram_id}"
+            
+            if req.status == "pending":
+                buttons.append([
+                    InlineKeyboardButton(f"⏳ #{req.id} • {user_title} • {req.price_label}", callback_data=f"admin_donate_view:{req.id}")
+                ])
+                buttons.append([
+                    InlineKeyboardButton("✅ Tasdiqlash", callback_data=f"admin_donate_approve:{req.id}"),
+                    InlineKeyboardButton("❌ Rad etish", callback_data=f"admin_donate_reject:{req.id}"),
+                    InlineKeyboardButton("🔍 Chek", callback_data=f"admin_donate_view:{req.id}"),
+                ])
+            else:
+                buttons.append([
+                    InlineKeyboardButton(f"{st_icon} #{req.id} • {user_title} • {req.price_label}", callback_data=f"admin_donate_view:{req.id}")
+                ])
 
     # Pagination tugmalari
     nav_row = []
@@ -3674,9 +3685,15 @@ async def admin_donations_list_callback(update: Update, context: ContextTypes.DE
     buttons.append([InlineKeyboardButton("🔙 Admin Panelga Qaytish", callback_data="admin_panel")])
 
     try:
-        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        if query.message.caption is not None:
+            await query.edit_message_caption(caption=text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        else:
+            await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
     except Exception:
-        await query.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        try:
+            await query.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        except Exception:
+            pass
 
 
 async def admin_donate_view_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3733,7 +3750,8 @@ async def admin_donate_view_callback(update: Update, context: ContextTypes.DEFAU
         ])
 
     buttons.append([
-        InlineKeyboardButton("🔙 Donatlar Ro'yxatiga Qaytish", callback_data="admin_donations_list:0")
+        InlineKeyboardButton("🔙 Donatlar Ro'yxatiga Qaytish", callback_data="admin_donations_list:0:pending"),
+        InlineKeyboardButton("⚙️ Admin Panel", callback_data="admin_panel"),
     ])
 
     if req.receipt_file_id:
@@ -3741,14 +3759,21 @@ async def admin_donate_view_callback(update: Update, context: ContextTypes.DEFAU
             await query.message.reply_photo(
                 photo=req.receipt_file_id,
                 caption=f"📸 #{req.id} to'lov cheki screenshot rasmi",
+                reply_markup=InlineKeyboardMarkup(buttons) if req.status == "pending" else None
             )
         except Exception:
             pass
 
     try:
-        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        if query.message.caption is not None:
+            await query.edit_message_caption(caption=text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        else:
+            await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
     except Exception:
-        await query.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        try:
+            await query.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        except Exception:
+            pass
 
 
 async def admin_bcast_weekly_rankings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
