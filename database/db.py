@@ -6,27 +6,29 @@ from config import DATABASE_URL
 
 logger = logging.getLogger(__name__)
 
-# Asinxron Engine
-engine = create_async_engine(
-    DATABASE_URL,
-    echo=False,
-    pool_pre_ping=True,
-)
-
-# SQLite yuqori yuklamada (200-500 user) qotmasligi uchun WAL rejimi
+# Asinxron Engine va SQLite sozlamalari
 from sqlalchemy import event, select, text
 
-@event.listens_for(engine.sync_engine, "connect")
-def set_sqlite_pragma(dbapi_connection, connection_record):
-    if "sqlite" in engine.url.drivername:
-        try:
-            cursor = dbapi_connection.cursor()
-            cursor.execute("PRAGMA journal_mode=WAL")
-            cursor.execute("PRAGMA synchronous=NORMAL")
-            cursor.execute("PRAGMA busy_timeout=10000")
-            cursor.close()
-        except Exception:
-            pass
+def create_custom_engine(db_url: str):
+    eng = create_async_engine(
+        db_url,
+        echo=False,
+        pool_pre_ping=True,
+    )
+    if "sqlite" in eng.url.drivername:
+        @event.listens_for(eng.sync_engine, "connect")
+        def set_sqlite_pragma(dbapi_connection, connection_record):
+            try:
+                cursor = dbapi_connection.cursor()
+                cursor.execute("PRAGMA journal_mode=WAL")
+                cursor.execute("PRAGMA synchronous=NORMAL")
+                cursor.execute("PRAGMA busy_timeout=10000")
+                cursor.close()
+            except Exception:
+                pass
+    return eng
+
+engine = create_custom_engine(DATABASE_URL)
 
 # Async Session Factory
 AsyncSessionLocal = async_sessionmaker(
@@ -53,14 +55,29 @@ async def get_db():
 
 
 async def init_db():
-    """Barcha jadvallarni yaratish va boshlang'ich ma'lumotlarni tekshirish"""
+    """Barcha jadvallarni yaratish va boshlang'ich ma'lumotlarni tekshirish (PostgreSQL xatosi bo'lsa SQLite ga avto-o'tadi)"""
+    global engine, AsyncSessionLocal
     from database import models
     from data.houses_data import HOUSES_DATA
     from data.map_data import TERRITORIES_DATA
 
-    from sqlalchemy import text
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(models.Base.metadata.create_all)
+    except Exception as e:
+        if "sqlite" not in engine.url.drivername:
+            logger.error(f"⚠️ PostgreSQL serveriga ulanib bo'lmadi ({e}). Server muddati tugagan yoki o'chirilgan bo'lishi mumkin.")
+            logger.warning("🔄 Bot avtomatik tarzda mustaqil SQLite bazasiga o'tkazilmoqda!")
+            from config import DEFAULT_DB_PATH
+            fallback_url = f"sqlite+aiosqlite:///{DEFAULT_DB_PATH}"
+            engine = create_custom_engine(fallback_url)
+            AsyncSessionLocal.configure(bind=engine)
+            async with engine.begin() as conn:
+                await conn.run_sync(models.Base.metadata.create_all)
+        else:
+            raise
+
     async with engine.begin() as conn:
-        await conn.run_sync(models.Base.metadata.create_all)
         # Mavjud SQLite bazalar uchun xavfsiz ustun qo'shish (PostgreSQL yangi bazada create_all barcha ustunlarni yaratadi)
         if "sqlite" in engine.url.drivername:
             for alter_stmt in [
