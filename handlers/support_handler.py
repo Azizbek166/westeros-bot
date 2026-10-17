@@ -20,6 +20,10 @@ INTERACTIVE_KEYS = [
     "awaiting_bank_dep_input",
     "awaiting_bank_with_input",
     "awaiting_donate_receipt",
+    "awaiting_vip_photo",
+    "awaiting_vip_status",
+    "awaiting_vip_audio",
+    "awaiting_vip_decree",
 ]
 
 BOTTOM_MENU_TEXTS = {

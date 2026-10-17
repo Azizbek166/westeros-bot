@@ -1,16 +1,243 @@
+import logging
 from datetime import datetime
+from typing import Tuple, Optional
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import CommandHandler, CallbackQueryHandler, ContextTypes
-from database import AsyncSessionLocal, crud
+from telegram.ext import (
+    CommandHandler,
+    CallbackQueryHandler,
+    MessageHandler,
+    filters,
+    ContextTypes,
+)
+from database import AsyncSessionLocal, crud, models
 from core.economy_engine import calculate_army_upkeep, calculate_hourly_income
 from keyboards.menus import back_to_main_keyboard
-from config import escape_md
+from config import escape_md, COMMUNITY_CHANNEL_URL, COMMUNITY_GROUP_URL
+
+logger = logging.getLogger(__name__)
+
+GOT_AUDIO_PRESETS = {
+    "got_main": {
+        "title": "Game of Thrones: Main Theme",
+        "desc": "🏰 Westeros Buyuk Asosiy Gimni",
+    },
+    "rains": {
+        "title": "The Rains of Castamere",
+        "desc": "🦁 Lannisterlar Shon-Sharafi",
+    },
+    "light": {
+        "title": "Light of the Seven",
+        "desc": "🕯️ Qirollik Va Sitadel Kuylari",
+    },
+    "dragon": {
+        "title": "Blood of the Dragon",
+        "desc": "🐉 Valyriya Ajdaho Olovi",
+    },
+    "night_king": {
+        "title": "The Night King Theme",
+        "desc": "❄️ Shimol Va Qish Sovuqligi",
+    },
+}
+
+
+async def format_user_profile_card(user: models.User, session, is_group: bool = False) -> Tuple[str, Optional[str], Optional[str], Optional[str]]:
+    """
+    O'yinchi profil kartasini (shaxsiy chat yoki guruh uchun) VIP darajasiga qarab yaltiroq va boy formatda tayyorlash.
+    Qaytaradi: (text, photo_file_id, audio_file_id, audio_title)
+    """
+    from core.leveling import get_level_info, check_user_level_up
+    leveled_up, new_lvl, lvl_msg = check_user_level_up(user)
+    if leveled_up:
+        await session.commit()
+
+    lvl, lvl_title, curr_req, next_req, progress = get_level_info(user.xp or 0)
+    prog_bar = "█" * int(progress // 10) + "░" * (10 - int(progress // 10))
+
+    upkeep = calculate_army_upkeep(user.army) if user.army else 0
+    income = await calculate_hourly_income(session, user)
+    hero = user.characters[0] if user.characters else None
+
+    # Taqilgan artefakt
+    equipped_art = await crud.get_equipped_artifact(session, user.id)
+    art_str = f"🗡️ Artefakt: **{equipped_art.name}**\n" if equipped_art else ""
+
+    # Qalqon holati
+    shield_str = "❌ Faol emas"
+    if user.peace_shield_until and user.peace_shield_until > datetime.utcnow():
+        diff = user.peace_shield_until - datetime.utcnow()
+        hours = int(diff.total_seconds() // 3600)
+        shield_str = f"🛡️ Faol ({hours} soat qoldi)"
+
+    house_str = f"{user.house.emoji} {user.house.name} ({user.house.region})" if user.house else "Tanlanmagan"
+    inf_cnt = user.army.infantry if user.army else 0
+    arc_cnt = user.army.archers if user.army else 0
+    cav_cnt = user.army.cavalry if user.army else 0
+    spm_cnt = user.army.spearmen if user.army else 0
+    spc_cnt = user.army.special_troops if user.army else 0
+
+    net_food = income["food"] - int(upkeep)
+    net_food_str = f"+{net_food}" if net_food >= 0 else f"{net_food}"
+
+    raw_name = hero.name if hero else (user.username or user.full_name or "Lord")
+    user_display_name = escape_md(raw_name)
+
+    # Ajdaho
+    dragons = await crud.get_user_dragons(session, user.id)
+    dragon_line = ""
+    if dragons:
+        best_d = max(dragons, key=lambda d: d.power)
+        dragon_line = f"🐉 **Ajdaho:** {best_d.name} ({best_d.level}-daraja, {best_d.power:,} quvvat)\n"
+
+    vip = user.vip_tier
+
+    # 1. TEMIR TAXT SOHIBI (SOVEREIGN) - Mutlaq Oliy Imperatorlik Dizayni
+    if vip == "sovereign":
+        status_line = f"📜 Imperator Shiori: «_{escape_md(user.custom_status)}_»\n" if user.custom_status else ""
+        audio_line = f"🎵 Qirollik Gimni: 🎶 *{escape_md(user.custom_audio_title or 'Westeros Imperatorlik Gimni')}*\n" if (user.custom_audio_file_id or user.custom_audio_title) else ""
+        decree_cnt = getattr(user, "royal_decree_count", 0) or 0
+
+        text = (
+            f"👑════════════════════════════👑\n"
+            f"   ⚔️  **TEMIR TAXT HUKMDORI**  ⚔️\n"
+            f"👑════════════════════════════👑\n\n"
+            f"⚡ Buyuk Imperator: **{user_display_name}** | {house_str}\n"
+            f"{status_line}"
+            f"👑 Oliy Titul: «**{escape_md(user.title or 'Vesteros Himoyachisi')}**»\n"
+            f"{audio_line}"
+            f"🎖️ {user.rank.title()} | ⭐ Lv.{lvl}/30 ({lvl_title}) | 🏆 {user.prestige:,} Prestige\n"
+            f"📈 `[{prog_bar}]` {user.xp:,}/{next_req:,} XP ({int(progress)}%)\n"
+            f"{art_str}"
+            f"🔰 Qalqon: {shield_str}\n\n"
+            f"📊 **Xazina:** 🪙**{user.gold:,}** (+{income['gold']}/s 👑+25%) | 🌾**{user.food:,}** ({net_food_str}/s) | ⛓️**{user.iron:,}** (+{income['iron']}/s)\n"
+            f"⚔️ **Qo'shin:** 🛡️{inf_cnt:,} | 🏹{arc_cnt:,} | 🐎{cav_cnt:,} | 🗡️{spm_cnt:,} | 🔥{spc_cnt:,}\n"
+            f"{dragon_line}"
+            f"👑 **Imperatorlik Imtiyozlari:**\n"
+            f"• 💰 Barcha hudud va konlardan +25% doimiy daromad\n"
+            f"• 📜 Qirollik Farmoni: **{decree_cnt} ta** huquq mavjud\n\n"
+            f"👑✨🌟⚡🌟✨👑"
+        )
+
+    # 2. VALYRIYA MEROSI (DRAGONLORD) - Olovli Afsonaviy Dizayn
+    elif vip == "dragonlord":
+        status_line = f"📜 Shior: «_{escape_md(user.custom_status)}_»\n" if user.custom_status else ""
+        audio_line = f"🎵 Fon Musiqasi: 🎶 *{escape_md(user.custom_audio_title or 'Valyriya Kuylari')}*\n" if (user.custom_audio_file_id or user.custom_audio_title) else ""
+
+        text = (
+            f"⚜️════════════════════════════⚜️\n"
+            f"   🐉  **VALYRIYA OLOVLI MEROSI**  🐉\n"
+            f"⚜️════════════════════════════⚜️\n\n"
+            f"🔥 Lord: **{user_display_name}** | {house_str}\n"
+            f"{status_line}"
+            f"🎖️ Sharafli Unvon: «**{escape_md(user.title or 'Ajdaho Hukmdori')}**»\n"
+            f"{audio_line}"
+            f"🎖️ {user.rank.title()} | ⭐ Lv.{lvl}/30 ({lvl_title}) | 🏆 {user.prestige:,} Prestige\n"
+            f"📈 `[{prog_bar}]` {user.xp:,}/{next_req:,} XP ({int(progress)}%)\n"
+            f"{art_str}"
+            f"🔰 Qalqon: {shield_str}\n\n"
+            f"📊 **Xazina:** 🪙**{user.gold:,}** (+{income['gold']}/s) | 🌾**{user.food:,}** ({net_food_str}/s) | ⛓️**{user.iron:,}** (+{income['iron']}/s)\n"
+            f"⚔️ **Qo'shin:** 🛡️{inf_cnt:,} | 🏹{arc_cnt:,} | 🐎{cav_cnt:,} | 🗡️{spm_cnt:,} | 🔥{spc_cnt:,}\n"
+            f"{dragon_line}\n"
+            f"⚜️🌌✨ _Valyriya xazinasi va olovi barhayotdir_ ✨🌌⚜️"
+        )
+
+    # 3. LORDLAR XAZINASI (LORD) - Yaltiroq Olmosli Dizayn
+    elif vip == "lord":
+        text = (
+            f"✨════════════════════════════✨\n"
+            f"   🏰  **LORDLAR XAZINASI SOVUTI**  🏰\n"
+            f"✨════════════════════════════✨\n\n"
+            f"🌟 Lord: **{user_display_name}** | {house_str}\n"
+            f"🎖️ Sharafli Unvon: «**{escape_md(user.title or 'Saxiy Lord')}**»\n"
+            f"🎖️ {user.rank.title()} | ⭐ Lv.{lvl}/30 ({lvl_title}) | 🏆 {user.prestige:,} Prestige\n"
+            f"📈 `[{prog_bar}]` {user.xp:,}/{next_req:,} XP ({int(progress)}%)\n"
+            f"{art_str}"
+            f"🔰 Qalqon: {shield_str}\n\n"
+            f"📊 **Xazina:** 🪙**{user.gold:,}** (+{income['gold']}/s) | 🌾**{user.food:,}** ({net_food_str}/s) | ⛓️**{user.iron:,}** (+{income['iron']}/s)\n"
+            f"⚔️ **Qo'shin:** 🛡️{inf_cnt:,} | 🏹{arc_cnt:,} | 🐎{cav_cnt:,} | 🗡️{spm_cnt:,} | 🔥{spc_cnt:,}\n"
+            f"{dragon_line}\n"
+            f"✨💎✨ _Lordlar Xazinasi bilan qurollangan_ ✨💎✨"
+        )
+
+    # 4. STANDART LORD PROFILI (KNIGHT / BEPUL)
+    else:
+        title_badge = f"🎖️ Sharafli Unvon: **{escape_md(user.title)}**\n" if getattr(user, "title", None) else ""
+        text = (
+            f"👤 **LORD PROFILI**\n\n"
+            f"👑 **{user_display_name}** | {house_str}\n"
+            f"{title_badge}"
+            f"🎖️ {user.rank.title()} | ⭐ Lv.{lvl}/30 ({lvl_title}) | 🏆 {user.prestige:,} Prestige\n"
+            f"📈 `[{prog_bar}]` {user.xp:,}/{next_req:,} XP ({int(progress)}%)\n"
+            f"{art_str}"
+            f"🔰 Qalqon: {shield_str}\n\n"
+            f"📊 **Xazina:** 🪙**{user.gold:,}** (+{income['gold']}/s) | 🌾**{user.food:,}** ({net_food_str}/s) | ⛓️**{user.iron:,}** (+{income['iron']}/s)\n"
+            f"⚔️ **Qo'shin:** 🛡️{inf_cnt:,} | 🏹{arc_cnt:,} | 🐎{cav_cnt:,} | 🗡️{spm_cnt:,} | 🔥{spc_cnt:,}\n"
+            f"{dragon_line}"
+        )
+
+    photo_id = user.custom_photo_file_id if vip in ["lord", "dragonlord", "sovereign"] else None
+    audio_id = user.custom_audio_file_id if vip in ["dragonlord", "sovereign"] else None
+    audio_title = user.custom_audio_title if vip in ["dragonlord", "sovereign"] else None
+
+    return text, photo_id, audio_id, audio_title
 
 
 async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/profile buyrug'i"""
+    """/profile, /profil, /me buyrug'i (Guruh yoki Shaxsiy chat)"""
+    chat = update.effective_chat
+    if chat and chat.type in ["group", "supergroup"]:
+        await group_profile_handler(update, context)
+        return
+
     user_id = update.effective_user.id
     await show_profile(update, user_id, is_message=True)
+
+
+async def group_profile_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Guruhda o'yinchi profilini ko'rsatish (Reply qilingan bo'lsa suhbatdosh, aks holda yozgan lord)"""
+    msg = update.effective_message
+    if not msg:
+        return
+
+    target_tg = update.effective_user
+    is_reply = False
+    if msg.reply_to_message and msg.reply_to_message.from_user:
+        if not msg.reply_to_message.from_user.is_bot:
+            target_tg = msg.reply_to_message.from_user
+            is_reply = True
+
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_with_relations(session, target_tg.id)
+        if not user:
+            reply_who = f"**{escape_md(target_tg.full_name)}**" if is_reply else "Siz"
+            await msg.reply_text(
+                f"❌ {reply_who} hali Westeros olamida ro'yxatdan o'tmagan.\n"
+                f"🎮 O'yinni boshlash uchun botga kiring: @ironthrone_rpgbot",
+                parse_mode="Markdown"
+            )
+            return
+
+        text, photo_id, audio_id, audio_title = await format_user_profile_card(user, session, is_group=True)
+
+    # Guruhga rasm yoki matn bilan yuborish
+    if photo_id:
+        try:
+            await msg.reply_photo(photo=photo_id, caption=text, parse_mode="Markdown")
+        except Exception as e:
+            logger.warning(f"Guruhga rasm bilan profil yuborish xatosi: {e}")
+            await msg.reply_text(text, parse_mode="Markdown")
+    else:
+        await msg.reply_text(text, parse_mode="Markdown")
+
+    # Agar o'yinchi musiqasi bo'lsa audio ham yuboriladi
+    if audio_id:
+        try:
+            await msg.reply_audio(
+                audio=audio_id,
+                title=audio_title or "Lord Gimni",
+                performer=user.full_name or "Westeros Lord"
+            )
+        except Exception as e:
+            logger.warning(f"Guruhga audio yuborish xatosi: {e}")
 
 
 async def profile_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -22,7 +249,7 @@ async def profile_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def show_profile(target, user_id: int, is_message: bool):
-    """Profil ma'lumotlarini formatlab chiqarish"""
+    """Profil ma'lumotlarini formatlab chiqarish (Shaxsiy chat)"""
     async with AsyncSessionLocal() as session:
         user = await crud.get_user_with_relations(session, user_id)
         if not user:
@@ -33,63 +260,428 @@ async def show_profile(target, user_id: int, is_message: bool):
                 await target.edit_message_text(msg)
             return
 
-        from core.leveling import get_level_info, check_user_level_up
-        leveled_up, new_lvl, lvl_msg = check_user_level_up(user)
-        if leveled_up:
-            await session.commit()
+        text, photo_id, audio_id, audio_title = await format_user_profile_card(user, session, is_group=False)
 
-        lvl, title, curr_req, next_req, progress = get_level_info(user.xp or 0)
-        prog_bar = "█" * int(progress // 10) + "░" * (10 - int(progress // 10))
+    buttons = []
+    # VIP bo'lsa profil studiyasi tugmasi chiqadi
+    if getattr(user, "vip_tier", None) in ["lord", "dragonlord", "sovereign"]:
+        buttons.append([InlineKeyboardButton("✨ VIP Profil Studiyasi", callback_data="menu_vip_custom")])
 
-        upkeep = calculate_army_upkeep(user.army) if user.army else 0
-        income = await calculate_hourly_income(session, user)
-        hero = user.characters[0] if user.characters else None
+    buttons.append([InlineKeyboardButton("⛏️ Kon & 🌾 Tegirmon", callback_data="menu_iron_mine")])
+    buttons.append([InlineKeyboardButton("🗡️ Afsonaviy Artefaktlar (Armory)", callback_data="menu_artifacts")])
+    buttons.append([InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")])
+    markup = InlineKeyboardMarkup(buttons)
 
-        # Taqilgan artefakt
-        equipped_art = await crud.get_equipped_artifact(session, user.id)
-        art_str = f"🗡️ Taqilgan Artefakt: **{equipped_art.name}**\n" if equipped_art else "🗡️ Taqilgan Artefakt: *Mavjud emas*\n"
+    if is_message:
+        if photo_id:
+            try:
+                await target.message.reply_photo(photo=photo_id, caption=text, parse_mode="Markdown", reply_markup=markup)
+                return
+            except Exception:
+                pass
+        await target.message.reply_text(text, parse_mode="Markdown", reply_markup=markup)
+    else:
+        msg_obj = getattr(target, "message", None)
+        if msg_obj and getattr(msg_obj, "photo", None):
+            try:
+                await target.edit_message_caption(caption=text, parse_mode="Markdown", reply_markup=markup)
+                return
+            except Exception:
+                pass
+        try:
+            await target.edit_message_text(text, parse_mode="Markdown", reply_markup=markup)
+        except Exception:
+            await target.message.reply_text(text, parse_mode="Markdown", reply_markup=markup)
 
-        # Qalqon holati
-        shield_str = "❌ Faol emas"
-        if user.peace_shield_until and user.peace_shield_until > datetime.utcnow():
-            diff = user.peace_shield_until - datetime.utcnow()
-            hours = int(diff.total_seconds() // 3600)
-            shield_str = f"🛡️ Faol ({hours} soat qoldi)"
 
-        house_str = f"{user.house.emoji} {user.house.name} ({user.house.region})" if user.house else "Tanlanmagan"
-        inf_cnt = user.army.infantry if user.army else 0
-        arc_cnt = user.army.archers if user.army else 0
-        cav_cnt = user.army.cavalry if user.army else 0
-        spm_cnt = user.army.spearmen if user.army else 0
-        spc_cnt = user.army.special_troops if user.army else 0
+# ============================================================
+# VIP PROFIL SOZLAMALARI STUDIYASI (STUDIO & CUSTOMIZATION)
+# ============================================================
 
-        net_food = income['food'] - int(upkeep)
-        net_food_str = f"+{net_food}" if net_food >= 0 else f"{net_food}"
-        art_line = f"🗡️ Artefakt: **{equipped_art.name}**\n" if equipped_art else ""
-        title_badge = f"🎖️ Sharafli Unvon: **{escape_md(user.title)}**\n" if getattr(user, 'title', None) else ""
+async def vip_custom_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """VIP Profil Studiyasi Menyusi"""
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_by_telegram_id(session, user_id)
+        if not user or not user.vip_tier or user.vip_tier == "knight":
+            await query.answer("❌ Ushbu bo'lim faqat VIP (Lord, Valyriya, Temir Taxt) egalari uchundir!", show_alert=True)
+            return
+
+        tier_names = {
+            "lord": "🏰 Lordlar Xazinasi",
+            "dragonlord": "🐉 Valyriya Merosi",
+            "sovereign": "👑 Temir Taxt Sohibi"
+        }
+        tier_title = tier_names.get(user.vip_tier, user.vip_tier)
+
+        photo_status = "✅ O'rnatilgan" if user.custom_photo_file_id else "❌ O'rnatilmagan"
+        status_status = f"«{escape_md(user.custom_status)}»" if user.custom_status else "❌ O'rnatilmagan"
+        audio_status = f"🎶 «{escape_md(user.custom_audio_title)}»" if (user.custom_audio_file_id or user.custom_audio_title) else "❌ O'rnatilmagan"
+
+        decree_line = ""
+        if user.vip_tier == "sovereign":
+            decree_line = f"• 📜 Qirollik Farmoni huquqi: **{user.royal_decree_count or 0} ta**\n"
 
         text = (
-            f"👤 **LORD PROFILI**\n\n"
-            f"👑 **{escape_md(hero.name if hero else user.full_name)}** | {house_str}\n"
-            f"{title_badge}"
-            f"🎖️ {user.rank.title()} | ⭐ Lv.{lvl}/30 ({title}) | 🏆 {user.prestige:,} Prestige\n"
-            f"📈 `[{prog_bar}]` {user.xp:,}/{next_req:,} XP ({int(progress)}%)\n"
-            f"{art_line}"
-            f"🔰 Qalqon: {shield_str}\n\n"
-            f"📊 **Xazina:** 🪙**{user.gold:,}** (+{income['gold']}/s) | 🌾**{user.food:,}** ({net_food_str}/s) | ⛓️**{user.iron:,}** (+{income['iron']}/s)\n"
-            f"⚔️ **Qo'shin:** 🛡️{inf_cnt:,} | 🏹{arc_cnt:,} | 🐎{cav_cnt:,} | 🗡️{spm_cnt:,} | 🔥{spc_cnt:,}"
+            f"✨👑 **VIP PROFIL SOZLAMALARI STUDIYASI** 👑✨\n\n"
+            f"Sizning VIP maqomingiz: **{tier_title}**\n\n"
+            f"📸 **Profil fotosurati:** {photo_status}\n"
+            f"✍️ **Shaxsiy shior / status:** {status_status}\n"
+            f"🎵 **Fon musiqasi / gimn:** {audio_status}\n"
+            f"{decree_line}\n"
+            f"Quyidagi tugmalar orqali profilingizni bezating va sozlang:"
         )
 
-        buttons = [
-            [InlineKeyboardButton("⛏️ Kon & 🌾 Tegirmon", callback_data="menu_iron_mine")],
-            [InlineKeyboardButton("🗡️ Afsonaviy Artefaktlar (Armory)", callback_data="menu_artifacts")],
-            [InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")],
-        ]
+        buttons = []
 
-        if is_message:
-            await target.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        # Rasm (Lord, Valyriya, Sovereign)
+        buttons.append([InlineKeyboardButton("📸 Profil Rasmini O'rnatish / Yangilash", callback_data="vip_set_photo")])
+        if user.custom_photo_file_id:
+            buttons.append([InlineKeyboardButton("🗑️ Rasmni Olib Tashlash", callback_data="vip_remove_photo")])
+
+        # Status & Audio (Dragonlord, Sovereign)
+        if user.vip_tier in ["dragonlord", "sovereign"]:
+            buttons.append([InlineKeyboardButton("✍️ Shaxsiy Shior Yozish", callback_data="vip_set_status")])
+            if user.custom_status:
+                buttons.append([InlineKeyboardButton("🗑️ Shiorni Olib Tashlash", callback_data="vip_remove_status")])
+            buttons.append([InlineKeyboardButton("🎵 Fon Musiqasi / Gimn Tanlash", callback_data="vip_set_audio")])
+
+        # Qirollik Farmoni (Sovereign)
+        if user.vip_tier == "sovereign":
+            buttons.append([InlineKeyboardButton("📢 Butun Vesterosga Qirol Farmoni Chiqarish", callback_data="vip_decree_prompt")])
+
+        buttons.append([InlineKeyboardButton("👁️ Yaltiroq Profil Ko'rinishini Sinash", callback_data="vip_preview")])
+        buttons.append([InlineKeyboardButton("🔙 Profilga Qaytish", callback_data="menu_profile")])
+
+        markup = InlineKeyboardMarkup(buttons)
+        msg_obj = getattr(query, "message", None)
+        if msg_obj and getattr(msg_obj, "photo", None):
+            await query.message.reply_text(text, reply_markup=markup, parse_mode="Markdown")
         else:
-            await target.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+            await query.edit_message_text(text, reply_markup=markup, parse_mode="Markdown")
+
+
+async def vip_set_photo_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Rasm yuklashni boshlash"""
+    query = update.callback_query
+    await query.answer()
+    context.user_data["awaiting_vip_photo"] = True
+    context.user_data.pop("awaiting_vip_status", None)
+    context.user_data.pop("awaiting_vip_audio", None)
+    context.user_data.pop("awaiting_vip_decree", None)
+
+    text = (
+        "📸 **PROFIL FOTOSURATINI YUKLASH**\n\n"
+        "Hurmatli Lord! O'z profilingiz uchun fotosuratni (rasm shaklida) botga yuboring.\n"
+        "Yuborilgan fotosurat guruhda va botda profilingiz chaqirilganda porlab chiqadi!\n\n"
+        "💡 _Bekor qilish uchun /cancel deb yozing._"
+    )
+    await query.message.reply_text(text, parse_mode="Markdown")
+
+
+async def vip_remove_photo_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Rasmni olib tashlash"""
+    query = update.callback_query
+    user_id = query.from_user.id
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_by_telegram_id(session, user_id)
+        if user:
+            await crud.update_user_custom_photo(session, user.id, None)
+
+    await query.answer("🗑️ Profil fotosurati olib tashlandi.", show_alert=True)
+    await vip_custom_menu_callback(update, context)
+
+
+async def vip_set_status_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Shaxsiy shior / status kiritishni boshlash"""
+    query = update.callback_query
+    await query.answer()
+    context.user_data["awaiting_vip_status"] = True
+    context.user_data.pop("awaiting_vip_photo", None)
+    context.user_data.pop("awaiting_vip_audio", None)
+    context.user_data.pop("awaiting_vip_decree", None)
+
+    text = (
+        "✍️ **SHAXSIY SHIOR / STATUS YOZISH**\n\n"
+        "Profilingizda aks etuvchi shaxsiy shior yoki matnni yozib yuboring (maksimal 100 belgi).\n"
+        "Masalan: _«Qish yaqinlashmoqda, olov esa bizning qonimizda!»_\n\n"
+        "💡 _Bekor qilish uchun /cancel deb yozing._"
+    )
+    await query.message.reply_text(text, parse_mode="Markdown")
+
+
+async def vip_remove_status_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Statusni olib tashlash"""
+    query = update.callback_query
+    user_id = query.from_user.id
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_by_telegram_id(session, user_id)
+        if user:
+            await crud.update_user_custom_status(session, user.id, None)
+
+    await query.answer("🗑️ Shaxsiy shior olib tashlandi.", show_alert=True)
+    await vip_custom_menu_callback(update, context)
+
+
+async def vip_set_audio_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Fon musiqasi tanlash menyusi"""
+    query = update.callback_query
+    await query.answer()
+
+    text = (
+        "🎵 **PROFIL FON MUSIQASI VA GIMNI**\n\n"
+        "Guruhda profilingiz so'ralganda, profilingiz bilan birga o'ziga xos audio trek ham ijro etiladi!\n\n"
+        "Quyidagi mashhur Game of Thrones kuylaridan birini tanlang yoki o'zingizning shaxsiy MP3 audio faylingizni yuboring:"
+    )
+
+    buttons = []
+    for k, v in GOT_AUDIO_PRESETS.items():
+        buttons.append([InlineKeyboardButton(f"{v['desc']}", callback_data=f"vip_audio_pick:{k}")])
+
+    buttons.append([InlineKeyboardButton("📤 O'z MP3 Audio Faylingizni Yuklash", callback_data="vip_audio_upload_prompt")])
+    buttons.append([InlineKeyboardButton("🗑️ Musiqani Olib Tashlash", callback_data="vip_audio_remove")])
+    buttons.append([InlineKeyboardButton("🔙 VIP Studiyaga Qaytish", callback_data="menu_vip_custom")])
+
+    markup = InlineKeyboardMarkup(buttons)
+    await query.edit_message_text(text, reply_markup=markup, parse_mode="Markdown")
+
+
+async def vip_audio_pick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Kutubxonadan tayyor trek tanlash"""
+    query = update.callback_query
+    preset_key = query.data.split(":")[1]
+    user_id = query.from_user.id
+
+    preset = GOT_AUDIO_PRESETS.get(preset_key)
+    if not preset:
+        await query.answer("Xatolik.")
+        return
+
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_by_telegram_id(session, user_id)
+        if user:
+            await crud.update_user_custom_audio(session, user.id, None, preset["title"])
+
+    await query.answer(f"🎵 «{preset['title']}» treki profilingizga biriktirildi!", show_alert=True)
+    await vip_custom_menu_callback(update, context)
+
+
+async def vip_audio_upload_prompt_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """O'z audio faylini yuklashni so'rash"""
+    query = update.callback_query
+    await query.answer()
+    context.user_data["awaiting_vip_audio"] = True
+    context.user_data.pop("awaiting_vip_photo", None)
+    context.user_data.pop("awaiting_vip_status", None)
+    context.user_data.pop("awaiting_vip_decree", None)
+
+    text = (
+        "📤 **SHAXSIY MP3 AUDIO YUKLASH**\n\n"
+        "Hurmatli Lord! Telegram orqali istalgan musiqa faylini (audio yoki ovozli xabar) shu yerga yuboring.\n"
+        "Guruhda profilingiz chaqirilganda ushbu musiqangiz tantanali ravishda ijro etiladi!\n\n"
+        "💡 _Bekor qilish uchun /cancel deb yozing._"
+    )
+    await query.message.reply_text(text, parse_mode="Markdown")
+
+
+async def vip_audio_remove_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Musiqani o'chirish"""
+    query = update.callback_query
+    user_id = query.from_user.id
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_by_telegram_id(session, user_id)
+        if user:
+            await crud.update_user_custom_audio(session, user.id, None, None)
+
+    await query.answer("🗑️ Fon musiqasi olib tashlandi.", show_alert=True)
+    await vip_custom_menu_callback(update, context)
+
+
+async def vip_decree_prompt_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Qirollik Farmoni chiqarish oynasi (Sovereign)"""
+    query = update.callback_query
+    user_id = query.from_user.id
+
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_by_telegram_id(session, user_id)
+        if not user or user.vip_tier != "sovereign":
+            await query.answer("❌ Bu huquq faqat «👑 Temir Taxt Sohibi» imperatorlariga xosdir!", show_alert=True)
+            return
+
+        cnt = getattr(user, "royal_decree_count", 0) or 0
+        if cnt <= 0:
+            await query.answer("❌ Sizda mavjud Qirollik Farmoni chiqarish huquqlari qolmagan.", show_alert=True)
+            return
+
+    await query.answer()
+    context.user_data["awaiting_vip_decree"] = True
+    context.user_data.pop("awaiting_vip_photo", None)
+    context.user_data.pop("awaiting_vip_status", None)
+    context.user_data.pop("awaiting_vip_audio", None)
+
+    text = (
+        f"👑📜 **BUYUK VESTEROS QIROLLIK FARMONI** 📜👑\n\n"
+        f"Buyuk Hukmdor! Siz butun Vesteros xonadonlari, rasmiy kanal ({COMMUNITY_CHANNEL_URL}) "
+        f"va guruhga ({COMMUNITY_GROUP_URL}) o'z nomingizdan imperatorlik farmonini e'lon qilishingiz mumkin!\n\n"
+        f"Sizda qolgan farmonlar: **{cnt} ta**\n\n"
+        f"Farmon matnini yozib yuboring (yoki bekor qilish uchun /cancel deb yozing):"
+    )
+    await query.message.reply_text(text, parse_mode="Markdown")
+
+
+async def vip_preview_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Yaltiroq profil ko'rinishini sinovdan o'tkazish"""
+    query = update.callback_query
+    await query.answer("✨ Profil aulasi sinovdan o'tkazilmoqda...")
+    user_id = query.from_user.id
+
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_with_relations(session, user_id)
+        if not user:
+            return
+        text, photo_id, audio_id, audio_title = await format_user_profile_card(user, session, is_group=False)
+
+    if photo_id:
+        try:
+            await query.message.reply_photo(photo=photo_id, caption=text, parse_mode="Markdown")
+        except Exception:
+            await query.message.reply_text(text, parse_mode="Markdown")
+    else:
+        await query.message.reply_text(text, parse_mode="Markdown")
+
+    if audio_id:
+        try:
+            await query.message.reply_audio(
+                audio=audio_id,
+                title=audio_title or "Lord Gimni",
+                performer=user.full_name or "Westeros Lord"
+            )
+        except Exception:
+            pass
+
+
+async def vip_input_receiver(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """VIP Profil sozlamalari bo'yicha foydalanuvchi kiritmalarini qabul qilish"""
+    msg = update.effective_message
+    if not msg:
+        return
+
+    user_id = update.effective_user.id
+    u_data = context.user_data
+
+    # 1. Rasm kiritish
+    if u_data.get("awaiting_vip_photo"):
+        if msg.photo:
+            file_id = msg.photo[-1].file_id
+            async with AsyncSessionLocal() as session:
+                user = await crud.get_user_by_telegram_id(session, user_id)
+                if user:
+                    ok, res_msg = await crud.update_user_custom_photo(session, user.id, file_id)
+            u_data.pop("awaiting_vip_photo", None)
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("✨ VIP Studiyaga Qaytish", callback_data="menu_vip_custom")],
+                [InlineKeyboardButton("👤 Profilni Ko'rish", callback_data="menu_profile")],
+            ])
+            await msg.reply_text(f"🎉 **AJOYIB!**\n\n{res_msg}", reply_markup=kb, parse_mode="Markdown")
+            return
+        elif msg.text and msg.text.lower() in ["/cancel", "bekor"]:
+            u_data.pop("awaiting_vip_photo", None)
+            await msg.reply_text("❌ Rasm o'rnatish bekor qilindi.", reply_markup=back_to_main_keyboard())
+            return
+
+    # 2. Status / Shior kiritish
+    if u_data.get("awaiting_vip_status"):
+        if msg.text and not msg.text.startswith("/"):
+            async with AsyncSessionLocal() as session:
+                user = await crud.get_user_by_telegram_id(session, user_id)
+                if user:
+                    ok, res_msg = await crud.update_user_custom_status(session, user.id, msg.text)
+            u_data.pop("awaiting_vip_status", None)
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("✨ VIP Studiyaga Qaytish", callback_data="menu_vip_custom")],
+                [InlineKeyboardButton("👤 Profilni Ko'rish", callback_data="menu_profile")],
+            ])
+            await msg.reply_text(f"🎉 **STATUS SAQLANDI!**\n\n{res_msg}", reply_markup=kb, parse_mode="Markdown")
+            return
+        elif msg.text and msg.text.lower() in ["/cancel", "bekor"]:
+            u_data.pop("awaiting_vip_status", None)
+            await msg.reply_text("❌ Shior o'rnatish bekor qilindi.", reply_markup=back_to_main_keyboard())
+            return
+
+    # 3. Audio kiritish
+    if u_data.get("awaiting_vip_audio"):
+        if msg.audio or msg.voice:
+            file_id = msg.audio.file_id if msg.audio else msg.voice.file_id
+            title = (msg.audio.title or msg.audio.file_name or "Lord Shaxsiy Gimni") if msg.audio else "Lord Ovozli Gimni"
+            async with AsyncSessionLocal() as session:
+                user = await crud.get_user_by_telegram_id(session, user_id)
+                if user:
+                    ok, res_msg = await crud.update_user_custom_audio(session, user.id, file_id, title)
+            u_data.pop("awaiting_vip_audio", None)
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("✨ VIP Studiyaga Qaytish", callback_data="menu_vip_custom")],
+                [InlineKeyboardButton("👤 Profilni Ko'rish", callback_data="menu_profile")],
+            ])
+            await msg.reply_text(f"🎉 **FON MUSIQASI O'RNATILDI!**\n\n{res_msg}", reply_markup=kb, parse_mode="Markdown")
+            return
+        elif msg.text and msg.text.lower() in ["/cancel", "bekor"]:
+            u_data.pop("awaiting_vip_audio", None)
+            await msg.reply_text("❌ Musiqa yuklash bekor qilindi.", reply_markup=back_to_main_keyboard())
+            return
+
+    # 4. Qirollik Farmoni kiritish (Sovereign)
+    if u_data.get("awaiting_vip_decree"):
+        if msg.text and not msg.text.startswith("/"):
+            decree_text = msg.text.strip()
+            async with AsyncSessionLocal() as session:
+                user = await crud.get_user_by_telegram_id(session, user_id)
+                if not user or user.vip_tier != "sovereign" or (user.royal_decree_count or 0) <= 0:
+                    u_data.pop("awaiting_vip_decree", None)
+                    await msg.reply_text("❌ Qirollik farmoni chiqarish huquqingiz qolmagan.")
+                    return
+                await crud.use_royal_decree(session, user.id)
+                h_name = user.house.name if user.house else "Qirollik"
+                u_name = user.username or user.full_name or "Imperator"
+
+            u_data.pop("awaiting_vip_decree", None)
+            now_str = datetime.utcnow().strftime("%d.%m.%Y %H:%M UTC")
+
+            decree_post = (
+                f"╔══════════════════════════════╗\n"
+                f"  👑 **VESTEROS OLIY QIROLLIK FARMONI** 📜\n"
+                f"╚══════════════════════════════╝\n\n"
+                f"Temir Taxt Sohibi va Vesteros Imperatori **{escape_md(u_name)}** ({escape_md(h_name)}) ning barcha lordlar va xonadonlarga Oliy Farmoni:\n\n"
+                f"«_{escape_md(decree_text)}_»\n\n"
+                f"👑 **Imzo:** Imperator {escape_md(u_name)}\n"
+                f"🏛️ **Muhrlangan:** {now_str}\n"
+                f"📢 **Rasmiy Kanal:** {COMMUNITY_CHANNEL_URL}"
+            )
+
+            # Kanal va guruhga e'lon qilish
+            for chat_target in ["@northremembers1", "@northremember2"]:
+                try:
+                    await context.bot.send_message(
+                        chat_id=chat_target,
+                        text=decree_post,
+                        parse_mode="Markdown"
+                    )
+                except Exception as e:
+                    logger.warning(f"Farmonni {chat_target} ga yuborishda xatolik: {e}")
+
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("✨ VIP Studiyaga Qaytish", callback_data="menu_vip_custom")],
+                [InlineKeyboardButton("👤 Profilni Ko'rish", callback_data="menu_profile")],
+            ])
+            await msg.reply_text("🎉 **QIROLLIK FARMONINGIZ BUTUN WESTEROSGA E'LON QILINDI!**\n\nFarmoningiz rasmiy kanal va guruhga yuborildi.", reply_markup=kb, parse_mode="Markdown")
+            return
+        elif msg.text and msg.text.lower() in ["/cancel", "bekor"]:
+            u_data.pop("awaiting_vip_decree", None)
+            await msg.reply_text("❌ Farmon chiqarish bekor qilindi.", reply_markup=back_to_main_keyboard())
+            return
+
 
 
 async def daily_bonus_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -495,12 +1087,31 @@ async def unequip_artifact_callback(update: Update, context: ContextTypes.DEFAUL
 
 
 def register_profile_handlers(app):
-    app.add_handler(CommandHandler("profile", profile_command))
+    # Buyruqlar (Guruh va Shaxsiy)
+    app.add_handler(CommandHandler(["profile", "profil", "me"], profile_command))
     app.add_handler(CommandHandler(["mine", "iron", "kon", "tegirmon"], iron_mine_command))
     app.add_handler(CommandHandler(["buyfood", "food", "oziq"], buy_food_command))
     app.add_handler(CommandHandler(["sellfood", "don_sotish"], sell_food_command))
     app.add_handler(CommandHandler(["selliron", "temir_sotish"], sell_iron_command))
+
+    # Guruhlarda "profil" yoki "profile" deb yozilganda profilni rasm va musiqa bilan chiqarish
+    app.add_handler(MessageHandler(filters.Regex(r"^(?i)(profil|profile|\.profil|\.me|/me)$") & (filters.ChatType.GROUPS), group_profile_handler))
+
+    # Callbacklar
     app.add_handler(CallbackQueryHandler(profile_callback, pattern="^menu_profile$"))
+    app.add_handler(CallbackQueryHandler(vip_custom_menu_callback, pattern="^menu_vip_custom$"))
+    app.add_handler(CallbackQueryHandler(vip_set_photo_callback, pattern="^vip_set_photo$"))
+    app.add_handler(CallbackQueryHandler(vip_remove_photo_callback, pattern="^vip_remove_photo$"))
+    app.add_handler(CallbackQueryHandler(vip_set_status_callback, pattern="^vip_set_status$"))
+    app.add_handler(CallbackQueryHandler(vip_remove_status_callback, pattern="^vip_remove_status$"))
+    app.add_handler(CallbackQueryHandler(vip_set_audio_callback, pattern="^vip_set_audio$"))
+    app.add_handler(CallbackQueryHandler(vip_audio_pick_callback, pattern="^vip_audio_pick:"))
+    app.add_handler(CallbackQueryHandler(vip_audio_upload_prompt_callback, pattern="^vip_audio_upload_prompt$"))
+    app.add_handler(CallbackQueryHandler(vip_audio_remove_callback, pattern="^vip_audio_remove$"))
+    app.add_handler(CallbackQueryHandler(vip_decree_prompt_callback, pattern="^vip_decree_prompt$"))
+    app.add_handler(CallbackQueryHandler(vip_preview_callback, pattern="^vip_preview$"))
+
+    # Qurolxona va Kon callbacklari
     app.add_handler(CallbackQueryHandler(artifacts_menu_callback, pattern="^menu_artifacts$"))
     app.add_handler(CallbackQueryHandler(artifacts_page_callback, pattern="^menu_art_pg:"))
     app.add_handler(CallbackQueryHandler(buy_artifact_callback, pattern="^buy_art_"))
@@ -512,3 +1123,13 @@ def register_profile_handlers(app):
     app.add_handler(CallbackQueryHandler(buy_iron_callback, pattern="^buy_iron:"))
     app.add_handler(CallbackQueryHandler(buy_food_callback, pattern="^buy_food:"))
     app.add_handler(CallbackQueryHandler(sell_res_callback, pattern="^sell_res:"))
+
+    # VIP Profil sozlamalari (rasm, shior, audio, farmon) qabul qiluvchi handler
+    app.add_handler(
+        MessageHandler(
+            (filters.PHOTO | filters.AUDIO | filters.VOICE | (filters.TEXT & ~filters.COMMAND)) & filters.ChatType.PRIVATE,
+            vip_input_receiver,
+        ),
+        group=2,
+    )
+

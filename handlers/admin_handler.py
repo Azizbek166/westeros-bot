@@ -123,6 +123,7 @@ async def show_admin_dashboard(target, is_message: bool):
             [InlineKeyboardButton("🎁 Barchaga Ommaviy Sovg'a (+2000🪙)", callback_data="admin_mass_gift")],
             [InlineKeyboardButton("🔄 Barcha Kunlik Limitlarni Yangilash", callback_data="admin_reset_all_limits")],
             [InlineKeyboardButton("📢 Global E'lon (Broadcast)", callback_data="admin_broadcast_info")],
+            [InlineKeyboardButton("🏆 Haftalik TOP Reytingni Kanalga Yuborish", callback_data="admin_bcast_weekly_rankings")],
             [InlineKeyboardButton("🛡️ Adminlar Ro'yxati & Huquqlar", callback_data="admin_admins_list")],
             [InlineKeyboardButton("🔄 MAVSUMNI RESTART QILISH & 0 DAN BOSHLASH", callback_data="admin_season_menu")],
         ]
@@ -3750,7 +3751,25 @@ async def admin_donate_view_callback(update: Update, context: ContextTypes.DEFAU
         await query.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
 
 
+async def admin_bcast_weekly_rankings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin orqali haftalik reytingni kanal va guruhga darhol post qilish"""
+    query = update.callback_query
+    await query.answer("🏆 Reyting hisoblanib kanalga yuborilmoqda...")
+    user_id = query.from_user.id
+    if not is_admin(user_id):
+        await query.answer("❌ Huquqingiz yetarli emas!", show_alert=True)
+        return
+
+    from core.leaderboard_engine import broadcast_weekly_leaderboard
+    ok, msg = await broadcast_weekly_leaderboard(bot_app=context.application, force=True)
+    if ok:
+        await query.message.reply_text(f"✅ **MUVAFFAQIYATLI!**\n\n{msg}", parse_mode="Markdown")
+    else:
+        await query.message.reply_text(f"⚠️ **XATOLIK:**\n\n{msg}", parse_mode="Markdown")
+
+
 def register_admin_handlers(app):
+    app.add_handler(CallbackQueryHandler(admin_bcast_weekly_rankings_callback, pattern="^admin_bcast_weekly_rankings$"))
     app.add_handler(CallbackQueryHandler(admin_donations_list_callback, pattern="^admin_donations_list(:.*)?$"))
     app.add_handler(CallbackQueryHandler(admin_donate_view_callback, pattern="^admin_donate_view:"))
     app.add_handler(CommandHandler(["wipe_game", "reset_game", "restart_game"], wipe_game_command))

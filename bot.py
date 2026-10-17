@@ -58,6 +58,18 @@ async def hourly_economy_job(context: ContextTypes.DEFAULT_TYPE):
         await check_house_election_expiration(bot_app=context.application)
         # Failsafe: Agar 21:00-22:59 oralig'ida bot restart bo'lsa yoki o'chib qolsa, kunlik urushni o'tkazish
         await check_and_trigger_daily_war_failsafe(bot_app=context.application)
+
+        # Haftalik avtomatik TOP Reytinglarni rasmiy kanal va guruhga e'lon qilish (Har yakshanba 20:00+ UTC+5)
+        now_utc = datetime.utcnow()
+        uz_now = now_utc + timedelta(hours=5)
+        if uz_now.weekday() == 6 and uz_now.hour >= 20:
+            try:
+                from core.leaderboard_engine import broadcast_weekly_leaderboard
+                ok, b_msg = await broadcast_weekly_leaderboard(bot_app=context.application, force=False)
+                if ok:
+                    logger.info(f"📢 Haftalik reyting muvaffaqiyatli kanalga post qilindi: {b_msg}")
+            except Exception as le:
+                logger.warning(f"Haftalik reyting e'lon qilish xatosi: {le}")
     except Exception as e:
         logger.error(f"Economy / election / season tick xatosi: {e}")
 

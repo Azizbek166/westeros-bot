@@ -64,6 +64,12 @@ async def calculate_hourly_income(session: AsyncSession, user: models.User, weat
         total_gold = int(total_gold * 1.25)
         total_food = int(total_food * 1.50)
 
+    # VIP Temir Taxt Sohibi (Sovereign): Imperatorlik doimiy daromad bonusi +25%
+    if getattr(user, "vip_tier", None) == "sovereign":
+        total_gold = int(total_gold * 1.25)
+        total_food = int(total_food * 1.25)
+        total_iron = int(total_iron * 1.25)
+
     return {
         "gold": total_gold,
         "food": total_food,

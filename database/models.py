@@ -32,6 +32,15 @@ class User(Base):
     level = Column(Integer, default=1)
     xp = Column(Integer, default=0)
 
+    # VIP va Profil Sozlamalari
+    vip_tier = Column(String(50), nullable=True)            # knight, lord, dragonlord, sovereign
+    vip_until = Column(DateTime, nullable=True)
+    custom_photo_file_id = Column(String(255), nullable=True) # Profil rasmi Telegram file_id
+    custom_status = Column(String(255), nullable=True)        # Profil statusi / shiori
+    custom_audio_file_id = Column(String(255), nullable=True) # Profil saundtreki Telegram file_id
+    custom_audio_title = Column(String(255), nullable=True)   # Musiqa nomi
+    royal_decree_count = Column(Integer, default=0)          # Qirollik farmonlari soni (Sovereign uchun)
+
     # Shaxsiy resurslar
     gold = Column(BigInteger, default=250)
     food = Column(BigInteger, default=500)

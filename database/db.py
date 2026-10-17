@@ -126,6 +126,13 @@ async def init_db():
                 "ALTER TABLE tournaments ADD COLUMN bracket_json TEXT DEFAULT '{}'",
                 "ALTER TABLE tournament_participants ADD COLUMN tactic VARCHAR(30) DEFAULT 'rock'",
                 "ALTER TABLE tournament_participants ADD COLUMN tactics_seq VARCHAR(100) DEFAULT 'rock,scissors,paper'",
+                "ALTER TABLE users ADD COLUMN vip_tier VARCHAR(50)",
+                "ALTER TABLE users ADD COLUMN vip_until DATETIME",
+                "ALTER TABLE users ADD COLUMN custom_photo_file_id VARCHAR(255)",
+                "ALTER TABLE users ADD COLUMN custom_status VARCHAR(255)",
+                "ALTER TABLE users ADD COLUMN custom_audio_file_id VARCHAR(255)",
+                "ALTER TABLE users ADD COLUMN custom_audio_title VARCHAR(255)",
+                "ALTER TABLE users ADD COLUMN royal_decree_count INTEGER DEFAULT 0",
             ]:
                 try:
                     await conn.execute(text(alter_stmt))
@@ -166,6 +173,13 @@ async def init_db():
                 "ALTER TABLE battle_marches ADD COLUMN IF NOT EXISTS siege_towers INTEGER DEFAULT 0",
                 "ALTER TABLE armies ADD COLUMN IF NOT EXISTS champion VARCHAR(50)",
                 "ALTER TABLE battle_marches ADD COLUMN IF NOT EXISTS champion VARCHAR(50)",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS vip_tier VARCHAR(50)",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS vip_until TIMESTAMP",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_photo_file_id VARCHAR(255)",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_status VARCHAR(255)",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_audio_file_id VARCHAR(255)",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_audio_title VARCHAR(255)",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS royal_decree_count INTEGER DEFAULT 0",
             ]:
                 try:
                     await conn.execute(text(pg_alter))

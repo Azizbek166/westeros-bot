@@ -7127,8 +7127,101 @@ async def apply_donate_rewards(session: AsyncSession, telegram_id: int, tier_id:
             top_dragon.hunger = 100
             applied_details["dragon_boost"] = f"{top_dragon.name} quvvati +{dragon_data['power']:,} ga oshirildi!"
 
+    # 7. VIP Darajasini biriktirish
+    vip_ranks = {"knight": 1, "lord": 2, "dragonlord": 3, "sovereign": 4}
+    curr_rank = vip_ranks.get(user.vip_tier, 0)
+    new_rank = vip_ranks.get(tier_id, 0)
+    if new_rank >= curr_rank:
+        user.vip_tier = tier_id
+    applied_details["vip_tier"] = user.vip_tier
+
+    if tier_id == "sovereign":
+        user.royal_decree_count = (user.royal_decree_count or 0) + 1
+        applied_details["royal_decree_count"] = user.royal_decree_count
+
     await session.commit()
     return True, "Mukofotlar muvaffaqiyatli taqdim etildi!", applied_details
+
+
+# ============================================================
+# VIP PROFIL SOZLAMALARI (CUSTOM PHOTO, STATUS, AUDIO, DECREE)
+# ============================================================
+
+async def update_user_custom_photo(session: AsyncSession, user_id: int, file_id: Optional[str]) -> Tuple[bool, str]:
+    """Lord profil rasmini o'rnatish yoki olib tashlash (Lord, Valyriya, Sovereign uchun)"""
+    user = await session.get(models.User, user_id)
+    if not user:
+        return False, "O'yinchi topilmadi."
+
+    allowed = ["lord", "dragonlord", "sovereign"]
+    if user.vip_tier not in allowed:
+        return False, "❌ Profilga fotosurat qo'yish uchun kamida «🏰 Lordlar Xazinasi» VIP to'plami talab qilinadi."
+
+    user.custom_photo_file_id = file_id
+    await session.commit()
+    if file_id:
+        return True, "✅ Profil fotosuratingiz muvaffaqiyatli o'rnatildi! Endi profilingiz guruh va botda ushbu rasm bilan ko'rinadi."
+    else:
+        return True, "🗑️ Profil fotosurati olib tashlandi."
+
+
+async def update_user_custom_status(session: AsyncSession, user_id: int, status_text: Optional[str]) -> Tuple[bool, str]:
+    """Profil shiori / statusini o'rnatish (Valyriya va Sovereign uchun)"""
+    user = await session.get(models.User, user_id)
+    if not user:
+        return False, "O'yinchi topilmadi."
+
+    allowed = ["dragonlord", "sovereign"]
+    if user.vip_tier not in allowed:
+        return False, "❌ Shaxsiy status/shior qo'yish uchun kamida «🐉 Valyriya Merosi» VIP to'plami talab qilinadi."
+
+    if status_text:
+        clean_text = status_text.strip()[:100]
+        user.custom_status = clean_text
+    else:
+        user.custom_status = None
+
+    await session.commit()
+    if user.custom_status:
+        return True, f"✅ Shaxsiy shioringiz o'rnatildi: «{user.custom_status}»"
+    else:
+        return True, "🗑️ Shaxsiy shior olib tashlandi."
+
+
+async def update_user_custom_audio(session: AsyncSession, user_id: int, file_id: Optional[str], audio_title: Optional[str] = None) -> Tuple[bool, str]:
+    """Profil fon musiqasi / gimnini o'rnatish (Valyriya va Sovereign uchun)"""
+    user = await session.get(models.User, user_id)
+    if not user:
+        return False, "O'yinchi topilmadi."
+
+    allowed = ["dragonlord", "sovereign"]
+    if user.vip_tier not in allowed:
+        return False, "❌ Shaxsiy musiqa biriktirish uchun kamida «🐉 Valyriya Merosi» VIP to'plami talab qilinadi."
+
+    user.custom_audio_file_id = file_id
+    user.custom_audio_title = (audio_title or "Lord Gimni")[:100] if file_id else None
+    await session.commit()
+    if file_id:
+        return True, f"✅ Profil fon musiqasi saqlandi: 🎶 «{user.custom_audio_title}»"
+    else:
+        return True, "🗑️ Profil musiqasi olib tashlandi."
+
+
+async def use_royal_decree(session: AsyncSession, user_id: int) -> Tuple[bool, str]:
+    """Qirollik Farmoni (King's Decree) chiqarish imkoniyatidan foydalanish"""
+    user = await session.get(models.User, user_id)
+    if not user:
+        return False, "O'yinchi topilmadi."
+
+    if user.vip_tier != "sovereign":
+        return False, "❌ Qirollik farmoni chiqarish huquqi faqat «👑 Temir Taxt Sohibi» imperatorlariga xosdir."
+
+    if (user.royal_decree_count or 0) <= 0:
+        return False, "❌ Sizda mavjud Qirollik Farmoni chiqarish huquqlari qolmagan."
+
+    user.royal_decree_count -= 1
+    await session.commit()
+    return True, "Farmon qabul qilindi."
 
 
 async def create_donation_request(
