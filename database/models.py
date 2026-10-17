@@ -202,7 +202,7 @@ class Territory(Base):
     castle_name = Column(String(100), nullable=False)
 
     owner_house_id = Column(Integer, ForeignKey("houses.id"), nullable=True)
-    conquered_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    conquered_by_user_id = Column(Integer, nullable=True, index=True)
     population = Column(Integer, default=50000)
 
     # Soatlik daromadlar
@@ -545,14 +545,13 @@ class HallOfFame(Base):
     season_number = Column(Integer, nullable=False)
     winner_house_id = Column(Integer, ForeignKey("houses.id"), nullable=True)
     winner_house_name = Column(String(100), nullable=False)
-    king_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    king_user_id = Column(Integer, nullable=True, index=True)
     king_name = Column(String(100), nullable=True)
     top_warrior_name = Column(String(100), nullable=True)
     top_warrior_prestige = Column(Integer, default=0)
     concluded_at = Column(DateTime, default=datetime.utcnow)
 
     winner_house = relationship("House", foreign_keys=[winner_house_id])
-    king = relationship("User", foreign_keys=[king_user_id])
 
 
 # ============================================================
@@ -601,14 +600,13 @@ class Tournament(Base):
     name = Column(String(100), default="Qirol Qo'li Turniri")
     status = Column(String(30), default="active", index=True)  # active, completed
     prize_pool = Column(BigInteger, default=2500)
-    winner_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    winner_user_id = Column(Integer, nullable=True, index=True)
     winner_name = Column(String(100), nullable=True)
     details = Column(Text, default="")
     bracket_json = Column(Text, default="{}")
     created_at = Column(DateTime, default=datetime.utcnow)
     concluded_at = Column(DateTime, nullable=True)
 
-    winner = relationship("User", foreign_keys=[winner_user_id])
     participants = relationship("TournamentParticipant", back_populates="tournament", cascade="all, delete-orphan")
     bets = relationship("TournamentBet", back_populates="tournament", cascade="all, delete-orphan")
 
@@ -688,7 +686,7 @@ class DonationRequest(Base):
     __tablename__ = "donation_requests"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    user_id = Column(Integer, nullable=True, index=True)
     telegram_id = Column(BigInteger, nullable=False, index=True)
     user_full_name = Column(String(150), default="")
     user_username = Column(String(100), default="")
@@ -702,8 +700,6 @@ class DonationRequest(Base):
     admin_notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     reviewed_at = Column(DateTime, nullable=True)
-
-    user = relationship("User")
 
 
 

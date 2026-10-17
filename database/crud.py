@@ -3995,9 +3995,34 @@ async def reset_entire_game(session: AsyncSession) -> None:
         h.iron = h_info.get("starting_iron", 2000)
         h.prestige = h_info.get("prestige", 100)
 
+    # 3. Foydalanuvchilar bilan bog'langan doimiy jadvallar tashqi kalitlarini tozalash
+    await session.execute(update(models.Territory).values(conquered_by_user_id=None, last_tax_collected_at=None, gates_compromised_until=None, reinforcements_json=None, wildfire_count=0, castle_level=1))
+    await session.execute(update(models.House).values(lord_user_id=None, lord_elected_at=None))
+    await session.execute(update(models.HallOfFame).values(king_user_id=None))
+    await session.execute(update(models.Tournament).values(winner_user_id=None))
+    await session.execute(update(models.DonationRequest).values(user_id=None))
+
+    # PostgreSQL uchun eskirgan cheklovlarni (FK constraints) xavfsiz olib tashlash
+    try:
+        bind = session.bind
+        if bind and "sqlite" not in getattr(bind.dialect, "name", "").lower():
+            for drop_sql in [
+                "ALTER TABLE donation_requests DROP CONSTRAINT IF EXISTS donation_requests_user_id_fkey;",
+                "ALTER TABLE donation_requests ALTER COLUMN user_id DROP NOT NULL;",
+                "ALTER TABLE hall_of_fame DROP CONSTRAINT IF EXISTS hall_of_fame_king_user_id_fkey;",
+                "ALTER TABLE territories DROP CONSTRAINT IF EXISTS territories_conquered_by_user_id_fkey;",
+                "ALTER TABLE tournaments DROP CONSTRAINT IF EXISTS tournaments_winner_user_id_fkey;",
+            ]:
+                try:
+                    await session.execute(text(drop_sql))
+                except Exception:
+                    pass
+    except Exception as e:
+        logger.warning(f"FK constraint drop check in reset_entire_game: {e}")
+
     await session.flush()
 
-    # 3. Bog'langan barcha jadvallarni ketma-ket (child -> parent tartibida) tozalash
+    # 4. Bog'langan barcha jadvallarni ketma-ket (child -> parent tartibida) tozalash
     table_models = [
         models.TournamentBet,
         models.TournamentParticipant,
@@ -4029,6 +4054,16 @@ async def reset_entire_game(session: AsyncSession) -> None:
             await session.execute(delete(tm))
         except Exception as te:
             logger.warning(f"reset_entire_game delete warning on {tm.__tablename__}: {te}")
+
+    # Boshlang'ich faol turnirni qayta tiklash
+    new_tourney = models.Tournament(
+        name="Qirol Qo'li Turniri #1",
+        status="active",
+        prize_pool=6250,
+        details="Qirollikning eng qudratli ritsarlari jangi! G'olibga 70% xazina va 'Qirollik Chempioni' sharafli unvoni beriladi.",
+        created_at=datetime.utcnow()
+    )
+    session.add(new_tourney)
 
     await session.commit()
 
@@ -5458,9 +5493,11 @@ async def admin_restart_current_season(session: AsyncSession, bot_app=None) -> T
     await reset_entire_game(session)
 
     # 2. Mavsum muddatini qayta yangilash
-    season.start_date = now
-    season.end_date = now + timedelta(days=30)
-    season.is_active = True
+    await session.execute(
+        update(models.SeasonState)
+        .where(models.SeasonState.season_number == current_season_num)
+        .values(start_date=now, end_date=now + timedelta(days=30), is_active=True)
+    )
     await session.commit()
 
     announcement = (

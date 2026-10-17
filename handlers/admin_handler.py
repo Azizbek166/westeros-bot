@@ -3162,7 +3162,19 @@ async def admin_season_restart_current_do_callback(update: Update, context: Cont
             await query.edit_message_text(text, parse_mode=None, reply_markup=InlineKeyboardMarkup(buttons))
     except Exception as e:
         logger.error(f"admin_season_restart_current_do_callback xatosi: {e}", exc_info=True)
-        await query.answer(f"Xatolik: {e}", show_alert=True)
+        buttons_err = [[InlineKeyboardButton("🔙 Admin Panel", callback_data="admin_panel")]]
+        err_text = f"❌ *Mavsumni qayta boshlashda xatolik yuz berdi:*\n`{str(e)}`"
+        try:
+            await query.edit_message_text(err_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons_err))
+        except Exception:
+            try:
+                await query.edit_message_text(f"❌ Mavsumni qayta boshlashda xatolik yuz berdi:\n{str(e)}", parse_mode=None, reply_markup=InlineKeyboardMarkup(buttons_err))
+            except Exception:
+                pass
+        try:
+            await query.answer(f"Xatolik: {e}", show_alert=True)
+        except Exception:
+            pass
 
 
 async def end_season_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3237,20 +3249,29 @@ async def admin_wipe_confirm_callback(update: Update, context: ContextTypes.DEFA
         return
 
     await query.answer("⏳ Baza tozalanmoqda...", show_alert=False)
-    async with AsyncSessionLocal() as session:
-        await crud.reset_entire_game(session)
+    try:
+        async with AsyncSessionLocal() as session:
+            await crud.reset_entire_game(session)
 
-    text = (
-        "✅ **BUTUN O'YIN MUVAFFAQIYATLI TOZALANDI!**\n\n"
-        "• Barcha o'yinchilar va ularning ma'lumotlari bazadan to'liq o'chirildi.\n"
-        "• Barcha xonadonlar va 40 ta qal'a boshlang'ich holatiga qaytarildi.\n"
-        "• O'yin to'liq 0 dan boshlandi!\n\n"
-        "Endi /start buyrug'ini bosing va yangi saltanatingizni quring!"
-    )
-    buttons = [
-        [InlineKeyboardButton("👑 /start orqali Yangidan Boshlash", callback_data="menu_main")],
-    ]
-    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        text = (
+            "✅ **BUTUN O'YIN MUVAFFAQIYATLI TOZALANDI!**\n\n"
+            "• Barcha o'yinchilar va ularning ma'lumotlari bazadan to'liq o'chirildi.\n"
+            "• Barcha xonadonlar va 60 ta qal'a boshlang'ich holatiga qaytarildi.\n"
+            "• O'yin to'liq 0 dan boshlandi!\n\n"
+            "Endi /start buyrug'ini bosing va yangi saltanatingizni quring!"
+        )
+        buttons = [
+            [InlineKeyboardButton("👑 /start orqali Yangidan Boshlash", callback_data="menu_main")],
+            [InlineKeyboardButton("⚙️ Admin Panel", callback_data="admin_panel")],
+        ]
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+    except Exception as e:
+        logger.error(f"admin_wipe_confirm_callback xatosi: {e}", exc_info=True)
+        buttons_err = [[InlineKeyboardButton("🔙 Admin Panel", callback_data="admin_panel")]]
+        try:
+            await query.edit_message_text(f"❌ *O'yinni tozalashda xatolik yuz berdi:*\n`{str(e)}`", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons_err))
+        except Exception:
+            pass
 
 
 async def wipe_game_command(update: Update, context: ContextTypes.DEFAULT_TYPE):

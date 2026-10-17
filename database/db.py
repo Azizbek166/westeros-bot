@@ -141,6 +141,11 @@ async def init_db():
         else:
             # PostgreSQL (Render)
             for pg_alter in [
+                "ALTER TABLE donation_requests DROP CONSTRAINT IF EXISTS donation_requests_user_id_fkey",
+                "ALTER TABLE donation_requests ALTER COLUMN user_id DROP NOT NULL",
+                "ALTER TABLE hall_of_fame DROP CONSTRAINT IF EXISTS hall_of_fame_king_user_id_fkey",
+                "ALTER TABLE territories DROP CONSTRAINT IF EXISTS territories_conquered_by_user_id_fkey",
+                "ALTER TABLE tournaments DROP CONSTRAINT IF EXISTS tournaments_winner_user_id_fkey",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_duel_count INTEGER DEFAULT 0",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_recruit_count INTEGER DEFAULT 0",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_caravan_send_count INTEGER DEFAULT 0",
