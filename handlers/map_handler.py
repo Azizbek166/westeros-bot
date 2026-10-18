@@ -141,14 +141,14 @@ async def view_territory_callback(update: Update, context: ContextTypes.DEFAULT_
                     buttons.append([InlineKeyboardButton(f"🚫 {st_dragons[0].get('dragon_name')}ni Qal'adan Qaytarish", callback_data=f"def_recall_dragon:{terr.id}:{st_dragons[0].get('dragon_id')}")])
                 buttons.append([InlineKeyboardButton("🐉 Ajdarni Mudofaaga Joylashtirish", callback_data=f"def_station_dragon:{terr.id}")])
                 if c_lvl < 5:
-                    c_cost_g = c_lvl * 3000
-                    c_cost_i = c_lvl * 2500
+                    c_cost_g = c_lvl * 1000
+                    c_cost_i = c_lvl * 750
                     buttons.append([InlineKeyboardButton(f"🏰 Qal'ani Kengaytirish (Tier {c_lvl+1}: {c_cost_g:,}🪙/{c_cost_i:,}⛓️)", callback_data=f"upgrade_castle:{terr.id}")])
                 defense_val = terr.defense or 0
                 if defense_val >= MAX_WALL_DEFENSE:
                     buttons.append([InlineKeyboardButton(f"🛡️ Devor Maksimal ({defense_val:,}/{MAX_WALL_DEFENSE:,})", callback_data=f"max_walls_alert:{terr.id}")])
                 else:
-                    buttons.append([InlineKeyboardButton(f"🛡️ Devorni Kuchaytirish (+150: {defense_val:,}/{MAX_WALL_DEFENSE:,})", callback_data=f"upgrade_walls:{terr.id}")])
+                    buttons.append([InlineKeyboardButton(f"🛡️ Devorni Kuchaytirish (+200: {defense_val:,}/{MAX_WALL_DEFENSE:,})", callback_data=f"upgrade_walls:{terr.id}")])
                 buttons.append([InlineKeyboardButton("💰 Qal'a Boshqaruvi & O'lpon", callback_data=f"my_c_detail:{terr.id}")])
             elif is_ally:
                 buttons.append([InlineKeyboardButton(f"🤝 Qal'a Mudofaasiga Yordam Yuborish{alliance_type_str}", callback_data=f"def_rf_menu:{terr.id}")])
@@ -560,18 +560,18 @@ async def show_my_castle_detail(query, user_id: int, terr_id: int):
         buttons.append([InlineKeyboardButton("🐉 Ajdarni Qal'aga Joylashtirish", callback_data=f"def_station_dragon:{terr.id}")])
 
         if c_lvl < 5:
-            c_cost_g = c_lvl * 3000
-            c_cost_i = c_lvl * 2500
+            c_cost_g = c_lvl * 1000
+            c_cost_i = c_lvl * 750
             buttons.append([InlineKeyboardButton(f"🏰 Qal'ani Kengaytirish (Tier {c_lvl+1}: {c_cost_g:,}🪙/{c_cost_i:,}⛓️)", callback_data=f"upgrade_castle:{terr.id}")])
 
         if defense_val >= MAX_WALL_DEFENSE:
             buttons.append([InlineKeyboardButton(f"🛡️ Devor Mudofaasi Maksimal ({defense_val:,}/{MAX_WALL_DEFENSE:,})", callback_data=f"max_walls_alert:{terr.id}")])
         else:
-            buttons.append([InlineKeyboardButton("🛡️ Devorni Kuchaytirish (-1,500🪙, -2,000⛓️)", callback_data=f"upgrade_walls:{terr.id}")])
+            buttons.append([InlineKeyboardButton("🛡️ Devorni Kuchaytirish (-400🪙, -500⛓️)", callback_data=f"upgrade_walls:{terr.id}")])
         curr_wf = getattr(terr, 'wildfire_count', 0) or 0
         if is_lord:
             if curr_wf < 5:
-                buttons.append([InlineKeyboardButton(f"💚 Yovvoyi Olov O'rnatish ({curr_wf}/5: 1.5k🪙, 800⛓️)", callback_data=f"buy_wildfire:{terr.id}")])
+                buttons.append([InlineKeyboardButton(f"💚 Yovvoyi Olov O'rnatish ({curr_wf}/5: 450🪙, 250⛓️)", callback_data=f"buy_wildfire:{terr.id}")])
             else:
                 buttons.append([InlineKeyboardButton("💚 Yovvoyi Olov Zaxirasi To'liq (5/5)", callback_data="wf_max_alert")])
 
@@ -688,17 +688,17 @@ async def upgrade_walls_callback(update: Update, context: ContextTypes.DEFAULT_T
             await query.answer(f"❌ Qal'a devorlari maksimal mudofaa darajasiga ({MAX_WALL_DEFENSE:,} ball) yetgan! Undan ortiq kuchaytirib bo'lmaydi.", show_alert=True)
             return
 
-        if user.gold < 1500 or user.iron < 2000:
-            await query.answer("❌ Devorni kuchaytirish uchun 1,500 oltin va 2,000 temir kerak!", show_alert=True)
+        if user.gold < 400 or user.iron < 500:
+            await query.answer("❌ Devorni kuchaytirish uchun 400 oltin va 500 temir kerak!", show_alert=True)
             return
 
-        user.gold -= 1500
-        user.iron -= 2000
-        terr.defense = min(MAX_WALL_DEFENSE, defense_val + 150)
+        user.gold -= 400
+        user.iron -= 500
+        terr.defense = min(MAX_WALL_DEFENSE, defense_val + 200)
         user.prestige = (user.prestige or 0) + 50
         await session.commit()
 
-    await query.answer("🏰 Qal'a devorlari mustahkamlandi! (+150 Mudofaa, +50 Prestige)", show_alert=True)
+    await query.answer("🏰 Qal'a devorlari mustahkamlandi! (+200 Mudofaa, +50 Prestige)", show_alert=True)
     await show_my_castle_detail(query, user_id, terr_id)
 
 

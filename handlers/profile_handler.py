@@ -948,14 +948,14 @@ async def show_iron_mine_menu(target, user_id: int, is_message: bool = False):
         mine_lvl = user.iron_mine_level or 1
         curr_prod = mine_lvl * 50
         next_prod = (mine_lvl + 1) * 50
-        gold_cost = mine_lvl * 1500
-        food_cost = mine_lvl * 800
+        gold_cost = mine_lvl * 400
+        food_cost = mine_lvl * 250
 
         mill_lvl = getattr(user, "grain_mill_level", 1) or 1
         mill_prod = mill_lvl * 75
         mill_next_prod = (mill_lvl + 1) * 75
-        mill_gold_cost = mill_lvl * 1200
-        mill_iron_cost = mill_lvl * 600
+        mill_gold_cost = mill_lvl * 350
+        mill_iron_cost = mill_lvl * 200
 
         text = (
             f"⛏️ **TEMIR KONI VA DON TEGIRMONI**\n"

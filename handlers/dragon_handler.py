@@ -130,7 +130,7 @@ async def show_dragon_hub(target, user_id: int, is_message: bool):
                 buttons.append([InlineKeyboardButton(f"↩️ {dragon.name}ni Qal'adan Uyaga Qaytarish", callback_data=f"dragon_recall_home:{deploy_st['territory_id']}:{dragon.id}")])
 
             if dragon.stage == "egg":
-                buttons.append([InlineKeyboardButton(f"✨ {dragon.name} Tuxumini Ochirish (2,500🌾 1,500⛓️ 1,000🪙)", callback_data=f"dragon_hatch_{dragon.id}")])
+                buttons.append([InlineKeyboardButton(f"✨ {dragon.name} Tuxumini Ochirish (1,500🌾 1,000⛓️ 600🪙)", callback_data=f"dragon_hatch_{dragon.id}")])
             else:
                 costs = crud.get_dragon_upgrade_cost(dragon)
                 feed_cost = 250 + (dragon.level * 40)
@@ -414,9 +414,9 @@ async def dragon_buy_more_callback(update: Update, context: ContextTypes.DEFAULT
             return
 
         buttons = []
-        prices = {"A": "3,000🪙 1,500⛓️", "B": "2,000🪙 1,000⛓️", "C": "1,200🪙 600⛓️"}
+        prices = {"A": "2,000🪙 1,000⛓️", "B": "1,400🪙 700⛓️", "C": "800🪙 400⛓️"}
         for name, grade, desc in DRAGON_PRESETS:
-            p = prices.get(grade, "2,000🪙 1,000⛓️")
+            p = prices.get(grade, "1,400🪙 700⛓️")
             buttons.append([InlineKeyboardButton(f"🥚 {name} ({grade} Toifa — {p})", callback_data=f"dragon_claim:{name}:{grade}")])
         buttons.append([InlineKeyboardButton("🔙 Ajdarlar Markaziga Qaytish", callback_data="menu_dragons")])
 

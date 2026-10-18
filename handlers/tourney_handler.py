@@ -200,7 +200,7 @@ async def tourney_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
         buttons = []
         if not user_is_entered:
-            buttons.append([InlineKeyboardButton("🤺 Turnirga kirish (2,000💰)", callback_data="tourney_enter_pick")])
+            buttons.append([InlineKeyboardButton("🤺 Turnirga kirish (500💰)", callback_data="tourney_enter_pick")])
         else:
             buttons.append([InlineKeyboardButton("⚙️ Taktikani Sozlash", callback_data="tourney_tactic_pick")])
 
@@ -275,7 +275,7 @@ async def tourney_enter_pick_callback(update: Update, context: ContextTypes.DEFA
 
         text = (
             "🤺 **TURNIR MAYDONIGA KIM CHIQADI?**\n\n"
-            "Kirish to'lovi: **2,000** Oltin (turnir jamg'armasiga qo'shiladi).\n\n"
+            "Kirish to'lovi: **500** Oltin (turnir jamg'armasiga qo'shiladi).\n\n"
             "• *O'zingiz:* Nufuzingiz va tajribangiz asosida quvvat beriladi (120-200⚡).\n"
             "• *Bosh Sarkarda:* Jon Snow, Jaime Lannister kabi afsonaviy chempionlar eng yuqori quvvat (210-240⚡) bilan jang qiladi!"
         )

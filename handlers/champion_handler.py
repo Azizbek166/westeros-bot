@@ -58,7 +58,7 @@ async def show_champions_menu(target, user_id: int):
             ])
             if not is_active:
                 buttons.append([
-                    InlineKeyboardButton(f"   ↳ 🎖️ Tayinlash (10k🪙, 200🎖️)", callback_data=f"champ_rec:{cid}")
+                    InlineKeyboardButton(f"   ↳ 🎖️ Tayinlash (3k🪙, 80🎖️)", callback_data=f"champ_rec:{cid}")
                 ])
             else:
                 buttons.append([

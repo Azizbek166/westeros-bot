@@ -2111,11 +2111,11 @@ async def claim_dragon_egg(session: AsyncSession, user_id: int, name: str, grade
         return False, "Sizda allaqachon maksimal 3 ta ajdar mavjud!", None
 
     costs = {
-        "A": {"gold": 3000, "iron": 1500},
-        "B": {"gold": 2000, "iron": 1000},
-        "C": {"gold": 1200, "iron": 600},
+        "A": {"gold": 2000, "iron": 1000},
+        "B": {"gold": 1400, "iron": 700},
+        "C": {"gold": 800, "iron": 400},
     }
-    cost = costs.get(grade, {"gold": 2000, "iron": 1000})
+    cost = costs.get(grade, {"gold": 1400, "iron": 700})
     if user.gold < cost["gold"] or user.iron < cost["iron"]:
         return False, f"Ajdar tuxumini xarid qilish uchun {cost['gold']:,}🪙 oltin va {cost['iron']:,}⛓️ temir kerak!\nSizda: {user.gold:,}🪙 oltin, {user.iron:,}⛓️ temir bor.", None
 
@@ -2150,17 +2150,17 @@ async def hatch_dragon(session: AsyncSession, user_id: int, dragon_id: Optional[
     if dragon.stage != "egg":
         return False, "Ushbu ajdar allaqachon tuxumdan chiqqan!"
 
-    if user.food < 2500 or user.iron < 1500 or user.gold < 1000:
+    if user.food < 1500 or user.iron < 1000 or user.gold < 600:
         return False, (
             f"Tuxumni isitib ochirish marosimi uchun quyidagi resurslar kerak:\n"
-            f"• 🌾 Oziq-ovqat: 2,500 (sizda: {user.food:,})\n"
-            f"• ⛓️ Temir: 1,500 (sizda: {user.iron:,})\n"
-            f"• 🪙 Oltin: 1,000 (sizda: {user.gold:,})"
+            f"• 🌾 Oziq-ovqat: 1,500 (sizda: {user.food:,})\n"
+            f"• ⛓️ Temir: 1,000 (sizda: {user.iron:,})\n"
+            f"• 🪙 Oltin: 600 (sizda: {user.gold:,})"
         )
 
-    user.food -= 2500
-    user.iron -= 1500
-    user.gold -= 1000
+    user.food -= 1500
+    user.iron -= 1000
+    user.gold -= 600
     dragon.stage = "baby"
     dragon.power += 80
     user.prestige += 37
@@ -2199,12 +2199,12 @@ async def feed_dragon(session: AsyncSession, user_id: int, dragon_id: Optional[i
 
 
 def get_dragon_upgrade_cost(dragon: models.Dragon) -> Dict[str, int]:
-    """Ajdar darajasini ko'tarish uchun kerakli resurslar (qimmat va qiyin balans)"""
+    """Ajdar darajasini ko'tarish uchun kerakli resurslar (qiyin va afsonaviy balans)"""
     lvl = dragon.level
     return {
-        "food": 500 + (lvl * 450),
-        "iron": 300 + (lvl * 350),
-        "gold": 200 + (lvl * 300),
+        "food": 300 + (lvl * 250),
+        "iron": 180 + (lvl * 180),
+        "gold": 120 + (lvl * 150),
         "min_hunger": 30,
     }
 
@@ -2277,17 +2277,17 @@ async def dragon_lay_egg(session: AsyncSession, user_id: int, dragon_id: int) ->
     if dragon.has_laid_egg:
         return False, "❌ Ushbu ajdar allaqachon nasl qoldirgan."
 
-    if user.gold < 3000 or user.food < 4000 or user.iron < 2000:
+    if user.gold < 1500 or user.food < 2000 or user.iron < 1000:
         return False, (
             f"Tuxumni parvarishlash va nasl qoldirish marosimi uchun quyidagi resurslar kerak:\n"
-            f"• 🪙 Oltin: 3,000 (sizda: {user.gold:,})\n"
-            f"• 🌾 Oziq: 4,000 (sizda: {user.food:,})\n"
-            f"• ⛓️ Temir: 2,000 (sizda: {user.iron:,})"
+            f"• 🪙 Oltin: 1,500 (sizda: {user.gold:,})\n"
+            f"• 🌾 Oziq: 2,000 (sizda: {user.food:,})\n"
+            f"• ⛓️ Temir: 1,000 (sizda: {user.iron:,})"
         )
 
-    user.gold -= 3000
-    user.food -= 4000
-    user.iron -= 2000
+    user.gold -= 1500
+    user.food -= 2000
+    user.iron -= 1000
     dragon.has_laid_egg = True
 
     new_name = f"{dragon.name} Nasli"
@@ -3810,8 +3810,8 @@ async def upgrade_iron_mine(session: AsyncSession, user_id: int) -> Tuple[bool, 
         return False, "❌ Temir koningiz maksimal 10-darajaga yetgan! Tog'ning eng chuqur qatlamlarigacha qazilgan."
 
     next_lvl = current_lvl + 1
-    gold_cost = current_lvl * 1500
-    food_cost = current_lvl * 800
+    gold_cost = current_lvl * 400
+    food_cost = current_lvl * 250
 
     if user.gold < gold_cost or user.food < food_cost:
         return False, f"❌ Konni kuchaytirish uchun {gold_cost:,}🪙 oltin va {food_cost:,}🌾 oziq-ovqat kerak! (Sizda: {user.gold:,}🪙 / {user.food:,}🌾)"
@@ -3905,8 +3905,8 @@ async def upgrade_grain_mill(session: AsyncSession, user_id: int) -> Tuple[bool,
         return False, "❌ Don tegirmoni maksimal 10-darajaga yetgan! Butun vodiy donlari sizning tegirmoningizda yanchilmoqda."
 
     next_lvl = current_lvl + 1
-    gold_cost = current_lvl * 1200
-    iron_cost = current_lvl * 600
+    gold_cost = current_lvl * 350
+    iron_cost = current_lvl * 200
 
     if (user.gold or 0) < gold_cost or (user.iron or 0) < iron_cost:
         return False, f"❌ Tegirmonni kuchaytirish uchun {gold_cost:,}🪙 oltin va {iron_cost:,}⛓️ temir kerak! (Sizda: {user.gold:,}🪙 / {user.iron:,}⛓️)"
@@ -3939,8 +3939,8 @@ async def upgrade_castle_keep(session: AsyncSession, user_id: int, territory_id:
         return False, "❌ Qal'a maksimal 5-darajaga (Afsonaviy Istehkom) yetgan!"
 
     next_lvl = current_lvl + 1
-    gold_cost = current_lvl * 3000
-    iron_cost = current_lvl * 2500
+    gold_cost = current_lvl * 1000
+    iron_cost = current_lvl * 750
 
     if (user.gold or 0) < gold_cost or (user.iron or 0) < iron_cost:
         return False, f"❌ Qal'ani {next_lvl}-bosqichga ko'tarish uchun {gold_cost:,}🪙 oltin va {iron_cost:,}⛓️ temir kerak! (Sizda: {user.gold:,}🪙 / {user.iron:,}⛓️)"
@@ -4719,8 +4719,8 @@ async def buy_wildfire_defense(session: AsyncSession, user_id: int, territory_id
     if curr_wf + amount > 5:
         return False, f"❌ Ushbu qal'ada maksimal 5 ta Yovvoyi Olov saqlanishi mumkin! Hozirda: {curr_wf}/5 ta."
 
-    cost_gold = 1500 * amount
-    cost_iron = 800 * amount
+    cost_gold = 450 * amount
+    cost_iron = 250 * amount
 
     if user.gold < cost_gold or user.iron < cost_iron:
         return False, f"❌ Yovvoyi Olov tayyorlash uchun {cost_gold:,}🪙 Oltin va {cost_iron:,}⛓️ Temir kerak!"
@@ -5681,8 +5681,8 @@ async def recruit_champion(session: AsyncSession, user_id: int, champion_id: str
     if army.champion == champion_id:
         return False, f"❌ {champ['name']} allaqachon armiyangiz bosh qo'mondoni!"
 
-    cost_gold = champ.get("cost_gold", 10000)
-    cost_prestige = champ.get("cost_prestige", 200)
+    cost_gold = champ.get("cost_gold", 3000)
+    cost_prestige = champ.get("cost_prestige", 80)
 
     if (user.gold or 0) < cost_gold:
         return False, f"❌ Qahramonni yollash uchun {cost_gold:,}🪙 Oltin kerak! (Sizda: {user.gold:,}🪙)"
@@ -6045,7 +6045,7 @@ async def enter_tournament(
     if part_res.scalar_one_or_none():
         return False, "❌ Siz allaqachon ushbu turnirga qatnashgansiz!"
 
-    fee = 2000
+    fee = 500
     if user.gold < fee:
         return False, f"❌ Turnirga kirish to'lovi uchun {fee:,}💰 Oltin kerak! (Sizda: {user.gold:,}💰)"
 

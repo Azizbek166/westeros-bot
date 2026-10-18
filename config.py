@@ -166,13 +166,21 @@ DONATE_TIERS = {
         "shield_hours": 0,
         "prestige": 150,
         "wildfire": 0,
-        "dragon": None,
+        "dragon": {
+            "name": "Arrax",
+            "grade": "C",
+            "stage": "baby",
+            "level": 3,
+            "power": 350,
+            "hunger": 100,
+        },
         "title": "Jasur Ritsar",
         "description": (
             "• 🪙 Oltin: +10,000\n"
             "• 🌾 Oziq-ovqat: +30,000\n"
             "• ⛓️ Temir: +15,000\n"
             "• 🛡️ Armiya: +500 Piyoda, +300 Kamonchi, +100 Otliq, +100 Nayzador\n"
+            "• 🐉 Jangovar Ajdaho: «Arrax» (3-daraja, 350 quvvat!)\n"
             "• 👑 Faxriy unvon: «Jasur Ritsar»\n"
             "• ⭐ Prestige: +150 shon-sharaf"
         ),

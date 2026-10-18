@@ -74,9 +74,9 @@ async def spy_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"💰 Hamyoningiz: **{user.gold:,}** Oltin\n"
             f"🎖️ Nufuzingiz: **{user.prestige:,}** ball\n\n"
             "🎯 **Mavjud Operatsiyalar va Kunlik Limitlar:**\n"
-            f"1. 🕵️ **Razvedka (1,000💰):** Qal'a garnizoni, devor balandligi, wildfire va ajdarlarni aniqlash. (85% omad) | Limit: **{scout_cnt}/2**\n"
-            f"2. 🔥 **Sabotaj (3,000💰):** Yashil olov bochkalarini yoqish yoki devorlarni yemirib ketish. (65% omad) | Limit: **{sabotage_cnt}/2**\n"
-            f"3. 🚪 **Darvozalarni ochish (5,000💰):** Qal'a temir darvozalarini ichkaridan ochib qo'yish (-30% devor mudofaasi, 2 soat). (55% omad) | Limit: **{gates_cnt}/2**\n\n"
+            f"1. 🕵️ **Razvedka (100💰):** Qal'a garnizoni, devor balandligi, wildfire va ajdarlarni aniqlash. (85% omad) | Limit: **{scout_cnt}/2**\n"
+            f"2. 🔥 **Sabotaj (400💰):** Yashil olov bochkalarini yoqish yoki devorlarni yemirib ketish. (65% omad) | Limit: **{sabotage_cnt}/2**\n"
+            f"3. 🚪 **Darvozalarni ochish (800💰):** Qal'a temir darvozalarini ichkaridan ochib qo'yish (-30% devor mudofaasi, 2 soat). (55% omad) | Limit: **{gates_cnt}/2**\n\n"
             "⚠️ *Eslatma: Har bir operatsiya uchun kuniga ko'pi bilan 2 martadan limit berilgan. Josus qo'lga olinsa, qatl etiladi, oltin va nufuz boy beriladi!*"
             f"{rep_text}"
         )
