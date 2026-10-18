@@ -1,4 +1,4 @@
-from typing import Optional, Dict
+from typing import Optional, Dict, List, Any
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from data.houses_data import HOUSES_DATA
 from data.map_data import REGIONS_DATA, TERRITORIES_DATA
@@ -168,8 +168,82 @@ def quests_menu_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
-def territories_keyboard() -> InlineKeyboardMarkup:
-    """Westeros hududlarini ko'rish klaviaturasi"""
+CUSTOM_HOUSE_EMOJI_PAGES = [
+    # 1-sahifa: Maxluqlar, Yirtqichlar va Ajdarlar (24 ta)
+    [
+        "🐺", "🦁", "🐉", "🦌",
+        "🦅", "🐙", "🐻", "🐗",
+        "🦇", "🐍", "🦂", "🕷️",
+        "🐊", "🦈", "🐎", "🐂",
+        "🐏", "🦊", "🦉", "🦚",
+        "🦖", "🦕", "🦄", "🐆",
+    ],
+    # 2-sahifa: Qurollar, Zirhlar va Jang san'ati (24 ta)
+    [
+        "⚔️", "🗡️", "🛡️", "🏹",
+        "🔱", "🪓", "🔨", "⛏️",
+        "⚡", "🔥", "❄️", "🌪️",
+        "🌊", "☄️", "💀", "☠️",
+        "🩸", "🏰", "🏯", "🗼",
+        "👑", "💎", "⚜️", "⚓",
+    ],
+    # 3-sahifa: Tabiat, Fazoviy va Sehrli ramzlar (24 ta)
+    [
+        "☀️", "🌙", "⭐", "🪐",
+        "🌲", "🌳", "🌴", "🍁",
+        "🌹", "🥀", "🌺", "🌻",
+        "🌾", "🍄", "🔮", "🧿",
+        "🪬", "🕯️", "🎭", "🎪",
+        "🕊️", "🪶", "📜", "🪙",
+    ],
+]
+
+
+def custom_house_regions_keyboard() -> InlineKeyboardMarkup:
+    """Yangi xonadon uchun mintaqa tanlash klaviaturasi"""
+    buttons = []
+    row = []
+    for reg_name, reg_info in REGIONS_DATA.items():
+        emoji = reg_info.get("emoji", "📍")
+        row.append(InlineKeyboardButton(f"{emoji} {reg_name}", callback_data=f"reg_house_reg:{reg_name}"))
+        if len(row) == 2:
+            buttons.append(row)
+            row = []
+    if row:
+        buttons.append(row)
+    return InlineKeyboardMarkup(buttons)
+
+
+def custom_house_emojis_keyboard(page: int = 1) -> InlineKeyboardMarkup:
+    """Yangi xonadon gerbi/ramzini tanlash klaviaturasi (72+ ta ramz, 3 ta sahifa)"""
+    total_pages = len(CUSTOM_HOUSE_EMOJI_PAGES)
+    page_idx = max(0, min(page - 1, total_pages - 1))
+    emojis = CUSTOM_HOUSE_EMOJI_PAGES[page_idx]
+
+    buttons = []
+    row = []
+    for em in emojis:
+        row.append(InlineKeyboardButton(em, callback_data=f"reg_house_emoji:{em}"))
+        if len(row) == 4:
+            buttons.append(row)
+            row = []
+    if row:
+        buttons.append(row)
+
+    # Sahifalash (Pagination) tugmalari
+    nav_row = []
+    if page_idx > 0:
+        nav_row.append(InlineKeyboardButton("⬅️ Oldingi", callback_data=f"reg_emoji_page:{page_idx}"))
+    nav_row.append(InlineKeyboardButton(f"📄 {page_idx + 1}/{total_pages}", callback_data="noop"))
+    if page_idx < total_pages - 1:
+        nav_row.append(InlineKeyboardButton("Keyingi ➡️", callback_data=f"reg_emoji_page:{page_idx + 2}"))
+    buttons.append(nav_row)
+
+    return InlineKeyboardMarkup(buttons)
+
+
+def territories_keyboard(custom_territories: Optional[List[Any]] = None) -> InlineKeyboardMarkup:
+    """Westeros hududlarini ko'rish klaviaturasi (yangi sulolalar qal'alari bilan)"""
     buttons = []
     row = []
     for t_code, t_info in TERRITORIES_DATA.items():
@@ -179,5 +253,18 @@ def territories_keyboard() -> InlineKeyboardMarkup:
             row = []
     if row:
         buttons.append(row)
+
+    if custom_territories:
+        buttons.append([InlineKeyboardButton("🚩 YANGI SULOLALAR QAL'ALARI 🚩", callback_data="noop")])
+        c_row = []
+        for ct in custom_territories:
+            c_name = getattr(ct, "castle_name", None) or getattr(ct, "name", "Qal'a")
+            c_row.append(InlineKeyboardButton(f"🏰 {c_name}", callback_data=f"view_terr:{ct.id}"))
+            if len(c_row) == 2:
+                buttons.append(c_row)
+                c_row = []
+        if c_row:
+            buttons.append(c_row)
+
     buttons.append([InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")])
     return InlineKeyboardMarkup(buttons)

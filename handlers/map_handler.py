@@ -34,19 +34,30 @@ async def show_map(target, user_id: int, is_message: bool):
     map_img_path = os.path.join("assets", "westeros_map.jpg")
     has_photo = os.path.exists(map_img_path)
 
+    custom_territories = []
+    try:
+        async with AsyncSessionLocal() as session:
+            c_res = await session.execute(
+                select(models.Territory).where(models.Territory.id > 60).order_by(models.Territory.id)
+            )
+            custom_territories = list(c_res.scalars().all())
+    except Exception:
+        pass
+    kb = territories_keyboard(custom_territories=custom_territories)
+
     if is_message:
         if has_photo:
             with open(map_img_path, "rb") as f:
-                await target.message.reply_photo(photo=f, caption=text, parse_mode="Markdown", reply_markup=territories_keyboard())
+                await target.message.reply_photo(photo=f, caption=text, parse_mode="Markdown", reply_markup=kb)
         else:
-            await target.message.reply_text(text, parse_mode="Markdown", reply_markup=territories_keyboard())
+            await target.message.reply_text(text, parse_mode="Markdown", reply_markup=kb)
     else:
         chat_id = target.message.chat_id
         bot = target.get_bot() if hasattr(target, "get_bot") else target.message.get_bot()
         if has_photo:
             if getattr(target.message, "photo", None):
                 try:
-                    await target.edit_message_caption(caption=text, parse_mode="Markdown", reply_markup=territories_keyboard())
+                    await target.edit_message_caption(caption=text, parse_mode="Markdown", reply_markup=kb)
                     return
                 except Exception:
                     pass
@@ -56,19 +67,19 @@ async def show_map(target, user_id: int, is_message: bool):
                 pass
             try:
                 with open(map_img_path, "rb") as f:
-                    await bot.send_photo(chat_id=chat_id, photo=f, caption=text, parse_mode="Markdown", reply_markup=territories_keyboard())
+                    await bot.send_photo(chat_id=chat_id, photo=f, caption=text, parse_mode="Markdown", reply_markup=kb)
                 return
             except Exception:
                 pass
 
         try:
-            await target.edit_message_text(text, parse_mode="Markdown", reply_markup=territories_keyboard())
+            await target.edit_message_text(text, parse_mode="Markdown", reply_markup=kb)
         except Exception:
             try:
-                await bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown", reply_markup=territories_keyboard())
+                await bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown", reply_markup=kb)
             except Exception:
                 clean_text = text.replace("*", "").replace("_", "")
-                await bot.send_message(chat_id=chat_id, text=clean_text, reply_markup=territories_keyboard())
+                await bot.send_message(chat_id=chat_id, text=clean_text, reply_markup=kb)
 
 
 async def view_territory_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):

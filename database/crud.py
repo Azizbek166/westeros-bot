@@ -357,6 +357,189 @@ async def join_house(
     return user
 
 
+async def create_custom_house_user_and_territory(
+    session: AsyncSession,
+    telegram_id: int,
+    username: Optional[str],
+    full_name: str,
+    house_name: str,
+    region: str,
+    emoji: str,
+    castle_name: str,
+    hero_name: str,
+) -> Tuple[models.User, models.House, models.Territory]:
+    """50 ta xonadon to'lgach yangi xonadon, hudud (qal'a) va o'yinchini ro'yxatdan o'tkazish"""
+    clean_hero = hero_name.strip()
+    clean_house = house_name.strip()
+    clean_castle = castle_name.strip()
+
+    # Check unique character name
+    existing_user = await get_user_by_telegram_id(session, telegram_id)
+    exclude_id = existing_user.id if existing_user else None
+    if await is_character_name_taken(session, clean_hero, exclude_user_id=exclude_id):
+        raise ValueError(f"'{clean_hero}' nomi allaqachon band qilingan!")
+
+    # Check unique house name
+    existing_h = await session.execute(
+        select(models.House).where(func.lower(models.House.name) == clean_house.lower())
+    )
+    if existing_h.scalar_one_or_none():
+        raise ValueError(f"'{clean_house}' nomli xonadon allaqachon mavjud!")
+
+    # Determine next House.id (historical houses are 1-50, custom houses start > 50)
+    max_h_id_res = await session.execute(select(func.coalesce(func.max(models.House.id), 50)))
+    next_h_id = (max_h_id_res.scalar() or 50) + 1
+    h_code = f"custom_{telegram_id}_{next_h_id}"
+
+    # Create House
+    new_house = models.House(
+        id=next_h_id,
+        code=h_code,
+        name=clean_house,
+        emoji=emoji or "🏰",
+        region=region,
+        description=f"{full_name} tomonidan asos solingan shonli xonadon.",
+        lord_user_id=telegram_id,
+        lord_elected_at=datetime.utcnow(),
+        gold=5000,
+        food=10000,
+        iron=2000,
+        prestige=100,
+        defense_bonus=1.0,
+        special_troop_name=f"{clean_house} Gvardiyasi",
+        is_npc=False,
+    )
+    session.add(new_house)
+    await session.flush()
+
+    # Determine next Territory.id (historical territories are 1-60, custom start > 60)
+    max_t_id_res = await session.execute(select(func.coalesce(func.max(models.Territory.id), 60)))
+    next_t_id = (max_t_id_res.scalar() or 60) + 1
+    t_code = f"terr_{telegram_id}_{next_t_id}"
+
+    # Create Territory (exactly 1 custom castle)
+    new_territory = models.Territory(
+        id=next_t_id,
+        code=t_code,
+        name=clean_castle,
+        region=region,
+        castle_name=clean_castle,
+        owner_house_id=new_house.id,
+        population=50000,
+        gold_income=100,
+        food_income=250,
+        iron_income=75,
+        defense=500,
+        garrison_infantry=200,
+        garrison_archers=100,
+        garrison_cavalry=50,
+        garrison_spearmen=50,
+        is_capital=True,
+        castle_level=1,
+        wildfire_count=0,
+        last_tax_collected_at=datetime.utcnow(),
+    )
+    session.add(new_territory)
+    await session.flush()
+
+    shield_expiry = datetime.utcnow() + timedelta(hours=PEACE_SHIELD_HOURS)
+    today_str = datetime.utcnow().strftime("%Y-%m-%d")
+
+    if existing_user:
+        user = existing_user
+        user.house_id = new_house.id
+        user.rank = "king"
+        if username:
+            user.username = username
+        if full_name:
+            user.full_name = full_name
+        if not user.peace_shield_until or user.peace_shield_until < datetime.utcnow():
+            user.peace_shield_until = shield_expiry
+    else:
+        user = models.User(
+            telegram_id=telegram_id,
+            username=username,
+            full_name=full_name,
+            house_id=new_house.id,
+            rank="king",
+            level=1,
+            xp=0,
+            gold=STARTING_GOLD,
+            food=STARTING_FOOD,
+            iron=STARTING_IRON,
+            prestige=10,
+            peace_shield_until=shield_expiry,
+            daily_quiz_count=0,
+            daily_council_count=0,
+            daily_secret_quest_count=0,
+            daily_limit_date=today_str,
+        )
+        session.add(user)
+        await session.flush()
+
+    # Link territory conquered_by_user_id
+    new_territory.conquered_by_user_id = user.id
+
+    # Army
+    army_res = await session.execute(
+        select(models.Army).where(models.Army.user_id == user.id)
+    )
+    army = army_res.scalar_one_or_none()
+    if not army:
+        army = models.Army(
+            user_id=user.id,
+            infantry=STARTING_INFANTRY,
+            archers=STARTING_ARCHERS,
+            cavalry=STARTING_CAVALRY,
+            spearmen=STARTING_SPEARMEN,
+            special_troops=0,
+        )
+        session.add(army)
+
+    # Hero / Character
+    hero_res = await session.execute(
+        select(models.Character).where(models.Character.user_id == user.id)
+    )
+    hero = hero_res.scalar_one_or_none()
+    if not hero:
+        hero = models.Character(
+            user_id=user.id,
+            house_id=new_house.id,
+            name=clean_hero,
+            level=1,
+            attack=50,
+            defense=50,
+            leadership=50,
+            special_ability="Jasorat",
+            loyalty=100,
+            is_alive=True,
+        )
+        session.add(hero)
+    else:
+        hero.name = clean_hero
+        hero.house_id = new_house.id
+
+    # HouseMember
+    hm_res = await session.execute(
+        select(models.HouseMember).where(models.HouseMember.user_id == user.id)
+    )
+    hm = hm_res.scalar_one_or_none()
+    if hm:
+        hm.house_id = new_house.id
+        hm.rank = "king"
+    else:
+        hm = models.HouseMember(
+            house_id=new_house.id,
+            user_id=user.id,
+            rank="king",
+        )
+        session.add(hm)
+
+    await session.commit()
+    await session.refresh(user, ["house", "army", "characters"])
+    return user, new_house, new_territory
+
+
 async def get_user_characters(session: AsyncSession, user_id: int) -> List[models.Character]:
     """Foydalanuvchining barcha tirik qahramonlarini olish"""
     res = await session.execute(
@@ -433,18 +616,16 @@ async def get_all_houses_member_counts(session: AsyncSession) -> Dict[int, int]:
 
 
 async def get_random_available_house(session: AsyncSession) -> Optional[models.House]:
-    """Bo'sh (0 nafar a'zoli) o'ynaladigan (non-NPC) xonadonlardan birini tasodifiy tanlash (har bir xonadonga faqat 1 kishi)"""
+    """Bo'sh (0 nafar a'zoli) o'ynaladigan (non-NPC) 50 ta tarixiy xonadondan birini tasodifiy tanlash"""
     houses_res = await session.execute(
         select(models.House).where(
+            models.House.id <= 50,
             or_(models.House.is_npc.is_(False), models.House.is_npc.is_(None))
         )
     )
     all_houses = houses_res.scalars().all()
     if not all_houses:
-        houses_res = await session.execute(select(models.House))
-        all_houses = houses_res.scalars().all()
-        if not all_houses:
-            return None
+        return None
 
     member_counts = await get_all_houses_member_counts(session)
     available_houses = [h for h in all_houses if member_counts.get(h.id, 0) < 1]
@@ -2579,6 +2760,8 @@ async def get_npc_house_for_liberation(session: AsyncSession, territory: models.
 
 def is_ancestral_capital_of_house(terr: models.Territory, house_id: int) -> bool:
     """Territory berilgan xonadonning asl poytaxt qal'asi ekanligini aniqlash"""
+    if terr.id and terr.id > 60:
+        return bool(terr.is_capital and terr.owner_house_id == house_id)
     from data.map_data import TERRITORIES_DATA
     t_info = TERRITORIES_DATA.get(terr.code, {})
     return bool(
@@ -4015,7 +4198,7 @@ async def reset_entire_game(session: AsyncSession) -> None:
     all_terrs = terrs_res.scalars().all()
     for t in all_terrs:
         t_info = TERRITORIES_DATA.get(t.code, {})
-        t.owner_house_id = t_info.get("initial_owner_id")
+        t.owner_house_id = t_info.get("initial_owner_id", t.owner_house_id)
         t.garrison_infantry = t_info.get("garrison_infantry", 200)
         t.garrison_archers = t_info.get("garrison_archers", 100)
         t.garrison_cavalry = t_info.get("garrison_cavalry", 50)
