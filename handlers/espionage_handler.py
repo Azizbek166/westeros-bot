@@ -211,9 +211,9 @@ async def spy_terr_detail_callback(update: Update, context: ContextTypes.DEFAULT
         )
 
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton(f"🕵️ Razvedka {scout_tag} — 1,000💰", callback_data=f"spy_do:scout:{terr.id}")],
-            [InlineKeyboardButton(f"🔥 Sabotaj {sabotage_tag} — 3,000💰", callback_data=f"spy_do:sabotage:{terr.id}")],
-            [InlineKeyboardButton(f"🚪 Darvozalarni ochish {gates_tag} — 5,000💰", callback_data=f"spy_do:open_gates:{terr.id}")],
+            [InlineKeyboardButton(f"🕵️ Razvedka {scout_tag} — 100💰", callback_data=f"spy_do:scout:{terr.id}")],
+            [InlineKeyboardButton(f"🔥 Sabotaj {sabotage_tag} — 400💰", callback_data=f"spy_do:sabotage:{terr.id}")],
+            [InlineKeyboardButton(f"🚪 Darvozalarni ochish {gates_tag} — 800💰", callback_data=f"spy_do:open_gates:{terr.id}")],
             [InlineKeyboardButton("🔙 Qal'alar ro'yxati", callback_data="spy_pick_page:0")],
         ])
         await _safe_edit_or_reply(query, update, text, reply_markup=keyboard)

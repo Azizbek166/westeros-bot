@@ -79,8 +79,9 @@ async def format_user_profile_card(user: models.User, session, is_group: bool = 
     net_food = income["food"] - int(upkeep)
     net_food_str = f"+{net_food}" if net_food >= 0 else f"{net_food}"
 
-    raw_name = hero.name if hero else (user.username or user.full_name or "Lord")
+    raw_name = hero.name if hero else (user.full_name or "Lord")
     user_display_name = escape_md(raw_name)
+    username_str = f" (@{escape_md(user.username)})" if user.username else ""
 
     # Ajdaho
     dragons = await crud.get_user_dragons(session, user.id)
@@ -101,7 +102,7 @@ async def format_user_profile_card(user: models.User, session, is_group: bool = 
             f"👑════════════════════════════👑\n"
             f"   ⚔️  **TEMIR TAXT HUKMDORI**  ⚔️\n"
             f"👑════════════════════════════👑\n\n"
-            f"⚡ Buyuk Imperator: **{user_display_name}** | {house_str}\n"
+            f"⚡ Buyuk Imperator: **{user_display_name}**{username_str} | {house_str}\n"
             f"{status_line}"
             f"👑 Oliy Titul: «**{escape_md(user.title or 'Vesteros Himoyachisi')}**»\n"
             f"{audio_line}"
@@ -127,7 +128,7 @@ async def format_user_profile_card(user: models.User, session, is_group: bool = 
             f"⚜️════════════════════════════⚜️\n"
             f"   🐉  **VALYRIYA OLOVLI MEROSI**  🐉\n"
             f"⚜️════════════════════════════⚜️\n\n"
-            f"🔥 Lord: **{user_display_name}** | {house_str}\n"
+            f"🔥 Lord: **{user_display_name}**{username_str} | {house_str}\n"
             f"{status_line}"
             f"🎖️ Sharafli Unvon: «**{escape_md(user.title or 'Ajdaho Hukmdori')}**»\n"
             f"{audio_line}"
@@ -147,7 +148,7 @@ async def format_user_profile_card(user: models.User, session, is_group: bool = 
             f"✨════════════════════════════✨\n"
             f"   🏰  **LORDLAR XAZINASI SOVUTI**  🏰\n"
             f"✨════════════════════════════✨\n\n"
-            f"🌟 Lord: **{user_display_name}** | {house_str}\n"
+            f"🌟 Lord: **{user_display_name}**{username_str} | {house_str}\n"
             f"🎖️ Sharafli Unvon: «**{escape_md(user.title or 'Saxiy Lord')}**»\n"
             f"🎖️ {user.rank.title()} | ⭐ Lv.{lvl}/30 ({lvl_title}) | 🏆 {user.prestige:,} Prestige\n"
             f"📈 `[{prog_bar}]` {user.xp:,}/{next_req:,} XP ({int(progress)}%)\n"
@@ -164,7 +165,7 @@ async def format_user_profile_card(user: models.User, session, is_group: bool = 
         title_badge = f"🎖️ Sharafli Unvon: **{escape_md(user.title)}**\n" if getattr(user, "title", None) else ""
         text = (
             f"👤 **LORD PROFILI**\n\n"
-            f"👑 **{user_display_name}** | {house_str}\n"
+            f"👑 **{user_display_name}**{username_str} | {house_str}\n"
             f"{title_badge}"
             f"🎖️ {user.rank.title()} | ⭐ Lv.{lvl}/30 ({lvl_title}) | 🏆 {user.prestige:,} Prestige\n"
             f"📈 `[{prog_bar}]` {user.xp:,}/{next_req:,} XP ({int(progress)}%)\n"
@@ -217,6 +218,10 @@ async def group_profile_handler(update: Update, context: ContextTypes.DEFAULT_TY
             )
             return
 
+        if target_tg.username and user.username != target_tg.username:
+            user.username = target_tg.username
+            await session.commit()
+
         text, photo_id, audio_id, audio_title = await format_user_profile_card(user, session, is_group=True)
 
     # Guruhda chiqariladigan profil ostiga bitta toza tugma:
@@ -258,6 +263,10 @@ async def group_show_my_profile_callback(update: Update, context: ContextTypes.D
             await query.answer("❌ Siz hali Westerosda ro'yxatdan o'tmagansiz!", show_alert=True)
             return
 
+        if clicker_tg.username and user.username != clicker_tg.username:
+            user.username = clicker_tg.username
+            await session.commit()
+
         text, photo_id, audio_id, audio_title = await format_user_profile_card(user, session, is_group=True)
 
     kb = InlineKeyboardMarkup([
@@ -287,6 +296,7 @@ async def profile_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """menu_profile callback"""
     query = update.callback_query
     await query.answer()
+    context.user_data.pop("awaiting_char_name_change", None)
     user_id = query.from_user.id
     await show_profile(query, user_id, is_message=False)
 
@@ -310,6 +320,7 @@ async def show_profile(target, user_id: int, is_message: bool):
     if getattr(user, "vip_tier", None) in ["lord", "dragonlord", "sovereign"]:
         buttons.append([InlineKeyboardButton("✨ VIP Profil Studiyasi", callback_data="menu_vip_custom")])
 
+    buttons.append([InlineKeyboardButton("✏️ Ismni O'zgartirish", callback_data="profile_change_name")])
     buttons.append([InlineKeyboardButton("⛏️ Kon & 🌾 Tegirmon", callback_data="menu_iron_mine")])
     buttons.append([InlineKeyboardButton("🗡️ Afsonaviy Artefaktlar (Armory)", callback_data="menu_artifacts")])
     buttons.append([InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")])
@@ -606,14 +617,109 @@ async def vip_preview_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             pass
 
 
+async def profile_change_name_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Qahramon ismini o'zgartirish oynasi"""
+    query = update.callback_query
+    await query.answer()
+    context.user_data["awaiting_char_name_change"] = True
+    context.user_data.pop("awaiting_vip_photo", None)
+    context.user_data.pop("awaiting_vip_status", None)
+    context.user_data.pop("awaiting_vip_audio", None)
+    context.user_data.pop("awaiting_vip_decree", None)
+
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔙 Bekor qilish", callback_data="menu_profile")]
+    ])
+    text = (
+        "✏️ **QAHRAMON ISMINGIZNI O'ZGARTIRISH**\n\n"
+        "O'zingiz yoki qahramoningiz uchun yangi ism kiriting (2 tadan 30 tagacha belgi):\n"
+        "Masalan: `Aegon Targaryen`, `Jon Snow`, `Daenerys`\n\n"
+        "💡 _Bekor qilish uchun quyidagi tugmani bosing yoki /cancel deb yozing._"
+    )
+    await query.message.reply_text(text, parse_mode="Markdown", reply_markup=kb)
+
+
+async def change_name_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/rename yoki /ism buyrug'i"""
+    user_id = update.effective_user.id
+    if not context.args or len(context.args) == 0:
+        context.user_data["awaiting_char_name_change"] = True
+        context.user_data.pop("awaiting_vip_photo", None)
+        context.user_data.pop("awaiting_vip_status", None)
+        context.user_data.pop("awaiting_vip_audio", None)
+        context.user_data.pop("awaiting_vip_decree", None)
+
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔙 Bekor qilish", callback_data="menu_profile")]
+        ])
+        await update.message.reply_text(
+            "✏️ **QAHRAMON ISMINGIZNI O'ZGARTIRISH**\n\n"
+            "O'zingiz yoki qahramoningiz uchun yangi ism kiriting (2 tadan 30 tagacha belgi):\n"
+            "Masalan: `Aegon Targaryen`, `Jon Snow`, `Daenerys`\n\n"
+            "💡 _Yoki to'g'ridan-to'g'ri: `/rename Yangi Ism`_",
+            parse_mode="Markdown",
+            reply_markup=kb
+        )
+        return
+
+    new_name = " ".join(context.args).strip()
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_by_telegram_id(session, user_id)
+        if not user:
+            return
+        ok, res_msg = await crud.change_character_name(session, user.id, new_name)
+
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("👤 Profilni Ko'rish", callback_data="menu_profile")]
+    ])
+    if ok:
+        await update.message.reply_text(
+            f"🎉 **Qahramon ismingiz muvaffaqiyatli «{escape_md(res_msg)}» ga o'zgartirildi!**",
+            reply_markup=kb,
+            parse_mode="Markdown"
+        )
+    else:
+        await update.message.reply_text(res_msg, reply_markup=kb, parse_mode="Markdown")
+
+
 async def vip_input_receiver(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """VIP Profil sozlamalari bo'yicha foydalanuvchi kiritmalarini qabul qilish"""
+    """VIP Profil sozlamalari va ism o'zgartirish bo'yicha foydalanuvchi kiritmalarini qabul qilish"""
     msg = update.effective_message
     if not msg:
         return
 
     user_id = update.effective_user.id
     u_data = context.user_data
+
+    # 0. Qahramon ismini o'zgartirish
+    if u_data.get("awaiting_char_name_change"):
+        if msg.text and msg.text.lower() in ["/cancel", "bekor"]:
+            u_data.pop("awaiting_char_name_change", None)
+            await msg.reply_text("❌ Ismni o'zgartirish bekor qilindi.", reply_markup=back_to_main_keyboard())
+            return
+        elif msg.text and not msg.text.startswith("/"):
+            new_name = msg.text.strip()
+            async with AsyncSessionLocal() as session:
+                user = await crud.get_user_by_telegram_id(session, user_id)
+                if not user:
+                    u_data.pop("awaiting_char_name_change", None)
+                    return
+                ok, res_msg = await crud.change_character_name(session, user.id, new_name)
+
+            if ok:
+                u_data.pop("awaiting_char_name_change", None)
+                kb = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("👤 Profilni Ko'rish", callback_data="menu_profile")],
+                    [InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")]
+                ])
+                await msg.reply_text(
+                    f"🎉 **QAHRAMON ISMI MUVOFAQIYATLI O'ZGARTIRILDI!**\n\nYangi ismingiz: **{escape_md(res_msg)}**",
+                    reply_markup=kb,
+                    parse_mode="Markdown"
+                )
+            else:
+                await msg.reply_text(f"{res_msg}\n\nIltimos, boshqa ism yuboring yoki /cancel deb yozing.")
+            return
 
     # 1. Rasm kiritish
     if u_data.get("awaiting_vip_photo"):
@@ -1153,6 +1259,7 @@ async def unequip_artifact_callback(update: Update, context: ContextTypes.DEFAUL
 def register_profile_handlers(app):
     # Buyruqlar (Guruh va Shaxsiy)
     app.add_handler(CommandHandler(["profile", "profil", "me"], profile_command))
+    app.add_handler(CommandHandler(["rename", "ism", "changename"], change_name_command))
     app.add_handler(CommandHandler(["mine", "iron", "kon", "tegirmon"], iron_mine_command))
     app.add_handler(CommandHandler(["buyfood", "food", "oziq"], buy_food_command))
     app.add_handler(CommandHandler(["sellfood", "don_sotish"], sell_food_command))
@@ -1160,6 +1267,7 @@ def register_profile_handlers(app):
 
     # Callbacklar
     app.add_handler(CallbackQueryHandler(profile_callback, pattern="^menu_profile$"))
+    app.add_handler(CallbackQueryHandler(profile_change_name_callback, pattern="^profile_change_name$"))
     app.add_handler(CallbackQueryHandler(group_show_my_profile_callback, pattern="^group_show_my_profile$"))
     app.add_handler(CallbackQueryHandler(vip_custom_menu_callback, pattern="^menu_vip_custom$"))
     app.add_handler(CallbackQueryHandler(vip_set_photo_callback, pattern="^vip_set_photo$"))

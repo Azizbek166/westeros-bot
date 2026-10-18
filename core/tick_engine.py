@@ -232,32 +232,49 @@ async def process_due_marches(bot_app=None):
                         att_house.iron += int(tot_iron * 0.3)
                         att_house.prestige += 6
 
-                    # Himoyachi Lordiga boy berish xabari (faqat qal'a haqiqatda egallangan bo'lsa)
-                    if can_annex and bot_app and def_lord_id and old_owner_house_id != attacker.house_id:
+                    # Himoyachi o'yinchilarni (qal'a egasi, lord, a'zolar) aniqlash
+                    defender_notify_ids = set()
+                    if getattr(territory, "conquered_by_user_id", None):
+                        c_usr = await session.get(models.User, territory.conquered_by_user_id)
+                        if c_usr and c_usr.telegram_id and c_usr.telegram_id != attacker.telegram_id:
+                            defender_notify_ids.add(c_usr.telegram_id)
+                    if def_lord_id and def_lord_id != attacker.telegram_id:
+                        defender_notify_ids.add(def_lord_id)
+                    if old_owner_house_id and old_owner_house_id != attacker.house_id:
+                        h_res = await session.execute(
+                            select(models.User.telegram_id).where(models.User.house_id == old_owner_house_id)
+                        )
+                        for (h_tid,) in h_res.all():
+                            if h_tid and h_tid != attacker.telegram_id:
+                                defender_notify_ids.add(h_tid)
+
+                    # Himoyachilarga boy berish xabari (faqat qal'a haqiqatda egallangan bo'lsa)
+                    if can_annex and bot_app and defender_notify_ids:
                         def_lose_text = (
                             f"🚨 **QAL'A BOY BERILDI!**\n\n"
                             f"🏰 **{territory.name} ({territory.castle_name})** qal'asi **{att_house_name}** armiyasi tomonidan qamal qilinib, egallab olindi!\n\n"
                             f"{battle_res['details']}\n\n"
-                            f"Qal'ani qaytarib olish uchun xonadon a'zolaringiz bilan qarshi hujum uyushtiring!"
+                            f"Qal'ani qaytarib olish uchun xonadoningiz bilan qarshi hujum uyushtiring!"
                         )
                         bot = getattr(bot_app, "bot", bot_app)
-                        try:
-                            send_lose = def_lose_text
-                            if len(send_lose) > 3800:
-                                send_lose = send_lose[:3750] + "\n\n*(Batafsil /battle bo'limida...)*"
-                            await bot.send_message(
-                                chat_id=def_lord_id,
-                                text=send_lose,
-                                parse_mode="Markdown",
-                            )
-                        except Exception as e_md:
+                        for d_tid in defender_notify_ids:
                             try:
-                                clean_def = def_lose_text.replace("**", "").replace("*", "").replace("`", "")
-                                if len(clean_def) > 3800:
-                                    clean_def = clean_def[:3750] + "\n\n(Batafsil /battle bo'limida...)"
-                                await bot.send_message(chat_id=def_lord_id, text=clean_def, parse_mode=None)
-                            except Exception as e:
-                                logger.warning(f"Himoyachiga xabar yuborishda xatolik: {e}")
+                                send_lose = def_lose_text
+                                if len(send_lose) > 3800:
+                                    send_lose = send_lose[:3750] + "\n\n*(Batafsil /battle bo'limida...)*"
+                                await bot.send_message(
+                                    chat_id=d_tid,
+                                    text=send_lose,
+                                    parse_mode="Markdown",
+                                )
+                            except Exception as e_md:
+                                try:
+                                    clean_def = def_lose_text.replace("**", "").replace("*", "").replace("`", "")
+                                    if len(clean_def) > 3800:
+                                        clean_def = clean_def[:3750] + "\n\n(Batafsil /battle bo'limida...)"
+                                    await bot.send_message(chat_id=d_tid, text=clean_def, parse_mode=None)
+                                except Exception as e:
+                                    logger.warning(f"Himoyachiga xabar yuborishda xatolik: {e}")
 
                     # Xonadon guruhlariga ham hisobot yuborish
                     if bot_app:
@@ -295,30 +312,47 @@ async def process_due_marches(bot_app=None):
                             asyncio.create_task(notify_house_group(bot_app, attacker.house_id, grp_win_text, parse_mode="HTML"))
                 else:
                     # Himoyachi g'alaba qozondi
-                    if bot_app and def_lord_id and old_owner_house_id != attacker.house_id:
+                    # Himoyachi o'yinchilarni aniqlash
+                    defender_notify_ids = set()
+                    if getattr(territory, "conquered_by_user_id", None):
+                        c_usr = await session.get(models.User, territory.conquered_by_user_id)
+                        if c_usr and c_usr.telegram_id and c_usr.telegram_id != attacker.telegram_id:
+                            defender_notify_ids.add(c_usr.telegram_id)
+                    if def_lord_id and def_lord_id != attacker.telegram_id:
+                        defender_notify_ids.add(def_lord_id)
+                    if old_owner_house_id and old_owner_house_id != attacker.house_id:
+                        h_res = await session.execute(
+                            select(models.User.telegram_id).where(models.User.house_id == old_owner_house_id)
+                        )
+                        for (h_tid,) in h_res.all():
+                            if h_tid and h_tid != attacker.telegram_id:
+                                defender_notify_ids.add(h_tid)
+
+                    if bot_app and defender_notify_ids:
                         def_win_text = (
                             f"🛡️ **QAL'A MUVAFFAQIYATLI HIMOYALANDI!**\n\n"
                             f"🏰 **{territory.name} ({territory.castle_name})** qal'angizga bo'lgan dushman hujumi jasorat bilan qaytarildi!\n\n"
                             f"{battle_res['details']}\n"
                         )
                         bot = getattr(bot_app, "bot", bot_app)
-                        try:
-                            send_win = def_win_text
-                            if len(send_win) > 3800:
-                                send_win = send_win[:3750] + "\n\n*(Batafsil /battle bo'limida...)*"
-                            await bot.send_message(
-                                chat_id=def_lord_id,
-                                text=send_win,
-                                parse_mode="Markdown",
-                            )
-                        except Exception as e_md:
+                        for d_tid in defender_notify_ids:
                             try:
-                                clean_win = def_win_text.replace("**", "").replace("*", "").replace("`", "")
-                                if len(clean_win) > 3800:
-                                    clean_win = clean_win[:3750] + "\n\n(Batafsil /battle bo'limida...)"
-                                await bot.send_message(chat_id=def_lord_id, text=clean_win, parse_mode=None)
-                            except Exception as e:
-                                logger.warning(f"Himoyachiga xabar yuborishda xatolik: {e}")
+                                send_win = def_win_text
+                                if len(send_win) > 3800:
+                                    send_win = send_win[:3750] + "\n\n*(Batafsil /battle bo'limida...)*"
+                                await bot.send_message(
+                                    chat_id=d_tid,
+                                    text=send_win,
+                                    parse_mode="Markdown",
+                                )
+                            except Exception as e_md:
+                                try:
+                                    clean_win = def_win_text.replace("**", "").replace("*", "").replace("`", "")
+                                    if len(clean_win) > 3800:
+                                        clean_win = clean_win[:3750] + "\n\n(Batafsil /battle bo'limida...)"
+                                    await bot.send_message(chat_id=d_tid, text=clean_win, parse_mode=None)
+                                except Exception as e:
+                                    logger.warning(f"Himoyachiga xabar yuborishda xatolik: {e}")
 
                     if bot_app and old_owner_house_id and old_owner_house_id != attacker.house_id:
                         grp_def_win_text = (
@@ -742,7 +776,7 @@ async def process_due_trade_caravans(bot_app=None):
                     army.infantry += (caravan.escort_infantry or 0)
 
                 # Foyda va nufuzni berish
-                gold_gain = caravan.expected_gold_reward or 150
+                gold_gain = caravan.expected_gold_reward or 350
                 prestige_gain = 3 if caravan.resource_amount < 10000 else (7 if caravan.resource_amount < 20000 else 15)
                 owner.gold += gold_gain
                 owner.prestige += prestige_gain

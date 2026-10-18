@@ -97,9 +97,9 @@ async def caravan_wizard_amt_callback(update: Update, context: ContextTypes.DEFA
         "Qancha miqdorda yuk eksport qilmoqchisiz?"
     )
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📦 5,000 yuk (Kutilayotgan foyda: +150💰)", callback_data=f"caravan_step_dest:{res_type}:5000")],
-        [InlineKeyboardButton("📦 10,000 yuk (Kutilayotgan foyda: +340💰)", callback_data=f"caravan_step_dest:{res_type}:10000")],
-        [InlineKeyboardButton("📦 20,000 yuk (Kutilayotgan foyda: +750💰)", callback_data=f"caravan_step_dest:{res_type}:20000")],
+        [InlineKeyboardButton("📦 5,000 yuk (Kutilayotgan foyda: +350💰)", callback_data=f"caravan_step_dest:{res_type}:5000")],
+        [InlineKeyboardButton("📦 10,000 yuk (Kutilayotgan foyda: +850💰)", callback_data=f"caravan_step_dest:{res_type}:10000")],
+        [InlineKeyboardButton("📦 20,000 yuk (Kutilayotgan foyda: +1,850💰)", callback_data=f"caravan_step_dest:{res_type}:20000")],
         [InlineKeyboardButton("🔙 Orqaga", callback_data="caravan_wizard_res")],
     ])
     await query.edit_message_text(text, reply_markup=keyboard, parse_mode="Markdown")

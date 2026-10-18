@@ -126,6 +126,47 @@ async def is_character_name_taken(session: AsyncSession, name: str, exclude_user
     return res.scalar_one_or_none() is not None
 
 
+async def change_character_name(
+    session: AsyncSession,
+    user_id: int,
+    new_name: str
+) -> Tuple[bool, str]:
+    """O'yinchi qahramoni ismini o'zgartirish"""
+    clean_name = new_name.strip()
+    if len(clean_name) < 2 or len(clean_name) > 30:
+        return False, "❌ Ism uzunligi 2 dan 30 tagacha belgidan iborat bo'lishi kerak."
+
+    if any(c in clean_name for c in ["\n", "\r", "\t", "`"]):
+        return False, "❌ Ismda nojo'ya belgilar mavjud. Iltimos, oddiy harflardan iborat nom kiriting."
+
+    if await is_character_name_taken(session, clean_name, exclude_user_id=user_id):
+        return False, f"❌ '{clean_name}' nomi allaqachon boshqa lord tomonidan band qilingan!"
+
+    char_res = await session.execute(
+        select(models.Character).where(
+            models.Character.user_id == user_id,
+            models.Character.is_alive == True,
+        )
+    )
+    char = char_res.scalar_one_or_none()
+    if not char:
+        user = await session.get(models.User, user_id)
+        if not user:
+            return False, "❌ Foydalanuvchi topilmadi."
+        char = models.Character(
+            user_id=user.id,
+            house_id=user.house_id,
+            name=clean_name,
+            level=1,
+        )
+        session.add(char)
+    else:
+        char.name = clean_name
+
+    await session.commit()
+    return True, clean_name
+
+
 async def create_user(
     session: AsyncSession,
     telegram_id: int,
@@ -963,6 +1004,10 @@ async def admin_transfer_user_house(session: AsyncSession, user_id: int, new_hou
     new_house = await session.get(models.House, new_house_id)
     if not new_house:
         return False, "❌ Yangi xonadon topilmadi."
+
+    curr_members = await get_house_members_count(session, new_house_id)
+    if curr_members >= 1 and user.house_id != new_house_id:
+        return False, f"❌ {new_house.name} xonadonida allaqachon Lord mavjud! Har bir xonadonga faqat 1 kishi biriktiriladi."
 
     # Agar eski xonadoni lordi bo'lsa, lordlikni bo'shatamiz
     if user.house_id:
@@ -5676,9 +5721,9 @@ async def dismiss_champion(session: AsyncSession, user_id: int) -> Tuple[bool, s
 # ============================================================
 
 SPY_MISSION_COSTS = {
-    "scout": 1000,
-    "sabotage": 3000,
-    "open_gates": 5000,
+    "scout": 100,
+    "sabotage": 400,
+    "open_gates": 800,
 }
 
 async def send_spy_mission(
@@ -6688,9 +6733,9 @@ async def dispatch_trade_caravan(
         return False, "❌ Karvon faqat Oziq-ovqat (food) yoki Temir (iron) tashiydi."
 
     valid_tiers = {
-        5000: 150,
-        10000: 340,
-        20000: 750,
+        5000: 350,
+        10000: 850,
+        20000: 1850,
     }
     if amount not in valid_tiers:
         return False, "❌ Karvon yuki miqdori 5,000, 10,000 yoki 20,000 bo'lishi kerak."

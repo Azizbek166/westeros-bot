@@ -900,28 +900,44 @@ async def send_custom_march_callback(update: Update, context: ContextTypes.DEFAU
             context.user_data.pop(f"march_{terr_id}", None)
             context.user_data.pop("awaiting_march_input", None)
 
-            # Himoyachi xonadon Lordiga real-time ogohlantirish qarg'asi
+            # Himoyachi o'yinchilarga (qal'a egasi, lord va xonadon a'zolariga) real-time ogohlantirish qarg'asi
             if terr.owner_house_id and terr.owner_house_id != user.house_id:
                 target_house = await session.get(models.House, terr.owner_house_id)
+                defender_tg_ids = set()
+                if getattr(terr, "conquered_by_user_id", None):
+                    c_user = await session.get(models.User, terr.conquered_by_user_id)
+                    if c_user and c_user.telegram_id and c_user.telegram_id != user.telegram_id:
+                        defender_tg_ids.add(c_user.telegram_id)
                 if target_house and target_house.lord_user_id and target_house.lord_user_id != user.telegram_id:
-                    dragon_text = " 🔥 va BAHAYBAT AJDAR 🐉" if has_dragon else ""
-                    def_buttons = [
-                        [InlineKeyboardButton("⚔️ Harbiy Markaz (Himoyalanish)", callback_data="menu_battle")],
-                        [InlineKeyboardButton("🛡️ Qal'aga Shoshilinch Askar Qo'shish", callback_data=f"def_rf_menu:{terr.id}")],
-                        [InlineKeyboardButton("🐉 Ajdarni Mudofaaga Joylashtirish", callback_data=f"def_station_dragon:{terr.id}")],
-                        [InlineKeyboardButton("🤝 Ittifoqchilarni Chaqirish (SOS)", callback_data=f"def_sos:{terr.id}")],
-                    ]
+                    defender_tg_ids.add(target_house.lord_user_id)
+                h_members_res = await session.execute(
+                    select(models.User.telegram_id).where(models.User.house_id == terr.owner_house_id)
+                )
+                for (mid,) in h_members_res.all():
+                    if mid and mid != user.telegram_id:
+                        defender_tg_ids.add(mid)
+
+                dragon_text = " 🔥 va BAHAYBAT AJDAR 🐉" if has_dragon else ""
+                def_buttons = [
+                    [InlineKeyboardButton("⚔️ Harbiy Markaz (Himoyalanish)", callback_data="menu_battle")],
+                    [InlineKeyboardButton("🛡️ Qal'aga Shoshilinch Askar Qo'shish", callback_data=f"def_rf_menu:{terr.id}")],
+                    [InlineKeyboardButton("🐉 Ajdarni Mudofaaga Joylashtirish", callback_data=f"def_station_dragon:{terr.id}")],
+                    [InlineKeyboardButton("🤝 Ittifoqchilarni Chaqirish (SOS)", callback_data=f"def_sos:{terr.id}")],
+                ]
+                att_house_title = f"{user.house.emoji} {user.house.name}" if user.house else "Dushman"
+                def_alert_text = (
+                    f"🚨 **QARG'A OGOHLANTIRISHI! QAL'ANGIZGA HUJUM BOSHLANDI!**\n\n"
+                    f"🏰 **{att_house_title}** armiyasi sizning **{terr.name} ({terr.castle_name})** qal'angiz sari shiddat bilan yurish boshladi!\n"
+                    f"⚔️ Hujumchilar: taxminan **{total_sent:,}** askar{dragon_text}\n"
+                    f"⏱️ Qamal boshlanishiga: **{BASE_MARCH_MINUTES} daqiqa** qoldi!\n\n"
+                    f"🛡️ **MUDOFAA CHORALARI:**\n"
+                    f"Zudlik bilan garnizonga o'z armiyangizdan askar safarbar qiling yoki ittifoqchilardan yordam so'rang!"
+                )
+                for def_tg_id in defender_tg_ids:
                     try:
                         await context.bot.send_message(
-                            chat_id=target_house.lord_user_id,
-                            text=(
-                                f"🚨 **QARG'A OGOHLANTIRISHI! QAL'AGA HUJUM BOSHLANDI!**\n\n"
-                                f"🏰 **{user.house.emoji} {user.house.name}** armiyasi sizning **{terr.name} ({terr.castle_name})** qal'angiz sari shiddat bilan yurish boshladi!\n"
-                                f"⚔️ Hujumchilar: taxminan **{total_sent:,}** askar{dragon_text}\n"
-                                f"⏱️ Qamal boshlanishiga: **{BASE_MARCH_MINUTES} daqiqa** qoldi!\n\n"
-                                f"🛡️ **MUDOFAA CHORALARI:**\n"
-                                f"Zudlik bilan garnizonga o'z armiyangizdan askar safarbar qiling yoki ittifoqchi va vassallardan yordam so'rang!"
-                            ),
+                            chat_id=def_tg_id,
+                            text=def_alert_text,
                             parse_mode="Markdown",
                             reply_markup=InlineKeyboardMarkup(def_buttons),
                         )
@@ -1084,28 +1100,44 @@ async def send_march_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
             await query.answer("🚩 Qo'shin yo'lga chiqdi!")
 
-            # Himoyachi xonadon Lordiga real-time ogohlantirish qarg'asi
+            # Himoyachi o'yinchilarga (qal'a egasi, lord va xonadon a'zolariga) real-time ogohlantirish qarg'asi
             if terr.owner_house_id and terr.owner_house_id != user.house_id:
                 target_house = await session.get(models.House, terr.owner_house_id)
+                defender_tg_ids = set()
+                if getattr(terr, "conquered_by_user_id", None):
+                    c_user = await session.get(models.User, terr.conquered_by_user_id)
+                    if c_user and c_user.telegram_id and c_user.telegram_id != user.telegram_id:
+                        defender_tg_ids.add(c_user.telegram_id)
                 if target_house and target_house.lord_user_id and target_house.lord_user_id != user.telegram_id:
-                    dragon_text = " 🔥 va BAHAYBAT AJDAR 🐉" if has_dragon else ""
-                    def_buttons = [
-                        [InlineKeyboardButton("⚔️ Harbiy Markaz (Himoyalanish)", callback_data="menu_battle")],
-                        [InlineKeyboardButton("🛡️ Qal'aga Shoshilinch Askar Qo'shish", callback_data=f"def_rf_menu:{terr.id}")],
-                        [InlineKeyboardButton("🐉 Ajdarni Mudofaaga Joylashtirish", callback_data=f"def_station_dragon:{terr.id}")],
-                        [InlineKeyboardButton("🤝 Ittifoqchilarni Chaqirish (SOS)", callback_data=f"def_sos:{terr.id}")],
-                    ]
+                    defender_tg_ids.add(target_house.lord_user_id)
+                h_members_res = await session.execute(
+                    select(models.User.telegram_id).where(models.User.house_id == terr.owner_house_id)
+                )
+                for (mid,) in h_members_res.all():
+                    if mid and mid != user.telegram_id:
+                        defender_tg_ids.add(mid)
+
+                dragon_text = " 🔥 va BAHAYBAT AJDAR 🐉" if has_dragon else ""
+                def_buttons = [
+                    [InlineKeyboardButton("⚔️ Harbiy Markaz (Himoyalanish)", callback_data="menu_battle")],
+                    [InlineKeyboardButton("🛡️ Qal'aga Shoshilinch Askar Qo'shish", callback_data=f"def_rf_menu:{terr.id}")],
+                    [InlineKeyboardButton("🐉 Ajdarni Mudofaaga Joylashtirish", callback_data=f"def_station_dragon:{terr.id}")],
+                    [InlineKeyboardButton("🤝 Ittifoqchilarni Chaqirish (SOS)", callback_data=f"def_sos:{terr.id}")],
+                ]
+                att_house_title = f"{user.house.emoji} {user.house.name}" if user.house else "Dushman"
+                def_alert_text = (
+                    f"🚨 **QARG'A OGOHLANTIRISHI! QAL'ANGIZGA HUJUM BOSHLANDI!**\n\n"
+                    f"🏰 **{att_house_title}** armiyasi sizning **{terr.name} ({terr.castle_name})** qal'angiz sari shiddat bilan yurish boshladi!\n"
+                    f"⚔️ Hujumchilar: taxminan **{total_sent:,}** askar{dragon_text}\n"
+                    f"⏱️ Qamal boshlanishiga: **{BASE_MARCH_MINUTES} daqiqa** qoldi!\n\n"
+                    f"🛡️ **MUDOFAA CHORALARI:**\n"
+                    f"Zudlik bilan garnizonga o'z armiyangizdan askar safarbar qiling yoki ittifoqchilardan yordam so'rang!"
+                )
+                for def_tg_id in defender_tg_ids:
                     try:
                         await context.bot.send_message(
-                            chat_id=target_house.lord_user_id,
-                            text=(
-                                f"🚨 **QARG'A OGOHLANTIRISHI! QAL'AGA HUJUM BOSHLANDI!**\n\n"
-                                f"🏰 **{user.house.emoji} {user.house.name}** armiyasi sizning **{terr.name} ({terr.castle_name})** qal'angiz sari shiddat bilan yurish boshladi!\n"
-                                f"⚔️ Hujumchilar: taxminan **{total_sent:,}** askar{dragon_text}\n"
-                                f"⏱️ Qamal boshlanishiga: **{BASE_MARCH_MINUTES} daqiqa** qoldi!\n\n"
-                                f"🛡️ **MUDOFAA CHORALARI:**\n"
-                                f"Zudlik bilan garnizonga o'z armiyangizdan askar safarbar qiling yoki ittifoqchi va vassallardan yordam so'rang!"
-                            ),
+                            chat_id=def_tg_id,
+                            text=def_alert_text,
                             parse_mode="Markdown",
                             reply_markup=InlineKeyboardMarkup(def_buttons),
                         )
