@@ -192,6 +192,12 @@ async def region_selected_callback(update: Update, context: ContextTypes.DEFAULT
     await query.answer("❌ Xonadon faqat 1 marta tasodifiy belgilanadi va uni o'zgartirib bo'lmaydi!", show_alert=True)
 
 
+async def house_selected_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Xonadon tanlash taqiqlangan"""
+    query = update.callback_query
+    await query.answer("❌ Xonadon faqat 1 marta tasodifiy belgilanadi va uni o'zgartirib bo'lmaydi!", show_alert=True)
+
+
 async def custom_house_region_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Mintaqa tanlanganda gerb (ramz) tanlash klaviaturasini chiqarish"""
     query = update.callback_query
