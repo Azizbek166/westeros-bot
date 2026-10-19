@@ -224,20 +224,19 @@ async def group_profile_handler(update: Update, context: ContextTypes.DEFAULT_TY
 
         text, photo_id, audio_id, audio_title = await format_user_profile_card(user, session, is_group=True)
 
-    # Guruhda chiqariladigan profil ostiga bitta toza tugma:
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("👤 O'z Profilimni Ko'rish", callback_data="group_show_my_profile")]
-    ])
+    # Guruhda pastki qotib qolgan klaviaturani butunlay yo'qotish:
+    from telegram import ReplyKeyboardRemove
+    clean_kb = ReplyKeyboardRemove()
 
     # Guruhga rasm yoki matn bilan yuborish
     if photo_id:
         try:
-            await msg.reply_photo(photo=photo_id, caption=text, parse_mode="Markdown", reply_markup=kb)
+            await msg.reply_photo(photo=photo_id, caption=text, parse_mode="Markdown", reply_markup=clean_kb)
         except Exception as e:
             logger.warning(f"Guruhga rasm bilan profil yuborish xatosi: {e}")
-            await msg.reply_text(text, parse_mode="Markdown", reply_markup=kb)
+            await msg.reply_text(text, parse_mode="Markdown", reply_markup=clean_kb)
     else:
-        await msg.reply_text(text, parse_mode="Markdown", reply_markup=kb)
+        await msg.reply_text(text, parse_mode="Markdown", reply_markup=clean_kb)
 
     # Agar o'yinchi musiqasi bo'lsa audio ham yuboriladi
     if audio_id:
@@ -269,17 +268,25 @@ async def group_show_my_profile_callback(update: Update, context: ContextTypes.D
 
         text, photo_id, audio_id, audio_title = await format_user_profile_card(user, session, is_group=True)
 
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("👤 O'z Profilimni Ko'rish", callback_data="group_show_my_profile")]
-    ])
+    from telegram import ReplyKeyboardRemove
+    clean_kb = ReplyKeyboardRemove()
 
     if photo_id:
         try:
-            await query.message.reply_photo(photo=photo_id, caption=text, parse_mode="Markdown", reply_markup=kb)
+            await query.message.reply_photo(photo=photo_id, caption=text, parse_mode="Markdown", reply_markup=clean_kb)
         except Exception:
-            await query.message.reply_text(text, parse_mode="Markdown", reply_markup=kb)
+            await query.message.reply_text(text, parse_mode="Markdown", reply_markup=clean_kb)
     else:
-        await query.message.reply_text(text, parse_mode="Markdown", reply_markup=kb)
+        await query.message.reply_text(text, parse_mode="Markdown", reply_markup=clean_kb)
+
+
+async def clean_keyboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Guruh yoki shaxsiy chatdagi qolib ketgan pastki tugmalarni tozalash"""
+    from telegram import ReplyKeyboardRemove
+    await update.effective_message.reply_text(
+        "🧹 Pastki klaviatura muvaffaqiyatli tozalandi va olib tashlandi!",
+        reply_markup=ReplyKeyboardRemove()
+    )
 
     if audio_id:
         try:
@@ -1264,6 +1271,7 @@ def register_profile_handlers(app):
     app.add_handler(CommandHandler(["buyfood", "food", "oziq"], buy_food_command))
     app.add_handler(CommandHandler(["sellfood", "don_sotish"], sell_food_command))
     app.add_handler(CommandHandler(["selliron", "temir_sotish"], sell_iron_command))
+    app.add_handler(CommandHandler(["cleankeyboard", "tozalash", "removekeyboard"], clean_keyboard_command))
 
     # Callbacklar
     app.add_handler(CallbackQueryHandler(profile_callback, pattern="^menu_profile$"))

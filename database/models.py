@@ -75,6 +75,13 @@ class User(Base):
     grain_mill_level = Column(Integer, default=1)          # Don tegirmoni darajasi (1-10)
     castle_taxes_json = Column(Text, default="{}")         # Shaxsiy soliq olingan vaqtlar: {territory_id: iso_timestamp}
     daily_limit_date = Column(String(10), default="")  # YYYY-MM-DD
+    weekly_limit_date = Column(String(10), default="")  # YYYY-Www
+
+    # Reyting ko'rsatkichlari (Kunlik va Haftalik yutuqlar)
+    daily_gold_earned = Column(BigInteger, default=0)
+    daily_prestige_earned = Column(Integer, default=0)
+    weekly_gold_earned = Column(BigInteger, default=0)
+    weekly_prestige_earned = Column(Integer, default=0)
 
     # Kunlik bonus va taklif (Referral)
     last_daily_bonus = Column(DateTime, nullable=True)

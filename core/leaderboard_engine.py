@@ -3,89 +3,40 @@ from datetime import datetime
 from typing import Dict, Any, Tuple, Optional
 from sqlalchemy import select, desc, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from database import models, AsyncSessionLocal
+from database import models, AsyncSessionLocal, crud
 from config import COMMUNITY_CHANNEL_URL, COMMUNITY_GROUP_URL, escape_md
 
 logger = logging.getLogger(__name__)
 
-# Rasmiy kanal va guruh manzillari
 CHANNEL_CHAT_ID = "@northremembers1"
 GROUP_CHAT_ID = "@northremember2"
+MEDALS = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
 
 
 async def generate_weekly_rankings(session: AsyncSession) -> Dict[str, Any]:
-    """Haftalik barcha asosiy parametrlar bo'yicha eng kuchlilarni hisoblash"""
-    # 1. TOP 5 Nufuzli Lordlar (Prestige)
-    prestige_res = await session.execute(
-        select(models.User)
-        .where(models.User.is_banned == False)
-        .order_by(desc(models.User.prestige), desc(models.User.level))
-        .limit(5)
-    )
-    top_prestige_users = prestige_res.scalars().all()
+    """Haftalik barcha asosiy parametrlar bo'yicha TOP 10 natijalarni hisoblash"""
+    # 1. TOP 10 Haftalik Nufuzli Lordlar (Weekly Prestige)
+    top_prestige_users = await crud.get_top10_prestige(session, period="weekly")
 
-    # 2. TOP 5 Eng Boy Lordlar (Gold)
-    wealth_res = await session.execute(
-        select(models.User)
-        .where(models.User.is_banned == False)
-        .order_by(desc(models.User.gold), desc(models.User.iron))
-        .limit(5)
-    )
-    top_wealth_users = wealth_res.scalars().all()
+    # 2. TOP 10 Haftalik Eng Boy Lordlar (Weekly Gold Earned)
+    top_wealth_users = await crud.get_top10_wealth(session, period="weekly")
 
-    # 3. TOP 5 Qudratli Armiyalar
-    armies_res = await session.execute(
-        select(models.Army, models.User)
-        .join(models.User, models.Army.user_id == models.User.id)
-        .where(models.User.is_banned == False)
-    )
-    army_list = []
-    for army, user in armies_res.all():
-        inf = army.infantry or 0
-        arc = army.archers or 0
-        cav = army.cavalry or 0
-        spm = army.spearmen or 0
-        spc = army.special_troops or 0
-        cat = army.catapults or 0
-        st = army.siege_towers or 0
-        total_pwr = int(inf + arc * 1.2 + cav * 2.5 + spm * 1.5 + spc * 4.0 + cat * 25.0 + st * 20.0)
-        total_troops = inf + arc + cav + spm + spc
-        army_list.append({
-            "user": user,
-            "power": total_pwr,
-            "troops": total_troops,
-            "special": spc,
-        })
-    army_list.sort(key=lambda x: x["power"], reverse=True)
-    top_armies = army_list[:5]
+    # 3. TOP 10 Qudratli Armiyalar
+    top_armies = await crud.get_top10_armies_detailed(session)
 
-    # 4. TOP 5 Afsonaviy Ajdarlar
-    dragons_res = await session.execute(
-        select(models.Dragon, models.User)
-        .join(models.User, models.Dragon.user_id == models.User.id)
-        .where(models.User.is_banned == False)
-        .order_by(desc(models.Dragon.power), desc(models.Dragon.level))
-        .limit(5)
-    )
-    top_dragons = []
-    for dragon, user in dragons_res.all():
-        top_dragons.append({
-            "dragon": dragon,
-            "user": user,
-        })
+    # 4. TOP 10 Afsonaviy Ajdarlar
+    top_dragons = await crud.get_top10_dragons(session)
 
-    # 5. TOP 3 Buyuk Xonadonlar (Nazorat qilinayotgan hududlar va a'zolar nufuzi)
+    # 5. TOP 5 Buyuk Xonadonlar (Hududlar va a'zolar nufuzi)
     houses_res = await session.execute(select(models.House))
     houses = houses_res.scalars().all()
     house_stats = []
     for h in houses:
-        # Hududlar soni
         terr_cnt_res = await session.execute(
             select(func.count(models.Territory.id)).where(models.Territory.owner_house_id == h.id)
         )
         terr_cnt = terr_cnt_res.scalar() or 0
 
-        # A'zolar va nufuz
         m_res = await session.execute(
             select(func.count(models.User.id), func.sum(models.User.prestige))
             .where(models.User.house_id == h.id, models.User.is_banned == False)
@@ -103,9 +54,12 @@ async def generate_weekly_rankings(session: AsyncSession) -> Dict[str, Any]:
             "score": total_score,
         })
     house_stats.sort(key=lambda x: x["score"], reverse=True)
-    top_houses = house_stats[:3]
+    top_houses = house_stats[:5]
 
-    # Hafta MVPsi: Nufuz va armiyada birinchi o'rindagi yetakchi
+    # 6. Mavsum G'olibi / Temir Taxt Nomzodi
+    champ = await crud.get_season_champion_candidate(session)
+
+    # Hafta MVPsi: Haftalik nufuzda 1-o'rindagi lord
     mvp_user = top_prestige_users[0] if top_prestige_users else (top_wealth_users[0] if top_wealth_users else None)
 
     return {
@@ -114,14 +68,14 @@ async def generate_weekly_rankings(session: AsyncSession) -> Dict[str, Any]:
         "top_armies": top_armies,
         "top_dragons": top_dragons,
         "top_houses": top_houses,
+        "champion": champ,
         "mvp": mvp_user,
         "generated_at": datetime.utcnow(),
     }
 
 
 def format_weekly_leaderboard_post(data: Dict[str, Any]) -> str:
-    """Rasmiy Telegram kanal va guruh uchun e'lon matnini tayyorlash"""
-    medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
+    """Rasmiy Telegram kanal va guruh uchun haftalik reyting posti"""
     now_str = datetime.utcnow().strftime("%d.%m.%Y")
 
     lines = [
@@ -132,71 +86,85 @@ def format_weekly_leaderboard_post(data: Dict[str, Any]) -> str:
         "Qirollik Saroyi va Temir Bank tomonidan Vesteros bo'yicha yakunlangan haftaning eng qudratli hukmdorlari va xonadonlari e'lon qilindi!\n",
     ]
 
-    # 1. Nufuz
-    lines.append("🏆 **TOP 5 ENG NUFUZLI LORDLAR:**")
+    # 1. Haftalik Nufuz (Prestige TOP 10)
+    lines.append("🏆 **HAFTALIK TOP 10 NUFUZLI LORDLAR:**")
     if data["top_prestige"]:
-        for idx, u in enumerate(data["top_prestige"]):
-            med = medals[idx] if idx < len(medals) else "▫️"
-            uname = u.username or u.full_name or "Lord"
-            vip_icon = "👑" if u.vip_tier == "sovereign" else ("🐉" if u.vip_tier == "dragonlord" else ("🏰" if u.vip_tier == "lord" else ""))
-            lines.append(f"{med} **{uname}** {vip_icon} — `{u.prestige:,}` Nufuz | Lv.{u.level}")
+        for idx, u in enumerate(data["top_prestige"][:10]):
+            med = MEDALS[idx] if idx < len(MEDALS) else f"{idx+1}."
+            hero_name = u.characters[0].name if getattr(u, "characters", None) and len(u.characters) > 0 else u.full_name
+            uname = f" (@{u.username})" if getattr(u, "username", None) else ""
+            h_str = f"[{u.house.emoji} {u.house.name}]" if u.house else "[Mustaqil]"
+            pts = getattr(u, "weekly_prestige_earned", 0) or 0
+            lines.append(f"{med} **{hero_name}**{uname} {h_str}\n     ↳ **+{pts:,} 🏆** bu hafta | Jami: `{u.prestige:,}` Nufuz (Lv.{u.level})")
     else:
         lines.append("_Hozircha ma'lumotlar yo'q_")
     lines.append("")
 
-    # 2. Armiya
-    lines.append("⚔️ **TOP 5 ENG QUDRATLI ARMIYALAR:**")
-    if data["top_armies"]:
-        for idx, entry in enumerate(data["top_armies"]):
-            med = medals[idx] if idx < len(medals) else "▫️"
-            u = entry["user"]
-            uname = u.username or u.full_name or "Lord"
-            lines.append(f"{med} **{uname}** — `{entry['troops']:,}` Askar (Jang kuchi: `{entry['power']:,}`⚡)")
-    else:
-        lines.append("_Hozircha armiya ma'lumotlari yo'q_")
-    lines.append("")
-
-    # 3. Boylik
-    lines.append("💰 **TOP 5 ENG BOY LORDLAR:**")
+    # 2. Haftalik Boylik (Gold TOP 10)
+    lines.append("💰 **HAFTALIK TOP 10 ENG KO'P OLTIN TOPGAN LORDLAR:**")
     if data["top_wealth"]:
-        for idx, u in enumerate(data["top_wealth"]):
-            med = medals[idx] if idx < len(medals) else "▫️"
-            uname = u.username or u.full_name or "Lord"
-            lines.append(f"{med} **{uname}** — `{u.gold:,}`🪙 Oltin | `{u.food:,}`🌾 Oziq")
+        for idx, u in enumerate(data["top_wealth"][:10]):
+            med = MEDALS[idx] if idx < len(MEDALS) else f"{idx+1}."
+            hero_name = u.characters[0].name if getattr(u, "characters", None) and len(u.characters) > 0 else u.full_name
+            uname = f" (@{u.username})" if getattr(u, "username", None) else ""
+            h_str = f"[{u.house.emoji} {u.house.name}]" if u.house else "[Mustaqil]"
+            gold_pts = getattr(u, "weekly_gold_earned", 0) or 0
+            lines.append(f"{med} **{hero_name}**{uname} {h_str}\n     ↳ **+{gold_pts:,} 🪙** bu hafta | Xazina: `{u.gold:,}` 🪙")
     else:
         lines.append("_Hozircha xazina ma'lumotlari yo'q_")
     lines.append("")
 
-    # 4. Ajdarlar
+    # 3. Armiya (TOP 5)
+    lines.append("⚔️ **TOP 5 ENG QUDRATLI ARMIYALAR:**")
+    if data["top_armies"]:
+        for idx, entry in enumerate(data["top_armies"][:5]):
+            med = MEDALS[idx] if idx < len(MEDALS) else f"{idx+1}."
+            u = entry["user"]
+            hero_name = u.characters[0].name if getattr(u, "characters", None) and len(u.characters) > 0 else u.full_name
+            lines.append(f"{med} **{hero_name}** — `{entry['total_troops']:,}` Askar (Jang kuchi: `{entry['power']:,}` ⚡)")
+    else:
+        lines.append("_Hozircha armiya ma'lumotlari yo'q_")
+    lines.append("")
+
+    # 4. Ajdarlar (TOP 5)
     if data["top_dragons"]:
         lines.append("🐉 **TOP 5 AFSONAVIY AJDARLAR:**")
-        for idx, entry in enumerate(data["top_dragons"]):
-            med = medals[idx] if idx < len(medals) else "▫️"
+        for idx, entry in enumerate(data["top_dragons"][:5]):
+            med = MEDALS[idx] if idx < len(MEDALS) else f"{idx+1}."
             d = entry["dragon"]
             u = entry["user"]
-            uname = u.username or u.full_name or "Lord"
-            lines.append(f"{med} **{d.name}** (`{d.power:,}` quvvat) — Egasi: *{uname}* (Lv.{d.level})")
+            lines.append(f"{med} 🐲 **{d.name}** (`{d.power:,}` quvvat) — Egasi: *{u.full_name}* (Lv.{d.level})")
         lines.append("")
 
-    # 5. Xonadonlar
-    lines.append("🏰 **TOP 3 ENG KUCHLI BUYUK XONADONLAR:**")
+    # 5. Xonadonlar (TOP 5)
+    lines.append("🏰 **TOP 5 ENG KUCHLI BUYUK XONADONLAR:**")
     if data["top_houses"]:
-        for idx, h_info in enumerate(data["top_houses"]):
-            med = medals[idx] if idx < len(medals) else "▫️"
+        for idx, h_info in enumerate(data["top_houses"][:5]):
+            med = MEDALS[idx] if idx < len(MEDALS) else f"{idx+1}."
             h = h_info["house"]
             lines.append(f"{med} **{h.emoji} {h.name}** — `{h_info['territories']}` ta Hudud | `{h_info['members']}` ta Lord (`{h_info['prestige']:,}` P)")
     lines.append("")
 
-    # MVP
+    # 6. Temir Taxt Sohibi (Mavsum Chempioni)
+    champ = data.get("champion", {})
+    if champ.get("user"):
+        c_u = champ["user"]
+        c_h = champ.get("house")
+        h_name = f"{c_h.emoji} {c_h.name}" if c_h else "Mustaqil"
+        how = "🏰 King's Landing qal'asi sohibi!" if champ.get("kings_landing_held") else f"📊 Mavsum Balli: `{champ.get('score', 0):,}`"
+        lines.append("───────────────────────────────")
+        lines.append("👑 **TEMIR TAXTNING JORIY SOYIBI (MAVSUM G'OLIBI):**")
+        lines.append(f"🏰 Hukmdor: **{c_u.full_name}** ({h_name})")
+        lines.append(f"📌 Holat: {how}")
+        lines.append("───────────────────────────────\n")
+
+    # MVP va Mukofotlar
     if data.get("mvp"):
         mvp = data["mvp"]
         mvp_name = mvp.username or mvp.full_name or "Lord"
-        mvp_title = f" «{mvp.title}»" if getattr(mvp, "title", None) else ""
-        lines.append("───────────────────────────────")
-        lines.append(f"🌟 **HAFTA QAHRAMONI (WEEKLY MVP):**")
-        lines.append(f"👑 **{mvp_name}**{mvp_title}")
-        lines.append(f"Qahramonga Vesteros qiroli nomidan +100 Nufuz va sharaf beriladi!")
-        lines.append("───────────────────────────────\n")
+        lines.append("🎖️ **HAFTA QAHRAMONI (WEEKLY MVP):**")
+        lines.append(f"👑 **{mvp_name}**")
+        lines.append("Qahramonga Vesteros saroyi nomidan **+100 🏆 Nufuz** va **+2,500 🪙 Oltin** berildi!\n")
 
     lines.append("⚔️ Taxt sari shafqatsiz kurash davom etadi! O'z xonadoningiz bayrog'ini baland ko'taring!")
     lines.append(f"🎮 **O'yin boti:** @ironthrone_rpgbot")
@@ -207,14 +175,13 @@ def format_weekly_leaderboard_post(data: Dict[str, Any]) -> str:
 
 
 async def broadcast_weekly_leaderboard(bot_app, force: bool = False) -> Tuple[bool, str]:
-    """Haftalik TOP reytingni kanal va guruhga e'lon qilish"""
+    """Haftalik TOP reytingni kanal va guruhga e'lon qilish va g'oliblarni taqdirlash"""
     if not bot_app:
         return False, "bot_app mavjud emas."
 
     bot = getattr(bot_app, "bot", bot_app)
 
     async with AsyncSessionLocal() as session:
-        # Haftada faqat 1 marta yuborilishi (force bo'lmasa)
         now = datetime.utcnow()
         week_key = f"weekly_board_{now.strftime('%Y_%W')}"
 
@@ -229,13 +196,20 @@ async def broadcast_weekly_leaderboard(bot_app, force: bool = False) -> Tuple[bo
         data = await generate_weekly_rankings(session)
         post_text = format_weekly_leaderboard_post(data)
 
-        # Hafta MVP siga 100 nufuz berish
-        if data.get("mvp"):
-            mvp_user = await session.get(models.User, data["mvp"].id)
-            if mvp_user:
-                mvp_user.prestige = (mvp_user.prestige or 0) + 100
+        # Hafta yetakchilarini taqdirlash (Top 1, 2, 3)
+        rewards = [
+            (100, 2500),  # 1-o'rin: 100 prestige, 2500 gold
+            (50, 1500),   # 2-o'rin: 50 prestige, 1500 gold
+            (25, 1000),   # 3-o'rin: 25 prestige, 1000 gold
+        ]
+        if data.get("top_prestige"):
+            for idx, u in enumerate(data["top_prestige"][:3]):
+                p_bonus, g_bonus = rewards[idx]
+                target_user = await session.get(models.User, u.id)
+                if target_user:
+                    target_user.prestige = (target_user.prestige or 0) + p_bonus
+                    target_user.gold = (target_user.gold or 0) + g_bonus
 
-        # E'lon qilinganligini belgilash
         if not force:
             ev = models.EventState(event_name=week_key, current_value=now.strftime("%Y-%m-%d %H:%M:%S"))
             session.add(ev)
@@ -246,7 +220,6 @@ async def broadcast_weekly_leaderboard(bot_app, force: bool = False) -> Tuple[bo
     sent_targets = []
     errors = []
 
-    # 1. Rasmiy Kanalga yuborish
     for target in [CHANNEL_CHAT_ID, GROUP_CHAT_ID]:
         try:
             await bot.send_message(

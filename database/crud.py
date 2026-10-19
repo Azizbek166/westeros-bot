@@ -65,8 +65,11 @@ async def get_user_any(session: AsyncSession, identifier: int, load_relations: b
 
 
 async def check_and_reset_daily_limits(session: AsyncSession, user: models.User) -> None:
-    """Kunlik limitlarni yangi kunda 0 ga tushirish"""
+    """Kunlik va haftalik limitlarni yangi kunda / yangi haftada 0 ga tushirish"""
     today_str = datetime.utcnow().strftime("%Y-%m-%d")
+    week_str = datetime.utcnow().strftime("%Y-W%W")
+    changed = False
+
     if user.daily_limit_date != today_str:
         user.daily_quiz_count = 0
         user.daily_council_count = 0
@@ -85,8 +88,33 @@ async def check_and_reset_daily_limits(session: AsyncSession, user: models.User)
         user.daily_spy_gates_count = 0
         user.daily_plague_count = 0
         user.daily_quests_claimed_json = "{}"
+        user.daily_gold_earned = 0
+        user.daily_prestige_earned = 0
         user.daily_limit_date = today_str
+        changed = True
+
+    if getattr(user, "weekly_limit_date", "") != week_str:
+        user.weekly_gold_earned = 0
+        user.weekly_prestige_earned = 0
+        user.weekly_limit_date = week_str
+        changed = True
+
+    if changed:
         await session.commit()
+
+
+def track_user_gold_gain(user: models.User, amount: int) -> None:
+    """O'yinchi ishlab topgan oltinini kunlik va haftalik reyting ko'rsatkichlariga qo'shish"""
+    if amount and amount > 0:
+        user.daily_gold_earned = (getattr(user, "daily_gold_earned", 0) or 0) + amount
+        user.weekly_gold_earned = (getattr(user, "weekly_gold_earned", 0) or 0) + amount
+
+
+def track_user_prestige_gain(user: models.User, amount: int) -> None:
+    """O'yinchi ishlab topgan nufuzini kunlik va haftalik reyting ko'rsatkichlariga qo'shish"""
+    if amount and amount > 0:
+        user.daily_prestige_earned = (getattr(user, "daily_prestige_earned", 0) or 0) + amount
+        user.weekly_prestige_earned = (getattr(user, "weekly_prestige_earned", 0) or 0) + amount
 
 
 async def get_taken_character_names(session: AsyncSession, house_id: int) -> set:
@@ -824,7 +852,7 @@ async def get_due_marches(session: AsyncSession) -> List[models.BattleMarch]:
 
 
 # ============================================================
-# RANKING CRUD
+# RANKING CRUD (TOP 10 & SEASONS)
 # ============================================================
 
 async def get_top_houses(session: AsyncSession, limit: int = 10) -> List[models.House]:
@@ -870,6 +898,232 @@ async def get_top_armies(session: AsyncSession, limit: int = 10) -> List[Tuple[m
         .limit(limit)
     )
     return list(result.all())
+
+
+async def get_top10_prestige(session: AsyncSession, period: str = "all") -> List[models.User]:
+    """Prestige bo'yicha TOP 10 o'yinchilar: daily, weekly yoki all-time"""
+    query = (
+        select(models.User)
+        .where(models.User.is_banned == False)
+        .options(selectinload(models.User.house), selectinload(models.User.characters))
+    )
+    if period == "daily":
+        query = query.order_by(desc(models.User.daily_prestige_earned), desc(models.User.prestige), desc(models.User.level))
+    elif period == "weekly":
+        query = query.order_by(desc(models.User.weekly_prestige_earned), desc(models.User.prestige), desc(models.User.level))
+    else:
+        query = query.order_by(desc(models.User.prestige), desc(models.User.level))
+
+    result = await session.execute(query.limit(10))
+    return list(result.scalars().all())
+
+
+async def get_top10_wealth(session: AsyncSession, period: str = "all") -> List[models.User]:
+    """Boylik (Oltin) bo'yicha TOP 10 o'yinchilar: daily, weekly yoki all-time"""
+    query = (
+        select(models.User)
+        .where(models.User.is_banned == False)
+        .options(selectinload(models.User.house))
+    )
+    if period == "daily":
+        query = query.order_by(desc(models.User.daily_gold_earned), desc(models.User.gold))
+    elif period == "weekly":
+        query = query.order_by(desc(models.User.weekly_gold_earned), desc(models.User.gold))
+    else:
+        query = query.order_by(desc(models.User.gold))
+
+    result = await session.execute(query.limit(10))
+    return list(result.scalars().all())
+
+
+async def get_top10_armies_detailed(session: AsyncSession) -> List[Dict[str, Any]]:
+    """Armiya soni va jang quvvati bo'yicha TOP 10 sarkardalar"""
+    result = await session.execute(
+        select(models.User, models.Army)
+        .join(models.Army, models.Army.user_id == models.User.id)
+        .where(models.User.is_banned == False)
+        .options(selectinload(models.User.house), selectinload(models.User.characters))
+    )
+    army_list = []
+    for user, army in result.all():
+        inf = army.infantry or 0
+        arc = army.archers or 0
+        cav = army.cavalry or 0
+        spm = army.spearmen or 0
+        spc = army.special_troops or 0
+        cat = getattr(army, "catapults", 0) or 0
+        st = getattr(army, "siege_towers", 0) or 0
+        total_troops = inf + arc + cav + spm + spc
+        power = int(inf + arc * 1.2 + cav * 2.5 + spm * 1.5 + spc * 4.0 + cat * 25.0 + st * 20.0)
+        army_list.append({
+            "user": user,
+            "army": army,
+            "total_troops": total_troops,
+            "power": power,
+        })
+    army_list.sort(key=lambda x: (x["power"], x["total_troops"]), reverse=True)
+    return army_list[:10]
+
+
+async def get_top10_castles(session: AsyncSession) -> List[Dict[str, Any]]:
+    """Zabt etilgan yoki boshqarilayotgan qal'alar bo'yicha TOP 10 lordlar"""
+    c_res = await session.execute(
+        select(
+            models.User,
+            func.count(models.Territory.id).label("conquered_cnt")
+        )
+        .join(models.Territory, models.Territory.conquered_by_user_id == models.User.id)
+        .where(models.User.is_banned == False)
+        .group_by(models.User.id)
+        .options(selectinload(models.User.house))
+        .order_by(desc("conquered_cnt"))
+        .limit(10)
+    )
+    user_castles = []
+    seen_users = set()
+    for u, cnt in c_res.all():
+        seen_users.add(u.id)
+        user_castles.append({
+            "user": u,
+            "castles_count": cnt,
+            "is_lord": (u.rank in ["king", "commander"]),
+        })
+
+    if len(user_castles) < 10:
+        lords_res = await session.execute(
+            select(models.House, models.User)
+            .join(models.User, models.House.lord_user_id == models.User.telegram_id)
+            .where(models.User.is_banned == False)
+            .options(selectinload(models.User.house))
+        )
+        for h, lord in lords_res.all():
+            if lord.id in seen_users:
+                continue
+            t_cnt_res = await session.execute(
+                select(func.count(models.Territory.id)).where(models.Territory.owner_house_id == h.id)
+            )
+            t_cnt = t_cnt_res.scalar() or 0
+            if t_cnt > 0:
+                user_castles.append({
+                    "user": lord,
+                    "castles_count": t_cnt,
+                    "is_lord": True,
+                })
+                seen_users.add(lord.id)
+
+    user_castles.sort(key=lambda x: x["castles_count"], reverse=True)
+    return user_castles[:10]
+
+
+async def get_top10_dragons(session: AsyncSession) -> List[Dict[str, Any]]:
+    """Afsonaviy Ajdarlar kuchi bo'yicha TOP 10"""
+    result = await session.execute(
+        select(models.Dragon, models.User)
+        .join(models.User, models.Dragon.user_id == models.User.id)
+        .where(models.User.is_banned == False)
+        .options(selectinload(models.User.house))
+        .order_by(desc(models.Dragon.power), desc(models.Dragon.level))
+        .limit(10)
+    )
+    dragon_list = []
+    for dragon, user in result.all():
+        dragon_list.append({
+            "dragon": dragon,
+            "user": user,
+            "power": dragon.power or 0,
+            "level": dragon.level or 1,
+            "stage": dragon.stage or "egg",
+        })
+    return dragon_list
+
+
+async def get_season_champion_candidate(session: AsyncSession) -> Dict[str, Any]:
+    """
+    O'yin / Mavsum g'olibi (Temir Taxt Qiroli) nomzodini aniqlash:
+    1-Qoida: King's Landing (Qirol Qarorgohi) qal'asini zabt etgan yoki egallagan Lord.
+    2-Qoida: Agar King's Landing neytral/NPC bo'lsa, umumiy mavsumiy ochkosi eng yuqori bo'lgan Lord:
+             Score = (prestige * 2) + (gold // 50) + (total_army // 5) + (castles * 500)
+    """
+    kl_res = await session.execute(
+        select(models.Territory).where(models.Territory.code == "kings_landing")
+    )
+    kl_terr = kl_res.scalar_one_or_none()
+
+    champion_user = None
+    champion_house = None
+    reason = "general_score"
+    kings_landing_held = False
+
+    if kl_terr:
+        if kl_terr.conquered_by_user_id:
+            c_u = await session.get(models.User, kl_terr.conquered_by_user_id)
+            if c_u and not c_u.is_banned:
+                champion_user = c_u
+                champion_house = await session.get(models.House, c_u.house_id) if c_u.house_id else None
+                reason = "kings_landing_conqueror"
+                kings_landing_held = True
+
+        if not champion_user and kl_terr.owner_house_id:
+            h = await session.get(models.House, kl_terr.owner_house_id)
+            if h and not h.is_npc and h.lord_user_id:
+                l_u = await get_user_by_telegram_id(session, h.lord_user_id)
+                if l_u and not l_u.is_banned:
+                    champion_user = l_u
+                    champion_house = h
+                    reason = "kings_landing_house_lord"
+                    kings_landing_held = True
+
+    if not champion_user:
+        users_res = await session.execute(
+            select(models.User)
+            .where(models.User.is_banned == False)
+            .options(selectinload(models.User.house), selectinload(models.User.army))
+        )
+        all_users = users_res.scalars().all()
+
+        best_score = -1
+        best_candidate = None
+        for u in all_users:
+            army_cnt = 0
+            if u.army:
+                army_cnt = (u.army.infantry or 0) + (u.army.archers or 0) + (u.army.cavalry or 0) + (u.army.spearmen or 0) + (u.army.special_troops or 0)
+
+            t_cnt_res = await session.execute(
+                select(func.count(models.Territory.id)).where(models.Territory.conquered_by_user_id == u.id)
+            )
+            c_cnt = t_cnt_res.scalar() or 0
+
+            score = int((u.prestige or 0) * 2 + (u.gold or 0) // 50 + (army_cnt // 5) + (c_cnt * 500))
+            if score > best_score:
+                best_score = score
+                best_candidate = (u, score)
+
+        if best_candidate:
+            champion_user = best_candidate[0]
+            champion_house = champion_user.house
+            reason = "highest_season_score"
+
+    total_score = 0
+    castles_count = 0
+    total_army = 0
+    if champion_user:
+        if champion_user.army:
+            total_army = (champion_user.army.infantry or 0) + (champion_user.army.archers or 0) + (champion_user.army.cavalry or 0) + (champion_user.army.spearmen or 0) + (champion_user.army.special_troops or 0)
+        c_res = await session.execute(
+            select(func.count(models.Territory.id)).where(models.Territory.conquered_by_user_id == champion_user.id)
+        )
+        castles_count = c_res.scalar() or 0
+        total_score = int((champion_user.prestige or 0) * 2 + (champion_user.gold or 0) // 50 + (total_army // 5) + (castles_count * 500))
+
+    return {
+        "user": champion_user,
+        "house": champion_house,
+        "reason": reason,
+        "kings_landing_held": kings_landing_held,
+        "score": total_score,
+        "castles_count": castles_count,
+        "total_army": total_army,
+    }
 
 
 # ============================================================
@@ -2598,6 +2852,7 @@ async def collect_castle_tax(session: AsyncSession, user_id: int, territory_id: 
     user.gold = (user.gold or 0) + g_inc
     user.food = (user.food or 0) + f_inc
     user.iron = (user.iron or 0) + i_inc
+    track_user_gold_gain(user, g_inc)
 
     user_taxes = {}
     if getattr(user, "castle_taxes_json", None):
@@ -2677,6 +2932,7 @@ async def collect_all_castles_tax(session: AsyncSession, user_id: int) -> Tuple[
     user.gold = (user.gold or 0) + tot_gold
     user.food = (user.food or 0) + tot_food
     user.iron = (user.iron or 0) + tot_iron
+    track_user_gold_gain(user, tot_gold)
     user.castle_taxes_json = json.dumps(user_taxes)
     await session.commit()
 
@@ -5397,32 +5653,22 @@ async def check_and_conclude_season(session: AsyncSession, bot_app=None) -> Tupl
     if now < season.end_date:
         return False, None  # Mavsum hali davom etmoqda
 
-    # 1. G'olib xonadon va Qirolni aniqlash
-    # King's Landing qal'asini egallab turgan xonadon yoki eng ko'p nufuzga ega xonadon
-    kl_res = await session.execute(
-        select(models.Territory).where(models.Territory.code == "kings_landing")
-    )
-    kl_terr = kl_res.scalar_one_or_none()
-
-    winner_house = None
-    if kl_terr and kl_terr.owner_house_id:
-        winner_house = await session.get(models.House, kl_terr.owner_house_id)
-
-    if not winner_house:
-        top_h_res = await session.execute(
-            select(models.House).order_by(models.House.prestige.desc()).limit(1)
-        )
-        winner_house = top_h_res.scalar_one_or_none()
+    # 1. G'olib Lord (Temir Taxt Qiroli) va G'olib Xonadonni aniqlash
+    champ = await get_season_champion_candidate(session)
+    champion_user = champ.get("user")
+    winner_house = champ.get("house")
 
     winner_house_name = winner_house.name if winner_house else "Vesteros Ittifoqi"
     winner_house_id = winner_house.id if winner_house else None
 
-    # Qirol
-    king_user = None
-    if winner_house and winner_house.lord_user_id:
-        king_user = await get_user_by_telegram_id(session, winner_house.lord_user_id)
-    king_name = king_user.full_name if king_user else (winner_house_name + " Lordi")
-    king_uid = king_user.id if king_user else None
+    king_name = champion_user.full_name if champion_user else "Noma'lum Qahramon"
+    king_uid = champion_user.id if champion_user else None
+
+    # G'olib o'yinchiga abadiy unvon va qirollik mukofotlarini berish
+    if champion_user:
+        champion_user.title = "👑 Temir Taxt Sohibi (Mavsum G'olibi)"
+        champion_user.gold = (champion_user.gold or 0) + 10000
+        champion_user.prestige = (champion_user.prestige or 0) + 500
 
     # Eng kuchli jangchi (Mavsum bo'yicha eng yuqori prestige)
     top_w_res = await session.execute(

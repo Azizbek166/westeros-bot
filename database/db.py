@@ -133,6 +133,11 @@ async def init_db():
                 "ALTER TABLE users ADD COLUMN custom_audio_file_id VARCHAR(255)",
                 "ALTER TABLE users ADD COLUMN custom_audio_title VARCHAR(255)",
                 "ALTER TABLE users ADD COLUMN royal_decree_count INTEGER DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN daily_gold_earned BIGINT DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN daily_prestige_earned INTEGER DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN weekly_gold_earned BIGINT DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN weekly_prestige_earned INTEGER DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN weekly_limit_date VARCHAR(10) DEFAULT ''",
             ]:
                 try:
                     await conn.execute(text(alter_stmt))
@@ -185,6 +190,11 @@ async def init_db():
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_audio_file_id VARCHAR(255)",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_audio_title VARCHAR(255)",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS royal_decree_count INTEGER DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_gold_earned BIGINT DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_prestige_earned INTEGER DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS weekly_gold_earned BIGINT DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS weekly_prestige_earned INTEGER DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS weekly_limit_date VARCHAR(10) DEFAULT ''",
             ]:
                 try:
                     await conn.execute(text(pg_alter))
