@@ -83,9 +83,9 @@ DAILY_DUEL_LIMIT = int(os.getenv("DAILY_DUEL_LIMIT", "5"))
 # ============================================================
 
 # Yangi o'yinchi boshlang'ich resurslari
-STARTING_GOLD = 250
-STARTING_FOOD = 500
-STARTING_IRON = 125
+STARTING_GOLD = 500
+STARTING_FOOD = 1000
+STARTING_IRON = 300
 
 # Boshlang'ich Tinchlik Qalqoni (soatlarda, masalan 72 soat = 3 kun)
 PEACE_SHIELD_HOURS = 72

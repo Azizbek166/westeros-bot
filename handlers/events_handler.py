@@ -468,7 +468,7 @@ async def event_bandits_callback(update: Update, context: ContextTypes.DEFAULT_T
     text = (
         f"🥷 **QAROQCHILAR VA ISYONCHILAR PISTIRMASI!**\n\n"
         f"Savdo yo'llaringizga tog' qaroqchilari hujum qildi va karvonlaringizni to'smoqda!\n\n"
-        f"1. **Hujum qilish:** Qaroqchilar bazasini tor-mor qilish (taxminan 5 ta askar yo'qotib, ularning xazinasidan +200🪙 oltin va +75🌾 oziq-ovqat olasiz).\n"
+        f"1. **Hujum qilish:** Qaroqchilar bazasini tor-mor qilish (taxminan 5 ta askar yo'qotib, ularning xazinasidan +500🪙 oltin, +250🌾 oziq-ovqat va +100⛓️ temir olasiz).\n"
         f"2. **O'lpon to'lash:** 50 tanga berib xavfdan qutulish.\n\n"
         f"Bugungi hujumlaringiz: **{b_count}/3** ta"
     )
@@ -514,16 +514,17 @@ async def bandits_action_callback(update: Update, context: ContextTypes.DEFAULT_
             else:
                 army.archers = max(0, army.archers - 5)
 
-            user.gold += 200
-            user.food += 75
-            user.prestige += 8
-            user.xp += 120
+            user.gold += 500
+            user.food += 250
+            user.iron += 100
+            user.prestige += 12
+            user.xp += 150
             user.daily_bandit_count = b_cnt + 1
 
             from core.leveling import check_user_level_up
             lvl_up, new_lvl, lvl_msg = check_user_level_up(user)
             await session.commit()
-            msg = f"🏆 G'alaba! Qaroqchilar tor-mor etildi: +200🪙 oltin, +75🌾 oziq-ovqat, +8 Prestige! ({user.daily_bandit_count}/3)"
+            msg = f"🏆 G'alaba! Qaroqchilar tor-mor etildi: +500🪙 oltin, +250🌾 oziq-ovqat, +100⛓️ temir, +12 Prestige! ({user.daily_bandit_count}/3)"
         else:
             user.gold = max(0, user.gold - 50)
             await session.commit()

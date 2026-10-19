@@ -42,9 +42,9 @@ class User(Base):
     royal_decree_count = Column(Integer, default=0)          # Qirollik farmonlari soni (Sovereign uchun)
 
     # Shaxsiy resurslar
-    gold = Column(BigInteger, default=250)
-    food = Column(BigInteger, default=500)
-    iron = Column(BigInteger, default=125)
+    gold = Column(BigInteger, default=500)
+    food = Column(BigInteger, default=1000)
+    iron = Column(BigInteger, default=300)
     prestige = Column(Integer, default=10)
 
     # Tinchlik qalqoni (yangi o'yinchilarni himoya qilish)

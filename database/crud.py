@@ -454,9 +454,9 @@ async def create_custom_house_user_and_territory(
         castle_name=clean_castle,
         owner_house_id=new_house.id,
         population=50000,
-        gold_income=200,
-        food_income=500,
-        iron_income=150,
+        gold_income=260,
+        food_income=650,
+        iron_income=200,
         castle_tier=2,
         defense=500,
         garrison_infantry=200,
@@ -755,9 +755,9 @@ async def recruit_troops(
     user.daily_recruit_count = old_cnt + amount
     quest_completed = False
     if old_cnt < 100 <= user.daily_recruit_count:
-        user.gold += 125
-        user.food += 250
-        user.xp += 80
+        user.gold += 400
+        user.food += 800
+        user.xp += 150
         quest_completed = True
 
     # Tranzaksiyani yozish
@@ -2795,10 +2795,10 @@ async def equip_dragon_artifact(session: AsyncSession, user_id: int, dragon_id: 
 
 def get_user_castle_tax_hours(user: models.User, territory: models.Territory, now: Optional[datetime] = None) -> Tuple[int, int]:
     """Foydalanuvchi uchun ushbu qal'adan o'lpon olish taymerini hisoblash.
-    Qal'alardan o'lpon har 4 soatda 1 marta olinadi.
+    Qal'alardan o'lpon har 1 soatda to'planadi (har soatlik olinadi).
     Qaytaradi: (hours, rem_min)
-    hours: agar 4 soat to'lgan bo'lsa 4 (yig'ishga tayyor), aks holda 0 (hali tayyor emas).
-    rem_min: 4 soat to'lishiga qolgan daqiqalar soni.
+    hours: to'plangan soatlar soni (kamida 1 bo'lsa yig'ishga tayyor).
+    rem_min: keyingi soat to'lishiga qolgan daqiqalar soni.
     """
     if not now:
         now = datetime.utcnow()
@@ -2813,14 +2813,17 @@ def get_user_castle_tax_hours(user: models.User, territory: models.Territory, no
             last_tax = None
 
     if not last_tax:
-        # Foydalanuvchi hali bu qal'adan o'lpon olmagan bo'lsa, to'liq 4 soatlik o'lpon tayyor holatda beriladi!
-        last_tax = now - timedelta(hours=4)
+        # Foydalanuvchi hali bu qal'adan o'lpon olmagan bo'lsa, 1 soatlik o'lpon darhol tayyor holatda beriladi!
+        last_tax = now - timedelta(hours=1)
 
     elapsed_seconds = max(0, (now - last_tax).total_seconds())
-    if elapsed_seconds >= 4 * 3600:
-        return 4, 0
+    accum_hours = int(elapsed_seconds // 3600)
+    accum_hours = min(24, accum_hours)
+
+    if accum_hours >= 1:
+        return accum_hours, 0
     else:
-        rem_min = max(1, int((4 * 3600 - elapsed_seconds) // 60))
+        rem_min = max(1, int((3600 - elapsed_seconds) // 60))
         return 0, rem_min
 
 
@@ -2842,7 +2845,7 @@ async def get_user_and_house_castles(session: AsyncSession, user: models.User) -
 
 
 async def collect_castle_tax(session: AsyncSession, user_id: int, territory_id: int) -> Tuple[bool, str, Dict[str, int]]:
-    """Qal'adan har 4 soatda 1 marta to'plangan o'lponni yig'ib olish (har bir o'yinchi uchun mustaqil)"""
+    """Qal'adan har soatda to'plangan o'lponni yig'ib olish (har bir o'yinchi uchun mustaqil)"""
     user = await get_user_any(session, user_id)
     terr = await session.get(models.Territory, territory_id)
     if not user or not terr:
@@ -2854,18 +2857,15 @@ async def collect_castle_tax(session: AsyncSession, user_id: int, territory_id: 
 
     now = datetime.utcnow()
     hours, rem_min = get_user_castle_tax_hours(user, terr, now)
-    if hours < 4:
-        rem_h = rem_min // 60
-        rem_m = rem_min % 60
-        time_str = f"{rem_h} soat {rem_m} daqiqa" if rem_h > 0 else f"{rem_m} daqiqa"
-        return False, f"⏳ O'lpon yig'ishga hali erta! O'lpon har 4 soatda 1 marta yig'iladi (~{time_str} qoldi).", {}
+    if hours < 1:
+        return False, f"⏳ O'lpon yig'ishga hali erta! O'lpon har soatda to'planadi (~{rem_min} daqiqa qoldi).", {}
 
     c_lvl = getattr(terr, 'castle_level', 1) or 1
     lvl_mult = 1.0 + (max(1, c_lvl) - 1) * 0.25
 
-    g_inc = int((terr.gold_income or 20) * 4 * lvl_mult)
-    f_inc = int((terr.food_income or 50) * 4 * lvl_mult)
-    i_inc = int((terr.iron_income or 15) * 4 * lvl_mult)
+    g_inc = int((terr.gold_income or 20) * hours * lvl_mult)
+    f_inc = int((terr.food_income or 50) * hours * lvl_mult)
+    i_inc = int((terr.iron_income or 15) * hours * lvl_mult)
 
     user.gold = (user.gold or 0) + g_inc
     user.food = (user.food or 0) + f_inc
@@ -2883,18 +2883,19 @@ async def collect_castle_tax(session: AsyncSession, user_id: int, territory_id: 
     terr.last_tax_collected_at = now
     await session.commit()
 
+    hour_label = f"{hours} soatlik" if hours > 1 else "1 soatlik"
     return True, (
         f"💰 **{terr.name.upper()} QAL'ASIDAN O'LPON OLINDI!**\n\n"
-        f"⏱️ Davr: **4 soatlik to'liq o'lpon**\n"
+        f"⏱️ Davr: **{hour_label} to'liq o'lpon**\n"
         f"• 🪙 Oltin: **+{g_inc:,}**\n"
         f"• 🌾 Oziq-ovqat: **+{f_inc:,}**\n"
         f"• ⛓️ Temir: **+{i_inc:,}**\n\n"
         f"Resurslar sizning shaxsiy xazinangizga qo'shildi!"
-    ), {"gold": g_inc, "food": f_inc, "iron": i_inc, "hours": 4}
+    ), {"gold": g_inc, "food": f_inc, "iron": i_inc, "hours": hours}
 
 
 async def collect_all_castles_tax(session: AsyncSession, user_id: int) -> Tuple[bool, str, Dict[str, int]]:
-    """Xonadonga tegishli yoki o'zi zabt etgan barcha qal'alardan bir vaqtda 4 soatlik o'lpon yig'ib olish"""
+    """Xonadonga tegishli yoki o'zi zabt etgan barcha qal'alardan bir vaqtda to'plangan o'lponni yig'ib olish"""
     user = await get_user_any(session, user_id)
     if not user:
         return False, "Foydalanuvchi topilmadi.", {}
@@ -2908,7 +2909,7 @@ async def collect_all_castles_tax(session: AsyncSession, user_id: int) -> Tuple[
     tot_food = 0
     tot_iron = 0
     collected_castles = []
-    min_rem_wait = 240
+    min_rem_wait = 60
 
     user_taxes = {}
     if getattr(user, "castle_taxes_json", None):
@@ -2919,13 +2920,13 @@ async def collect_all_castles_tax(session: AsyncSession, user_id: int) -> Tuple[
 
     for terr in castles:
         hours, rem_min = get_user_castle_tax_hours(user, terr, now)
-        if hours >= 4:
+        if hours >= 1:
             c_lvl = getattr(terr, 'castle_level', 1) or 1
             lvl_mult = 1.0 + (max(1, c_lvl) - 1) * 0.25
 
-            g_inc = int((terr.gold_income or 20) * 4 * lvl_mult)
-            f_inc = int((terr.food_income or 50) * 4 * lvl_mult)
-            i_inc = int((terr.iron_income or 15) * 4 * lvl_mult)
+            g_inc = int((terr.gold_income or 20) * hours * lvl_mult)
+            f_inc = int((terr.food_income or 50) * hours * lvl_mult)
+            i_inc = int((terr.iron_income or 15) * hours * lvl_mult)
 
             tot_gold += g_inc
             tot_food += f_inc
@@ -2934,7 +2935,7 @@ async def collect_all_castles_tax(session: AsyncSession, user_id: int) -> Tuple[
             terr.last_tax_collected_at = now
             collected_castles.append({
                 "name": terr.castle_name or terr.name,
-                "hours": 4,
+                "hours": hours,
                 "gold": g_inc,
             })
         else:
@@ -2942,10 +2943,7 @@ async def collect_all_castles_tax(session: AsyncSession, user_id: int) -> Tuple[
                 min_rem_wait = rem_min
 
     if not collected_castles:
-        rem_h = min_rem_wait // 60
-        rem_m = min_rem_wait % 60
-        time_str = f"{rem_h} soat {rem_m} daqiqa" if rem_h > 0 else f"{rem_m} daqiqa"
-        return False, f"⏳ Hozircha birorta ham qal'ada 4 soatlik o'lpon to'planmagan. Keyingi o'lpon tayyor bo'lishiga taxminan {time_str} qoldi.", {}
+        return False, f"⏳ Hozircha birorta ham qal'ada 1 soatlik o'lpon to'planmagan. Keyingi o'lpon tayyor bo'lishiga taxminan {min_rem_wait} daqiqa qoldi.", {}
 
     user.gold = (user.gold or 0) + tot_gold
     user.food = (user.food or 0) + tot_food
@@ -2954,7 +2952,7 @@ async def collect_all_castles_tax(session: AsyncSession, user_id: int) -> Tuple[
     user.castle_taxes_json = json.dumps(user_taxes)
     await session.commit()
 
-    details = "\n".join([f"• 🏰 **{c['name']}**: 4 soatlik (+{c['gold']:,}🪙)" for c in collected_castles])
+    details = "\n".join([f"• 🏰 **{c['name']}**: {c['hours']} soatlik (+{c['gold']:,}🪙)" for c in collected_castles])
     msg = (
         f"💰 **BARCHA QAL'ALARDAN O'LPON YIG'ILDI!**\n\n"
         f"{details}\n\n"
@@ -3833,46 +3831,46 @@ async def get_inbox_ravens(session: AsyncSession, user_id: int, limit: int = 5) 
 STREAK_REWARDS = {
     1: {
         "title": "1-Kun: Boshlang'ich Safarbarlik",
-        "gold": 500, "food": 1000, "iron": 250, "prestige": 15, "xp": 25,
+        "gold": 800, "food": 1500, "iron": 400, "prestige": 20, "xp": 35,
         "troops": {},
         "extra_desc": ""
     },
     2: {
         "title": "2-Kun: Xonadon Zaxirasi",
-        "gold": 875, "food": 1750, "iron": 500, "prestige": 20, "xp": 40,
+        "gold": 1400, "food": 2500, "iron": 800, "prestige": 30, "xp": 60,
         "troops": {},
         "extra_desc": ""
     },
     3: {
         "title": "3-Kun: Qalqonbardorlar Kelishi",
-        "gold": 1250, "food": 2500, "iron": 750, "prestige": 25, "xp": 50,
-        "troops": {"infantry": 10},
-        "extra_desc": "🛡️ +10 ta Piyoda saflaringizga qo'shildi!"
+        "gold": 2000, "food": 3800, "iron": 1200, "prestige": 35, "xp": 75,
+        "troops": {"infantry": 15},
+        "extra_desc": "🛡️ +15 ta Piyoda saflaringizga qo'shildi!"
     },
     4: {
         "title": "4-Kun: Mohir Merganlar",
-        "gold": 2000, "food": 3750, "iron": 1125, "prestige": 35, "xp": 75,
-        "troops": {"archers": 8},
-        "extra_desc": "🏹 +8 ta Kamonchi armiyangizga qo'shildi!"
+        "gold": 3200, "food": 5500, "iron": 1800, "prestige": 50, "xp": 100,
+        "troops": {"archers": 12},
+        "extra_desc": "🏹 +12 ta Kamonchi armiyangizga qo'shildi!"
     },
     5: {
         "title": "5-Kun: Ritsarlar Hamlasi",
-        "gold": 3000, "food": 5000, "iron": 1625, "prestige": 50, "xp": 100,
-        "troops": {"cavalry": 5},
-        "extra_desc": "🐎 +5 ta Og'ir Otliq bayrog'ingiz ostida!"
+        "gold": 4800, "food": 7500, "iron": 2500, "prestige": 70, "xp": 150,
+        "troops": {"cavalry": 8},
+        "extra_desc": "🐎 +8 ta Og'ir Otliq bayrog'ingiz ostida!"
     },
     6: {
         "title": "6-Kun: Nayzadorlar Qal'asi",
-        "gold": 4500, "food": 7500, "iron": 2250, "prestige": 60, "xp": 125,
-        "troops": {"spearmen": 5, "archers": 4},
-        "extra_desc": "🗡️ +5 ta Nayzachi va 🏹 +4 ta Kamonchi armiyangizda!"
+        "gold": 7000, "food": 11000, "iron": 3500, "prestige": 85, "xp": 180,
+        "troops": {"spearmen": 8, "archers": 6},
+        "extra_desc": "🗡️ +8 ta Nayzachi va 🏹 +6 ta Kamonchi armiyangizda!"
     },
     7: {
         "title": "7-Kun: 👑 VALIRIYA TUHFASI",
-        "gold": 8750, "food": 12500, "iron": 4500, "prestige": 125, "xp": 250,
-        "troops": {"special_troops": 8},
-        "dragon_power": 25,
-        "extra_desc": "🔥 +8 ta Maxsus Gvardiya va Ajdaringizga +25 Quvvat (Ozuqa)!"
+        "gold": 14000, "food": 20000, "iron": 7000, "prestige": 180, "xp": 350,
+        "troops": {"special_troops": 12},
+        "dragon_power": 35,
+        "extra_desc": "🔥 +12 ta Maxsus Gvardiya va Ajdaringizga +35 Quvvat (Ozuqa)!"
     },
 }
 
@@ -3883,38 +3881,38 @@ DAILY_ACTIVITY_QUESTS = {
         "title": "⚔️ Ritsarlar Duela yoki Mashg'ulot",
         "desc": "Bugun kamida 1 marta duel o'tkazing yoki mashg'ulot qiling",
         "target": 1,
-        "reward_desc": "+625 🪙 | +750 🌾 | +15 🏆 | +25 ⭐",
-        "gold": 625, "food": 750, "iron": 0, "prestige": 15, "xp": 25,
+        "reward_desc": "+1,000 🪙 | +1,200 🌾 | +20 🏆 | +35 ⭐",
+        "gold": 1000, "food": 1200, "iron": 0, "prestige": 20, "xp": 35,
     },
     "citadel": {
         "title": "🏛️ Sitadel Viktorinasi / Kengash",
         "desc": "Sitadel viktorinasida qatnashing yoki Buyuk Kengashda ovoz bering",
         "target": 1,
-        "reward_desc": "+500 🪙 | +375 ⛓️ | +10 🏆 | +20 ⭐",
-        "gold": 500, "food": 0, "iron": 375, "prestige": 10, "xp": 20,
+        "reward_desc": "+800 🪙 | +600 ⛓️ | +15 🏆 | +30 ⭐",
+        "gold": 800, "food": 0, "iron": 600, "prestige": 15, "xp": 30,
     },
     "recruit": {
         "title": "🛡️ Qo'shin Yollash",
         "desc": "Kazarmada yangi askarlarni saflarga qo'shing",
         "target": 1,
-        "reward_desc": "+625 🪙 | +1,000 🌾 | +8 🛡️ Piyoda | +15 🏆",
-        "gold": 625, "food": 1000, "iron": 0, "prestige": 15, "xp": 25,
-        "infantry": 8,
+        "reward_desc": "+1,000 🪙 | +1,500 🌾 | +12 🛡️ Piyoda | +20 🏆",
+        "gold": 1000, "food": 1500, "iron": 0, "prestige": 20, "xp": 35,
+        "infantry": 12,
     },
     "caravan": {
         "title": "🐪 Savdo Karvoni / Qaroqchilik",
         "desc": "Savdo karvonini jo'nating yoki qaroqchilarga zarba bering",
         "target": 1,
-        "reward_desc": "+750 🪙 | +500 ⛓️ | +15 🏆 | +30 ⭐",
-        "gold": 750, "food": 0, "iron": 500, "prestige": 15, "xp": 30,
+        "reward_desc": "+1,200 🪙 | +800 ⛓️ | +20 🏆 | +45 ⭐",
+        "gold": 1200, "food": 0, "iron": 800, "prestige": 20, "xp": 45,
     },
     "grand": {
         "title": "👑 BARCHA VAZIFALAR GRAND-BONUSI",
         "desc": "Bugungi barcha 4 ta vazifani muvaffaqiyatli yakunlang",
         "target": 4,
-        "reward_desc": "+3,000 🪙 | +5,000 🌾 | +2,000 ⛓️ | +6 🛡️ | +15 🔥 | +50 🏆",
-        "gold": 3000, "food": 5000, "iron": 2000, "prestige": 50, "xp": 125,
-        "special_troops": 6, "dragon_power": 15,
+        "reward_desc": "+5,000 🪙 | +8,000 🌾 | +3,500 ⛓️ | +10 🛡️ | +25 🔥 | +80 🏆",
+        "gold": 5000, "food": 8000, "iron": 3500, "prestige": 80, "xp": 200,
+        "special_troops": 10, "dragon_power": 25,
     }
 }
 
@@ -7180,9 +7178,9 @@ async def dispatch_trade_caravan(
         return False, "❌ Karvon faqat Oziq-ovqat (food) yoki Temir (iron) tashiydi."
 
     valid_tiers = {
-        5000: 350,
-        10000: 850,
-        20000: 1850,
+        5000: 500,
+        10000: 1200,
+        20000: 2600,
     }
     if amount not in valid_tiers:
         return False, "❌ Karvon yuki miqdori 5,000, 10,000 yoki 20,000 bo'lishi kerak."
@@ -7351,8 +7349,8 @@ async def raid_trade_caravan(
         caravan.raider_user_id = raider.id
         caravan.raid_report = battle_res["details"]
 
-        stolen_res = int(caravan.resource_amount * 0.175)
-        bounty_gold = 60
+        stolen_res = int(caravan.resource_amount * 0.25)
+        bounty_gold = 150
 
         if caravan.resource_type == "food":
             raider.food += stolen_res
