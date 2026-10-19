@@ -174,7 +174,7 @@ async def halloffame_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 def register_season_handlers(app):
     app.add_handler(CommandHandler(["season", "mavsum"], season_command))
-    app.add_handler(CommandHandler(["winner", "chempion", "g'olib", "golib", "taxt", "king"], winner_command))
+    app.add_handler(CommandHandler(["winner", "chempion", "golib", "taxt", "king"], winner_command))
     app.add_handler(CommandHandler(["halloffame", "shonsharaf"], halloffame_command))
     app.add_handler(CallbackQueryHandler(season_callback, pattern="^menu_season$"))
     app.add_handler(CallbackQueryHandler(halloffame_callback, pattern="^menu_halloffame$"))
