@@ -49,11 +49,12 @@ async def caravan_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
             f"📊 **Bugungi limitlaringiz:**\n"
             f"• 🐪 Karvon jo'natish: **{send_cnt}/2** ta\n"
             f"• ⚔️ Pistirma / Qaroqchilik: **{raid_cnt}/2** ta\n\n"
-            "📜 **Karvon tizimi imkoniyatlari:**\n"
-            "• 5,000 resurs ➔ **+150** Oltin (30 daqiqa)\n"
-            "• 10,000 resurs ➔ **+340** Oltin (30 daqiqa)\n"
-            "• 20,000 resurs ➔ **+750** Oltin (30 daqiqa)\n\n"
-            "⚔️ **Qaroqchilik (Raid):** Yo'ldagi dushman karvonlariga hujum qilib, ularning 17.5% yukini va 60 Oltin o'ljani tortib olishingiz mumkin!"
+            "📜 **Karvon tizimi imkoniyatlari (Foydali savdo):**\n"
+            "• 700 resurs ➔ **+500 🪙** Oltin foyda (30 daqiqa)\n"
+            "• 1,500 resurs ➔ **+1,100 🪙** Oltin foyda (30 daqiqa)\n"
+            "• 3,000 resurs ➔ **+2,200 🪙** Oltin foyda (30 daqiqa)\n"
+            "• 5,000 resurs ➔ **+3,800 🪙** Oltin foyda (30 daqiqa)\n\n"
+            "⚔️ **Qaroqchilik (Raid):** Yo'ldagi dushman karvonlariga hujum qilib, ularning 25% yukini va 150 Oltin o'ljani tortib olishingiz mumkin!"
             f"{my_status}"
         )
 
@@ -92,14 +93,17 @@ async def caravan_wizard_amt_callback(update: Update, context: ContextTypes.DEFA
     await query.answer()
 
     res_type = query.data.split(":")[1]
+    res_label = "Oziq-ovqat" if res_type == "food" else "Temir"
     text = (
-        f"🐪📦 **2-BOSQICH: {res_type.upper()} YUK MIQDORI:**\n\n"
-        "Qancha miqdorda yuk eksport qilmoqchisiz?"
+        f"🐪📦 **2-BOSQICH: {res_label.upper()} YUK MIQDORI:**\n\n"
+        f"Qancha miqdorda {res_label.lower()} eksport qilmoqchisiz?\n"
+        f"Foydali kurs bo'yicha oltinga almashtiring:"
     )
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📦 5,000 yuk (Kutilayotgan foyda: +500💰)", callback_data=f"caravan_step_dest:{res_type}:5000")],
-        [InlineKeyboardButton("📦 10,000 yuk (Kutilayotgan foyda: +1,200💰)", callback_data=f"caravan_step_dest:{res_type}:10000")],
-        [InlineKeyboardButton("📦 20,000 yuk (Kutilayotgan foyda: +2,600💰)", callback_data=f"caravan_step_dest:{res_type}:20000")],
+        [InlineKeyboardButton("📦 700 yuk ➔ +500 🪙 Oltin", callback_data=f"caravan_step_dest:{res_type}:700")],
+        [InlineKeyboardButton("📦 1,500 yuk ➔ +1,100 🪙 Oltin", callback_data=f"caravan_step_dest:{res_type}:1500")],
+        [InlineKeyboardButton("📦 3,000 yuk ➔ +2,200 🪙 Oltin", callback_data=f"caravan_step_dest:{res_type}:3000")],
+        [InlineKeyboardButton("📦 5,000 yuk ➔ +3,800 🪙 Oltin", callback_data=f"caravan_step_dest:{res_type}:5000")],
         [InlineKeyboardButton("🔙 Orqaga", callback_data="caravan_wizard_res")],
     ])
     await query.edit_message_text(text, reply_markup=keyboard, parse_mode="Markdown")
@@ -150,9 +154,9 @@ async def caravan_wizard_security_callback(update: Update, context: ContextTypes
         "Askarlar karvon manzilga xavfsiz yetgach armiyangiz safiga qaytadi."
     )
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🛡️ Yengil soqchi (20 Otliq, 30 Piyoda)", callback_data=f"caravan_launch:{res_type}:{amount}:{dest_id}:20:30")],
-        [InlineKeyboardButton("🛡️🛡️ Ishonchli gvardiya (50 Otliq, 80 Piyoda)", callback_data=f"caravan_launch:{res_type}:{amount}:{dest_id}:50:80")],
-        [InlineKeyboardButton("🛡️🛡️🛡️ Zirhli eskort (100 Otliq, 150 Piyoda)", callback_data=f"caravan_launch:{res_type}:{amount}:{dest_id}:100:150")],
+        [InlineKeyboardButton("🛡️ Yengil soqchi (15 Otliq, 20 Piyoda)", callback_data=f"caravan_launch:{res_type}:{amount}:{dest_id}:15:20")],
+        [InlineKeyboardButton("🛡️🛡️ Ishonchli gvardiya (35 Otliq, 50 Piyoda)", callback_data=f"caravan_launch:{res_type}:{amount}:{dest_id}:35:50")],
+        [InlineKeyboardButton("🛡️🛡️🛡️ Zirhli eskort (70 Otliq, 100 Piyoda)", callback_data=f"caravan_launch:{res_type}:{amount}:{dest_id}:70:100")],
         [InlineKeyboardButton("🔙 Orqaga", callback_data=f"caravan_step_dest:{res_type}:{amount}")],
     ])
     await query.edit_message_text(text, reply_markup=keyboard, parse_mode="Markdown")

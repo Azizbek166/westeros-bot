@@ -776,8 +776,8 @@ async def process_due_trade_caravans(bot_app=None):
                     army.infantry += (caravan.escort_infantry or 0)
 
                 # Foyda va nufuzni berish
-                gold_gain = caravan.expected_gold_reward or 350
-                prestige_gain = 3 if caravan.resource_amount < 10000 else (7 if caravan.resource_amount < 20000 else 15)
+                gold_gain = caravan.expected_gold_reward or 500
+                prestige_gain = 3 if caravan.resource_amount < 1500 else (7 if caravan.resource_amount < 3000 else 15)
                 owner.gold += gold_gain
                 owner.prestige += prestige_gain
 

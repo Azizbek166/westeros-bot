@@ -1218,9 +1218,9 @@ async def show_iron_mine_menu(target, user_id: int, is_message: bool = False):
             InlineKeyboardButton("⛓️ 4.2k (5k🪙)", callback_data="buy_iron:pack_4"),
         ])
         buttons.append([
-            InlineKeyboardButton("💰 500🌾➡️250🪙", callback_data="sell_res:food:500"),
-            InlineKeyboardButton("💰 1k🌾➡️500🪙", callback_data="sell_res:food:1000"),
-            InlineKeyboardButton("💰 5k🌾➡️2.5k🪙", callback_data="sell_res:food:5000"),
+            InlineKeyboardButton("💰 700🌾➡️500🪙", callback_data="sell_res:food:700"),
+            InlineKeyboardButton("💰 1.4k🌾➡️1k🪙", callback_data="sell_res:food:1400"),
+            InlineKeyboardButton("💰 3.5k🌾➡️2.5k🪙", callback_data="sell_res:food:3500"),
         ])
         buttons.append([
             InlineKeyboardButton("💰 300⛓️➡️300🪙", callback_data="sell_res:iron:300"),
@@ -1359,7 +1359,7 @@ async def sell_food_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/sellfood <miqdor> buyrug'i"""
     user_id = update.effective_user.id
     if not context.args or len(context.args) == 0:
-        await update.message.reply_text("ℹ️ Don sotish uchun miqdorni yozing: `/sellfood 1000`\n(Kurs: 2 Don = 1 Oltin)", parse_mode="Markdown")
+        await update.message.reply_text("ℹ️ Don sotish uchun miqdorni yozing: `/sellfood 700`\n(Kurs: 700 Don = 500 Oltin)", parse_mode="Markdown")
         return
     try:
         amt = int(context.args[0].strip())

@@ -4889,18 +4889,18 @@ async def extend_war_duration(
 # ============================================================
 
 async def sell_food_for_gold(session: AsyncSession, user_id: int, food_amount: int) -> Tuple[bool, str]:
-    """Donni (oziq-ovqat) oltinga almashtirish (2 Don = 1 Oltin)"""
+    """Donni (oziq-ovqat) oltinga almashtirish (700 Don = 500 Oltin kursi)"""
     user = await get_user_any(session, user_id)
     if not user:
         return False, "Foydalanuvchi topilmadi."
 
-    if food_amount < 100:
-        return False, "❌ Minimal sotish miqdori — 100🌾 don!"
+    if food_amount < 50:
+        return False, "❌ Minimal sotish miqdori — 50🌾 don!"
 
     if (user.food or 0) < food_amount:
         return False, f"❌ Sizda buncha don yo'q!\nSizda: {(user.food or 0):,}🌾 | So'ralgan: {food_amount:,}🌾"
 
-    gold_earned = food_amount // 2
+    gold_earned = max(1, int(food_amount * 500 / 700))
     user.food = (user.food or 0) - food_amount
     user.gold = (user.gold or 0) + gold_earned
     await session.commit()
@@ -7178,12 +7178,15 @@ async def dispatch_trade_caravan(
         return False, "❌ Karvon faqat Oziq-ovqat (food) yoki Temir (iron) tashiydi."
 
     valid_tiers = {
-        5000: 500,
-        10000: 1200,
-        20000: 2600,
+        700: 500,
+        1500: 1100,
+        3000: 2200,
+        5000: 3800,
+        10000: 8000,
+        20000: 16000,
     }
     if amount not in valid_tiers:
-        return False, "❌ Karvon yuki miqdori 5,000, 10,000 yoki 20,000 bo'lishi kerak."
+        return False, "❌ Karvon yuki miqdori 700, 1,500, 3,000 yoki 5,000 bo'lishi kerak."
 
     user_res = await session.execute(select(models.User).where(models.User.id == user_id))
     user = user_res.scalar_one_or_none()
