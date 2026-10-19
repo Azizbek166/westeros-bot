@@ -1,3 +1,4 @@
+from typing import Optional, Dict, List, Any
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 from data.houses_data import HOUSES_DATA
 from data.map_data import REGIONS_DATA, TERRITORIES_DATA
