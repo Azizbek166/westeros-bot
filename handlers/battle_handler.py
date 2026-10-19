@@ -1252,7 +1252,7 @@ async def def_rf_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 ],
             ]
 
-            if is_lord:
+            if is_own or (terr.conquered_by_user_id == user.id):
                 buttons.append([
                     InlineKeyboardButton("↩️ Garnizondan Askarlarni Qaytarish", callback_data=f"def_withdraw_rf:{terr.id}"),
                 ])
@@ -1794,11 +1794,6 @@ async def handle_battle_text_input(update: Update, context: ContextTypes.DEFAULT
                 return
 
             house = user.house
-            is_lord = (house.lord_user_id == user.telegram_id) or user.rank == "king"
-            if not is_lord:
-                await update.message.reply_text("❌ Faqat Xonadon Lordi g'aznadan mablag' yechish huquqiga ega!")
-                return
-
             avail = getattr(house, res_type, 0) or 0
             if text.lower() in ["all", "hamma", "barchasi", "bori"]:
                 amount = avail

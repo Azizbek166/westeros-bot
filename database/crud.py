@@ -2029,13 +2029,14 @@ async def withdraw_castle_reinforcements(
     if not user or not territory:
         return False, "Foydalanuvchi yoki qal'a topilmadi.", {}
 
-    if not user.house_id or territory.owner_house_id != user.house_id:
-        return False, "❌ Siz faqat o'z xonadoningiz qal'asi garnizonidan askar qaytara olasiz!", {}
+    can_withdraw = False
+    if user.house_id and territory.owner_house_id == user.house_id:
+        can_withdraw = True
+    elif territory.conquered_by_user_id == user.id:
+        can_withdraw = True
 
-    house = await session.get(models.House, user.house_id)
-    is_lord = house and ((house.lord_user_id == user.telegram_id) or (user.rank == "king"))
-    if not is_lord:
-        return False, "❌ Qal'a garnizonidan askarlarni qaytarib olish huquqi faqat Xonadon Lordiga tegishli!", {}
+    if not can_withdraw:
+        return False, "❌ Siz faqat o'z xonadoningiz yoki shaxsan zabt etgan qal'angiz garnizonidan askar qaytara olasiz!", {}
 
     army_res = await session.execute(select(models.Army).where(models.Army.user_id == user.id))
     army = army_res.scalar_one_or_none()
@@ -2414,9 +2415,34 @@ async def withdraw_house_treasury(
     if not user or not house:
         return False, "Foydalanuvchi yoki xonadon topilmadi."
 
-    is_lord = (house.lord_user_id == user.telegram_id) or user.rank == "king"
+    # 1. Hukmdorlik huquqini tekshirish:
+    # Lord (lord_user_id == telegram_id yoki user.id), King yoki Commander unvoni,
+    # yoki agar xonadonda hali Lord tayinlanmagan bo'lsa (lord_user_id is None) - har bir xonadon a'zosi regent sifatida
+    is_lord = (
+        (house.lord_user_id and (house.lord_user_id == user.telegram_id or house.lord_user_id == user.id))
+        or (getattr(user, "rank", "") in ["king", "commander"])
+        or (house.lord_user_id is None and user.house_id == house.id)
+    )
+
     if not is_lord:
-        return False, "❌ Faqat Xonadon Lordi g'aznadan foydalanish huquqiga ega!"
+        # Oddiy a'zo uchun ruxsat: o'zining hissasi + kunlik xonadon ulushi (2,500 oltin, 5,000 oziq, 2,500 temir)
+        hm_res = await session.execute(
+            select(models.HouseMember).where(
+                models.HouseMember.user_id == user.id,
+                models.HouseMember.house_id == house.id
+            )
+        )
+        hm = hm_res.scalar_one_or_none()
+        c_gold = (hm.contribution_gold if hm else 0) + 2500
+        c_food = (hm.contribution_food if hm else 0) + 5000
+        c_iron = (hm.contribution_iron if hm else 0) + 2500
+
+        if gold > c_gold:
+            return False, f"❌ Siz oddiy a'zo sifatida ko'pi bilan o'z hissangiz va kunlik ulushingiz ({c_gold:,}🪙) miqdorida yecha olasiz! Undan ortig'ini faqat Xonadon Lordi tasarruf eta oladi."
+        if food > c_food:
+            return False, f"❌ Siz oddiy a'zo sifatida ko'pi bilan o'z hissangiz va kunlik ulushingiz ({c_food:,}🌾) miqdorida yecha olasiz! Undan ortig'ini faqat Xonadon Lordi tasarruf eta oladi."
+        if iron > c_iron:
+            return False, f"❌ Siz oddiy a'zo sifatida ko'pi bilan o'z hissangiz va kunlik ulushingiz ({c_iron:,}⛓️) miqdorida yecha olasiz! Undan ortig'ini faqat Xonadon Lordi tasarruf eta oladi."
 
     if gold < 0 or food < 0 or iron < 0:
         return False, "Miqdor manfiy bo'lishi mumkin emas!"

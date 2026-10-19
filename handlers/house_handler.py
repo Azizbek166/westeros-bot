@@ -46,24 +46,39 @@ async def show_house(target, user_id: int, is_message: bool):
 
         terr_names = ", ".join([t.name for t in territories]) if territories else "Hozircha yo'q"
 
+        is_lord = (
+            (house.lord_user_id and (house.lord_user_id == user.telegram_id or house.lord_user_id == user.id))
+            or (getattr(user, "rank", "") in ["king", "commander"])
+            or (house.lord_user_id is None and user.house_id == house.id)
+        )
+        if (house.lord_user_id and (house.lord_user_id == user.telegram_id or house.lord_user_id == user.id)) or user.rank == "king":
+            role_text = "Xonadonning Yagona Hukmdori (Lord)"
+        elif user.rank == "commander":
+            role_text = "Xonadon Bosh Sarkardasi (Commander)"
+        elif house.lord_user_id is None:
+            role_text = "Xonadon Muvaqqat Boshqaruvchisi (Regent Lord)"
+        else:
+            role_text = "Sodiq Xonadon A'zosi"
+
         buttons = [
             [InlineKeyboardButton("👑 Xonadon Hukmdori Ma'lumotlari", callback_data="house_members")],
-            [InlineKeyboardButton("💰 G'aznaga Ehson Qilish", callback_data="house_donate_menu"),
-             InlineKeyboardButton("🏆 Eng Saxiylar", callback_data="house_top_donors")],
-            [InlineKeyboardButton("🏰 Egallangan Qal'alarimiz", callback_data="menu_castles")],
+            [
+                InlineKeyboardButton("💰 G'aznaga Ehson", callback_data="house_donate_menu"),
+                InlineKeyboardButton("💸 G'aznadan Pul Olish", callback_data="house_treasury_manage"),
+            ],
+            [
+                InlineKeyboardButton("🏆 Eng Saxiylar", callback_data="house_top_donors"),
+                InlineKeyboardButton("🏰 Qal'alarimiz", callback_data="menu_castles"),
+            ],
+            [InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")],
         ]
-        is_lord = (house.lord_user_id == user.telegram_id) or user.rank == "king"
-        if is_lord:
-            buttons.append([InlineKeyboardButton("🏛️ Xonadon G'aznasini Boshqarish (Lord)", callback_data="house_treasury_manage")])
-
-        buttons.append([InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")])
 
         text = (
             f"🏰 **XONADON MA'LUMOTLARI**\n\n"
             f"{house.emoji} **{house.name}**\n"
             f"📍 Mintaqa: **{house.region}**\n"
             f"👑 Xonadon Lordi: **{escape_md(lord_name)}**\n"
-            f"🎖️ Sizning Maqomingiz: **Xonadonning Yagona Hukmdori (Lord)**\n\n"
+            f"🎖️ Sizning Maqomingiz: **{role_text}**\n\n"
             f"📜 Shior: _{escape_md(house.description)}_\n\n"
             f"🏛️ **Xonadon Umumiy G'aznasi:**\n"
             f"• 🪙 Oltin: **{house.gold:,}** | 🌾 Oziq: **{house.food:,}** | ⛓️ Temir: **{house.iron:,}**\n\n"
@@ -509,6 +524,7 @@ async def house_donate_menu_callback(update: Update, context: ContextTypes.DEFAU
                 InlineKeyboardButton("✍️ 🌾 Oziq (Qo'lda)", callback_data="h_custom_donate:food"),
                 InlineKeyboardButton("✍️ ⛓️ Temir (Qo'lda)", callback_data="h_custom_donate:iron"),
             ],
+            [InlineKeyboardButton("💸 G'aznadan Pul / Resurs Yechish", callback_data="house_treasury_manage")],
             [InlineKeyboardButton("🔙 Xonadonga Qaytish", callback_data="menu_house")],
         ]
         await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
@@ -611,69 +627,91 @@ async def house_top_donors_callback(update: Update, context: ContextTypes.DEFAUL
 
 
 async def house_treasury_manage_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Lord uchun xonadon g'aznasini tasarruf etish boshqaruvi"""
+    """Xonadon g'aznasini tasarruf etish va pul/resurs yechish boshqaruvi"""
     query = update.callback_query
-    await query.answer()
+    try:
+        await query.answer()
+    except Exception:
+        pass
     user_id = query.from_user.id
 
     async with AsyncSessionLocal() as session:
         user = await crud.get_user_with_relations(session, user_id)
         if not user or not user.house:
+            await query.answer("❌ Xonadon topilmadi.", show_alert=True)
             return
 
         house = user.house
-        is_lord = (house.lord_user_id == user.telegram_id) or user.rank == "king"
-        if not is_lord:
-            await query.answer("❌ Faqat Xonadon Lordi g'aznadan foydalanishi mumkin!", show_alert=True)
-            return
+        is_lord = (
+            (house.lord_user_id and (house.lord_user_id == user.telegram_id or house.lord_user_id == user.id))
+            or (getattr(user, "rank", "") in ["king", "commander"])
+            or (house.lord_user_id is None and user.house_id == house.id)
+        )
 
         members_count = await crud.get_house_members_count(session, house.id)
 
+        if is_lord:
+            status_desc = "👑 **Siz Xonadon Boshqaruvchisisiz!** Umumiy g'aznani xonadon manfaati uchun tasarruf etishingiz yoki o'zingizga olishingiz mumkin."
+        else:
+            status_desc = "👤 **Xonadon A'zosi:** Siz umumiy g'aznadan o'z hissangiz va kunlik xonadon ta'minoti doirasida mablag' yechishingiz mumkin."
+
         text = (
             f"🏛️ **XONADON G'AZNASI BOSHQARUVI — {house.emoji} {house.name}**\n\n"
-            f"👑 Xonadon Lordi sifatida siz umumiy g'aznani xonadon manfaati uchun tasarruf etishingiz mumkin.\n\n"
-            f"💰 **G'AZNA ZAXIRASI:**\n"
+            f"{status_desc}\n\n"
+            f"💰 **XONADON G'AZNASI:**\n"
             f"• 🪙 Oltin: **{house.gold:,}**\n"
             f"• 🌾 Oziq-ovqat: **{house.food:,}**\n"
             f"• ⛓️ Temir: **{house.iron:,}**\n\n"
-            f"👥 **Xonadon a'zolari:** {members_count} nafar\n\n"
-            f"Kerakli amaliyotni tanlang:"
+            f"🎒 **Shaxsiy Hamyoningiz:**\n"
+            f"• 🪙 Oltin: **{user.gold:,}** | 🌾 Oziq: **{user.food:,}** | ⛓️ Temir: **{user.iron:,}**\n\n"
+            f"Kerakli miqdorni tanlang yoki o'zingiz yozing:"
         )
 
         context.user_data.pop("awaiting_house_with_input", None)
         buttons = [
             [
-                InlineKeyboardButton("✍️ 🪙 Oltin Yechish (Qo'lda)", callback_data="h_custom_with:gold"),
-            ],
-            [
-                InlineKeyboardButton("✍️ 🌾 Oziq Yechish (Qo'lda)", callback_data="h_custom_with:food"),
-                InlineKeyboardButton("✍️ ⛓️ Temir Yechish (Qo'lda)", callback_data="h_custom_with:iron"),
-            ],
-            [
+                InlineKeyboardButton("🪙 -500 Oltin", callback_data="h_with:gold:500"),
                 InlineKeyboardButton("🪙 -1,000 Oltin", callback_data="h_with:gold:1000"),
                 InlineKeyboardButton("🪙 -2,500 Oltin", callback_data="h_with:gold:2500"),
             ],
             [
+                InlineKeyboardButton("🪙 -5,000 Oltin", callback_data="h_with:gold:5000"),
+                InlineKeyboardButton("🪙 Barcha Oltin (All)", callback_data="h_with:gold:all"),
+            ],
+            [
                 InlineKeyboardButton("🌾 -2,000 Oziq", callback_data="h_with:food:2000"),
+                InlineKeyboardButton("🌾 Barcha Oziq (All)", callback_data="h_with:food:all"),
+            ],
+            [
                 InlineKeyboardButton("⛓️ -1,000 Temir", callback_data="h_with:iron:1000"),
+                InlineKeyboardButton("⛓️ Barcha Temir (All)", callback_data="h_with:iron:all"),
             ],
             [
-                InlineKeyboardButton("🎁 Har Bir A'zoga +500🪙 Ulashish", callback_data="h_dist:gold:500"),
+                InlineKeyboardButton("✍️ 🪙 Oltin (Qo'lda)", callback_data="h_custom_with:gold"),
+                InlineKeyboardButton("✍️ 🌾 Oziq (Qo'lda)", callback_data="h_custom_with:food"),
+                InlineKeyboardButton("✍️ ⛓️ Temir (Qo'lda)", callback_data="h_custom_with:iron"),
             ],
-            [
-                InlineKeyboardButton("🎁 Har Bir A'zoga +1,000🌾 Ulashish", callback_data="h_dist:food:1000"),
-            ],
-            [
-                InlineKeyboardButton("🔙 Xonadonga Qaytish", callback_data="menu_house"),
-            ]
         ]
+        if is_lord:
+            buttons.append([
+                InlineKeyboardButton("🎁 Har Bir A'zoga +500🪙 Ulashish", callback_data="h_dist:gold:500"),
+            ])
+            buttons.append([
+                InlineKeyboardButton("🎁 Har Bir A'zoga +1,000🌾 Ulashish", callback_data="h_dist:food:1000"),
+            ])
+        buttons.append([
+            InlineKeyboardButton("🔙 Xonadonga Qaytish", callback_data="menu_house"),
+        ])
         await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
 
 
 async def house_treasury_custom_with_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Lord uchun xonadon g'aznasidan qo'lda yozib resurs yechib olish so'rovi"""
+    """Xonadon g'aznasidan qo'lda yozib resurs yechib olish so'rovi"""
     query = update.callback_query
-    await query.answer()
+    try:
+        await query.answer()
+    except Exception:
+        pass
     res_type = query.data.split(":")[1]
     user_id = query.from_user.id
 
@@ -684,11 +722,6 @@ async def house_treasury_custom_with_callback(update: Update, context: ContextTy
             return
 
         house = user.house
-        is_lord = (house.lord_user_id == user.telegram_id) or user.rank == "king"
-        if not is_lord:
-            await query.answer("❌ Faqat Xonadon Lordi g'aznadan foydalanishi mumkin!", show_alert=True)
-            return
-
         avail = getattr(house, res_type, 0) or 0
 
     res_names = {"gold": "🪙 Oltin", "food": "🌾 Oziq-ovqat", "iron": "⛓️ Temir"}
@@ -710,22 +743,31 @@ async def house_treasury_custom_with_callback(update: Update, context: ContextTy
 
 
 async def house_treasury_withdraw_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """G'aznadan Lord shaxsiy hisobiga mablag' yechish"""
+    """G'aznadan shaxsiy hisobga mablag' yechish"""
     query = update.callback_query
     parts = query.data.split(":")
     res_type = parts[1]
-    amount = int(parts[2])
+    count_val = parts[2]
     user_id = query.from_user.id
-
-    gold = amount if res_type == "gold" else 0
-    food = amount if res_type == "food" else 0
-    iron = amount if res_type == "iron" else 0
 
     async with AsyncSessionLocal() as session:
         user = await crud.get_user_with_relations(session, user_id)
-        if not user or not user.house_id:
+        if not user or not user.house_id or not user.house:
             await query.answer("Xonadon topilmadi.", show_alert=True)
             return
+
+        house = user.house
+        if count_val == "all":
+            amount = getattr(house, res_type, 0) or 0
+        else:
+            try:
+                amount = int(count_val)
+            except Exception:
+                amount = 0
+
+        gold = amount if res_type == "gold" else 0
+        food = amount if res_type == "food" else 0
+        iron = amount if res_type == "iron" else 0
 
         ok, msg = await crud.withdraw_house_treasury(
             session=session,
@@ -736,7 +778,10 @@ async def house_treasury_withdraw_callback(update: Update, context: ContextTypes
             iron=iron,
         )
 
-    await query.answer(msg, show_alert=True)
+    try:
+        await query.answer(msg.replace("*", "").replace("`", ""), show_alert=True)
+    except Exception:
+        pass
     await house_treasury_manage_callback(update, context)
 
 
