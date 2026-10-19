@@ -224,6 +224,7 @@ class Territory(Base):
     garrison_spearmen = Column(Integer, default=50)
 
     is_capital = Column(Boolean, default=False)  # King's Landing, Winterfell va h.k.
+    castle_tier = Column(Integer, default=2)     # Qal'a toifasi (1: Oliy/Poytaxt, 2: Strategik, 3: Mahalliy/Chegara)
     castle_level = Column(Integer, default=1)  # Qal'a istehkom darajasi (Tier 1-5)
     wildfire_count = Column(Integer, default=0) # Alkimyogarlar Yovvoyi Olovi (Wildfire, max 5)
     gates_compromised_until = Column(DateTime, nullable=True) # Josus tomonidan darvoza ochilgan vaqt muddati

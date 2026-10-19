@@ -202,9 +202,17 @@ async def view_territory_callback(update: Update, context: ContextTypes.DEFAULT_
         t_name = terr.name or "Hudud"
         reg = terr.region or "Vesteros"
 
+        tier_badges = {
+            1: "🌟 1-Toifa: Oliy & Poytaxt Qal'asi",
+            2: "🏰 2-Toifa: Strategik Viloyat Qal'asi",
+            3: "🛡️ 3-Toifa: Chegara & Mahalliy Istehkom",
+        }
+        tier_title = tier_badges.get(getattr(terr, "castle_tier", 2) or 2, "🏰 2-Toifa: Strategik Qal'a")
+
         text = (
             f"🏰 **{t_name.upper()} — {c_name}**\n\n"
             f"📍 Mintaqa: **{reg}**\n"
+            f"🏷️ Qal'a Toifasi: **{tier_title}**\n"
             f"👑 Hukmron Xonadon: **{clean_owner}**{ally_tag}\n"
             f"👥 Aholi: **{pop:,}**\n\n"
             f"💰 **SOATLIK DAROMAD:**\n"
@@ -530,9 +538,17 @@ async def show_my_castle_detail(query, user_id: int, terr_id: int):
         can_lib = bool(user and crud.is_castle_liberable(user, terr))
         status_tag = "⚔️ **Qal'a Maqomi:** Egallangan Qal'a *(🏳️ Ozod qilish mumkin)*\n" if can_lib else "👑 **Qal'a Maqomi:** Xonadonning Asosiy Poytaxti\n"
 
+        tier_badges = {
+            1: "🌟 1-Toifa: Oliy & Poytaxt Qal'asi",
+            2: "🏰 2-Toifa: Strategik Viloyat Qal'asi",
+            3: "🛡️ 3-Toifa: Chegara & Mahalliy Istehkom",
+        }
+        c_tier_title = tier_badges.get(getattr(terr, "castle_tier", 2) or 2, "🏰 2-Toifa: Strategik Qal'a")
+
         text = (
             f"🏰 **QAL'A BOSHQARUVI: {c_name}**\n\n"
             f"📍 Hudud: **{escape_md(terr.name)}** ({escape_md(terr.region)})\n"
+            f"🏷️ Qal'a Toifasi: **{c_tier_title}**\n"
             f"{status_tag}"
             f"🏛️ Qal'a Bosqichi: **{tier_str}**\n"
             f"🛡️ Mudofaa Devori: **{defense_val:,}** / {MAX_WALL_DEFENSE:,} ball{wall_max_str}\n"

@@ -1604,6 +1604,18 @@ async def handle_battle_text_input(update: Update, context: ContextTypes.DEFAULT
     if not update.message or not update.message.text:
         return
 
+    # Agar foydalanuvchi VIP profil sozlamalarini kiritayotgan bo'lsa
+    if any(context.user_data.get(k) for k in [
+        "awaiting_vip_status",
+        "awaiting_vip_decree",
+        "awaiting_vip_audio",
+        "awaiting_vip_photo",
+        "awaiting_char_name_change"
+    ]):
+        from handlers.profile_handler import vip_input_receiver
+        await vip_input_receiver(update, context)
+        return
+
     # Agar foydalanuvchi qahramon nomini kiritayotgan bo'lsa
     if context.user_data.get("awaiting_custom_name"):
         from handlers.start_handler import handle_custom_name_input

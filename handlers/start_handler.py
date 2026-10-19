@@ -519,7 +519,7 @@ async def handle_custom_name_input(update: Update, context: ContextTypes.DEFAULT
             f"📦 **Boshlang'ich Ta'minot:**\n"
             f"• 🪙 Oltin: **250** | 🌾 Oziq: **500** | ⛓️ Temir: **125**\n"
             f"• 🛡️ Armiya: **100** piyoda, **50** kamonchi, **25** otliq, **25** nayzachi\n"
-            f"• 🏰 Qal'a mudofaasi: **500** ball | Soatlik daromad: **+100🪙, +250🌾, +75⛓️**\n\n"
+            f"• 🏰 Qal'a mudofaasi: **500** ball | Soatlik daromad: **+200🪙, +500🌾, +150⛓️**\n\n"
             f"🛡️ Yangi hukmdor sifatida sizga **3 kunlik Tinchlik Qalqoni (Peace Shield)** taqdim etildi!\n\n"
             f"Qal'angizni boshqaring, devorlarini mustahkamlang, askarlar yollang va Temir Taxt uchun jangga otlaning!"
         )

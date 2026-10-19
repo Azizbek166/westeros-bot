@@ -138,6 +138,7 @@ async def init_db():
                 "ALTER TABLE users ADD COLUMN weekly_gold_earned BIGINT DEFAULT 0",
                 "ALTER TABLE users ADD COLUMN weekly_prestige_earned INTEGER DEFAULT 0",
                 "ALTER TABLE users ADD COLUMN weekly_limit_date VARCHAR(10) DEFAULT ''",
+                "ALTER TABLE territories ADD COLUMN castle_tier INTEGER DEFAULT 2",
             ]:
                 try:
                     await conn.execute(text(alter_stmt))
@@ -195,6 +196,7 @@ async def init_db():
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS weekly_gold_earned BIGINT DEFAULT 0",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS weekly_prestige_earned INTEGER DEFAULT 0",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS weekly_limit_date VARCHAR(10) DEFAULT ''",
+                "ALTER TABLE territories ADD COLUMN IF NOT EXISTS castle_tier INTEGER DEFAULT 2",
             ]:
                 try:
                     await conn.execute(text(pg_alter))
@@ -321,16 +323,18 @@ async def init_db():
                     garrison_cavalry=t_info.get("garrison_cavalry", 50),
                     garrison_spearmen=t_info.get("garrison_spearmen", 50),
                     is_capital=t_info.get("is_capital", False),
+                    castle_tier=t_info.get("castle_tier", 2),
                     castle_level=1,
                 )
                 session.add(new_territory)
             else:
                 if result.owner_house_id is None and not result.conquered_by_user_id:
                     result.owner_house_id = t_info.get("initial_owner_id")
-                # Barcha qal'alar solig'ini map_data bilan muvofiqlashtirish
+                # Barcha qal'alar solig'i va toifasini map_data bilan muvofiqlashtirish
                 result.gold_income = t_info.get("gold_income", 20)
                 result.food_income = t_info.get("food_income", 50)
                 result.iron_income = t_info.get("iron_income", 15)
+                result.castle_tier = t_info.get("castle_tier", 2)
 
 
         # Tun Qiroli (White Walkers) global eventini 500,000 HP ga yangilash

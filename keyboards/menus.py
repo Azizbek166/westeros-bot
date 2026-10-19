@@ -59,20 +59,19 @@ def main_menu_keyboard(user_id: int = None) -> InlineKeyboardMarkup:
             InlineKeyboardButton("🏇 Turnir & Stavka", callback_data="menu_tourney"),
         ],
         [
+            InlineKeyboardButton("⚖️ Savdo Bozori", callback_data="menu_trade"),
             InlineKeyboardButton("🐪 Savdo Karvoni", callback_data="menu_caravan"),
+        ],
+        [
             InlineKeyboardButton("🌤️ Ob-havo", callback_data="menu_weather"),
+            InlineKeyboardButton("🎁 Kunlik Tuhfalar", callback_data="menu_daily"),
         ],
     ]
 
     # Faqat bot egasi va ruxsat berilgan adminlar ko'ra oladi
     if user_id and user_id in ADMIN_IDS:
         buttons.append([
-            InlineKeyboardButton("🎁 Kunlik Tuhfalar", callback_data="menu_daily"),
             InlineKeyboardButton("⚙️ Admin Paneli", callback_data="admin_panel"),
-        ])
-    else:
-        buttons.append([
-            InlineKeyboardButton("🎁 Kunlik Tuhfalar", callback_data="menu_daily"),
         ])
 
     return InlineKeyboardMarkup(buttons)

@@ -454,9 +454,10 @@ async def create_custom_house_user_and_territory(
         castle_name=clean_castle,
         owner_house_id=new_house.id,
         population=50000,
-        gold_income=100,
-        food_income=250,
-        iron_income=75,
+        gold_income=200,
+        food_income=500,
+        iron_income=150,
+        castle_tier=2,
         defense=500,
         garrison_infantry=200,
         garrison_archers=100,
@@ -7682,9 +7683,9 @@ async def update_user_custom_status(session: AsyncSession, user_id: int, status_
     if not user:
         return False, "O'yinchi topilmadi."
 
-    allowed = ["dragonlord", "sovereign"]
+    allowed = ["lord", "dragonlord", "sovereign"]
     if user.vip_tier not in allowed:
-        return False, "❌ Shaxsiy status/shior qo'yish uchun kamida «🐉 Valyriya Merosi» VIP to'plami talab qilinadi."
+        return False, "❌ Shaxsiy status/shior qo'yish uchun kamida «🏰 Lordlar Xazinasi» VIP to'plami talab qilinadi."
 
     if status_text:
         clean_text = status_text.strip()[:100]
@@ -7700,14 +7701,14 @@ async def update_user_custom_status(session: AsyncSession, user_id: int, status_
 
 
 async def update_user_custom_audio(session: AsyncSession, user_id: int, file_id: Optional[str], audio_title: Optional[str] = None) -> Tuple[bool, str]:
-    """Profil fon musiqasi / gimnini o'rnatish (Valyriya va Sovereign uchun)"""
+    """Profil fon musiqasi / gimnini o'rnatish (VIP foydalanuvchilar uchun)"""
     user = await session.get(models.User, user_id)
     if not user:
         return False, "O'yinchi topilmadi."
 
-    allowed = ["dragonlord", "sovereign"]
+    allowed = ["lord", "dragonlord", "sovereign"]
     if user.vip_tier not in allowed:
-        return False, "❌ Shaxsiy musiqa biriktirish uchun kamida «🐉 Valyriya Merosi» VIP to'plami talab qilinadi."
+        return False, "❌ Shaxsiy musiqa biriktirish uchun kamida «🏰 Lordlar Xazinasi» VIP to'plami talab qilinadi."
 
     user.custom_audio_file_id = file_id
     if audio_title or file_id:
