@@ -12,8 +12,17 @@ MEDALS = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8
 
 
 def get_user_display_name(u: models.User) -> str:
-    """O'yinchining ifodali nomi: Qahramon nomi yoki Telegram ismi, username bilan"""
-    hero_name = u.characters[0].name if getattr(u, "characters", None) and len(u.characters) > 0 else u.full_name
+    """O'yinchining ifodali nomi: Qahramon nomi yoki Telegram ismi, username bilan (lazy-load xatolaridan to'liq himoyalangan)"""
+    hero_name = getattr(u, "full_name", None) or "Lord"
+    try:
+        from sqlalchemy.orm import inspect
+        insp = inspect(u)
+        if "characters" in insp.dict:
+            chars = insp.dict["characters"]
+            if chars and len(chars) > 0 and getattr(chars[0], "name", None):
+                hero_name = chars[0].name
+    except Exception:
+        pass
     uname = f" (@{u.username})" if getattr(u, "username", None) else ""
     return f"{hero_name}{uname}"
 

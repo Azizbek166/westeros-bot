@@ -924,7 +924,7 @@ async def get_top10_wealth(session: AsyncSession, period: str = "all") -> List[m
     query = (
         select(models.User)
         .where(models.User.is_banned == False)
-        .options(selectinload(models.User.house))
+        .options(selectinload(models.User.house), selectinload(models.User.characters))
     )
     if period == "daily":
         query = query.order_by(desc(models.User.daily_gold_earned), desc(models.User.gold))
@@ -968,51 +968,38 @@ async def get_top10_armies_detailed(session: AsyncSession) -> List[Dict[str, Any
 
 async def get_top10_castles(session: AsyncSession) -> List[Dict[str, Any]]:
     """Zabt etilgan yoki boshqarilayotgan qal'alar bo'yicha TOP 10 lordlar"""
-    c_res = await session.execute(
-        select(
-            models.User,
-            func.count(models.Territory.id).label("conquered_cnt")
-        )
-        .join(models.Territory, models.Territory.conquered_by_user_id == models.User.id)
+    users_res = await session.execute(
+        select(models.User)
         .where(models.User.is_banned == False)
-        .group_by(models.User.id)
-        .options(selectinload(models.User.house))
-        .order_by(desc("conquered_cnt"))
-        .limit(10)
+        .options(selectinload(models.User.house), selectinload(models.User.characters))
     )
+    users = users_res.scalars().all()
     user_castles = []
-    seen_users = set()
-    for u, cnt in c_res.all():
-        seen_users.add(u.id)
-        user_castles.append({
-            "user": u,
-            "castles_count": cnt,
-            "is_lord": (u.rank in ["king", "commander"]),
-        })
 
-    if len(user_castles) < 10:
-        lords_res = await session.execute(
-            select(models.House, models.User)
-            .join(models.User, models.House.lord_user_id == models.User.telegram_id)
-            .where(models.User.is_banned == False)
-            .options(selectinload(models.User.house))
+    for u in users:
+        # Shaxsan o'zi zabt etgan qal'alar
+        conq_res = await session.execute(
+            select(func.count(models.Territory.id)).where(models.Territory.conquered_by_user_id == u.id)
         )
-        for h, lord in lords_res.all():
-            if lord.id in seen_users:
-                continue
-            t_cnt_res = await session.execute(
-                select(func.count(models.Territory.id)).where(models.Territory.owner_house_id == h.id)
-            )
-            t_cnt = t_cnt_res.scalar() or 0
-            if t_cnt > 0:
-                user_castles.append({
-                    "user": lord,
-                    "castles_count": t_cnt,
-                    "is_lord": True,
-                })
-                seen_users.add(lord.id)
+        conq_cnt = conq_res.scalar() or 0
 
-    user_castles.sort(key=lambda x: x["castles_count"], reverse=True)
+        # Xonadon poytaxti / xonadoniga tegishli qal'alar
+        house_cnt = 0
+        if u.house_id:
+            h_terr_res = await session.execute(
+                select(func.count(models.Territory.id)).where(models.Territory.owner_house_id == u.house_id)
+            )
+            house_cnt = h_terr_res.scalar() or 0
+
+        tot_castles = max(conq_cnt, house_cnt)
+        if tot_castles > 0:
+            user_castles.append({
+                "user": u,
+                "castles_count": tot_castles,
+                "is_lord": (u.rank in ["king", "commander"]),
+            })
+
+    user_castles.sort(key=lambda x: (x["castles_count"], getattr(x["user"], "prestige", 0) or 0), reverse=True)
     return user_castles[:10]
 
 
@@ -1022,7 +1009,7 @@ async def get_top10_dragons(session: AsyncSession) -> List[Dict[str, Any]]:
         select(models.Dragon, models.User)
         .join(models.User, models.Dragon.user_id == models.User.id)
         .where(models.User.is_banned == False)
-        .options(selectinload(models.User.house))
+        .options(selectinload(models.User.house), selectinload(models.User.characters))
         .order_by(desc(models.Dragon.power), desc(models.Dragon.level))
         .limit(10)
     )
@@ -1057,7 +1044,7 @@ async def get_season_champion_candidate(session: AsyncSession) -> Dict[str, Any]
 
     if kl_terr:
         if kl_terr.conquered_by_user_id:
-            c_u = await session.get(models.User, kl_terr.conquered_by_user_id)
+            c_u = await get_user_with_relations(session, kl_terr.conquered_by_user_id)
             if c_u and not c_u.is_banned:
                 champion_user = c_u
                 champion_house = await session.get(models.House, c_u.house_id) if c_u.house_id else None
@@ -1067,7 +1054,7 @@ async def get_season_champion_candidate(session: AsyncSession) -> Dict[str, Any]
         if not champion_user and kl_terr.owner_house_id:
             h = await session.get(models.House, kl_terr.owner_house_id)
             if h and not h.is_npc and h.lord_user_id:
-                l_u = await get_user_by_telegram_id(session, h.lord_user_id)
+                l_u = await get_user_with_relations(session, h.lord_user_id)
                 if l_u and not l_u.is_banned:
                     champion_user = l_u
                     champion_house = h
@@ -1078,7 +1065,11 @@ async def get_season_champion_candidate(session: AsyncSession) -> Dict[str, Any]
         users_res = await session.execute(
             select(models.User)
             .where(models.User.is_banned == False)
-            .options(selectinload(models.User.house), selectinload(models.User.army))
+            .options(
+                selectinload(models.User.house),
+                selectinload(models.User.army),
+                selectinload(models.User.characters)
+            )
         )
         all_users = users_res.scalars().all()
 
