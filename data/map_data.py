@@ -777,7 +777,7 @@ TERRITORIES_DATA = {
         "name": "Barrowton",
         "region": "The North",
         "castle": "Barrow Hall Qasri",
-        "initial_owner_id": 15,
+        "initial_owner_id": None,
         "population": 38000,
         "gold_income": 210,
         "food_income": 580,

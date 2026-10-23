@@ -72,7 +72,8 @@ async def process_due_marches(bot_app=None):
                     if dragon.hunger >= 20:
                         dragon_pwr = dragon.power
                         dragon.hunger = max(0, dragon.hunger - 25)  # Drakarys 25 ochlik sarflaydi
-                        dragon.power += 5  # Tajriba oshishi
+                        max_p = crud.get_max_dragon_power(dragon.level, dragon.stage, dragon.artifact_code)
+                        dragon.power = min(max_p, (dragon.power or 0) + 5)  # Tajriba oshishi
                     else:
                         logger.info(f"{dragon.name} och bo'lgani uchun jangda qatnasha olmadi.")
 
@@ -224,7 +225,8 @@ async def process_due_marches(bot_app=None):
                     check_user_level_up(attacker)
 
                     if dragon and dragon_pwr > 0:
-                        dragon.power += 10  # G'alaba bonusi
+                        max_p = crud.get_max_dragon_power(dragon.level, dragon.stage, dragon.artifact_code)
+                        dragon.power = min(max_p, (dragon.power or 0) + 10)  # G'alaba bonusi
 
                     if att_house:
                         att_house.gold += int(tot_gold * 0.3)

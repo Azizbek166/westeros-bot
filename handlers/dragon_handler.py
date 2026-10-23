@@ -292,7 +292,9 @@ async def show_dragon_art_shop(query, user_id: int, dragon_id: int):
             btn_txt = f"{'✅ ' if is_equipped else '⚡ '}{item.get('name')} ({item.get('price_gold', 0):,}🪙, {item.get('price_iron', 0):,}⛓️)"
             if is_equipped:
                 btn_txt += " [Taqilgan]"
-            buttons.append([InlineKeyboardButton(btn_txt, callback_data=f"dragon_buy_art:{dragon.id}:{code}")])
+                buttons.append([InlineKeyboardButton(btn_txt, callback_data="dragon_art_already_equipped")])
+            else:
+                buttons.append([InlineKeyboardButton(btn_txt, callback_data=f"dragon_buy_art:{dragon.id}:{code}")])
 
         buttons.append([InlineKeyboardButton("🔙 Ajdarlarga Qaytish", callback_data="menu_dragons")])
         await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
@@ -324,6 +326,11 @@ async def dragon_buy_art_callback(update: Update, context: ContextTypes.DEFAULT_
 
     await query.answer(msg, show_alert=True)
     await show_dragon_art_shop(query, user_id, dragon_id)
+
+
+async def dragon_art_already_equipped_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer("✅ Ushbu artefakt allaqachon bu ajdarga taqilgan!", show_alert=True)
 
 
 async def dragon_max_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -463,6 +470,7 @@ def register_dragon_handlers(app):
     app.add_handler(CallbackQueryHandler(dragon_lay_egg_callback, pattern="^dragon_lay_egg_"))
     app.add_handler(CallbackQueryHandler(dragon_art_shop_callback, pattern="^dragon_art_shop_"))
     app.add_handler(CallbackQueryHandler(dragon_buy_art_callback, pattern="^dragon_buy_art:"))
+    app.add_handler(CallbackQueryHandler(dragon_art_already_equipped_callback, pattern="^dragon_art_already_equipped$"))
     app.add_handler(CallbackQueryHandler(dragon_max_callback, pattern="^dragon_max_"))
     app.add_handler(CallbackQueryHandler(dragon_release_ask_callback, pattern="^dragon_release_ask_"))
     app.add_handler(CallbackQueryHandler(dragon_release_confirm_callback, pattern="^dragon_release_confirm_"))

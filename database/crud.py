@@ -2564,6 +2564,35 @@ async def get_user_dragon(session: AsyncSession, user_id: int, dragon_id: Option
     return dragons[0]
 
 
+def get_base_dragon_power_for_level(level: int, stage: str = "adult") -> int:
+    """Ajdar darajasi va bosqichiga mos asosiy quvvat (Grade A bazasi)"""
+    level = max(1, min(20, level or 1))
+    if stage == "egg":
+        return 120
+    base = 200
+    for lvl in range(2, level + 1):
+        base += 35 + (lvl * 5)
+    return base
+
+
+def get_max_dragon_power(level: int, stage: str = "adult", artifact_code: Optional[str] = None) -> int:
+    """Ajdar darajasiga ko'ra ruxsat etilgan maksimal jangovar quvvat"""
+    level = max(1, min(20, level or 1))
+    base = get_base_dragon_power_for_level(level, stage)
+    # Har bir daraja uchun parvarish, boqish va jang tajribasi bonusi (+25 har daraja)
+    care_bonus = level * 25
+    total = base + care_bonus
+
+    if artifact_code:
+        from data.artifacts_data import ARTIFACTS_DATA
+        art = ARTIFACTS_DATA.get(artifact_code)
+        if art:
+            bonus_pct = art.get("dragon_bonus", 0.0)
+            total = int(total * (1.0 + bonus_pct))
+
+    return total
+
+
 async def claim_dragon_egg(session: AsyncSession, user_id: int, name: str, grade: str = "B") -> Tuple[bool, str, Optional[models.Dragon]]:
     """Yangi ajdar tuxumini xarid qilish (Maksimal 3 ta ajdar)"""
     user = await get_user_any(session, user_id)
@@ -2626,7 +2655,8 @@ async def hatch_dragon(session: AsyncSession, user_id: int, dragon_id: Optional[
     user.iron -= 1000
     user.gold -= 600
     dragon.stage = "baby"
-    dragon.power += 80
+    max_pwr = get_max_dragon_power(dragon.level, dragon.stage, dragon.artifact_code)
+    dragon.power = min(max_pwr, (dragon.power or 0) + 80)
     user.prestige += 37
     user.xp += 400
 
@@ -2656,10 +2686,11 @@ async def feed_dragon(session: AsyncSession, user_id: int, dragon_id: Optional[i
 
     user.food -= feed_cost
     dragon.hunger = min(100, dragon.hunger + 30)
-    dragon.power += 15
+    max_pwr = get_max_dragon_power(dragon.level, dragon.stage, dragon.artifact_code)
+    dragon.power = min(max_pwr, (dragon.power or 0) + 15)
     dragon.last_fed = datetime.utcnow()
     await session.commit()
-    return True, f"🍗 {dragon.name} to'yib ovqatlandi! Quvvat: {dragon.power} (To'qlik: {dragon.hunger}%)"
+    return True, f"🍗 {dragon.name} to'yib ovqatlandi! Quvvat: {dragon.power:,} (To'qlik: {dragon.hunger}%)"
 
 
 def get_dragon_upgrade_cost(dragon: models.Dragon) -> Dict[str, int]:
@@ -2709,16 +2740,18 @@ async def train_dragon(session: AsyncSession, user_id: int, dragon_id: Optional[
     dragon.hunger = max(0, dragon.hunger - 20)
     dragon.level += 1
     pwr_gain = 35 + (dragon.level * 5)
-    dragon.power += pwr_gain
-    user.xp += 150 + (dragon.level * 10)
-
     if dragon.level >= 5 and dragon.stage == "baby":
         dragon.stage = "adult"
+    max_pwr = get_max_dragon_power(dragon.level, dragon.stage, dragon.artifact_code)
+    dragon.power = min(max_pwr, (dragon.power or 0) + pwr_gain)
+    user.xp += 150 + (dragon.level * 10)
+
+    if dragon.stage == "adult" and dragon.level == 5:
         await session.commit()
-        return True, f"🦅 TABRIKLAYMIZ! {dragon.name} balog'atga yetib, bahaybat jangovar ajdarga aylandi! (Daraja: {dragon.level}, Quvvat: {dragon.power})"
+        return True, f"🦅 TABRIKLAYMIZ! {dragon.name} balog'atga yetib, bahaybat jangovar ajdarga aylandi! (Daraja: {dragon.level}, Quvvat: {dragon.power:,})"
 
     await session.commit()
-    return True, f"🔥 Dracarys! {dragon.name} kuchaytirildi: Daraja {dragon.level}/20, Jang Quvvati: +{pwr_gain} ({dragon.power})!"
+    return True, f"🔥 Dracarys! {dragon.name} kuchaytirildi: Daraja {dragon.level}/20, Jang Quvvati: +{pwr_gain} ({dragon.power:,})!"
 
 
 async def dragon_lay_egg(session: AsyncSession, user_id: int, dragon_id: int) -> Tuple[bool, str]:
@@ -2782,6 +2815,9 @@ async def equip_dragon_artifact(session: AsyncSession, user_id: int, dragon_id: 
     if not dragon or dragon.user_id != user.id:
         return False, "Ajdar topilmadi."
 
+    if dragon.artifact_code == artifact_code:
+        return False, "❌ Ushbu artefakt allaqachon bu ajdarga taqilgan!"
+
     from data.artifacts_data import ARTIFACTS_DATA
     if artifact_code not in ARTIFACTS_DATA:
         return False, "Artefakt topilmadi."
@@ -2795,13 +2831,29 @@ async def equip_dragon_artifact(session: AsyncSession, user_id: int, dragon_id: 
 
     user.gold -= p_gold
     user.iron -= p_iron
+
+    # Agar oldin boshqa artefakt taqilgan bo'lsa, uning bonusini hisobdan chiqarish
+    old_art_code = dragon.artifact_code
+    old_bonus = 0.0
+    if old_art_code and old_art_code in ARTIFACTS_DATA:
+        old_bonus = ARTIFACTS_DATA[old_art_code].get("dragon_bonus", 0.0)
+
+    curr_pwr = dragon.power or get_base_dragon_power_for_level(dragon.level, dragon.stage)
+    if old_bonus > 0:
+        base_pwr = int(curr_pwr / (1.0 + old_bonus))
+    else:
+        base_pwr = curr_pwr
+
     dragon.artifact_code = artifact_code
-    pwr_bonus = int(dragon.power * art_info.get("dragon_bonus", 0.35))
-    dragon.power += pwr_bonus
+    new_bonus = art_info.get("dragon_bonus", 0.35)
+    new_pwr = int(base_pwr * (1.0 + new_bonus))
+
+    max_pwr = get_max_dragon_power(dragon.level, dragon.stage, artifact_code)
+    dragon.power = min(max_pwr, new_pwr)
     user.prestige += 30
 
     await session.commit()
-    return True, f"✨ {dragon.name} ga {art_info['name']} taqildi! Ajdarning quvvati +{pwr_bonus} ga oshdi! (+30 Prestige)"
+    return True, f"✨ {dragon.name} ga {art_info['name']} taqildi! Ajdarning quvvati: {dragon.power:,}⚡ (+30 Prestige)"
 
 
 def get_user_castle_tax_hours(user: models.User, territory: models.Territory, now: Optional[datetime] = None) -> Tuple[int, int]:
@@ -3996,7 +4048,8 @@ async def claim_daily_bonus(session: AsyncSession, user_id: int) -> Tuple[bool, 
         dragons = await get_user_dragons(session, user.id)
         if dragons:
             best_dragon = max(dragons, key=lambda d: d.power)
-            best_dragon.power += reward["dragon_power"]
+            max_p = get_max_dragon_power(best_dragon.level, best_dragon.stage, best_dragon.artifact_code)
+            best_dragon.power = min(max_p, (best_dragon.power or 0) + reward["dragon_power"])
             best_dragon.hunger = min(100, (best_dragon.hunger or 50) + 40)
             dragon_msg = f"\n🐉 Ajdaringiz ({best_dragon.name}) to'yintirildi: +{reward['dragon_power']} quvvat!"
 
@@ -4150,7 +4203,8 @@ async def claim_daily_quest_reward(session: AsyncSession, user_id: int, quest_ke
         dragons = await get_user_dragons(session, user.id)
         if dragons:
             best_dragon = max(dragons, key=lambda d: d.power)
-            best_dragon.power += quest_info["dragon_power"]
+            max_p = get_max_dragon_power(best_dragon.level, best_dragon.stage, best_dragon.artifact_code)
+            best_dragon.power = min(max_p, (best_dragon.power or 0) + quest_info["dragon_power"])
             best_dragon.hunger = min(100, (best_dragon.hunger or 50) + 30)
             dp_msg = f"\n🐉 Ajdaringiz ({best_dragon.name}) quvvati: +{quest_info['dragon_power']}!"
 

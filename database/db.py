@@ -423,20 +423,42 @@ async def init_db():
             .values(gold=10000)
         )
 
-        # Blackfyre qal'asi (Barrow Hall Qasri, id=43) garnizonini to'liq tiklash
+        # Barrowton (id=43) Blackfyre xonadoniga tegishli emas — uni neytral holatga qaytarish
         bf_castle = await session.get(models.Territory, 43)
-        if bf_castle:
-            bf_castle.owner_house_id = 15
-            bf_castle.garrison_infantry = max(bf_castle.garrison_infantry or 0, 500)
-            bf_castle.garrison_archers = max(bf_castle.garrison_archers or 0, 350)
-            bf_castle.garrison_cavalry = max(bf_castle.garrison_cavalry or 0, 150)
-            bf_castle.garrison_spearmen = max(bf_castle.garrison_spearmen or 0, 300)
+        if bf_castle and bf_castle.owner_house_id == 15 and not bf_castle.conquered_by_user_id:
+            bf_castle.owner_house_id = None
 
-        # NPC liberatsiyasi sababli boshqa xonadonlarga/Blackfyre'ga noo'rin o'tib qolgan qal'alarni kanonik egalariga qaytarish
-        for t_code, t_info in TERRITORIES_DATA.items():
-            terr = await session.get(models.Territory, t_info["id"])
-            if terr and terr.id != 43 and terr.owner_house_id == 15 and not terr.conquered_by_user_id:
-                terr.owner_house_id = t_info.get("initial_owner_id")
+        # House Blackfyre (id=15) a'zolariga yo'qolgan 200,000 askarini shaxsiy armiyasiga qaytarish
+        bf_users_res = await session.execute(select(models.User).where(models.User.house_id == 15))
+        for u in bf_users_res.scalars().all():
+            army_res = await session.execute(select(models.Army).where(models.Army.user_id == u.id))
+            army = army_res.scalar_one_or_none()
+            if not army:
+                army = models.Army(user_id=u.id, infantry=0, archers=0, cavalry=0, spearmen=0)
+                session.add(army)
+                await session.flush()
+            curr_tot = (army.infantry or 0) + (army.archers or 0) + (army.cavalry or 0) + (army.spearmen or 0)
+            if curr_tot < 200000:
+                needed = 200000 - curr_tot
+                add_inf = int(needed * 0.35)
+                add_arc = int(needed * 0.25)
+                add_cav = int(needed * 0.20)
+                add_sp = needed - (add_inf + add_arc + add_cav)
+                army.infantry = (army.infantry or 0) + add_inf
+                army.archers = (army.archers or 0) + add_arc
+                army.cavalry = (army.cavalry or 0) + add_cav
+                army.spearmen = (army.spearmen or 0) + add_sp
+                logger.info(f"🛡️ House Blackfyre o'yinchisi #{u.id} armiyasiga {needed:,} ta yo'qolgan askar tiklab berildi (Jami: 200,000).")
+
+        # Ajdarlar quvvatini to'g'irlash: Darajasini pasaytirmagan holda har bir ajdarning
+        # quvvatini o'z darajasidagi ruxsat etilgan maksimal me'yorga keltirish (normalizatsiya)
+        from database import crud
+        dragons_res = await session.execute(select(models.Dragon))
+        for drg in dragons_res.scalars().all():
+            max_p = crud.get_max_dragon_power(drg.level, drg.stage, drg.artifact_code)
+            if (drg.power or 0) > max_p:
+                logger.info(f"🐉 Ajdar #{drg.id} ({drg.name}, Daraja {drg.level}) quvvati normallashtirildi: {drg.power:,} -> {max_p:,}")
+                drg.power = max_p
 
         await session.commit()
         logger.info("✅ 50 ta Xonadon va Westeros hududlari bazaga kiritildi.")
