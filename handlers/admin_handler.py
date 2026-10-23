@@ -107,6 +107,7 @@ async def show_admin_dashboard(target, is_message: bool):
 
         buttons = [
             [InlineKeyboardButton(f"💳 Donat So'rovlari{donations_badge}", callback_data="admin_donations_list:0:pending")],
+            [InlineKeyboardButton("📜 O'yinchilar Harakatlari Jurnali (Logs)", callback_data="admin_activity_logs:0")],
             [InlineKeyboardButton("👥 O'yinchilarni Boshqarish (User Manager)", callback_data="admin_users_list:0")],
             [InlineKeyboardButton("👑 Xonadon Lordlarini Tayinlash", callback_data="admin_lords_menu")],
 
@@ -3814,7 +3815,91 @@ async def admin_bcast_weekly_rankings_callback(update: Update, context: ContextT
         await query.message.reply_text(f"⚠️ **XATOLIK:**\n\n{msg}", parse_mode="Markdown")
 
 
+async def admin_activity_logs_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """O'yinchilarning barcha so'nggi harakatlari va amallarini jonli ko'rish jurnali"""
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    if not is_admin(user_id):
+        await query.answer("❌ Administrator huquqi talab etiladi!", show_alert=True)
+        return
+
+    data = query.data or "admin_activity_logs:0"
+    parts = data.split(":")
+    page = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+    limit = 15
+    offset = page * limit
+
+    async with AsyncSessionLocal() as session:
+        # Jami tranzaksiyalar soni
+        cnt_res = await session.execute(select(func.count(models.Transaction.id)))
+        total_cnt = cnt_res.scalar() or 0
+
+        # Oxirgi amallarni foydalanuvchi ma'lumotlari bilan olish
+        q = (
+            select(models.Transaction, models.User, models.House)
+            .outerjoin(models.User, models.Transaction.user_id == models.User.id)
+            .outerjoin(models.House, models.User.house_id == models.House.id)
+            .order_by(desc(models.Transaction.id))
+            .limit(limit)
+            .offset(offset)
+        )
+        res = await session.execute(q)
+        records = res.all()
+
+        total_pages = max(1, (total_cnt + limit - 1) // limit)
+        lines = [
+            "📜 **O'YINCHILAR HARAKATLARI JURNALI (ACTIVITY LOGS)**\n",
+            f"📊 Jami qaydlar: **{total_cnt}** ta | Sahifa: **{page + 1}/{total_pages}**\n",
+        ]
+
+        if not records:
+            lines.append("ℹ️ Hozircha birorta ham harakat qayd etilmagan.")
+        else:
+            for tx, u, h in records:
+                time_str = tx.created_at.strftime("%d.%m %H:%M") if tx.created_at else "—"
+                u_name = u.username or u.full_name if u else f"User #{tx.user_id}"
+                h_name = f"{h.emoji} {h.name}" if h else "Behukm"
+
+                res_diff = []
+                if tx.amount_gold:
+                    res_diff.append(f"{'+' if tx.amount_gold > 0 else ''}{tx.amount_gold:,}🪙")
+                if tx.amount_food:
+                    res_diff.append(f"{'+' if tx.amount_food > 0 else ''}{tx.amount_food:,}🌾")
+                if tx.amount_iron:
+                    res_diff.append(f"{'+' if tx.amount_iron > 0 else ''}{tx.amount_iron:,}⛓️")
+                res_str = f" `[{', '.join(res_diff)}]`" if res_diff else ""
+
+                det = tx.details.replace("\n", " ") if tx.details else tx.action_type
+                if len(det) > 80:
+                    det = det[:77] + "..."
+
+                lines.append(
+                    f"• 🕒 `{time_str}` | 👤 **{escape_md(u_name)}** ({escape_md(h_name)})\n"
+                    f"  {escape_md(det)}{res_str}"
+                )
+
+        buttons = []
+        nav_row = []
+        if page > 0:
+            nav_row.append(InlineKeyboardButton("⬅️ Oldingi", callback_data=f"admin_activity_logs:{page - 1}"))
+        nav_row.append(InlineKeyboardButton(f"🔄 Yangilash ({page + 1})", callback_data=f"admin_activity_logs:{page}"))
+        if (offset + limit) < total_cnt:
+            nav_row.append(InlineKeyboardButton("Keyingi ➡️", callback_data=f"admin_activity_logs:{page + 1}"))
+        if nav_row:
+            buttons.append(nav_row)
+
+        buttons.append([InlineKeyboardButton("🔙 Admin Panelga Qaytish", callback_data="admin_panel")])
+
+        text = "\n".join(lines)
+        try:
+            await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        except Exception:
+            await query.edit_message_text(text, parse_mode=None, reply_markup=InlineKeyboardMarkup(buttons))
+
+
 def register_admin_handlers(app):
+    app.add_handler(CallbackQueryHandler(admin_activity_logs_callback, pattern="^admin_activity_logs(:[0-9]+)?$"))
     app.add_handler(CallbackQueryHandler(admin_bcast_weekly_rankings_callback, pattern="^admin_bcast_weekly_rankings$"))
     app.add_handler(CallbackQueryHandler(admin_donations_list_callback, pattern="^admin_donations_list(:.*)?$"))
     app.add_handler(CallbackQueryHandler(admin_donate_view_callback, pattern="^admin_donate_view:"))

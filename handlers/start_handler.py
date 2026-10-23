@@ -626,9 +626,9 @@ async def handle_custom_name_input(update: Update, context: ContextTypes.DEFAULT
 
         context.user_data.clear()
 
-        # Notifiy owner
-        from core.notifier import notify_owner
-        await notify_owner(
+        # Notify admins & log
+        from core.notifier import notify_admins
+        await notify_admins(
             context.application,
             f"👑 *YANGI SULOLA VA QAL'A BARPO ETILDI!*\n\n"
             f"👤 Lord: *{escape_md(raw_name)}*\n"
@@ -638,6 +638,14 @@ async def handle_custom_name_input(update: Update, context: ContextTypes.DEFAULT
             f"🏯 Ilk Qal'a: *{escape_md(c_name)}*\n"
             f"👑 Maqom: *Asoschi & Yagona Lord*"
         )
+        async with AsyncSessionLocal() as act_session:
+            await crud.log_player_activity(
+                session=act_session,
+                user_id=user.id,
+                action_type="create_custom_house",
+                details=f"👑 Yangi sulola va qal'a barpo etildi: {raw_name} ({h_emoji} {h_name}, {c_name})",
+            )
+            await act_session.commit()
 
         welcome_text = (
             f"🎉 **TABRIKLAYMIZ! YANGI SULOLA VA QAL'A BARPO ETILDI!**\n\n"
@@ -793,9 +801,9 @@ async def handle_custom_name_input(update: Update, context: ContextTypes.DEFAULT
 
     context.user_data.pop("awaiting_custom_name", None)
 
-    # Egaga bildirishnoma
-    from core.notifier import notify_owner
-    await notify_owner(
+    # Notify admins & log
+    from core.notifier import notify_admins
+    await notify_admins(
         context.application,
         f"🆕 *YANGI O'YINCHI RO'YXATDAN O'TDI!*\n\n"
         f"👤 Qahramon: *{escape_md(raw_name)}*\n"
@@ -804,6 +812,14 @@ async def handle_custom_name_input(update: Update, context: ContextTypes.DEFAULT
         f"🎖️ Lavozim: *{user.rank.title()}*\n"
         f"👥 A'zolar soni: *1/1 (Yagona Lord)*"
     )
+    async with AsyncSessionLocal() as act_session:
+        await crud.log_player_activity(
+            session=act_session,
+            user_id=user.id,
+            action_type="register_player",
+            details=f"🆕 Yangi o'yinchi ro'yxatdan o'tdi: {raw_name} ({house_info['emoji']} {house_info['name']})",
+        )
+        await act_session.commit()
 
     rank_titles = {
         "king": "👑 Qirol / Lord (Xonadon yetakchisi)",

@@ -234,6 +234,24 @@ async def process_due_marches(bot_app=None):
                         att_house.iron += int(tot_iron * 0.3)
                         att_house.prestige += 6
 
+                    if can_annex:
+                        await crud.log_player_activity(
+                            session=session,
+                            user_id=attacker.id,
+                            action_type="conquer_castle",
+                            details=(
+                                f"⚔️ QAL'A ZABT ETILDI!\n"
+                                f"👑 Hujumchi: {attacker.full_name} ({att_house_name})\n"
+                                f"🏰 Qal'a: {territory.name} ({territory.castle_name})\n"
+                                f"📦 O'lja: +{tot_gold:,}🪙, +{tot_food:,}🌾, +{tot_iron:,}⛓️"
+                            ),
+                            amount_gold=int(tot_gold * 0.7),
+                            amount_food=int(tot_food * 0.7),
+                            amount_iron=int(tot_iron * 0.7),
+                            bot_app=bot_app,
+                            notify_admin=True,
+                        )
+
                     # Himoyachi o'yinchilarni (qal'a egasi, lord, a'zolar) aniqlash
                     defender_notify_ids = set()
                     if getattr(territory, "conquered_by_user_id", None):

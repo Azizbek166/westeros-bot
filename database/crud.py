@@ -719,6 +719,44 @@ async def get_house_castle_count(session: AsyncSession, house_id: int) -> int:
 # ARMY & RECRUITMENT CRUD
 # ============================================================
 
+async def log_player_activity(
+    session: AsyncSession,
+    user_id: int,
+    action_type: str,
+    details: str,
+    amount_gold: int = 0,
+    amount_food: int = 0,
+    amount_iron: int = 0,
+    bot_app=None,
+    notify_admin: bool = False,
+) -> models.Transaction:
+    """O'yinchi harakatini bazaga (Transaction) yozish va xohishga ko'ra adminlarga bildirishnoma yuborish"""
+    tx = models.Transaction(
+        user_id=user_id,
+        amount_gold=amount_gold,
+        amount_food=amount_food,
+        amount_iron=amount_iron,
+        action_type=action_type,
+        details=details,
+        created_at=datetime.utcnow(),
+    )
+    session.add(tx)
+
+    if notify_admin and bot_app:
+        from core.notifier import notify_admins
+        try:
+            msg = (
+                f"⚡ **O'YINCHI HARAKATI (ADMIN XABARNOMASI):**\n\n"
+                f"{details}\n\n"
+                f"🕒 `{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC`"
+            )
+            await notify_admins(bot_app, msg)
+        except Exception as e:
+            logger.warning(f"notify_admins error in log_player_activity: {e}")
+
+    return tx
+
+
 async def recruit_troops(
     session: AsyncSession,
     user_id: int,
@@ -761,14 +799,15 @@ async def recruit_troops(
         quest_completed = True
 
     # Tranzaksiyani yozish
-    tx = models.Transaction(
+    unit_label = UNIT_NAMES_UZ.get(unit_type, unit_type)
+    await log_player_activity(
+        session=session,
         user_id=user_id,
+        action_type="recruit_troops",
+        details=f"🛡️ Kazarmada +{amount} ta {unit_label} yolladi",
         amount_gold=-gold_cost,
         amount_iron=-iron_cost,
-        action_type="recruit_troops",
-        details=f"Yollangan: +{amount} {unit_type}",
     )
-    session.add(tx)
 
     await session.commit()
     return True, quest_completed
@@ -2944,6 +2983,17 @@ async def collect_castle_tax(session: AsyncSession, user_id: int, territory_id: 
     user_taxes[str(terr.id)] = now.isoformat()
     user.castle_taxes_json = json.dumps(user_taxes)
     terr.last_tax_collected_at = now
+
+    await log_player_activity(
+        session=session,
+        user_id=user.id,
+        action_type="collect_castle_tax",
+        details=f"💰 {terr.name} qal'asidan 4 soatlik o'lpon yig'ildi",
+        amount_gold=g_inc,
+        amount_food=f_inc,
+        amount_iron=i_inc,
+    )
+
     await session.commit()
 
     return True, (
@@ -3546,6 +3596,14 @@ async def fight_ai_champion(
 
     from core.leveling import check_user_level_up
     check_user_level_up(user)
+
+    await log_player_activity(
+        session=session,
+        user_id=user.id,
+        action_type="duel",
+        details=f"⚔️ Duel ({'G\'alaba' if won else 'Mag\'lubiyat'}): {champion_name} ga qarshi",
+        amount_gold=150 if won else (-bet_gold if bet_gold > 0 else 0),
+    )
 
     await session.commit()
     return {
@@ -4306,6 +4364,15 @@ async def upgrade_iron_mine(session: AsyncSession, user_id: int) -> Tuple[bool, 
     from core.leveling import check_user_level_up
     check_user_level_up(user)
 
+    await log_player_activity(
+        session=session,
+        user_id=user.id,
+        action_type="upgrade_iron_mine",
+        details=f"⛓️ Temir konini {next_lvl}-darajaga ko'tardi",
+        amount_gold=-gold_cost,
+        amount_food=-food_cost,
+    )
+
     await session.commit()
     return True, f"🎉 TABRIKLAYMIZ! Temir koni {next_lvl}-darajaga ko'tarildi! (+{next_lvl*50}⛓️ temir/soat ishlab chiqariladi)"
 
@@ -4397,6 +4464,15 @@ async def upgrade_grain_mill(session: AsyncSession, user_id: int) -> Tuple[bool,
     from core.leveling import check_user_level_up
     check_user_level_up(user)
 
+    await log_player_activity(
+        session=session,
+        user_id=user.id,
+        action_type="upgrade_grain_mill",
+        details=f"🌾 Don tegirmonini {next_lvl}-darajaga ko'tardi",
+        amount_gold=-gold_cost,
+        amount_iron=-iron_cost,
+    )
+
     await session.commit()
     return True, f"🎉 TABRIKLAYMIZ! Don tegirmoni {next_lvl}-darajaga ko'tarildi! (+{next_lvl*75}🌾 oziq-ovqat/soat ishlab chiqariladi)"
 
@@ -4434,6 +4510,15 @@ async def upgrade_castle_keep(session: AsyncSession, user_id: int, territory_id:
 
     from core.leveling import check_user_level_up
     check_user_level_up(user)
+
+    await log_player_activity(
+        session=session,
+        user_id=user.id,
+        action_type="upgrade_castle",
+        details=f"🏰 {territory.name} qal'asini Tier {next_lvl} darajaga ko'tardi",
+        amount_gold=-gold_cost,
+        amount_iron=-iron_cost,
+    )
 
     await session.commit()
     return True, f"🏰 TABRIKLAYMIZ! {territory.name} qal'asi {next_lvl}-bosqichga (Tier {next_lvl}) ko'tarildi!\n🛡️ Mudofaa: +300\n💰 Soatlik daromad: +25%"
@@ -7410,6 +7495,14 @@ async def raid_trade_caravan(
             f"📉 Yo'qotishlaringiz: -{battle_res['raider_losses']['infantry']} Piyoda, -{battle_res['raider_losses']['cavalry']} Otliq.\n"
             f"📊 Bugungi pistirma limitingiz: **{raider.daily_caravan_raid_count}/2** ta"
         )
+
+    await log_player_activity(
+        session=session,
+        user_id=raider.id,
+        action_type="raid_caravan",
+        details=f"🐪 Karvonga pistirma: {'G\'alaba (+'+str(bounty_gold)+'🪙)' if battle_res['winner'] == 'raiders' else 'Mag\'lubiyat'}",
+        amount_gold=bounty_gold if battle_res['winner'] == 'raiders' else 0,
+    )
 
     await session.commit()
     return True, msg, battle_res
