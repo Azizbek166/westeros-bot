@@ -7,7 +7,7 @@ from config import DATABASE_URL
 logger = logging.getLogger(__name__)
 
 # Asinxron Engine va SQLite sozlamalari
-from sqlalchemy import event, select, text
+from sqlalchemy import event, select, text, update
 
 def create_custom_engine(db_url: str):
     eng = create_async_engine(
@@ -404,6 +404,39 @@ async def init_db():
             )
             session.add(new_tourney)
             logger.info("✅ Haftalik Ritsarlar Turniri #1 yaratildi.")
+
+        # Barcha xonadonlardan is_npc holatini tozalash (NPC xonadonlar butunlay bekor qilindi)
+        await session.execute(update(models.House).values(is_npc=False))
+
+        # Crakehall xonadoni (id=9) arbitraj oqibatida 300M dan oshib ketgan xazinasini asl holatiga qaytarish
+        crakehall = await session.get(models.House, 9)
+        if crakehall and (crakehall.gold or 0) > 50000000:
+            logger.info(f"🧹 Crakehall xazinasi arbitrajdan tozalandi: {crakehall.gold:,} -> 5,500 oltin")
+            crakehall.gold = 5500
+            crakehall.food = 7500
+            crakehall.iron = 3200
+
+        # Arbitrajdan foydalanib 50M dan ko'p oltin to'plagan o'yinchilarni tozalash
+        await session.execute(
+            update(models.User)
+            .where(models.User.gold > 50000000)
+            .values(gold=10000)
+        )
+
+        # Blackfyre qal'asi (Barrow Hall Qasri, id=43) garnizonini to'liq tiklash
+        bf_castle = await session.get(models.Territory, 43)
+        if bf_castle:
+            bf_castle.owner_house_id = 15
+            bf_castle.garrison_infantry = max(bf_castle.garrison_infantry or 0, 500)
+            bf_castle.garrison_archers = max(bf_castle.garrison_archers or 0, 350)
+            bf_castle.garrison_cavalry = max(bf_castle.garrison_cavalry or 0, 150)
+            bf_castle.garrison_spearmen = max(bf_castle.garrison_spearmen or 0, 300)
+
+        # NPC liberatsiyasi sababli boshqa xonadonlarga/Blackfyre'ga noo'rin o'tib qolgan qal'alarni kanonik egalariga qaytarish
+        for t_code, t_info in TERRITORIES_DATA.items():
+            terr = await session.get(models.Territory, t_info["id"])
+            if terr and terr.id != 43 and terr.owner_house_id == 15 and not terr.conquered_by_user_id:
+                terr.owner_house_id = t_info.get("initial_owner_id")
 
         await session.commit()
         logger.info("✅ 50 ta Xonadon va Westeros hududlari bazaga kiritildi.")

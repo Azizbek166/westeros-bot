@@ -2030,13 +2030,18 @@ async def withdraw_castle_reinforcements(
         return False, "Foydalanuvchi yoki qal'a topilmadi.", {}
 
     can_withdraw = False
-    if user.house_id and territory.owner_house_id == user.house_id:
+    house = await session.get(models.House, user.house_id) if user.house_id else None
+    is_lord = house and (house.lord_user_id == user.telegram_id or house.lord_user_id == user.id or user.rank == "king")
+    if is_lord and territory.owner_house_id == user.house_id:
         can_withdraw = True
     elif territory.conquered_by_user_id == user.id:
         can_withdraw = True
+    elif house and house.lord_user_id is None and territory.owner_house_id == user.house_id:
+        # Agar xonadonda hali Lord saylanmagan bo'lsa
+        can_withdraw = True
 
     if not can_withdraw:
-        return False, "❌ Siz faqat o'z xonadoningiz yoki shaxsan zabt etgan qal'angiz garnizonidan askar qaytara olasiz!", {}
+        return False, "❌ Qal'a garnizonidan askarlarni qaytarib olish huquqi faqat Xonadon Lordiga yoki qal'ani shaxsan zabt etgan sarkardaga berilgan!", {}
 
     army_res = await session.execute(select(models.Army).where(models.Army.user_id == user.id))
     army = army_res.scalar_one_or_none()
@@ -2342,6 +2347,12 @@ async def donate_to_house_treasury(
     user = await get_user_any(session, user_id)
     if not user or not user.house_id:
         return False, "Siz hali xonadonga a'zo emassiz."
+
+    if gold < 0 or food < 0 or iron < 0:
+        return False, "❌ Ehson miqdori manfiy bo'lishi mumkin emas!"
+
+    if gold + food + iron <= 0:
+        return False, "❌ Ehson qilish uchun kamida bitta resurs miqdorini kiriting!"
 
     if user.gold < gold or user.food < food or user.iron < iron:
         return False, "Xazinaga topshirish uchun resurslaringiz yetarli emas!"
@@ -2969,64 +2980,23 @@ async def collect_all_castles_tax(session: AsyncSession, user_id: int) -> Tuple[
 # EGALLANGAN QAL'ALARNI OZOD QILISH (CASTLE LIBERATION CRUD)
 # ============================================================
 
-async def get_npc_house_for_liberation(session: AsyncSession, territory: models.Territory) -> models.House:
+async def get_npc_house_for_liberation(session: AsyncSession, territory: models.Territory) -> Optional[models.House]:
     """
-    Qal'a ozod qilinganda uni qabul qilib oluvchi NPC xonadonini aniqlash.
-    Kanonik initial_owner yoki mintaqaviy NPC xonadoni tanlanadi.
+    Qal'ani ozod qilishda uni boshlang'ich kanonik xonadoniga qaytarish.
+    Xonadonlar NPC qilinmaydi, asl xonadoniga qaytadi.
     """
     from data.map_data import TERRITORIES_DATA
 
     t_info = TERRITORIES_DATA.get(territory.code, {})
     init_owner_id = t_info.get("initial_owner_id")
 
-    # 1. Kanonik boshlang'ich xonadonni tekshirish
     if init_owner_id:
         init_house = await session.get(models.House, init_owner_id)
-        if init_house and (init_house.is_npc or not init_house.lord_user_id):
-            init_house.is_npc = True
+        if init_house:
             return init_house
 
-    # 2. Mintaqaga mos rasmiy NPC xonadonini tanlash
-    region = territory.region or ""
-    regional_npc_map = {
-        "The North": [6, 48, 3, 4],           # Bolton (6, is_npc), Night's Watch (48), Umber, Karstark
-        "Beyond the Wall": [49, 50, 48],      # Free Folk (49, is_npc), White Walkers (50), Night's Watch
-        "Riverlands": [33, 32, 34],           # Blackwood (33, is_npc), Frey, Bracken
-        "Essos": [46, 47],                    # Golden Company (46, is_npc), Iron Bank (47)
-        "Westerlands": [11, 9, 12, 10],       # Lefford, Crakehall, Brax, Marbrand
-        "The Reach": [21, 20, 18, 19],        # Rowan, Redwyne, Hightower, Tarly
-        "The Vale": [29, 30, 28],             # Waynwood, Corbray, Royce
-        "Dorne": [25, 26, 24, 23],            # Fowler, Uller, Yronwood, Dayne
-        "Stormlands": [44, 45, 41, 42],       # Caron, Connington, Swann, Dondarrion
-        "Crownlands": [16, 14, 15],           # Darklyn, Velaryon, Blackfyre
-        "Iron Islands": [38, 39, 37],         # Goodbrother, Drumm, Harlaw
-    }
-
-    candidates = regional_npc_map.get(region, [6, 33, 46, 49, 50])
-    for h_id in candidates:
-        h = await session.get(models.House, h_id)
-        if h and (h.is_npc or not h.lord_user_id):
-            h.is_npc = True
-            return h
-
-    # 3. Istalgan faol is_npc=True xonadonni olish
-    npc_res = await session.execute(select(models.House).where(models.House.is_npc == True).limit(1))
-    npc_house = npc_res.scalar_one_or_none()
-    if npc_house:
-        return npc_house
-
-    # 4. Fallback: Bolton (6) yoki Golden Company (46)
-    fb = await session.get(models.House, 6)
-    if fb:
-        fb.is_npc = True
-        return fb
-    fb2 = await session.get(models.House, 46)
-    if fb2:
-        fb2.is_npc = True
-        return fb2
-
-    first_h = (await session.execute(select(models.House).limit(1))).scalar_one()
-    first_h.is_npc = True
+    # Fallback: agar initial owner bo'lmasa
+    first_h = (await session.execute(select(models.House).limit(1))).scalar_one_or_none()
     return first_h
 
 
@@ -4246,11 +4216,11 @@ IRON_MARKET_PACKS = {
 }
 
 FOOD_MARKET_PACKS = {
-    "food_1": {"gold": 300, "food": 390, "title": "🌾 Kichik Don Qopi (390 oziq)"},
-    "food_2": {"gold": 500, "food": 700, "title": "🌾 Savdo Karvoni (700 oziq, +50 bonus)"},
-    "food_3": {"gold": 1000, "food": 1500, "title": "🌾 Don Ombri Zaxirasi (1,500 oziq, +200 bonus)"},
-    "food_4": {"gold": 2500, "food": 4000, "title": "🌾 Savdo Kemasi (4,000 oziq, +750 bonus)"},
-    "food_5": {"gold": 5000, "food": 9000, "title": "🌾 Qirollik Zaxirasi (9,000 oziq, +2,500 bonus)"},
+    "food_1": {"gold": 300, "food": 300, "title": "🌾 Kichik Don Qopi (300 oziq)"},
+    "food_2": {"gold": 500, "food": 500, "title": "🌾 Savdo Karvoni (500 oziq)"},
+    "food_3": {"gold": 1000, "food": 1050, "title": "🌾 Don Ombori Zaxirasi (1,050 oziq, +50 bonus)"},
+    "food_4": {"gold": 2500, "food": 2700, "title": "🌾 Savdo Kemasi (2,700 oziq, +200 bonus)"},
+    "food_5": {"gold": 5000, "food": 5500, "title": "🌾 Qirollik Zaxirasi (5,500 oziq, +500 bonus)"},
 }
 
 
@@ -4324,19 +4294,15 @@ async def buy_food_with_gold(session: AsyncSession, user_id: int, pack_code_or_g
         if gold_cost < 50:
             return False, "❌ Minimal xarid miqdori — 50🪙 oltin!"
 
-        # Muvozanatli progressiv stavkalar (1.2x dan 1.8x gacha)
+        # Muvozanatli stavkalar (arbitraj va cheksiz oltin botini to'sish uchun):
         if gold_cost >= 5000:
-            multiplier = 1.8
+            multiplier = 1.10
         elif gold_cost >= 2500:
-            multiplier = 1.6
+            multiplier = 1.08
         elif gold_cost >= 1000:
-            multiplier = 1.5
-        elif gold_cost >= 500:
-            multiplier = 1.4
-        elif gold_cost >= 300:
-            multiplier = 1.3
+            multiplier = 1.05
         else:
-            multiplier = 1.2
+            multiplier = 1.0
 
         food_amount = int(gold_cost * multiplier)
 
@@ -5057,13 +5023,8 @@ async def fulfill_house_trade(session: AsyncSession, buyer_user_id: int, trade_i
     seller_get = getattr(seller, trade.request_resource, 0) or 0
     setattr(seller, trade.request_resource, seller_get + trade.request_amount)
 
-    # Ikkala xonadonga ham savdo rivoji uchun +10 Prestige
     seller_house = await session.get(models.House, trade.seller_house_id)
     buyer_house = await session.get(models.House, buyer.house_id)
-    if seller_house:
-        seller_house.prestige = (seller_house.prestige or 0) + 10
-    if buyer_house:
-        buyer_house.prestige = (buyer_house.prestige or 0) + 10
 
     trade.buyer_user_id = buyer.id
     trade.buyer_house_id = buyer.house_id
@@ -5080,8 +5041,7 @@ async def fulfill_house_trade(session: AsyncSession, buyer_user_id: int, trade_i
             f"🤝 **SAVDO BITIMI MUVAFFAQIShLI YAKUNLANDI!**\n\n"
             f"**{buyer_h_name}** xonadonidan {buyer.full_name} sizning savdo lotingizni xarid qildi:\n"
             f"• Berildi: -{trade.offer_amount:,} {res_names.get(trade.offer_resource, '')}\n"
-            f"• Qabul qilindi: +{trade.request_amount:,} {res_names.get(trade.request_resource, '')}\n\n"
-            f"Xonadoningizga savdo qudrati uchun +10 Prestige berildi! ⚖️"
+            f"• Qabul qilindi: +{trade.request_amount:,} {res_names.get(trade.request_resource, '')}"
         ),
         gold_attached=0,
         is_read=False,

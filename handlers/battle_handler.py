@@ -1600,8 +1600,12 @@ async def def_custom_rf_callback(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def handle_battle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Yurish yoki garnizon uchun kiritilgan raqamli xabarni qabul qilish"""
+    """Yurish yoki garnizon uchun kiritilgan raqamli xabarni qabul qilish (faqat shaxsiy chatda)"""
     if not update.message or not update.message.text:
+        return
+
+    chat = update.effective_chat
+    if chat and chat.type in ["group", "supergroup"]:
         return
 
     # Agar foydalanuvchi VIP profil sozlamalarini kiritayotgan bo'lsa
@@ -1957,4 +1961,4 @@ def register_battle_handlers(app):
     app.add_handler(CallbackQueryHandler(def_send_rf_callback, pattern="^def_send_rf:"))
     app.add_handler(CallbackQueryHandler(def_sos_callback, pattern="^def_sos:"))
     app.add_handler(CallbackQueryHandler(defend_siege_callback, pattern="^defend_siege:"))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_battle_text_input))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, handle_battle_text_input))

@@ -170,6 +170,7 @@ async def on_startup(app: Application):
         ]
         group_commands = [
             BotCommand("profile", "👤 Lord profilini ko'rish (o'zingiz yoki reply qilib)"),
+            BotCommand("rank", "🏆 Vesteros TOP Reytinglarini ko'rish"),
         ]
         try:
             await app.bot.set_my_commands(private_commands, scope=BotCommandScopeAllPrivateChats())
@@ -331,12 +332,12 @@ def main():
         first=60,
     )
 
-    # Har 15 daqiqada (900 soniya) 5 ta NPC xonadon harakati va bosqinlari
-    app.job_queue.run_repeating(
-        npc_tick_job,
-        interval=900,
-        first=60,
-    )
+    # NPC xonadonlar va avtomatik bosqinlar foydalanuvchi talabi bilan butunlay to'xtatilgan
+    # app.job_queue.run_repeating(
+    #     npc_tick_job,
+    #     interval=900,
+    #     first=60,
+    # )
 
     # Render.com bepul tarifida bot 15 daqiqada uxlab qolmasligi uchun har 5 daqiqada (300 soniya) keep-alive
     app.job_queue.run_repeating(

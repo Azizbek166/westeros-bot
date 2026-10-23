@@ -508,164 +508,11 @@ async def run_white_walkers_step():
 
 async def process_npc_growth_and_raids(bot_app=None):
     """
-    5 ta tirik NPC xonadonlar (Bolton, Frey/Blackwood, Golden Company, Wildlings, White Walkers)
-    uchun garnizon o'sishi va o'yinchilar qal'alariga vaqti-vaqti bilan bosqin (raid) uyushtirish.
+    NPC xonadonlar va avtomatik bosqinlar butunlay to'xtatilgan (Foydalanuvchi talabi).
+    Barcha 50 ta xonadon oddiy o'yinchilar ixtiyoriga berilgan, avtomatik NPC bosqinlari yo'q.
     """
-    async with AsyncSessionLocal() as session:
-        # 1. NPC xonadonlarni aniqlash
-        npc_houses_res = await session.execute(select(models.House).where(models.House.is_npc == True))
-        npc_houses = npc_houses_res.scalars().all()
-        if not npc_houses:
-            return
+    return
 
-        npc_house_ids = [h.id for h in npc_houses]
-
-        # 2. NPC xonadonlariga tegishli hududlarda garnizonning tabiiy o'sishi
-        npc_terrs_res = await session.execute(
-            select(models.Territory).where(models.Territory.owner_house_id.in_(npc_house_ids))
-        )
-        npc_terrs = npc_terrs_res.scalars().all()
-
-        for terr in npc_terrs:
-            terr.garrison_infantry = min(1500, terr.garrison_infantry + random.randint(10, 20))
-            terr.garrison_archers = min(1000, terr.garrison_archers + random.randint(8, 15))
-            terr.garrison_cavalry = min(800, terr.garrison_cavalry + random.randint(4, 10))
-            terr.garrison_spearmen = min(1000, terr.garrison_spearmen + random.randint(6, 12))
-
-        # 3. O'yinchilar qal'alariga davriy bosqin (Raid)
-        # Har bir tickda 35% ehtimol bilan bitta NPC xonadon hujum uyushtiradi
-        if random.random() < 0.35 and npc_terrs:
-            attacking_house = random.choice(npc_houses)
-
-            # O'yinchilar egalik qilayotgan qal'alarni topamiz
-            player_terrs_res = await session.execute(
-                select(models.Territory).where(~models.Territory.owner_house_id.in_(npc_house_ids))
-            )
-            player_terrs = player_terrs_res.scalars().all()
-
-            if player_terrs:
-                target_terr = random.choice(player_terrs)
-                def_house = await session.get(models.House, target_terr.owner_house_id) if target_terr.owner_house_id else None
-
-                # Qalqon tekshiruvi: agar xonadon lordi tinchlik qalqonida bo'lsa, bosqin o'tkazilmaydi
-                target_shielded = False
-                def_lord_id = None
-                if def_house and def_house.lord_user_id:
-                    def_lord_id = def_house.lord_user_id
-                    lord_user = await crud.get_user_by_telegram_id(session, def_house.lord_user_id)
-                    if lord_user and lord_user.peace_shield_until and lord_user.peace_shield_until > datetime.utcnow():
-                        target_shielded = True
-
-                if not target_shielded:
-                    # Bosqinchi armiya tuziladi
-                    raid_infantry = random.randint(80, 160)
-                    raid_archers = random.randint(40, 90)
-                    raid_cavalry = random.randint(20, 50)
-                    raid_spearmen = random.randint(30, 70)
-
-                    att_army = {
-                        "infantry": raid_infantry,
-                        "archers": raid_archers,
-                        "cavalry": raid_cavalry,
-                        "spearmen": raid_spearmen,
-                        "special_troops": 0,
-                    }
-                    def_garrison = {
-                        "infantry": target_terr.garrison_infantry,
-                        "archers": target_terr.garrison_archers,
-                        "cavalry": target_terr.garrison_cavalry,
-                        "spearmen": target_terr.garrison_spearmen,
-                        "special_troops": 0,
-                    }
-
-                    # Qal'adagi himoyachi ajdar kuchi
-                    def_dr_info = crud.get_stationed_dragon_info(target_terr)
-                    def_dr_pwr = def_dr_info.get("power", 0) if def_dr_info else 0
-
-                    # Josus tomonidan darvoza ochilganligini va ob-havoni olish
-                    gates_open = bool(
-                        getattr(target_terr, "gates_compromised_until", None)
-                        and target_terr.gates_compromised_until > datetime.utcnow()
-                    )
-                    cur_weather = await crud.get_current_weather(session)
-                    weather_type = cur_weather.get("weather_type", "normal")
-
-                    battle_res = calculate_battle(
-                        attacker_army=att_army,
-                        defender_garrison=def_garrison,
-                        castle_defense=target_terr.defense,
-                        dragon_power=0,
-                        defender_dragon_power=def_dr_pwr,
-                        gates_compromised=gates_open,
-                        weather_type=weather_type,
-                    )
-
-                    # Himoyachi talofatlari
-                    target_terr.garrison_infantry = battle_res["remaining_defender"]["infantry"]
-                    target_terr.garrison_archers = battle_res["remaining_defender"]["archers"]
-                    target_terr.garrison_cavalry = battle_res["remaining_defender"]["cavalry"]
-                    target_terr.garrison_spearmen = battle_res["remaining_defender"]["spearmen"]
-
-                    # Oqibatlar
-                    if battle_res["winner"] == "attacker":
-                        # NPC bosqini muvaffaqiyatli bo'ldi - xonadondan o'lja ketadi
-                        loot_gold = battle_res["loot"]["gold"]
-                        loot_food = battle_res["loot"]["food"]
-                        if def_house:
-                            def_house.gold = max(0, def_house.gold - loot_gold)
-                            def_house.food = max(0, def_house.food - loot_food)
-
-                        if bot_app and def_lord_id:
-                            try:
-                                await bot_app.bot.send_message(
-                                    chat_id=def_lord_id,
-                                    text=(
-                                        f"🚨 **DUSHMAN NPC BOSQINI!**\n\n"
-                                        f"🏰 **{target_terr.name} ({target_terr.castle_name})** qal'angizga **{attacking_house.emoji} {attacking_house.name}** "
-                                        f"bosqinchilari kutilmaganda hujum qildi!\n\n"
-                                        f"{battle_res['details']}\n\n"
-                                        f"💸 Boy berilgan o'lja: -{loot_gold:,} oltin, -{loot_food:,} g'alla.\n"
-                                        f"Qal'a mudofaasini kuchaytiring va yangi qo'shin yuboring!"
-                                    ),
-                                    parse_mode="Markdown",
-                                )
-                            except Exception as e:
-                                logger.warning(f"NPC raid alert xatosi: {e}")
-                    else:
-                        # Himoyachi g'alaba qozondi
-                        if def_house:
-                            def_house.prestige += 5
-
-                        if bot_app and def_lord_id:
-                            try:
-                                await bot_app.bot.send_message(
-                                    chat_id=def_lord_id,
-                                    text=(
-                                        f"🛡️ **NPC BOSQINI MUVAFFAQIYATLI QAYTARILDI!**\n\n"
-                                        f"🏰 **{target_terr.name} ({target_terr.castle_name})** qal'angiz garnizoni **{attacking_house.emoji} {attacking_house.name}** "
-                                        f"bosqinchilarining shafqatsiz hujumini jasorat bilan qaytardi!\n\n"
-                                        f"{battle_res['details']}\n\n"
-                                        f"🏆 Xonadonga +5 Prestige berildi."
-                                    ),
-                                    parse_mode="Markdown",
-                                )
-                            except Exception as e:
-                                logger.warning(f"NPC raid defend alert xatosi: {e}")
-
-                    try:
-                        from core.notifier import notify_owner
-                        raid_res_str = "Qal'a bosib olindi" if battle_res["winner"] == "attacker" else "Qaytarildi"
-                        await notify_owner(
-                            bot_app,
-                            f"👾 *SERVER: NPC BOSQINI YAKUNLANDI*\n\n"
-                            f"🏰 Qal'a: *{target_terr.name} ({target_terr.castle_name})*\n"
-                            f"⚔️ Bosqinchi: *{attacking_house.name}*\n"
-                            f"📊 Natija: *{raid_res_str}*"
-                        )
-                    except Exception:
-                        pass
-
-        await session.commit()
 
 
 async def check_house_election_expiration(bot_app=None):
@@ -775,18 +622,16 @@ async def process_due_trade_caravans(bot_app=None):
                     army.cavalry += (caravan.escort_cavalry or 0)
                     army.infantry += (caravan.escort_infantry or 0)
 
-                # Foyda va nufuzni berish
+                # Foydani berish (Savdo bozorida prestige berilmaydi)
                 gold_gain = caravan.expected_gold_reward or 500
-                prestige_gain = 3 if caravan.resource_amount < 1500 else (7 if caravan.resource_amount < 3000 else 15)
                 owner.gold += gold_gain
-                owner.prestige += prestige_gain
 
                 dest_name = "Savdo porti"
                 dest_res = await session.get(models.Territory, caravan.destination_territory_id)
                 if dest_res:
                     dest_name = dest_res.name
 
-                logger.info(f"🐪 Savdo karvoni #{caravan.id} ({owner.username}) manzilga ({dest_name}) yetib bordi: +{gold_gain}G, +{prestige_gain}P")
+                logger.info(f"🐪 Savdo karvoni #{caravan.id} ({owner.username}) manzilga ({dest_name}) yetib bordi: +{gold_gain}G")
 
                 if bot_app and owner.telegram_id:
                     msg = (
@@ -794,7 +639,6 @@ async def process_due_trade_caravans(bot_app=None):
                         f"Shahanshoh yo'llaridan o'tgan savdo karvoningiz xavfsiz ravishda **{dest_name}** savdo markaziga yetib bordi!\n\n"
                         f"📦 Sotilgan yuk: **{caravan.resource_amount:,}** {caravan.resource_type.capitalize()}\n"
                         f"💰 Sof daromad: **+{gold_gain:,}** Oltin\n"
-                        f"🎖️ Nufuz: **+{prestige_gain}** ball\n"
                         f"🛡️ Qaytgan soqchilar: **{caravan.escort_cavalry}** Otliq, **{caravan.escort_infantry}** Piyoda armiyangiz safiga qaytdi."
                     )
                     try:
@@ -902,149 +746,7 @@ async def execute_daily_2100_war_and_npc_raids(bot_app=None, force: bool = False
                     except Exception:
                         pass
 
-            # 4. NPC Qal'alarga Hujum (Raid)
-            # NPC bo'lmagan xonadonlar (o'yinchilar)
-            npc_h_res = await session.execute(
-                select(models.House.id).where(models.House.is_npc == True)
-            )
-            npc_house_ids = set(npc_h_res.scalars().all())
-
-            player_terrs_res = await session.execute(
-                select(models.Territory).where(
-                    models.Territory.owner_house_id.is_not(None),
-                    ~models.Territory.owner_house_id.in_(npc_house_ids),
-                )
-            )
-            player_terrs = player_terrs_res.scalars().all()
-
-            if not player_terrs:
-                logger.info("O'yinchilar nazoratidagi qal'alar topilmadi.")
-                return
-
-            # Qal'alarni aralashtirib hujum uyushtiramiz
-            candidates = list(player_terrs)
-            random.shuffle(candidates)
-            num_targets = min(len(candidates), random.randint(5, 10))
-            raided_count = 0
-
-            # Ob-havoni olish
-            weather_info = await crud.get_current_weather(session)
-            weather_type = weather_info.get("weather_type", "normal")
-
-            for target_terr in candidates[:num_targets]:
-                def_house = await session.get(models.House, target_terr.owner_house_id)
-                if not def_house:
-                    continue
-
-                # Tinchlik qalqoni tekshiruvi
-                lord_user = None
-                if def_house.lord_user_id:
-                    lord_user = await crud.get_user_by_telegram_id(session, def_house.lord_user_id)
-                    if lord_user and lord_user.peace_shield_until and lord_user.peace_shield_until > datetime.utcnow():
-                        # Qalqonda, bu qal'aga hujum qilmaymiz
-                        continue
-
-                raider = random.choice(NPC_WAR_RAIDERS)
-                # NPC armiyasi (kuchli bosqinchi otryad)
-                raid_infantry = random.randint(150, 320)
-                raid_archers = random.randint(80, 180)
-                raid_cavalry = random.randint(40, 100)
-                raid_spearmen = random.randint(60, 140)
-                raid_cats = random.randint(1, 4)
-
-                att_army = {
-                    "infantry": raid_infantry,
-                    "archers": raid_archers,
-                    "cavalry": raid_cavalry,
-                    "spearmen": raid_spearmen,
-                    "special_troops": 0,
-                }
-                def_garrison = {
-                    "infantry": target_terr.garrison_infantry,
-                    "archers": target_terr.garrison_archers,
-                    "cavalry": target_terr.garrison_cavalry,
-                    "spearmen": target_terr.garrison_spearmen,
-                    "special_troops": 0,
-                }
-
-                # Mudofaadagi ajdar kuchi
-                def_dr_info = crud.get_stationed_dragon_info(target_terr)
-                def_dr_pwr = def_dr_info.get("power", 0) if def_dr_info else 0
-
-                # Jang hisoblash
-                battle_res = calculate_battle(
-                    attacker_army=att_army,
-                    defender_garrison=def_garrison,
-                    castle_defense=target_terr.defense,
-                    dragon_power=0,
-                    defender_dragon_power=def_dr_pwr,
-                    catapults=raid_cats,
-                    siege_towers=0,
-                    wildfire_count=getattr(target_terr, "wildfire_count", 0) or 0,
-                    weather_type=weather_type,
-                )
-
-                # Qal'a garnizoni yangilash
-                target_terr.garrison_infantry = battle_res["remaining_defender"]["infantry"]
-                target_terr.garrison_archers = battle_res["remaining_defender"]["archers"]
-                target_terr.garrison_cavalry = battle_res["remaining_defender"]["cavalry"]
-                target_terr.garrison_spearmen = battle_res["remaining_defender"]["spearmen"]
-                # Qal'a mudofaasiga yetkazilgan talofat
-                npc_def_dmg = battle_res.get("castle_defense_damage", 0)
-                if npc_def_dmg > 0:
-                    target_terr.defense = max(50, target_terr.defense - npc_def_dmg)
-
-                raided_count += 1
-
-                if battle_res["winner"] == "attacker":
-                    loot_gold = battle_res["loot"]["gold"]
-                    loot_food = battle_res["loot"]["food"]
-                    def_house.gold = max(0, def_house.gold - loot_gold)
-                    def_house.food = max(0, def_house.food - loot_food)
-
-                    raid_report = (
-                        f"🚨 **SOAT 21:00 NPC BOSQINI: QAL'ANGIZ HUJUMGA UCHRADI!** 🚨\n\n"
-                        f"🏰 Qal'a: **{target_terr.name} ({target_terr.castle_name})**\n"
-                        f"👾 Bosqinchi kuch: **{raider['emoji']} {raider['name']}**\n\n"
-                        f"{battle_res['details']}\n\n"
-                        f"⚠️ **Natija:** Qal'a garnizoni og'ir talofat ko'rdi!\n"
-                        f"💸 Yo'qotilgan o'lja: **-{loot_gold:,}** oltin, **-{loot_food:,}** g'alla.\n\n"
-                        f"🛡️ *Garnizonni to'ldirish uchun zudlik bilan yangi qo'shin yuboring!*"
-                    )
-                else:
-                    def_house.prestige += 8
-                    raid_report = (
-                        f"🛡️⚔️ **SOAT 21:00 NPC BOSQINI QAYTARILDI!** ⚔️🛡️\n\n"
-                        f"🏰 Qal'a: **{target_terr.name} ({target_terr.castle_name})**\n"
-                        f"👾 Bosqinchi kuch: **{raider['emoji']} {raider['name']}**\n\n"
-                        f"{battle_res['details']}\n\n"
-                        f"🏆 **Natija:** Qal'angiz garnizoni bosqinchilarni tor-mor qildi!\n"
-                        f"🎖️ Xonadonga **+8 Prestige** berildi."
-                    )
-
-                # Lordga shaxsiy xabar
-                if bot_app and lord_user and lord_user.telegram_id:
-                    try:
-                        await bot_app.bot.send_message(
-                            chat_id=lord_user.telegram_id,
-                            text=raid_report,
-                            parse_mode="Markdown",
-                        )
-                    except Exception:
-                        pass
-
-                # Xonadon guruhiga xabar
-                if bot_app and def_house.group_chat_id:
-                    try:
-                        await notify_house_group(
-                            bot_app,
-                            def_house.id,
-                            raid_report,
-                            parse_mode="Markdown",
-                        )
-                    except Exception:
-                        pass
-
+            # 4. NPC Qal'alarga avtomatik bosqinlar to'xtatilgan (Foydalanuvchi talabi)
             await session.commit()
 
             # Bosh egaga (Owner) hisobot

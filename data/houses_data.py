@@ -653,7 +653,7 @@ HOUSES_DATA = {
         "prestige": 300,
         "defense_bonus": 1.05,
         "special_troop": "Braavosi Water Dancers",
-        "is_npc": True,
+        "is_npc": False,
     },
     "nights_watch": {
         "id": 48,
@@ -695,6 +695,6 @@ HOUSES_DATA = {
         "prestige": 1000,
         "defense_bonus": 1.40,
         "special_troop": "Wights & Ice Spiders",
-        "is_npc": True,
+        "is_npc": False,
     },
 }

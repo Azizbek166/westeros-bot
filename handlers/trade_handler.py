@@ -46,8 +46,7 @@ async def show_trade_hub(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "━━━━━━━━━━━━━━━━━━━━━━\n"
             f"🏰 Sizning Xonadoningiz: **{house_name}**\n"
             f"💰 Hamyoningiz: **{(user.gold or 0):,}**🪙 | **{(user.food or 0):,}**🌾 | **{(user.iron or 0):,}**⛓️\n\n"
-            "Bu yerda buyuk xonadonlar o'zaro resurs ayirboshlaydilar.\n"
-            "Savdo muvaffaqiyatli yakunlanganda har ikkala xonadonga **+10 Prestige** beriladi! 👑\n"
+            "Bu yerda buyuk xonadonlar o'zaro kerakli resurslarni qulay ayirboshlaydilar.\n"
             "━━━━━━━━━━━━━━━━━━━━━━\n\n"
         )
 

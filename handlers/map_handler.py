@@ -775,12 +775,15 @@ async def show_garrison_withdraw_menu(target, user_id: int, terr_id: int):
         if not user or not terr:
             return
 
+        user_house = await session.get(models.House, user.house_id) if user.house_id else None
+        is_lord = user_house and (user_house.lord_user_id == user.telegram_id or user_house.lord_user_id == user.id or user.rank == "king")
         can_withdraw = user and terr and (
-            (user.house_id and terr.owner_house_id == user.house_id)
+            (is_lord and terr.owner_house_id == user.house_id)
             or (terr.conquered_by_user_id == user.id)
+            or (user_house and user_house.lord_user_id is None and terr.owner_house_id == user.house_id)
         )
         if not can_withdraw:
-            err_msg = "❌ **RUXSAT BERILMAGAN!**\n\nQal'a garnizonidan askarlarni qaytarib olish huquqi faqat o'z xonadoni yoki shaxsan zabt etgan lordga berilgan!"
+            err_msg = "❌ **RUXSAT BERILMAGAN!**\n\nQal'a garnizonidan askarlarni qaytarib olish huquqi faqat Xonadon Lordiga yoki qal'ani shaxsan zabt etgan sarkardaga berilgan!"
             back_kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Qal'aga Qaytish", callback_data=f"my_c_detail:{terr.id}")]])
             try:
                 await target.edit_message_text(err_msg, parse_mode="Markdown", reply_markup=back_kb)
@@ -859,12 +862,15 @@ async def def_withdraw_rf_callback(update: Update, context: ContextTypes.DEFAULT
     async with AsyncSessionLocal() as session:
         user = await crud.get_user_with_relations(session, user_id)
         terr = await session.get(models.Territory, terr_id)
+        user_house = await session.get(models.House, user.house_id) if user.house_id else None
+        is_lord = user_house and (user_house.lord_user_id == user.telegram_id or user_house.lord_user_id == user.id or user.rank == "king")
         can_withdraw = user and terr and (
-            (user.house_id and terr.owner_house_id == user.house_id)
+            (is_lord and terr.owner_house_id == user.house_id)
             or (terr.conquered_by_user_id == user.id)
+            or (user_house and user_house.lord_user_id is None and terr.owner_house_id == user.house_id)
         )
         if not can_withdraw:
-            await query.answer("❌ Garnizondan askar olish huquqi faqat o'z xonadoningiz qal'asiga tegishli!", show_alert=True)
+            await query.answer("❌ Garnizondan askar olish huquqi faqat Xonadon Lordiga tegishli!", show_alert=True)
             return
 
     await show_garrison_withdraw_menu(query, user_id, terr_id)
@@ -881,12 +887,15 @@ async def def_with_act_callback(update: Update, context: ContextTypes.DEFAULT_TY
     async with AsyncSessionLocal() as session:
         user = await crud.get_user_with_relations(session, user_id)
         terr = await session.get(models.Territory, terr_id)
+        user_house = await session.get(models.House, user.house_id) if user.house_id else None
+        is_lord = user_house and (user_house.lord_user_id == user.telegram_id or user_house.lord_user_id == user.id or user.rank == "king")
         can_withdraw = user and terr and (
-            (user.house_id and terr.owner_house_id == user.house_id)
+            (is_lord and terr.owner_house_id == user.house_id)
             or (terr.conquered_by_user_id == user.id)
+            or (user_house and user_house.lord_user_id is None and terr.owner_house_id == user.house_id)
         )
         if not can_withdraw:
-            await query.answer("❌ Garnizondan askar olish huquqi faqat o'z xonadoningiz qal'asiga tegishli!", show_alert=True)
+            await query.answer("❌ Garnizondan askar olish huquqi faqat Xonadon Lordiga tegishli!", show_alert=True)
             return
 
         if count_val == "all":
@@ -920,12 +929,15 @@ async def def_custom_with_callback(update: Update, context: ContextTypes.DEFAULT
     async with AsyncSessionLocal() as session:
         user = await crud.get_user_with_relations(session, user_id)
         terr = await session.get(models.Territory, terr_id)
+        user_house = await session.get(models.House, user.house_id) if user.house_id else None
+        is_lord = user_house and (user_house.lord_user_id == user.telegram_id or user_house.lord_user_id == user.id or user.rank == "king")
         can_withdraw = user and terr and (
-            (user.house_id and terr.owner_house_id == user.house_id)
+            (is_lord and terr.owner_house_id == user.house_id)
             or (terr.conquered_by_user_id == user.id)
+            or (user_house and user_house.lord_user_id is None and terr.owner_house_id == user.house_id)
         )
         if not can_withdraw:
-            await query.answer("❌ Garnizondan askar olish huquqi faqat o'z xonadoningiz qal'asiga tegishli!", show_alert=True)
+            await query.answer("❌ Garnizondan askar olish huquqi faqat Xonadon Lordiga tegishli!", show_alert=True)
             return
 
     await query.answer()
