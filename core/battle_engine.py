@@ -253,7 +253,7 @@ def calculate_battle(
             "defender_losses": {t: 0 for t in troop_types},
             "remaining_attacker": att_troops,
             "remaining_defender": def_troops,
-            "loot": {"gold": 1200, "food": 2500, "iron": 800},
+            "loot": {"gold": 350, "food": 700, "iron": 200},
             "rounds": 1,
             "details": "Qal'a garnizonsiz qoldirilgan. Hujumchilar oson g'alaba qozondi.",
         }
@@ -373,9 +373,9 @@ def calculate_battle(
     if winner := ("attacker" if final_att > final_def else "defender"):
         if winner == "attacker":
             loot = {
-                "gold": random.randint(600, 1800),
-                "food": random.randint(1500, 4000),
-                "iron": random.randint(500, 1500),
+                "gold": random.randint(150, 450),
+                "food": random.randint(300, 900),
+                "iron": random.randint(100, 300),
             }
             cat_lost = max(0, int(catapults * random.uniform(0.1, 0.25)))
             twr_lost = max(0, int(siege_towers * random.uniform(0.1, 0.25)))
