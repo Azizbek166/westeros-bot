@@ -1,3 +1,5 @@
+import logging
+from typing import Tuple
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 from database import AsyncSessionLocal, crud, models
@@ -12,7 +14,83 @@ from keyboards.menus import (
     custom_house_regions_keyboard,
     custom_house_emojis_keyboard,
 )
-from config import escape_md
+from config import (
+    escape_md,
+    COMMUNITY_CHANNEL_URL,
+    COMMUNITY_GROUP_URL,
+    COMMUNITY_CHANNEL_ID,
+    COMMUNITY_GROUP_ID,
+)
+
+logger = logging.getLogger(__name__)
+
+
+async def check_user_subscriptions(bot, user_id: int) -> Tuple[bool, bool]:
+    """
+    Foydalanuvchining rasmiy kanal va chatga a'zo ekanligini tekshiradi.
+    (channel_ok, group_ok) qaytaradi.
+    """
+    channel_ok = False
+    group_ok = False
+    try:
+        m1 = await bot.get_chat_member(chat_id=COMMUNITY_CHANNEL_ID, user_id=user_id)
+        if m1.status in ["creator", "administrator", "member", "restricted"]:
+            channel_ok = True
+    except Exception as e:
+        logger.warning(f"Kanal a'zoligini tekshirishda xatolik ({user_id}): {e}")
+        channel_ok = False
+
+    try:
+        m2 = await bot.get_chat_member(chat_id=COMMUNITY_GROUP_ID, user_id=user_id)
+        if m2.status in ["creator", "administrator", "member", "restricted"]:
+            group_ok = True
+    except Exception as e:
+        logger.warning(f"Guruh a'zoligini tekshirishda xatolik ({user_id}): {e}")
+        group_ok = False
+
+    return channel_ok, group_ok
+
+
+def subscription_required_keyboard(channel_ok: bool = False, group_ok: bool = False) -> InlineKeyboardMarkup:
+    chan_icon = "✅" if channel_ok else "📢"
+    grp_icon = "✅" if group_ok else "💬"
+    buttons = [
+        [InlineKeyboardButton(f"{chan_icon} 1. Rasmiy Kanal", url=COMMUNITY_CHANNEL_URL)],
+        [InlineKeyboardButton(f"{grp_icon} 2. Rasmiy Chat (Guruh)", url=COMMUNITY_GROUP_URL)],
+        [InlineKeyboardButton("🔄 Obunani Tekshirish", callback_data="check_subscription_start")],
+    ]
+    return InlineKeyboardMarkup(buttons)
+
+
+def get_subscription_required_text(channel_ok: bool = False, group_ok: bool = False) -> str:
+    c_status = "✅ A'zo bo'lingan" if channel_ok else "❌ A'zo bo'linmagan"
+    g_status = "✅ A'zo bo'lingan" if group_ok else "❌ A'zo bo'linmagan"
+    return (
+        "👑 **THE IRON THRONE — WESTEROS MMORPG**\n\n"
+        "⚔️ **QIROLLIK HAMJAMIYATIGA QO'SHILISH MAJBURIY!**\n\n"
+        "Vesteros taxti uchun jangga kirishdan va botdan foydalanishdan oldin, "
+        "Qirollikning rasmiy kanali hamda jangchilar chatiga a'zo bo'lishingiz shart:\n\n"
+        f"📢 **1. Rasmiy Kanal:** {c_status}\n"
+        f"💬 **2. Rasmiy Chat:** {g_status}\n\n"
+        "👉 Har ikkala tugma orqali a'zo bo'ling va so'ngra **«🔄 Obunani Tekshirish»** tugmasini bosing!"
+    )
+
+
+async def send_message_safe(context, chat_id: int, text: str, reply_markup=None, parse_mode: str = "Markdown"):
+    try:
+        return await context.bot.send_message(
+            chat_id=chat_id,
+            text=text,
+            reply_markup=reply_markup,
+            parse_mode=parse_mode,
+        )
+    except Exception:
+        return await context.bot.send_message(
+            chat_id=chat_id,
+            text=text,
+            reply_markup=reply_markup,
+            parse_mode=None,
+        )
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -48,12 +126,72 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    # 2. Kanal va Guruhga majburiy obuna tekshiruvi
+    chan_ok, grp_ok = await check_user_subscriptions(context.bot, user_id)
+    if not (chan_ok and grp_ok):
+        text = get_subscription_required_text(chan_ok, grp_ok)
+        kb = subscription_required_keyboard(chan_ok, grp_ok)
+        await update.message.reply_text(
+            text,
+            parse_mode="Markdown",
+            reply_markup=kb,
+            disable_web_page_preview=True,
+        )
+        return
+
+    await proceed_start(update, context, user_id, full_name, username)
+
+
+async def check_subscription_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Obunani tekshirish tugmasi bosilganda"""
+    query = update.callback_query
+    user_id = query.from_user.id
+    full_name = query.from_user.full_name
+    username = query.from_user.username
+
+    if not username:
+        await query.answer("❌ O'yinda qatnashish uchun avval Telegram sozlamalarida @username o'rnating!", show_alert=True)
+        return
+
+    chan_ok, grp_ok = await check_user_subscriptions(context.bot, user_id)
+    if not (chan_ok and grp_ok):
+        missing = []
+        if not chan_ok:
+            missing.append("Kanal")
+        if not grp_ok:
+            missing.append("Chat (Guruh)")
+        missing_str = " va ".join(missing)
+        await query.answer(f"❌ Siz hali {missing_str}ga a'zo bo'lmadingiz! Iltimos, a'zo bo'lib qayta bosing.", show_alert=True)
+        try:
+            await query.edit_message_text(
+                get_subscription_required_text(chan_ok, grp_ok),
+                parse_mode="Markdown",
+                reply_markup=subscription_required_keyboard(chan_ok, grp_ok),
+                disable_web_page_preview=True,
+            )
+        except Exception:
+            pass
+        return
+
+    await query.answer("✅ Rahmat! Obuna muvaffaqiyatli tasdiqlandi.", show_alert=False)
+    try:
+        await query.delete_message()
+    except Exception:
+        pass
+
+    await proceed_start(update, context, user_id, full_name, username)
+
+
+async def proceed_start(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, full_name: str, username: str):
+    """Obuna va username tasdiqlangach o'yinni boshlash / menyuni ochish"""
     async with AsyncSessionLocal() as session:
         user = await crud.get_user_with_relations(session, user_id)
 
-        # 2. Bloklangan o'yinchi tekshiruvi
+        # Bloklangan o'yinchi tekshiruvi
         if user and getattr(user, "is_banned", False):
-            await update.message.reply_text(
+            await send_message_safe(
+                context,
+                user_id,
                 "🚫 **SIZNING HISOBINGIZ BLOKLANGAN!**\n\n"
                 "Qoidabuzarlik sababli bot ma'muriyati tomonidan hisobingiz muzlatilgan.\n"
                 "Agar bu xatolik deb hisoblasangiz, bosh administratorga murojaat qiling.",
@@ -88,17 +226,15 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             # Doimiy pastki menyu (emoji bar yonida)
             try:
-                await update.message.reply_text(
-                    "⚔️ Westeros dunyosiga xush kelibsiz!",
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text="⚔️ Westeros dunyosiga xush kelibsiz!",
                     reply_markup=persistent_reply_keyboard()
                 )
             except Exception:
                 pass
 
-            try:
-                await update.message.reply_text(text, parse_mode="Markdown", reply_markup=main_menu_keyboard(user_id))
-            except Exception:
-                await update.message.reply_text(text, parse_mode=None, reply_markup=main_menu_keyboard(user_id))
+            await send_message_safe(context, user_id, text, reply_markup=main_menu_keyboard(user_id), parse_mode="Markdown")
             return
 
         # Agar yangi o'yinchiga xonadon allaqachon random tushgan bo'lsa, bo'shligini tekshiramiz
@@ -139,10 +275,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "✍️ **1-QADAM: Yangi Xonadoningiz nomini yozing:**\n"
                     "Chatga yangi sulolangiz nomini matn sifatida yuboring *(masalan: `Qora Burgutlar`, `House Shadow`, `Muz Qoplonlari`)*:"
                 )
-                try:
-                    await update.message.reply_text(custom_intro, parse_mode="Markdown")
-                except Exception:
-                    await update.message.reply_text(custom_intro, parse_mode=None)
+                await send_message_safe(context, user_id, custom_intro, parse_mode="Markdown")
                 return
 
         house_code = assigned_house.code
@@ -174,10 +307,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "O'zingiz uchun qahramon ismini chatga matn sifatida yuboring (masalan: *Aegon*, *Zafar*, *Shadowblade*).\n\n"
         "⚠️ _Qoida: Nom 2-30 belgidan iborat bo'lishi va butun Westeros bo'ylab takrorlanmasligi shart!_"
     )
-    try:
-        await update.message.reply_text(text, parse_mode="Markdown")
-    except Exception:
-        await update.message.reply_text(text, parse_mode=None)
+    await send_message_safe(context, user_id, text, parse_mode="Markdown")
 
 
 async def random_house_pick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -519,7 +649,7 @@ async def handle_custom_name_input(update: Update, context: ContextTypes.DEFAULT
             f"📦 **Boshlang'ich Ta'minot:**\n"
             f"• 🪙 Oltin: **250** | 🌾 Oziq: **500** | ⛓️ Temir: **125**\n"
             f"• 🛡️ Armiya: **100** piyoda, **50** kamonchi, **25** otliq, **25** nayzachi\n"
-            f"• 🏰 Qal'a mudofaasi: **500** ball | Soatlik daromad: **+200🪙, +500🌾, +150⛓️**\n\n"
+            f"• 🏰 Qal'a mudofaasi: **500** ball | Soatlik daromad: **+320🪙, +800🌾, +250⛓️**\n\n"
             f"🛡️ Yangi hukmdor sifatida sizga **3 kunlik Tinchlik Qalqoni (Peace Shield)** taqdim etildi!\n\n"
             f"Qal'angizni boshqaring, devorlarini mustahkamlang, askarlar yollang va Temir Taxt uchun jangga otlaning!"
         )
@@ -787,6 +917,7 @@ async def bottom_menu_text_handler(update: Update, context: ContextTypes.DEFAULT
 
 def register_start_handlers(app):
     app.add_handler(CommandHandler("start", start_command))
+    app.add_handler(CallbackQueryHandler(check_subscription_callback, pattern="^check_subscription_start$"))
     app.add_handler(MessageHandler(filters.Regex("^(🏠 Bosh Menyu|🏰 Qalalarim|💎 VIP & Donate|📢 Guruh & Kanal)$") & filters.ChatType.PRIVATE, bottom_menu_text_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, handle_custom_name_input), group=2)
     app.add_handler(CallbackQueryHandler(random_house_pick_callback, pattern="^random_house_pick$"))

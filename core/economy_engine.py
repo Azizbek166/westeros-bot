@@ -31,14 +31,14 @@ def calculate_army_upkeep(army: models.Army, weather_type: str = "normal") -> fl
 async def calculate_hourly_income(session: AsyncSession, user: models.User, weather_type: str = "normal") -> Dict[str, int]:
     """O'yinchining hududlari, temir koni, don tegirmoni va bazaviy soatlik daromadlari"""
     mine_lvl = getattr(user, "iron_mine_level", 1) or 1
-    mine_iron = mine_lvl * 12  # Har daraja uchun +12 temir/soat (4 barobar kamaytirildi)
+    mine_iron = mine_lvl * 20  # Har daraja uchun +20 temir/soat
 
     mill_lvl = getattr(user, "grain_mill_level", 1) or 1
-    mill_food = mill_lvl * 18  # Har daraja uchun +18 oziq-ovqat/soat (4 barobar kamaytirildi)
+    mill_food = mill_lvl * 30  # Har daraja uchun +30 oziq-ovqat/soat
 
-    base_gold = 12
-    base_food = 25 + mill_food
-    base_iron = 5 + mine_iron
+    base_gold = 25
+    base_food = 40 + mill_food
+    base_iron = 15 + mine_iron
 
     if not user.house_id:
         total_gold = base_gold
@@ -51,9 +51,9 @@ async def calculate_hourly_income(session: AsyncSession, user: models.User, weat
         )
         territories = res.scalars().all()
 
-        terr_gold = sum(int((t.gold_income or 0) * (1.0 + (max(1, getattr(t, 'castle_level', 1) or 1) - 1) * 0.25)) for t in territories) // 5
-        terr_food = sum(int((t.food_income or 0) * (1.0 + (max(1, getattr(t, 'castle_level', 1) or 1) - 1) * 0.25)) for t in territories) // 5
-        terr_iron = sum(int((t.iron_income or 0) * (1.0 + (max(1, getattr(t, 'castle_level', 1) or 1) - 1) * 0.25)) for t in territories) // 5
+        terr_gold = sum(int((t.gold_income or 0) * (1.0 + (max(1, getattr(t, 'castle_level', 1) or 1) - 1) * 0.25)) for t in territories) // 4
+        terr_food = sum(int((t.food_income or 0) * (1.0 + (max(1, getattr(t, 'castle_level', 1) or 1) - 1) * 0.25)) for t in territories) // 4
+        terr_iron = sum(int((t.iron_income or 0) * (1.0 + (max(1, getattr(t, 'castle_level', 1) or 1) - 1) * 0.25)) for t in territories) // 4
 
         total_gold = base_gold + terr_gold
         total_food = base_food + terr_food

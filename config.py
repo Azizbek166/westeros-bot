@@ -142,6 +142,8 @@ DONATE_CARD_HOLDER = os.getenv("DONATE_CARD_HOLDER", "Shavkatov Azizbek")
 # ============================================================
 COMMUNITY_CHANNEL_URL = os.getenv("COMMUNITY_CHANNEL_URL", "https://t.me/northremembers1")
 COMMUNITY_GROUP_URL = os.getenv("COMMUNITY_GROUP_URL", "https://t.me/northremember2")
+COMMUNITY_CHANNEL_ID = os.getenv("COMMUNITY_CHANNEL_ID", "@northremembers1")
+COMMUNITY_GROUP_ID = os.getenv("COMMUNITY_GROUP_ID", "@northremember2")
 
 # ============================================================
 # AFSONAVIY DONATE / VIP TARIFLARI

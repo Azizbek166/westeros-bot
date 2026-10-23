@@ -4,12 +4,18 @@ from typing import Dict, Any, Tuple, Optional
 from sqlalchemy import select, desc, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from database import models, AsyncSessionLocal, crud
-from config import COMMUNITY_CHANNEL_URL, COMMUNITY_GROUP_URL, escape_md
+from config import (
+    COMMUNITY_CHANNEL_URL,
+    COMMUNITY_GROUP_URL,
+    COMMUNITY_CHANNEL_ID,
+    COMMUNITY_GROUP_ID,
+    escape_md,
+)
 
 logger = logging.getLogger(__name__)
 
-CHANNEL_CHAT_ID = "@northremembers1"
-GROUP_CHAT_ID = "@northremember2"
+CHANNEL_CHAT_ID = COMMUNITY_CHANNEL_ID
+GROUP_CHAT_ID = COMMUNITY_GROUP_ID
 MEDALS = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
 
 
