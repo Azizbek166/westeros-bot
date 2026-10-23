@@ -755,9 +755,9 @@ async def recruit_troops(
     user.daily_recruit_count = old_cnt + amount
     quest_completed = False
     if old_cnt < 100 <= user.daily_recruit_count:
-        user.gold += 400
-        user.food += 800
-        user.xp += 150
+        user.gold += 1000
+        user.food += 2000
+        user.xp += 250
         quest_completed = True
 
     # Tranzaksiyani yozish
@@ -3529,12 +3529,12 @@ async def fight_ai_champion(
 
     won = player_score >= champ_score
     if won:
-        user.gold += 125
-        user.prestige += 1
-        user.xp += 15
+        user.gold += 350
+        user.prestige += 2
+        user.xp += 35
         outcome = (
             f"🏆 **G'ALABA!** Sizning qilich zarbangiz {champion_name}ning mudofaasini teshib o'tdi!\n"
-            f"🎁 Mukofot: **+125🪙 Oltin, +1 Prestige, +15 XP** ({user.daily_duel_count}/{DAILY_DUEL_LIMIT})"
+            f"🎁 Mukofot: **+350🪙 Oltin, +2 Prestige, +35 XP** ({user.daily_duel_count}/{DAILY_DUEL_LIMIT})"
         )
     else:
         if bet_gold > 0:
@@ -3855,46 +3855,46 @@ async def get_inbox_ravens(session: AsyncSession, user_id: int, limit: int = 5) 
 STREAK_REWARDS = {
     1: {
         "title": "1-Kun: Boshlang'ich Safarbarlik",
-        "gold": 800, "food": 1500, "iron": 400, "prestige": 20, "xp": 35,
+        "gold": 1600, "food": 3000, "iron": 800, "prestige": 25, "xp": 50,
         "troops": {},
         "extra_desc": ""
     },
     2: {
         "title": "2-Kun: Xonadon Zaxirasi",
-        "gold": 1400, "food": 2500, "iron": 800, "prestige": 30, "xp": 60,
+        "gold": 2800, "food": 5000, "iron": 1600, "prestige": 35, "xp": 80,
         "troops": {},
         "extra_desc": ""
     },
     3: {
         "title": "3-Kun: Qalqonbardorlar Kelishi",
-        "gold": 2000, "food": 3800, "iron": 1200, "prestige": 35, "xp": 75,
-        "troops": {"infantry": 15},
-        "extra_desc": "🛡️ +15 ta Piyoda saflaringizga qo'shildi!"
+        "gold": 4000, "food": 7600, "iron": 2400, "prestige": 45, "xp": 100,
+        "troops": {"infantry": 25},
+        "extra_desc": "🛡️ +25 ta Piyoda saflaringizga qo'shildi!"
     },
     4: {
         "title": "4-Kun: Mohir Merganlar",
-        "gold": 3200, "food": 5500, "iron": 1800, "prestige": 50, "xp": 100,
-        "troops": {"archers": 12},
-        "extra_desc": "🏹 +12 ta Kamonchi armiyangizga qo'shildi!"
+        "gold": 6500, "food": 11000, "iron": 3600, "prestige": 65, "xp": 140,
+        "troops": {"archers": 20},
+        "extra_desc": "🏹 +20 ta Kamonchi armiyangizga qo'shildi!"
     },
     5: {
         "title": "5-Kun: Ritsarlar Hamlasi",
-        "gold": 4800, "food": 7500, "iron": 2500, "prestige": 70, "xp": 150,
-        "troops": {"cavalry": 8},
-        "extra_desc": "🐎 +8 ta Og'ir Otliq bayrog'ingiz ostida!"
+        "gold": 9600, "food": 15000, "iron": 5000, "prestige": 85, "xp": 200,
+        "troops": {"cavalry": 15},
+        "extra_desc": "🐎 +15 ta Og'ir Otliq bayrog'ingiz ostida!"
     },
     6: {
         "title": "6-Kun: Nayzadorlar Qal'asi",
-        "gold": 7000, "food": 11000, "iron": 3500, "prestige": 85, "xp": 180,
-        "troops": {"spearmen": 8, "archers": 6},
-        "extra_desc": "🗡️ +8 ta Nayzachi va 🏹 +6 ta Kamonchi armiyangizda!"
+        "gold": 14000, "food": 22000, "iron": 7000, "prestige": 110, "xp": 250,
+        "troops": {"spearmen": 15, "archers": 10},
+        "extra_desc": "🗡️ +15 ta Nayzachi va 🏹 +10 ta Kamonchi armiyangizda!"
     },
     7: {
         "title": "7-Kun: 👑 VALIRIYA TUHFASI",
-        "gold": 14000, "food": 20000, "iron": 7000, "prestige": 180, "xp": 350,
-        "troops": {"special_troops": 12},
-        "dragon_power": 35,
-        "extra_desc": "🔥 +12 ta Maxsus Gvardiya va Ajdaringizga +35 Quvvat (Ozuqa)!"
+        "gold": 28000, "food": 40000, "iron": 14000, "prestige": 250, "xp": 500,
+        "troops": {"special_troops": 25},
+        "dragon_power": 50,
+        "extra_desc": "🔥 +25 ta Maxsus Gvardiya va Ajdaringizga +50 Quvvat (Ozuqa)!"
     },
 }
 
@@ -3905,38 +3905,38 @@ DAILY_ACTIVITY_QUESTS = {
         "title": "⚔️ Ritsarlar Duela yoki Mashg'ulot",
         "desc": "Bugun kamida 1 marta duel o'tkazing yoki mashg'ulot qiling",
         "target": 1,
-        "reward_desc": "+1,000 🪙 | +1,200 🌾 | +20 🏆 | +35 ⭐",
-        "gold": 1000, "food": 1200, "iron": 0, "prestige": 20, "xp": 35,
+        "reward_desc": "+2,000 🪙 | +2,500 🌾 | +600 ⛓️ | +25 🏆 | +50 ⭐",
+        "gold": 2000, "food": 2500, "iron": 600, "prestige": 25, "xp": 50,
     },
     "citadel": {
         "title": "🏛️ Sitadel Viktorinasi / Kengash",
         "desc": "Sitadel viktorinasida qatnashing yoki Buyuk Kengashda ovoz bering",
         "target": 1,
-        "reward_desc": "+800 🪙 | +600 ⛓️ | +15 🏆 | +30 ⭐",
-        "gold": 800, "food": 0, "iron": 600, "prestige": 15, "xp": 30,
+        "reward_desc": "+1,600 🪙 | +1,200 🌾 | +1,000 ⛓️ | +20 🏆 | +45 ⭐",
+        "gold": 1600, "food": 1200, "iron": 1000, "prestige": 20, "xp": 45,
     },
     "recruit": {
         "title": "🛡️ Qo'shin Yollash",
         "desc": "Kazarmada yangi askarlarni saflarga qo'shing",
         "target": 1,
-        "reward_desc": "+1,000 🪙 | +1,500 🌾 | +12 🛡️ Piyoda | +20 🏆",
-        "gold": 1000, "food": 1500, "iron": 0, "prestige": 20, "xp": 35,
-        "infantry": 12,
+        "reward_desc": "+2,000 🪙 | +3,000 🌾 | +800 ⛓️ | +20 🛡️ | +25 🏆",
+        "gold": 2000, "food": 3000, "iron": 800, "prestige": 25, "xp": 50,
+        "infantry": 20,
     },
     "caravan": {
         "title": "🐪 Savdo Karvoni / Qaroqchilik",
         "desc": "Savdo karvonini jo'nating yoki qaroqchilarga zarba bering",
         "target": 1,
-        "reward_desc": "+1,200 🪙 | +800 ⛓️ | +20 🏆 | +45 ⭐",
-        "gold": 1200, "food": 0, "iron": 800, "prestige": 20, "xp": 45,
+        "reward_desc": "+2,500 🪙 | +2,000 🌾 | +1,500 ⛓️ | +25 🏆 | +60 ⭐",
+        "gold": 2500, "food": 2000, "iron": 1500, "prestige": 25, "xp": 60,
     },
     "grand": {
         "title": "👑 BARCHA VAZIFALAR GRAND-BONUSI",
         "desc": "Bugungi barcha 4 ta vazifani muvaffaqiyatli yakunlang",
         "target": 4,
-        "reward_desc": "+5,000 🪙 | +8,000 🌾 | +3,500 ⛓️ | +10 🛡️ | +25 🔥 | +80 🏆",
-        "gold": 5000, "food": 8000, "iron": 3500, "prestige": 80, "xp": 200,
-        "special_troops": 10, "dragon_power": 25,
+        "reward_desc": "+12,000 🪙 | +18,000 🌾 | +8,000 ⛓️ | +20 🛡️ | +35 🔥 | +100 🏆",
+        "gold": 12000, "food": 18000, "iron": 8000, "prestige": 100, "xp": 250,
+        "special_troops": 20, "dragon_power": 35,
     }
 }
 
@@ -7368,8 +7368,8 @@ async def raid_trade_caravan(
         caravan.raider_user_id = raider.id
         caravan.raid_report = battle_res["details"]
 
-        stolen_res = int(caravan.resource_amount * 0.25)
-        bounty_gold = 150
+        stolen_res = int(caravan.resource_amount * 0.35)
+        bounty_gold = 500
 
         if caravan.resource_type == "food":
             raider.food += stolen_res

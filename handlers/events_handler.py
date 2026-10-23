@@ -163,10 +163,10 @@ async def raid_night_king_callback(update: Update, context: ContextTypes.DEFAULT
         await crud.record_night_king_damage(session, user.id, total_dmg)
 
         # Mukofot
-        user.gold += 88
-        user.iron += 45
-        user.prestige += 12
-        user.xp += 180
+        user.gold += 350
+        user.iron += 180
+        user.prestige += 20
+        user.xp += 250
 
         # Agar Tun Qiroli yengilgan bo'lsa (HP == 0), Top 1 ga "Shimol Najotkori" unvoni va +500 Prestige beriladi
         victory_awarded = False
@@ -514,17 +514,17 @@ async def bandits_action_callback(update: Update, context: ContextTypes.DEFAULT_
             else:
                 army.archers = max(0, army.archers - 5)
 
-            user.gold += 500
-            user.food += 250
-            user.iron += 100
-            user.prestige += 12
-            user.xp += 150
+            user.gold += 1200
+            user.food += 1000
+            user.iron += 400
+            user.prestige += 15
+            user.xp += 200
             user.daily_bandit_count = b_cnt + 1
 
             from core.leveling import check_user_level_up
             lvl_up, new_lvl, lvl_msg = check_user_level_up(user)
             await session.commit()
-            msg = f"🏆 G'alaba! Qaroqchilar tor-mor etildi: +500🪙 oltin, +250🌾 oziq-ovqat, +100⛓️ temir, +12 Prestige! ({user.daily_bandit_count}/3)"
+            msg = f"🏆 G'alaba! Qaroqchilar tor-mor etildi: +1,200🪙 oltin, +1,000🌾 oziq-ovqat, +400⛓️ temir, +15 Prestige! ({user.daily_bandit_count}/3)"
         else:
             user.gold = max(0, user.gold - 50)
             await session.commit()

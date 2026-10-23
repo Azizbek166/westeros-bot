@@ -120,10 +120,10 @@ async def quest_daily_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         council_cnt = getattr(user, "daily_council_count", 0) or 0
         duel_cnt = getattr(user, "daily_duel_count", 0) or 0
 
-        rec_status = "✅ Bajarildi (+400🪙, +800🌾, +150 XP)" if rec_cnt >= 100 else f"⏳ Progress: **{rec_cnt}/100** ta askar"
-        quiz_status = "✅ Bajarildi (+450🪙, +250⛓️, +180 XP)" if quiz_cnt >= 5 else f"⏳ Progress: **{quiz_cnt}/5** ta savol"
-        council_status = "✅ Bajarildi (+350🪙, +600🌾, +120 XP)" if council_cnt >= 2 else f"⏳ Progress: **{council_cnt}/2** ta masala"
-        duel_status = "✅ Bajarildi (+300🪙, +40 XP)" if duel_cnt >= 3 else f"⏳ Progress: **{duel_cnt}/3** ta jang"
+        rec_status = "✅ Bajarildi (+1,000🪙, +2,000🌾, +250 XP)" if rec_cnt >= 100 else f"⏳ Progress: **{rec_cnt}/100** ta askar"
+        quiz_status = "✅ Bajarildi (+1,200🪙, +600⛓️, +250 XP)" if quiz_cnt >= 5 else f"⏳ Progress: **{quiz_cnt}/5** ta savol"
+        council_status = "✅ Bajarildi (+1,000🪙, +1,500🌾, +200 XP)" if council_cnt >= 2 else f"⏳ Progress: **{council_cnt}/2** ta masala"
+        duel_status = "✅ Bajarildi (+800🪙, +100 XP)" if duel_cnt >= 3 else f"⏳ Progress: **{duel_cnt}/3** ta jang"
 
         text = (
             "⭐ **BUGUNGI KUNLIK VAZIFALAR VA PROGRESS:**\n\n"
@@ -276,14 +276,14 @@ async def citadel_answer_callback(update: Update, context: ContextTypes.DEFAULT_
 
         user.daily_quiz_count += 1
         if user_ans == correct_idx:
-            user.gold += 150
-            user.iron += 75
-            user.xp += 100
+            user.gold += 350
+            user.iron += 180
+            user.xp += 150
             await session.commit()
             text = (
                 "✅ **TO'G'RI JAVOB!**\n\n"
                 "Maesterlar bilimingizni yuqori baholashdi.\n"
-                f"💰 Mukofot: **+150🪙 oltin, +75⛓️ temir, +100 XP**\n"
+                f"💰 Mukofot: **+350🪙 oltin, +180⛓️ temir, +150 XP**\n"
                 f"📊 Qolgan viktorinalar: **{max(0, DAILY_QUIZ_LIMIT - user.daily_quiz_count)}/{DAILY_QUIZ_LIMIT}**"
             )
         else:
@@ -298,13 +298,13 @@ async def citadel_answer_callback(update: Update, context: ContextTypes.DEFAULT_
             )
 
         if user.daily_quiz_count >= DAILY_QUIZ_LIMIT:
-            user.gold += 450
-            user.iron += 250
-            user.xp += 180
+            user.gold += 1200
+            user.iron += 600
+            user.xp += 250
             await session.commit()
             text += (
                 "\n\n🎉 **TABRIKLAYMIZ! KUNLIK VAZIFA BAJARILDI: Maester Saboqlari (5/5)!**\n"
-                "🎁 Mukofot hisobingizga o'tkazildi: **+450🪙 Oltin, +250⛓️ Temir, +180 XP**"
+                "🎁 Mukofot hisobingizga o'tkazildi: **+1,200🪙 Oltin, +600⛓️ Temir, +250 XP**"
             )
 
     buttons = [
