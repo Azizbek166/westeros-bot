@@ -1006,7 +1006,7 @@ async def get_top10_armies_detailed(session: AsyncSession) -> List[Dict[str, Any
 
 
 async def get_top10_castles(session: AsyncSession) -> List[Dict[str, Any]]:
-    """Zabt etilgan yoki boshqarilayotgan qal'alar bo'yicha TOP 10 lordlar"""
+    """Zabt etilgan yoki boshqarilayotgan qal'alar bo'yicha TOP 10 lordlar (Maksimal 5 ta limit)"""
     users_res = await session.execute(
         select(models.User)
         .where(models.User.is_banned == False)
@@ -1022,20 +1022,24 @@ async def get_top10_castles(session: AsyncSession) -> List[Dict[str, Any]]:
         )
         conq_cnt = conq_res.scalar() or 0
 
-        # Xonadon poytaxti / xonadoniga tegishli qal'alar
+        # Xonadon poytaxti / xonadoniga tegishli qal'alar (faqat Lord yoki King bo'lsa hisoblanadi)
         house_cnt = 0
-        if u.house_id:
+        is_lord_or_king = (u.rank in ["king", "commander"]) or bool(u.house and u.house.lord_user_id == u.telegram_id)
+        if u.house_id and is_lord_or_king:
             h_terr_res = await session.execute(
                 select(func.count(models.Territory.id)).where(models.Territory.owner_house_id == u.house_id)
             )
             house_cnt = h_terr_res.scalar() or 0
 
         tot_castles = max(conq_cnt, house_cnt)
+        # Qat'iy 5 ta qal'a limiti (hech kim reytingda 5 tadan ko'p qal'a ko'rsata olmaydi)
+        tot_castles = min(MAX_HOUSE_CASTLES, tot_castles)
+
         if tot_castles > 0:
             user_castles.append({
                 "user": u,
                 "castles_count": tot_castles,
-                "is_lord": (u.rank in ["king", "commander"]),
+                "is_lord": is_lord_or_king,
             })
 
     user_castles.sort(key=lambda x: (x["castles_count"], getattr(x["user"], "prestige", 0) or 0), reverse=True)
@@ -3086,22 +3090,10 @@ async def collect_all_castles_tax(session: AsyncSession, user_id: int) -> Tuple[
 
 async def get_npc_house_for_liberation(session: AsyncSession, territory: models.Territory) -> Optional[models.House]:
     """
-    Qal'ani ozod qilishda uni boshlang'ich kanonik xonadoniga qaytarish.
-    Xonadonlar NPC qilinmaydi, asl xonadoniga qaytadi.
+    Qal'ani ozod qilishda uni neytral (egasiz) holatga keltirish.
+    Xonadonlar NPC qilinmaydi va qal'alar hech qaysi xonadonga berilmaydi.
     """
-    from data.map_data import TERRITORIES_DATA
-
-    t_info = TERRITORIES_DATA.get(territory.code, {})
-    init_owner_id = t_info.get("initial_owner_id")
-
-    if init_owner_id:
-        init_house = await session.get(models.House, init_owner_id)
-        if init_house:
-            return init_house
-
-    # Fallback: agar initial owner bo'lmasa
-    first_h = (await session.execute(select(models.House).limit(1))).scalar_one_or_none()
-    return first_h
+    return None
 
 
 def is_ancestral_capital_of_house(terr: models.Territory, house_id: int) -> bool:
@@ -3142,7 +3134,7 @@ def is_castle_liberable(user: models.User, terr: models.Territory, user_castles_
 async def get_user_conquered_castles(session: AsyncSession, user_id: int) -> List[Dict[str, Any]]:
     """
     Foydalanuvchi yoki uning xonadoni tomonidan ozod qilish mumkin bo'lgan barcha qal'alar.
-    Har bir qal'a uchun topshiriladigan aniq NPC xonadoni bilan birga qaytaradi.
+    Ozod qilingan qal'a egasiz (neytral) holatga keltiriladi.
     """
     user = await get_user_any(session, user_id)
     if not user:
@@ -3182,7 +3174,6 @@ async def get_user_conquered_castles(session: AsyncSession, user_id: int) -> Lis
 
         seen_ids.add(t.id)
 
-        target_npc = await get_npc_house_for_liberation(session, t)
         conqueror_user = await session.get(models.User, t.conquered_by_user_id) if t.conquered_by_user_id else None
         tot_gar = (t.garrison_infantry or 0) + (t.garrison_archers or 0) + (t.garrison_cavalry or 0) + (t.garrison_spearmen or 0)
 
@@ -3200,9 +3191,10 @@ async def get_user_conquered_castles(session: AsyncSession, user_id: int) -> Lis
             "garrison_spearmen": t.garrison_spearmen or 0,
             "conquered_by_name": conqueror_user.full_name if conqueror_user else (user.full_name or "Xonadoningiz"),
             "conquered_by_user_id": t.conquered_by_user_id,
-            "npc_house_id": target_npc.id,
-            "npc_house_name": target_npc.name,
-            "npc_house_emoji": target_npc.emoji or "🏰",
+            "status_after_liberation": "🏳️ Egasiz (Neytral) Qal'a",
+            "npc_house_id": None,
+            "npc_house_name": "Egasiz (Neytral) Qal'a",
+            "npc_house_emoji": "🏳️",
         })
 
     return result
@@ -3210,7 +3202,8 @@ async def get_user_conquered_castles(session: AsyncSession, user_id: int) -> Lis
 
 async def liberate_conquered_castle(session: AsyncSession, user_id: int, territory_id: int) -> Tuple[bool, str]:
     """
-    Egallangan qal'ani ozod qilish va mustaqil NPC xonadoniga topshirish.
+    Egallangan qal'ani ozod qilish va uni butunlay egasiz (neytral) holatga keltirish.
+    Qal'a hech qanday NPC xonadoniga berilmaydi, egasiz turadi.
     Garnizondagi barcha askarlar o'yinchining shaxsiy armiyasiga to'liq qaytariladi.
     """
     user = await get_user_any(session, user_id)
@@ -3257,20 +3250,18 @@ async def liberate_conquered_castle(session: AsyncSession, user_id: int, territo
                 d_obj.stage = "adult"
                 recalled_dragons.append(d_obj.name)
 
-    # 3. Topshiriladigan NPC xonadonini aniqlash
-    npc_house = await get_npc_house_for_liberation(session, terr)
-
+    # 3. Qal'ani butunlay EGASIZ (NEYTRAL) holatga o'tkazish
     was_house_castle = bool(user.house_id and terr.owner_house_id == user.house_id)
     old_castle_name = terr.castle_name or terr.name
     terr.conquered_by_user_id = None
-    terr.owner_house_id = npc_house.id
+    terr.owner_house_id = None  # Butunlay egasiz neytral qal'a
     terr.defense = 500  # Standart mudofaa tiklanadi
     terr.castle_level = 1
     terr.wildfire_count = 0
     terr.reinforcements_json = "{}"
     terr.gates_compromised_until = None
 
-    # NPC garnizoni tiklanadi
+    # Neytral qal'a garnizoni o'rnatiladi
     terr.garrison_infantry = 200
     terr.garrison_archers = 100
     terr.garrison_cavalry = 50
@@ -3295,13 +3286,13 @@ async def liberate_conquered_castle(session: AsyncSession, user_id: int, territo
     return True, (
         f"🏳️🕊️ **QAL'A MUVAFFAQIYATLI OZOD QILINDI!**\n\n"
         f"🏰 Qal'a: **{old_castle_name}** ({terr.region})\n"
-        f"👑 Yangi Xo'jayin: **{npc_house.emoji} {npc_house.name} (NPC Xonadon)**\n\n"
+        f"🏛️ Yangi Holati: **🏳️ Egasiz (Neytral) Qal'a**\n\n"
         f"👥 **SHAXSIY ARMIYANGIZGA QAYTARILGAN ASKARLAR ({tot_gar:,} ta):**\n"
         f"{troops_msg}"
         f"{dragon_msg}\n\n"
-        f"✨ **MUKOFOT:** Mardlik va tinchlikparvarlik uchun **+{prestige_reward} Nufuz (Prestige)** berildi!\n\n"
+        f"✨ **MUKOFOT:** Mardlik va adolat uchun **+{prestige_reward} Nufuz (Prestige)** berildi!\n\n"
         f"📊 Xonadoningiz qal'alari: **{new_h_count}/{MAX_HOUSE_CASTLES} ta**.\n"
-        f"⚔️ Endi bemalol boshqa dushman qal'alariga yurish qilib, yangi qal'a zabt etishingiz mumkin!"
+        f"⚔️ Endi bemalol boshqa hududlarga yurish qilib, yangi qal'a zabt etishingiz mumkin!"
     )
 
 
@@ -3432,6 +3423,26 @@ async def get_night_king_leaderboard(session: AsyncSession, limit: int = 10) -> 
             h_name = f"{h.emoji} {h.name}" if h else "Vesteros"
             results.append((char_name, h_name, c.damage_dealt, c.attacks_count))
     return results
+
+
+async def reset_night_king_leaderboard(session: AsyncSession) -> None:
+    """Tun Qiroli reytingini va unga yetkazilgan barcha ziyonlarni 0 ga tushirish"""
+    await session.execute(delete(models.NightKingContribution))
+    await session.execute(
+        update(models.User).values(daily_ww_attack_count=0)
+    )
+    ev_res = await session.execute(select(models.EventState).where(models.EventState.event_name == "white_walkers"))
+    ww_ev = ev_res.scalar_one_or_none()
+    if ww_ev:
+        ww_ev.data_json = json.dumps({"hp": 500000, "max_hp": 500000, "status": "active"})
+        ww_ev.is_active = True
+    else:
+        session.add(models.EventState(
+            event_name="white_walkers",
+            data_json=json.dumps({"hp": 500000, "max_hp": 500000, "status": "active"}),
+            is_active=True,
+        ))
+    await session.commit()
 
 
 async def award_night_king_victory(session: AsyncSession, bot_app=None) -> Dict[str, Any]:

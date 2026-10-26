@@ -130,9 +130,9 @@ async def view_territory_callback(update: Update, context: ContextTypes.DEFAULT_
             if terr.owner_house:
                 owner_name = f"{terr.owner_house.emoji} {terr.owner_house.name}"
             elif terr.code == "kings_landing":
-                owner_name = "👑 Qirollik Soqchilari (NPC Temir Taxt)"
+                owner_name = "👑 Qirollik Soqchilari (Temir Taxt)"
             else:
-                owner_name = "⚔️ NPC Qal'asi (Fath etish uchun ochiq)"
+                owner_name = "🏳️ Egasiz Qal'a (Fath etish uchun ochiq)"
             clean_owner = owner_name.replace("*", "").replace("_", "").replace("`", "")
 
             dragon_info_str = "Mavjud emas"
@@ -178,7 +178,7 @@ async def view_territory_callback(update: Update, context: ContextTypes.DEFAULT_
 
             # Aniq shu qal'ani ozod qilish tugmasi (egallangan bo'lsa yoki admin bo'lsa)
             if user and crud.is_castle_liberable(user, terr):
-                buttons.append([InlineKeyboardButton("🏳️ Ushbu Qal'ani Ozod Qilish (NPCga topshirish)", callback_data=f"liberate_confirm:{terr.id}")])
+                buttons.append([InlineKeyboardButton("🏳️ Ushbu Qal'ani Ozod Qilish (Egasiz qilish)", callback_data=f"liberate_confirm:{terr.id}")])
 
         buttons.append([InlineKeyboardButton("🔙 Xaritaga Qaytish", callback_data="menu_map")])
 
@@ -616,7 +616,7 @@ async def show_my_castle_detail(query, user_id: int, terr_id: int):
 
             # Agar qal'a zabt etilgan bo'lsa yoki ozod qilish mumkin bo'lsa
             if user and crud.is_castle_liberable(user, terr):
-                buttons.append([InlineKeyboardButton("🏳️ Ushbu Qal'ani Ozod Qilish (NPCga topshirish)", callback_data=f"liberate_confirm:{terr.id}")])
+                buttons.append([InlineKeyboardButton("🏳️ Ushbu Qal'ani Ozod Qilish (Egasiz qilish)", callback_data=f"liberate_confirm:{terr.id}")])
 
             buttons.append([InlineKeyboardButton("🔙 Qal'alarim Ro'yxati", callback_data="menu_castles")])
             buttons.append([InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")])
@@ -1015,7 +1015,7 @@ async def show_liberate_castles_menu(target, user_id: int, is_message: bool = Fa
             text = (
                 "🏳️ **EGALLANGAN QAL'ALARNI OZOD QILISH**\n\n"
                 "Sizda yoki xonadoningizda ayni paytda ozod qilish uchun egallangan qal'alar mavjud emas.\n\n"
-                "💡 *Dushman qal'alarini zabt etganingizdan so'ng, ularni ixtiyoriy ravishda mustaqil NPC xonadonlariga topshirishingiz mumkin.*"
+                "💡 *Dushman qal'alarini zabt etganingizdan so'ng, ularni ixtiyoriy ravishda ozod qilib, egasiz (neytral) holatga qaytarishingiz mumkin.*"
             )
             buttons = [
                 [InlineKeyboardButton("🏰 Qal'alarim Ro'yxati", callback_data="menu_castles")],
@@ -1030,8 +1030,8 @@ async def show_liberate_castles_menu(target, user_id: int, is_message: bool = Fa
         text = (
             "🏳️ **EGALLANGAN QAL'ALARNI OZOD QILISH (LIBERATE CASTLES)**\n\n"
             "Quyida siz yoki xonadoningiz tomonidan zabt etilgan qal'alar ro'yxati keltirilgan.\n"
-            "Qaysi qal'ani ozod qilib, mustaqil NPC xonadoniga topshirmoqchisiz?\n\n"
-            "*(Qal'a ozod qilinganda, uning garnizonidagi barcha shaxsiy askarlaringiz armiyangizga to'liq qaytariladi)*\n\n"
+            "Qaysi qal'ani ozod qilib, egasiz (neytral) holatga keltirmoqchisiz?\n\n"
+            "*(Qal'a ozod qilinganda, uning garnizonidagi barcha shaxsiy askarlaringiz armiyangizga to'liq qaytariladi va qal'a barcha uchun neytral holatga o'tadi)*\n\n"
         )
 
         buttons = []
@@ -1039,14 +1039,12 @@ async def show_liberate_castles_menu(target, user_id: int, is_message: bool = Fa
             c_name = escape_md(c["castle_name"])
             t_name = escape_md(c["name"])
             reg = escape_md(c["region"])
-            npc_name = escape_md(c["npc_house_name"])
-            npc_emoji = c["npc_house_emoji"]
 
             text += (
                 f"{idx}. 🏰 **{c_name}** ({t_name})\n"
                 f"   └ 📍 Mintaqa: **{reg}**\n"
                 f"   └ 🛡️ Qaytariladigan askarlar: **{c['garrison_total']:,} ta**\n"
-                f"   └ 🤝 Topshiriladigan NPC: **{npc_emoji} {npc_name}**\n\n"
+                f"   └ 🏛️ Holati: **🏳️ Egasiz (Neytral) Qal'a bo'ladi**\n\n"
             )
             buttons.append([InlineKeyboardButton(f"🏳️ {c['castle_name']} Qal'asini Ozod Qilish", callback_data=f"liberate_confirm:{c['id']}")])
 
@@ -1073,14 +1071,13 @@ async def liberate_castle_confirm_callback(update: Update, context: ContextTypes
             await query.answer("Ma'lumot topilmadi.", show_alert=True)
             return
 
-        npc_house = await crud.get_npc_house_for_liberation(session, terr)
         tot_gar = (terr.garrison_infantry or 0) + (terr.garrison_archers or 0) + (terr.garrison_cavalry or 0) + (terr.garrison_spearmen or 0)
         c_name = escape_md(terr.castle_name or terr.name)
 
         text = (
             f"⚠️ **QAL'ANI OZOD QILISHNI TASDIQLASH**\n\n"
             f"🏰 **Qal'a:** **{c_name}** ({escape_md(terr.region)})\n"
-            f"👑 **Topshiriladigan Yangi Xo'jayin:** **{npc_house.emoji} {escape_md(npc_house.name)} (NPC Xonadon)**\n\n"
+            f"🏛️ **Qal'aning yangi holati:** **🏳️ Egasiz (Neytral) Qal'a**\n\n"
             f"👥 **SHAXSIY ARMIYANGIZGA QAYTADIGAN ASKARLAR:**\n"
             f"• 🛡️ Piyoda: **+{terr.garrison_infantry or 0:,}**\n"
             f"• 🏹 Kamonchi: **+{terr.garrison_archers or 0:,}**\n"
@@ -1088,7 +1085,7 @@ async def liberate_castle_confirm_callback(update: Update, context: ContextTypes
             f"• 🗡️ Nayzachi: **+{terr.garrison_spearmen or 0:,}**\n"
             f"*(Jami: {tot_gar:,} ta jangchi to'liq zaxirangizga qaytariladi)*\n\n"
             f"✨ **MUKOFOT:** Mardlik va adolat uchun **+25 Nufuz (Prestige)** olasiz!\n\n"
-            f"Haqiqatan ham ushbu qal'ani ozod qilib, NPC xonadoniga topshirishni tasdiqlaysizmi?"
+            f"Haqiqatan ham ushbu qal'ani ozod qilib, egasiz neytral holatga qaytarishni tasdiqlaysizmi?"
         )
         buttons = [
             [InlineKeyboardButton("✅ Ha, Qal'ani Ozod Qilish", callback_data=f"liberate_do:{terr_id}")],

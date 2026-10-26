@@ -1107,10 +1107,8 @@ async def admin_event_action_callback(update: Update, context: ContextTypes.DEFA
         plague_ev = plague_res.scalar_one_or_none()
 
         if act == "nk_reset":
-            if ww_event:
-                ww_event.data_json = json.dumps({"hp": 500000, "max_hp": 500000, "status": "active"})
-                await session.commit()
-            msg = "❄️ Tun Qiroli armiyasi to'liq 500,000 ga tiklandi!"
+            await crud.reset_night_king_leaderboard(session)
+            msg = "❄️ Tun Qiroli armiyasi to'liq 500,000 ga tiklandi va barcha ziyon reytinglari 0 ga tushirildi!"
         elif act == "nk_low":
             if ww_event:
                 ww_event.data_json = json.dumps({"hp": 5000, "status": "active"})

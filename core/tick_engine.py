@@ -192,7 +192,7 @@ async def process_due_marches(bot_app=None):
                 if battle_res["winner"] == "attacker":
                     # Xonadon qal'alar soni tekshiruvi (Maksimal 5 ta qal'a limiti)
                     attacker_castle_count = await crud.get_house_castle_count(session, attacker.house_id) if attacker.house_id else 0
-                    can_annex = (territory.owner_house_id == attacker.house_id) or (attacker_castle_count < crud.MAX_HOUSE_CASTLES)
+                    can_annex = bool(attacker.house_id) and ((territory.owner_house_id == attacker.house_id) or (attacker_castle_count < crud.MAX_HOUSE_CASTLES))
 
                     if can_annex:
                         territory.owner_house_id = attacker.house_id
@@ -421,7 +421,7 @@ async def process_due_marches(bot_app=None):
                             res_outcome = (
                                 f"⚔️ Dushman mag'lub etildi va o'ljalar qo'lga kiritildi! "
                                 f"Biroq xonadoningiz allaqachon maksimal {crud.MAX_HOUSE_CASTLES} ta qal'aga ega bo'lgani tufayli qal'a xonadoningizga qo'shilmadi. "
-                                f"Yangi qal'alarni zabt etish uchun /castles orqali keraksiz qal'alardan birini ozod qiling (NPCga topshiring)."
+                                f"Yangi qal'alarni zabt etish uchun /castles orqali keraksiz qal'alardan birini ozod qiling (egasiz neytral holatga keltiring)."
                             )
                     else:
                         res_title = "🛡️ **MAG'LUBIYAT! HUJUM QAYTARILDI.**"

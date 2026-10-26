@@ -7,7 +7,7 @@ from config import DATABASE_URL
 logger = logging.getLogger(__name__)
 
 # Asinxron Engine va SQLite sozlamalari
-from sqlalchemy import event, select, text, update
+from sqlalchemy import event, select, text, update, delete
 
 def create_custom_engine(db_url: str):
     eng = create_async_engine(
@@ -328,9 +328,7 @@ async def init_db():
                 )
                 session.add(new_territory)
             else:
-                if result.owner_house_id is None and not result.conquered_by_user_id:
-                    result.owner_house_id = t_info.get("initial_owner_id")
-                # Barcha qal'alar solig'i va toifasini map_data bilan muvofiqlashtirish
+                # Barcha qal'alar solig'i va toifasini map_data bilan muvofiqlashtirish (egasiz qal'alarga tegilmaydi)
                 result.gold_income = t_info.get("gold_income", 20)
                 result.food_income = t_info.get("food_income", 50)
                 result.iron_income = t_info.get("iron_income", 15)
@@ -423,10 +421,94 @@ async def init_db():
             .values(gold=10000)
         )
 
-        # Barrowton (id=43) Blackfyre xonadoniga tegishli emas — uni neytral holatga qaytarish
-        bf_castle = await session.get(models.Territory, 43)
-        if bf_castle and bf_castle.owner_house_id == 15 and not bf_castle.conquered_by_user_id:
-            bf_castle.owner_house_id = None
+        # Barrowton (id=43) va boshqa kanonik neytral qal'alarni egasiz holatda saqlash
+        for t_code, t_info in TERRITORIES_DATA.items():
+            if t_info.get("initial_owner_id") is None:
+                terr_obj = await session.get(models.Territory, t_info["id"])
+                if terr_obj and not terr_obj.conquered_by_user_id and terr_obj.owner_house_id is not None:
+                    logger.info(f"🏛️ #{terr_obj.id} {terr_obj.name} qal'asi egasiz (neytral) holatga qaytarildi (avvalgi egasi: {terr_obj.owner_house_id}).")
+                    terr_obj.owner_house_id = None
+                    terr_obj.conquered_by_user_id = None
+
+        # House Blackfyre (id=15) xonadonidagi ortiqcha va noto'g'ri biriktirilgan qal'alarni tozalash:
+        # Blackfyre shaxsan zabt etmagan begona va neytral qal'alarni ajratish
+        bf_terrs_res = await session.execute(
+            select(models.Territory)
+            .where(models.Territory.owner_house_id == 15)
+            .order_by(models.Territory.id)
+        )
+        for t in bf_terrs_res.scalars().all():
+            t_info = TERRITORIES_DATA.get(t.code, {})
+            if not t.conquered_by_user_id:
+                if t_info.get("initial_owner_id") is None:
+                    t.owner_house_id = None
+                    t.conquered_by_user_id = None
+                    logger.info(f"🏛️ Blackfyre xonadonidan neytral #{t.id} {t.name} qal'asi olindi va egasiz qilindi.")
+                elif t_info.get("initial_owner_id") != 15:
+                    t.owner_house_id = t_info.get("initial_owner_id")
+                    t.conquered_by_user_id = None
+                    logger.info(f"🏛️ #{t.id} {t.name} qal'asi o'zining kanonik egasi #{t.owner_house_id} ga qaytarildi.")
+
+        # Blackfyre da 5 ta qal'a limitini qat'iy tekshirish (ortiqcha qal'alarni egasiz qilish)
+        bf_left_res = await session.execute(
+            select(models.Territory)
+            .where(models.Territory.owner_house_id == 15)
+            .order_by(models.Territory.id.desc())
+        )
+        bf_left = bf_left_res.scalars().all()
+        if len(bf_left) > 5:
+            excess = bf_left[:len(bf_left) - 5]
+            for t in excess:
+                t.owner_house_id = None
+                t.conquered_by_user_id = None
+                t.defense = 500
+                t.castle_level = 1
+                t.wildfire_count = 0
+                t.reinforcements_json = "{}"
+                t.garrison_infantry = 200
+                t.garrison_archers = 100
+                t.garrison_cavalry = 50
+                t.garrison_spearmen = 50
+                logger.info(f"🏰 Blackfyre xonadonidagi 5 tadan ortiqcha bo'lgan #{t.id} {t.name} qal'asi egasiz (neytral) holatga keltirildi.")
+
+        # Barcha qolgan xonadonlarda ham 5 ta qal'a limitini qat'iy tekshirish
+        all_houses_res = await session.execute(select(models.House))
+        for h in all_houses_res.scalars().all():
+            h_t_res = await session.execute(
+                select(models.Territory)
+                .where(models.Territory.owner_house_id == h.id)
+                .order_by(models.Territory.is_capital.desc(), models.Territory.id)
+            )
+            h_terrs = h_t_res.scalars().all()
+            if len(h_terrs) > 5:
+                for t in h_terrs[5:]:
+                    t.owner_house_id = None
+                    t.conquered_by_user_id = None
+                    t.defense = 500
+                    t.castle_level = 1
+                    t.wildfire_count = 0
+                    t.reinforcements_json = "{}"
+                    t.garrison_infantry = 200
+                    t.garrison_archers = 100
+                    t.garrison_cavalry = 50
+                    t.garrison_spearmen = 50
+                    logger.info(f"🏰 Xonadon #{h.id} ({h.name}) ning ortiqcha #{t.id} {t.name} qal'asi egasiz holatga keltirildi.")
+
+        # Tun Qiroli (White Walkers) reytingi, hissalari va hujum sonini 0 ga tushirish
+        await session.execute(delete(models.NightKingContribution))
+        await session.execute(update(models.User).values(daily_ww_attack_count=0))
+        ww_res = await session.execute(select(models.EventState).where(models.EventState.event_name == "white_walkers"))
+        ww_state = ww_res.scalar_one_or_none()
+        if ww_state:
+            ww_state.data_json = json.dumps({"hp": 500000, "max_hp": 500000, "status": "active"})
+            ww_state.is_active = True
+        else:
+            session.add(models.EventState(
+                event_name="white_walkers",
+                data_json=json.dumps({"hp": 500000, "max_hp": 500000, "status": "active"}),
+                is_active=True,
+            ))
+        logger.info("❄️ Tun Qiroli (White Walkers) reytingi 0 ga tushirildi va HP 500,000 ga tiklandi.")
 
         # House Blackfyre (id=15) a'zolariga yo'qolgan 200,000 askarini shaxsiy armiyasiga qaytarish
         bf_users_res = await session.execute(select(models.User).where(models.User.house_id == 15))
