@@ -2,6 +2,7 @@ import os
 import logging
 from datetime import datetime, timedelta
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CommandHandler, CallbackQueryHandler, ContextTypes
 from database import AsyncSessionLocal, crud, models
@@ -16,7 +17,7 @@ MAX_WALL_DEFENSE = 2500
 async def map_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/map buyrug'i"""
     user_id = update.effective_user.id
-    await show_map(update, user_id, is_message=True)
+    await show_map(update, user_id, is_message=True, tier_filter="1", page=0)
 
 
 async def map_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -24,64 +25,143 @@ async def map_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
-    await show_map(query, user_id, is_message=False)
+    await show_map(query, user_id, is_message=False, tier_filter="1", page=0)
 
 
-async def show_map(target, user_id: int, is_message: bool):
-    """Westeros xaritasi hududlarini ko'rsatish"""
-    text = (
-        "🗺️ **WESTEROS XARITASI VA QAL'ALAR**\n\n"
-        "Westerosdagi barcha strategik qal'alar va shahar-portlar joylashuvi.\n"
-        "Qal'a haqida batafsil ma'lumot olish, garnizon joylashtirish yoki unga yurish qilish uchun quyidan tanlang:"
-    )
+async def map_tier_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Xaritada toifalar bo'yicha saralash callback"""
+    query = update.callback_query
+    await query.answer()
+    parts = query.data.split(":")
+    tier = parts[1]
+    page = int(parts[2]) if len(parts) > 2 else 0
+    await show_map(query, query.from_user.id, is_message=False, tier_filter=tier, page=page)
+
+
+async def show_map(target, user_id: int, is_message: bool, tier_filter: str = "1", page: int = 0):
+    """Westeros xaritasi va qal'alarini toifalar bo'yicha guruhlab, saralab ko'rsatish"""
+    page_size = 6
+
+    async with AsyncSessionLocal() as session:
+        query = select(models.Territory).options(selectinload(models.Territory.owner_house))
+        if tier_filter in ["1", "2", "3"]:
+            query = query.where(models.Territory.castle_tier == int(tier_filter))
+        query = query.order_by(models.Territory.castle_tier, models.Territory.id)
+        res = await session.execute(query)
+        all_terrs = res.scalars().all()
+
+    total_count = len(all_terrs)
+    total_pages = max(1, (total_count + page_size - 1) // page_size)
+    page = max(0, min(page, total_pages - 1))
+    page_terrs = all_terrs[page * page_size : (page + 1) * page_size]
+
+    tier_names = {
+        "1": "🌟 1-TOIFA (Oliy & Poytaxt Qasrlar)",
+        "2": "🏰 2-TOIFA (Strategik Qal'alar)",
+        "3": "🛡️ 3-TOIFA (Chegara Istehkomlari)",
+        "all": "🗺️ BARCHA WESTEROS QAL'ALARI",
+    }
+    header = tier_names.get(tier_filter, "🏰 QAL'ALAR")
+
+    text = f"🗺️ **WESTEROS XARITASI — {header}**\n\n"
+    text += f"Toifa, egasi va mintaqasi bo'yicha aktual ma'lumotlar:\n\n"
+
+    for idx, t in enumerate(page_terrs, start=page * page_size + 1):
+        c_name = escape_md(t.castle_name or t.name)
+        reg = escape_md(t.region)
+        tier_val = getattr(t, "castle_tier", 2) or 2
+        tier_str = f"🌟 {tier_val}-Toifa" if tier_val == 1 else (f"🏰 {tier_val}-Toifa" if tier_val == 2 else f"🛡️ {tier_val}-Toifa")
+
+        if t.owner_house:
+            owner_str = f"{t.owner_house.emoji} {escape_md(t.owner_house.name)}"
+        elif t.code == "kings_landing":
+            owner_str = "👑 Temir Taxt (Qirollik)"
+        else:
+            owner_str = "🏳️ Egasiz (Neytral)"
+
+        def_val = t.defense or 0
+        g_inc = t.gold_income or 0
+
+        text += (
+            f"**{idx}. 🏰 {c_name}** ({reg})\n"
+            f"   └ 🏷️ Toifasi: **{tier_str}**\n"
+            f"   └ 👑 Egasi: **{owner_str}**\n"
+            f"   └ 🛡️ Mudofaa: **{def_val}** ball | 💰 **+{g_inc}🪙/soat**\n\n"
+        )
+
+    text += f"📄 Sahifa: **{page + 1}/{total_pages}** | Jami: **{total_count} ta qal'a**\n"
+    text += "👇 *Batafsil ma'lumot, garnizon yoki yurish uchun qal'ani tanlang:*"
+
+    # Buttons
+    tab_1 = "✅ 🌟 1-Toifa" if tier_filter == "1" else "🌟 1-Toifa"
+    tab_2 = "✅ 🏰 2-Toifa" if tier_filter == "2" else "🏰 2-Toifa"
+    tab_3 = "✅ 🛡️ 3-Toifa" if tier_filter == "3" else "🛡️ 3-Toifa"
+    tab_all = "✅ 🗺️ Barchasi" if tier_filter == "all" else "🗺️ Barchasi"
+
+    buttons = [
+        [
+            InlineKeyboardButton(tab_1, callback_data="map_tier:1:0"),
+            InlineKeyboardButton(tab_2, callback_data="map_tier:2:0"),
+        ],
+        [
+            InlineKeyboardButton(tab_3, callback_data="map_tier:3:0"),
+            InlineKeyboardButton(tab_all, callback_data="map_tier:all:0"),
+        ],
+    ]
+
+    c_row = []
+    for t in page_terrs:
+        short_c_name = (t.castle_name or t.name)[:18]
+        c_row.append(InlineKeyboardButton(f"🏰 {short_c_name}", callback_data=f"view_terr:{t.id}"))
+        if len(c_row) == 2:
+            buttons.append(c_row)
+            c_row = []
+    if c_row:
+        buttons.append(c_row)
+
+    nav_row = []
+    if page > 0:
+        nav_row.append(InlineKeyboardButton("⬅️ Oldingi", callback_data=f"map_tier:{tier_filter}:{page - 1}"))
+    if page < total_pages - 1:
+        nav_row.append(InlineKeyboardButton("Keyingi ➡️", callback_data=f"map_tier:{tier_filter}:{page + 1}"))
+    if nav_row:
+        buttons.append(nav_row)
+
+    buttons.append([
+        InlineKeyboardButton("🏳️ Qal'alarni Ozod Qilish", callback_data="menu_liberate_castles"),
+        InlineKeyboardButton("🏰 Mening Qal'alarim", callback_data="menu_castles"),
+    ])
+    buttons.append([InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")])
+    kb = InlineKeyboardMarkup(buttons)
+
     map_img_path = os.path.join("assets", "westeros_map.jpg")
     has_photo = os.path.exists(map_img_path)
 
-    custom_territories = []
-    try:
-        async with AsyncSessionLocal() as session:
-            c_res = await session.execute(
-                select(models.Territory).where(models.Territory.id > 60).order_by(models.Territory.id)
-            )
-            custom_territories = list(c_res.scalars().all())
-    except Exception:
-        pass
-    kb = territories_keyboard(custom_territories=custom_territories)
-
     if is_message:
         if has_photo:
-            with open(map_img_path, "rb") as f:
-                await target.message.reply_photo(photo=f, caption=text, parse_mode="Markdown", reply_markup=kb)
-        else:
-            await target.message.reply_text(text, parse_mode="Markdown", reply_markup=kb)
-    else:
-        chat_id = target.message.chat_id
-        bot = target.get_bot() if hasattr(target, "get_bot") else target.message.get_bot()
-        if has_photo:
-            if getattr(target.message, "photo", None):
-                try:
-                    await target.edit_message_caption(caption=text, parse_mode="Markdown", reply_markup=kb)
-                    return
-                except Exception:
-                    pass
-            try:
-                await target.message.delete()
-            except Exception:
-                pass
             try:
                 with open(map_img_path, "rb") as f:
-                    await bot.send_photo(chat_id=chat_id, photo=f, caption=text, parse_mode="Markdown", reply_markup=kb)
+                    await target.message.reply_photo(photo=f, caption=text, parse_mode="Markdown", reply_markup=kb)
                 return
             except Exception:
                 pass
-
+        await target.message.reply_text(text, parse_mode="Markdown", reply_markup=kb)
+    else:
+        chat_id = target.message.chat_id
+        bot = target.get_bot() if hasattr(target, "get_bot") else target.message.get_bot()
+        if getattr(target.message, "photo", None):
+            try:
+                await target.edit_message_caption(caption=text, parse_mode="Markdown", reply_markup=kb)
+                return
+            except Exception:
+                pass
         try:
             await target.edit_message_text(text, parse_mode="Markdown", reply_markup=kb)
         except Exception:
+            clean_text = text.replace("*", "").replace("_", "")
             try:
-                await bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown", reply_markup=kb)
+                await target.edit_message_text(clean_text, reply_markup=kb)
             except Exception:
-                clean_text = text.replace("*", "").replace("_", "")
                 await bot.send_message(chat_id=chat_id, text=clean_text, reply_markup=kb)
 
 
@@ -1084,7 +1164,6 @@ async def liberate_castle_confirm_callback(update: Update, context: ContextTypes
             f"• 🐎 Otliq: **+{terr.garrison_cavalry or 0:,}**\n"
             f"• 🗡️ Nayzachi: **+{terr.garrison_spearmen or 0:,}**\n"
             f"*(Jami: {tot_gar:,} ta jangchi to'liq zaxirangizga qaytariladi)*\n\n"
-            f"✨ **MUKOFOT:** Mardlik va adolat uchun **+25 Nufuz (Prestige)** olasiz!\n\n"
             f"Haqiqatan ham ushbu qal'ani ozod qilib, egasiz neytral holatga qaytarishni tasdiqlaysizmi?"
         )
         buttons = [
@@ -1125,6 +1204,7 @@ def register_map_handlers(app):
     app.add_handler(CommandHandler(["castles", "mycastles"], my_castles_command))
     app.add_handler(CommandHandler(["liberate", "ozod"], liberate_castles_command))
     app.add_handler(CallbackQueryHandler(map_callback, pattern="^menu_map$"))
+    app.add_handler(CallbackQueryHandler(map_tier_callback, pattern="^map_tier:"))
     app.add_handler(CallbackQueryHandler(my_castles_callback, pattern="^menu_castles$"))
     app.add_handler(CallbackQueryHandler(my_castle_detail_callback, pattern="^my_c_detail:"))
     app.add_handler(CallbackQueryHandler(collect_tax_callback, pattern="^collect_tax:"))

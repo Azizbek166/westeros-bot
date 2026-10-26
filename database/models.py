@@ -36,6 +36,7 @@ class User(Base):
     vip_tier = Column(String(50), nullable=True)            # knight, lord, dragonlord, sovereign
     vip_until = Column(DateTime, nullable=True)
     custom_photo_file_id = Column(String(255), nullable=True) # Profil rasmi Telegram file_id
+    custom_video_file_id = Column(String(255), nullable=True) # Profil videosi (25,000+ so'mlik VIP foydalanuvchilar uchun)
     custom_status = Column(String(255), nullable=True)        # Profil statusi / shiori
     custom_audio_file_id = Column(String(255), nullable=True) # Profil saundtreki Telegram file_id
     custom_audio_title = Column(String(255), nullable=True)   # Musiqa nomi

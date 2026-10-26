@@ -138,6 +138,7 @@ async def init_db():
                 "ALTER TABLE users ADD COLUMN weekly_gold_earned BIGINT DEFAULT 0",
                 "ALTER TABLE users ADD COLUMN weekly_prestige_earned INTEGER DEFAULT 0",
                 "ALTER TABLE users ADD COLUMN weekly_limit_date VARCHAR(10) DEFAULT ''",
+                "ALTER TABLE users ADD COLUMN custom_video_file_id VARCHAR(255)",
                 "ALTER TABLE territories ADD COLUMN castle_tier INTEGER DEFAULT 2",
             ]:
                 try:
@@ -187,6 +188,7 @@ async def init_db():
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS vip_tier VARCHAR(50)",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS vip_until TIMESTAMP",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_photo_file_id VARCHAR(255)",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_video_file_id VARCHAR(255)",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_status VARCHAR(255)",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_audio_file_id VARCHAR(255)",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_audio_title VARCHAR(255)",
@@ -494,21 +496,53 @@ async def init_db():
                     t.garrison_spearmen = 50
                     logger.info(f"🏰 Xonadon #{h.id} ({h.name}) ning ortiqcha #{t.id} {t.name} qal'asi egasiz holatga keltirildi.")
 
-        # Tun Qiroli (White Walkers) reytingi, hissalari va hujum sonini 0 ga tushirish
+        # Tun Qiroli (White Walkers) reytingi, hissalari va hujum sonini 0 ga tushirish (HP: 1,000,000)
         await session.execute(delete(models.NightKingContribution))
         await session.execute(update(models.User).values(daily_ww_attack_count=0))
         ww_res = await session.execute(select(models.EventState).where(models.EventState.event_name == "white_walkers"))
         ww_state = ww_res.scalar_one_or_none()
         if ww_state:
-            ww_state.data_json = json.dumps({"hp": 500000, "max_hp": 500000, "status": "active"})
+            ww_state.data_json = json.dumps({"hp": 1000000, "max_hp": 1000000, "status": "active"})
             ww_state.is_active = True
         else:
             session.add(models.EventState(
                 event_name="white_walkers",
-                data_json=json.dumps({"hp": 500000, "max_hp": 500000, "status": "active"}),
+                data_json=json.dumps({"hp": 1000000, "max_hp": 1000000, "status": "active"}),
                 is_active=True,
             ))
-        logger.info("❄️ Tun Qiroli (White Walkers) reytingi 0 ga tushirildi va HP 500,000 ga tiklandi.")
+        logger.info("❄️ Tun Qiroli (White Walkers) reytingi 0 ga tushirildi va HP 1,000,000 ga kuchaytirildi.")
+
+        # Kunlik va haftalik reytingdagi eski chalkash ma'lumotlarni tozalash (faqat aktual sana ko'rsatiladi)
+        today_clean_str = datetime.utcnow().strftime("%Y-%m-%d")
+        week_clean_str = datetime.utcnow().strftime("%Y-W%W")
+        await session.execute(
+            update(models.User)
+            .where(models.User.daily_limit_date != today_clean_str)
+            .values(daily_gold_earned=0, daily_prestige_earned=0, daily_limit_date=today_clean_str)
+        )
+        await session.execute(
+            update(models.User)
+            .where(models.User.weekly_limit_date != week_clean_str)
+            .values(weekly_gold_earned=0, weekly_prestige_earned=0, weekly_limit_date=week_clean_str)
+        )
+
+        # Fronterra va barcha maxsus xonadonlar maydonlarini tekshirib to'g'irlash (House panel crash bo'lmasligi uchun)
+        all_houses_check = await session.execute(select(models.House))
+        for h in all_houses_check.scalars().all():
+            if h.defense_bonus is None:
+                h.defense_bonus = 1.0
+            if h.gold is None:
+                h.gold = 5000
+            if h.food is None:
+                h.food = 10000
+            if h.iron is None:
+                h.iron = 2000
+            if h.prestige is None:
+                h.prestige = 100
+            if not h.description:
+                h.description = f"{h.name} shonli xonadoni."
+            if not h.special_troop_name:
+                h.special_troop_name = f"{h.name} Gvardiyasi"
 
         # House Blackfyre (id=15) a'zolariga yo'qolgan 200,000 askarini shaxsiy armiyasiga qaytarish
         bf_users_res = await session.execute(select(models.User).where(models.User.house_id == 15))

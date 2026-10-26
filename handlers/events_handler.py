@@ -49,11 +49,11 @@ async def show_events_hub(target, user_id: int, is_message: bool):
         kl_terr = await crud.get_territory_by_id(session, 8)  # King's Landing ID = 8
         kl_owner = f"{kl_terr.owner_house.emoji} {kl_terr.owner_house.name}" if (kl_terr and kl_terr.owner_house) else "Targaryen"
 
-        # Tun Qiroli holati
-        ww_event = await get_or_create_event_state(session, "white_walkers", {"hp": 500000, "max_hp": 500000, "status": "active"})
+        # Tun Qiroli holati (1,000,000 HP)
+        ww_event = await get_or_create_event_state(session, "white_walkers", {"hp": 1000000, "max_hp": 1000000, "status": "active"})
         ww_data = json.loads(ww_event.data_json)
-        hp = ww_data.get("hp", 500000)
-        max_hp = ww_data.get("max_hp", 500000)
+        hp = ww_data.get("hp", 1000000)
+        max_hp = ww_data.get("max_hp", 1000000)
         pct = max(0, int((hp / max_hp) * 100))
         bar_len = 10
         filled = int(bar_len * (pct / 100))
@@ -116,18 +116,22 @@ async def raid_night_king_callback(update: Update, context: ContextTypes.DEFAULT
         army = army_res.scalar_one_or_none()
         total_troops = (army.infantry + army.archers + army.cavalry + army.spearmen) if army else 0
 
-        if total_troops < 25:
+        if total_troops < 50:
             try:
-                await query.answer("❌ Tun Qiroliga reyd qilish uchun kamida 25 ta askar kerak!", show_alert=True)
+                await query.answer("❌ Tun Qiroliga reyd qilish uchun kamida 50 ta askar kerak!", show_alert=True)
             except Exception:
                 pass
             return
 
-        # Zarba berish va talafot (5 askar yo'qotiladi, Tun Qiroli HP si kamayadi)
-        if army.infantry >= 5:
-            army.infantry -= 5
-        else:
-            army.archers = max(0, army.archers - 5)
+        # Zarba berish va qonli jang talafoti (12 ta askar yo'qotiladi)
+        lost_inf = min(army.infantry, 6)
+        army.infantry -= lost_inf
+        rem = 12 - lost_inf
+        lost_arc = min(army.archers, min(rem, 4))
+        army.archers -= lost_arc
+        rem -= lost_arc
+        lost_sp = min(army.spearmen, rem)
+        army.spearmen -= lost_sp
 
         base_dmg = random.randint(400, 800)
 
@@ -147,14 +151,16 @@ async def raid_night_king_callback(update: Update, context: ContextTypes.DEFAULT
             best_dragon = max(adult_dragons, key=lambda d: d.power)
             dragon_dmg = int(best_dragon.power * 1.5)
 
-        total_dmg = base_dmg + dragon_dmg
+        # Oq piyodalar qarshiligi: 25% qor/sovuq zirhi (frost resistance)
+        raw_dmg = base_dmg + dragon_dmg
+        total_dmg = max(50, int(raw_dmg * 0.75))
 
-        ww_event = await get_or_create_event_state(session, "white_walkers", {"hp": 500000, "max_hp": 500000, "status": "active"})
+        ww_event = await get_or_create_event_state(session, "white_walkers", {"hp": 1000000, "max_hp": 1000000, "status": "active"})
         ww_data = json.loads(ww_event.data_json)
-        old_hp = ww_data.get("hp", 500000)
+        old_hp = ww_data.get("hp", 1000000)
         new_hp = max(0, old_hp - total_dmg)
         ww_data["hp"] = new_hp
-        ww_data["max_hp"] = 500000
+        ww_data["max_hp"] = 1000000
         ww_event.data_json = json.dumps(ww_data)
 
         user.daily_ww_attack_count += 1
@@ -162,11 +168,15 @@ async def raid_night_king_callback(update: Update, context: ContextTypes.DEFAULT
         # Ziyonni reytingga yozish
         await crud.record_night_king_damage(session, user.id, total_dmg)
 
-        # Mukofot
-        user.gold += 120
-        user.iron += 60
+        # Mukofot (Oshirilgan daromad: +300 Oltin, +250 Oziq, +180 Temir, +200 XP, +15 Prestige)
+        user.gold += 300
+        user.food += 250
+        user.iron += 180
         user.prestige += 15
-        user.xp += 150
+        user.xp += 200
+
+        crud.track_user_gold_gain(user, 300)
+        crud.track_user_prestige_gain(user, 15)
 
         # Agar Tun Qiroli yengilgan bo'lsa (HP == 0), Top 1 ga "Shimol Najotkori" unvoni va +500 Prestige beriladi
         victory_awarded = False

@@ -23,10 +23,10 @@ async def house_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def show_house(target, user_id: int, is_message: bool):
-    """Xonadon ma'lumotlarini chiqarish"""
+    """Xonadon ma'lumotlarini chiqarish (Fronterra va barcha maxsus xonadonlar uchun 100% xavfsiz)"""
     async with AsyncSessionLocal() as session:
         user = await crud.get_user_with_relations(session, user_id)
-        if not user or not user.house:
+        if not user or (not user.house and not user.house_id):
             msg = "❌ Siz hali xonadon tanlamagansiz. /start ni bosing."
             if is_message:
                 await target.message.reply_text(msg)
@@ -35,6 +35,17 @@ async def show_house(target, user_id: int, is_message: bool):
             return
 
         house = user.house
+        if not house and user.house_id:
+            house = await session.get(models.House, user.house_id)
+
+        if not house:
+            msg = "❌ Xonadon ma'lumotlari topilmadi. /start ni bosing."
+            if is_message:
+                await target.message.reply_text(msg)
+            else:
+                await target.edit_message_text(msg)
+            return
+
         members_count = await crud.get_house_members_count(session, house.id)
         territories = await crud.get_house_territories(session, house.id)
 
@@ -73,27 +84,46 @@ async def show_house(target, user_id: int, is_message: bool):
             [InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")],
         ]
 
+        def_bonus = house.defense_bonus if house.defense_bonus is not None else 1.0
+        def_pct = int(round((def_bonus - 1.0) * 100))
+        h_gold = house.gold if house.gold is not None else 0
+        h_food = house.food if house.food is not None else 0
+        h_iron = house.iron if house.iron is not None else 0
+        h_prestige = house.prestige if house.prestige is not None else 0
+        h_emoji = house.emoji or "🏰"
+        h_name = escape_md(house.name or "Noma'lum")
+        h_region = escape_md(house.region or "Westeros")
+        h_desc = escape_md(house.description or f"{house.name} shonli xonadoni.")
+        h_troop = escape_md(house.special_troop_name or "Gvardiya")
+
         text = (
             f"🏰 **XONADON MA'LUMOTLARI**\n\n"
-            f"{house.emoji} **{house.name}**\n"
-            f"📍 Mintaqa: **{house.region}**\n"
+            f"{h_emoji} **{h_name}**\n"
+            f"📍 Mintaqa: **{h_region}**\n"
             f"👑 Xonadon Lordi: **{escape_md(lord_name)}**\n"
             f"🎖️ Sizning Maqomingiz: **{role_text}**\n\n"
-            f"📜 Shior: _{escape_md(house.description)}_\n\n"
+            f"📜 Shior: _{h_desc}_\n\n"
             f"🏛️ **Xonadon Umumiy G'aznasi:**\n"
-            f"• 🪙 Oltin: **{house.gold:,}** | 🌾 Oziq: **{house.food:,}** | ⛓️ Temir: **{house.iron:,}**\n\n"
-            f"🔥 Maxsus Qo'shin: **{house.special_troop_name}**\n"
-            f"🛡️ Mudofaa Bonusi: **+{int((house.defense_bonus - 1.0) * 100)}%**\n"
-            f"🏆 Xonadon Prestige: **{house.prestige:,}**\n"
+            f"• 🪙 Oltin: **{h_gold:,}** | 🌾 Oziq: **{h_food:,}** | ⛓️ Temir: **{h_iron:,}**\n\n"
+            f"🔥 Maxsus Qo'shin: **{h_troop}**\n"
+            f"🛡️ Mudofaa Bonusi: **+{def_pct}%**\n"
+            f"🏆 Xonadon Prestige: **{h_prestige:,}**\n"
             f"👥 Jami A'zolar: **{members_count}** ta\n\n"
             f"🗺️ Nazoratdagi Hududlar ({len(territories)} ta):\n"
             f"_{escape_md(terr_names)}_"
         )
 
-        if is_message:
-            await target.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
-        else:
-            await target.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        try:
+            if is_message:
+                await target.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+            else:
+                await target.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        except Exception:
+            clean_text = text.replace("**", "").replace("*", "").replace("_", "").replace("`", "")
+            if is_message:
+                await target.message.reply_text(clean_text, reply_markup=InlineKeyboardMarkup(buttons))
+            else:
+                await target.edit_message_text(clean_text, reply_markup=InlineKeyboardMarkup(buttons))
 
 
 async def house_members_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):

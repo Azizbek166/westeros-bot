@@ -276,49 +276,51 @@ async def duel_pvp_hub_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def pvp_pick_user_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Tanlangan o'yinchiga garov miqdorini tanlash"""
+    """Tanlangan o'yinchiga taktikani tanlash (limitsiz va bepul lordlararo duel)"""
     query = update.callback_query
     await query.answer()
 
     target_user_id = int(query.data.split(":")[1])
     context.user_data["pvp_target_id"] = target_user_id
+    context.user_data["pvp_bet"] = 0
 
     buttons = [
-        [InlineKeyboardButton("⚔️ Bepul Mashg'ulot (0🪙)", callback_data=f"pvp_bet:{target_user_id}:0")],
-        [InlineKeyboardButton("⚔️ 100🪙 Garov", callback_data=f"pvp_bet:{target_user_id}:100"),
-         InlineKeyboardButton("⚔️ 250🪙 Garov", callback_data=f"pvp_bet:{target_user_id}:250")],
-        [InlineKeyboardButton("⚔️ 500🪙 Garov", callback_data=f"pvp_bet:{target_user_id}:500")],
-        [InlineKeyboardButton("🔙 Orqaga", callback_data="duel_pvp_hub")],
+        [InlineKeyboardButton("🗡️ Og'ir Zarba (Heavy Strike)", callback_data=f"pvp_send:{target_user_id}:0:heavy")],
+        [InlineKeyboardButton("🛡️ Qalqonli Himoya (Parry)", callback_data=f"pvp_send:{target_user_id}:0:parry")],
+        [InlineKeyboardButton("⚡ Epchil Flang Hamlasi (Agile)", callback_data=f"pvp_send:{target_user_id}:0:agile")],
+        [InlineKeyboardButton("🔙 Bekor Qilish", callback_data="duel_pvp_hub")],
     ]
 
-    text = "Ushbu lord bilan qancha garov tikib duel qilmoqchisiz?"
+    text = (
+        "⚔️ **LORDLARARO DO'STONA DUEL — TAKTIKANGIZNI TANLANG!**\n\n"
+        "Ushbu duel mutlaqo bepul va limitsiz (hech qanday oltin garovi yoki yo'qotishsiz).\n"
+        "Raqibingizga chaqiriq yuborish uchun yashirin jangovar taktikangizni tanlang:"
+    )
     await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
 
 
 async def pvp_bet_pick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Garov tanlangach, o'z taktikasini tanlash"""
+    """Garovsiz do'stona duel uchun taktikani tanlash"""
     query = update.callback_query
     await query.answer()
 
     parts = query.data.split(":")
     target_user_id = int(parts[1])
-    bet = int(parts[2])
     context.user_data["pvp_target_id"] = target_user_id
-    context.user_data["pvp_bet"] = bet
+    context.user_data["pvp_bet"] = 0
 
     buttons = [
-        [InlineKeyboardButton("🗡️ Og'ir Zarba (Heavy Strike)", callback_data=f"pvp_send:{target_user_id}:{bet}:heavy")],
-        [InlineKeyboardButton("🛡️ Qalqonli Himoya (Parry)", callback_data=f"pvp_send:{target_user_id}:{bet}:parry")],
-        [InlineKeyboardButton("⚡ Epchil Flang Hamlasi (Agile)", callback_data=f"pvp_send:{target_user_id}:{bet}:agile")],
+        [InlineKeyboardButton("🗡️ Og'ir Zarba (Heavy Strike)", callback_data=f"pvp_send:{target_user_id}:0:heavy")],
+        [InlineKeyboardButton("🛡️ Qalqonli Himoya (Parry)", callback_data=f"pvp_send:{target_user_id}:0:parry")],
+        [InlineKeyboardButton("⚡ Epchil Flang Hamlasi (Agile)", callback_data=f"pvp_send:{target_user_id}:0:agile")],
         [InlineKeyboardButton("🔙 Bekor Qilish", callback_data="duel_pvp_hub")],
     ]
 
-    bet_txt = "Bepul" if bet == 0 else f"{bet}🪙 oltin"
     text = (
-        f"⚔️ **YASHIRIN TAKTIKANGIZNI BELGILANG!**\n\n"
-        f"Garov: **{bet_txt}**\n"
-        f"Raqibingiz siz qaysi taktikani tanlaganingizni ko'ra olmaydi. "
-        f"Taktikangizni tanlang va chaqiriq raqibga yuboriladi:"
+        "⚔️ **YASHIRIN TAKTIKANGIZNI BELGILANG!**\n\n"
+        "🤝 Lordlararo do'stona duel (0🪙 oltin, limitsiz)\n"
+        "Raqibingiz siz qaysi taktikani tanlaganingizni ko'ra olmaydi. "
+        "Taktikangizni tanlang va chaqiriq raqibga yuboriladi:"
     )
     await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
 
@@ -380,23 +382,15 @@ async def pvp_send_challenge_callback(update: Update, context: ContextTypes.DEFA
 
 
 async def handle_quick_pvp_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/duel @username [garov] orqali chaqirish"""
+    """/duel @username orqali do'stona duel chaqirish (limitsiz va bepul)"""
     sender_tg_id = update.effective_user.id
     target_str = context.args[0]
     bet = 0
-    if len(context.args) >= 2 and context.args[1].isdigit():
-        bet = int(context.args[1])
 
     async with AsyncSessionLocal() as session:
         sender = await crud.get_user_by_telegram_id(session, sender_tg_id)
         if not sender:
             await update.message.reply_text("❌ Avval /start ni bosing.")
-            return
-
-        await crud.check_and_reset_daily_limits(session, sender)
-        duel_cnt = getattr(sender, "daily_duel_count", 0) or 0
-        if duel_cnt >= DAILY_DUEL_LIMIT:
-            await update.message.reply_text(f"❌ Bugungi {DAILY_DUEL_LIMIT} ta duel limitingiz tugagan! Ertaga yana maydonga tushishingiz mumkin.")
             return
 
     # Taktika tanlashni so'rash
@@ -405,9 +399,8 @@ async def handle_quick_pvp_command(update: Update, context: ContextTypes.DEFAULT
         [InlineKeyboardButton("🛡️ Qalqonli Mudofaa", callback_data=f"pvp_cmd_send:{target_str}:{bet}:parry")],
         [InlineKeyboardButton("⚡ Epchil Hamla", callback_data=f"pvp_cmd_send:{target_str}:{bet}:agile")],
     ]
-    bet_txt = "Bepul" if bet == 0 else f"{bet}🪙"
     await update.message.reply_text(
-        f"⚔️ **{target_str} ga qarshi duel (Garov: {bet_txt})**\n\nTaktikangizni tanlang:",
+        f"⚔️ **{target_str} ga qarshi do'stona duel (0🪙, Limitsiz)**\n\nJangovar taktikangizni tanlang:",
         reply_markup=InlineKeyboardMarkup(buttons)
     )
 

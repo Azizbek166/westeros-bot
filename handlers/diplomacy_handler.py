@@ -7,7 +7,7 @@ from config import ADMIN_IDS, OWNER_ID
 
 logger = logging.getLogger(__name__)
 
-NPC_HOUSE_IDS = {47, 48, 49, 50}
+NPC_HOUSE_IDS = set()
 
 
 def sanitize_md(text: str) -> str:

@@ -224,6 +224,7 @@ DONATE_TIERS = {
             "• 🐉 Afsonaviy Ajdaho: 8-darajali (1,200 quvvat!)\n"
             "• 💚 Yovvoyi Olov (Wildfire): +3 bochka (Qal'a mudofaasiga)\n"
             "• 👑 Maxsus unvon: «Saxiy Lord»\n"
+            "• 🎥 Profil Videosi: Jonli video yoki dumaloq video xabar qo'yish imkoniyati\n"
             "• ⭐ Prestige: +400 shon-sharaf"
         ),
     },
@@ -264,6 +265,7 @@ DONATE_TIERS = {
             "• 🐉 Qora Ajdaho: Drogon 12-darajali (2,500 quvvat!)\n"
             "• 💚 Yovvoyi Olov (Wildfire): +5 bochka (Maksimal)\n"
             "• 👑 Maxsus unvon: «Ajdaho Hukmdori»\n"
+            "• 🎥 Profil Videosi: Jonli video yoki dumaloq video xabar qo'yish imkoniyati\n"
             "• ⭐ Prestige: +1,000 shon-sharaf"
         ),
     },
@@ -305,6 +307,7 @@ DONATE_TIERS = {
             "• 🐉 Afsonaviy Qora Ajdar: Balerion (5,000 quvvat!)\n"
             "• 💚 Yovvoyi Olov (Wildfire): +5 bochka (Maksimal)\n"
             "• 👑 Maxsus unvon: «Vesteros Himoyachisi»\n"
+            "• 🎥 Profil Videosi: Jonli video yoki dumaloq video xabar qo'yish imkoniyati\n"
             "• ⭐ Prestige: +3,000 shon-sharaf\n"
             "• 📣 Butun Vesteros bo'ylab Qirollik tantanali e'loni!"
         ),

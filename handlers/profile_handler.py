@@ -41,10 +41,10 @@ GOT_AUDIO_PRESETS = {
 }
 
 
-async def format_user_profile_card(user: models.User, session, is_group: bool = False) -> Tuple[str, Optional[str], Optional[str], Optional[str]]:
+async def format_user_profile_card(user: models.User, session, is_group: bool = False) -> Tuple[str, Optional[str], Optional[str], Optional[str], Optional[str]]:
     """
     O'yinchi profil kartasini (shaxsiy chat yoki guruh uchun) VIP darajasiga qarab yaltiroq va boy formatda tayyorlash.
-    Qaytaradi: (text, photo_file_id, audio_file_id, audio_title)
+    Qaytaradi: (text, photo_file_id, audio_file_id, audio_title, video_file_id)
     """
     from core.leveling import get_level_info, check_user_level_up
     leveled_up, new_lvl, lvl_msg = check_user_level_up(user)
@@ -184,10 +184,11 @@ async def format_user_profile_card(user: models.User, session, is_group: bool = 
         )
 
     photo_id = user.custom_photo_file_id if vip in ["lord", "dragonlord", "sovereign"] else None
+    video_id = user.custom_video_file_id if vip in ["lord", "dragonlord", "sovereign"] else None
     audio_id = user.custom_audio_file_id if vip in ["lord", "dragonlord", "sovereign"] else None
     audio_title = user.custom_audio_title if vip in ["lord", "dragonlord", "sovereign"] else None
 
-    return text, photo_id, audio_id, audio_title
+    return text, photo_id, audio_id, audio_title, video_id
 
 
 async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -229,14 +230,26 @@ async def group_profile_handler(update: Update, context: ContextTypes.DEFAULT_TY
             user.username = target_tg.username
             await session.commit()
 
-        text, photo_id, audio_id, audio_title = await format_user_profile_card(user, session, is_group=True)
+        text, photo_id, audio_id, audio_title, video_id = await format_user_profile_card(user, session, is_group=True)
 
     # Guruhda pastki qotib qolgan klaviaturani butunlay yo'qotish:
     from telegram import ReplyKeyboardRemove
     clean_kb = ReplyKeyboardRemove()
 
-    # Guruhga rasm yoki matn bilan yuborish
-    if photo_id:
+    # Guruhga video, rasm yoki matn bilan yuborish
+    if video_id:
+        try:
+            await msg.reply_video(video=video_id, caption=text, parse_mode="Markdown", reply_markup=clean_kb)
+        except Exception as e:
+            logger.warning(f"Guruhga video bilan profil yuborish xatosi: {e}")
+            if photo_id:
+                try:
+                    await msg.reply_photo(photo=photo_id, caption=text, parse_mode="Markdown", reply_markup=clean_kb)
+                except Exception:
+                    await msg.reply_text(text, parse_mode="Markdown", reply_markup=clean_kb)
+            else:
+                await msg.reply_text(text, parse_mode="Markdown", reply_markup=clean_kb)
+    elif photo_id:
         try:
             await msg.reply_photo(photo=photo_id, caption=text, parse_mode="Markdown", reply_markup=clean_kb)
         except Exception as e:
@@ -273,12 +286,23 @@ async def group_show_my_profile_callback(update: Update, context: ContextTypes.D
             user.username = clicker_tg.username
             await session.commit()
 
-        text, photo_id, audio_id, audio_title = await format_user_profile_card(user, session, is_group=True)
+        text, photo_id, audio_id, audio_title, video_id = await format_user_profile_card(user, session, is_group=True)
 
     from telegram import ReplyKeyboardRemove
     clean_kb = ReplyKeyboardRemove()
 
-    if photo_id:
+    if video_id:
+        try:
+            await query.message.reply_video(video=video_id, caption=text, parse_mode="Markdown", reply_markup=clean_kb)
+        except Exception:
+            if photo_id:
+                try:
+                    await query.message.reply_photo(photo=photo_id, caption=text, parse_mode="Markdown", reply_markup=clean_kb)
+                except Exception:
+                    await query.message.reply_text(text, parse_mode="Markdown", reply_markup=clean_kb)
+            else:
+                await query.message.reply_text(text, parse_mode="Markdown", reply_markup=clean_kb)
+    elif photo_id:
         try:
             await query.message.reply_photo(photo=photo_id, caption=text, parse_mode="Markdown", reply_markup=clean_kb)
         except Exception:
@@ -327,7 +351,7 @@ async def show_profile(target, user_id: int, is_message: bool):
                 await target.edit_message_text(msg)
             return
 
-        text, photo_id, audio_id, audio_title = await format_user_profile_card(user, session, is_group=False)
+        text, photo_id, audio_id, audio_title, video_id = await format_user_profile_card(user, session, is_group=False)
 
     buttons = []
     # VIP bo'lsa profil studiyasi tugmasi chiqadi
@@ -341,6 +365,12 @@ async def show_profile(target, user_id: int, is_message: bool):
     markup = InlineKeyboardMarkup(buttons)
 
     if is_message:
+        if video_id:
+            try:
+                await target.message.reply_video(video=video_id, caption=text, parse_mode="Markdown", reply_markup=markup)
+                return
+            except Exception:
+                pass
         if photo_id:
             try:
                 await target.message.reply_photo(photo=photo_id, caption=text, parse_mode="Markdown", reply_markup=markup)
@@ -349,17 +379,45 @@ async def show_profile(target, user_id: int, is_message: bool):
                 pass
         await target.message.reply_text(text, parse_mode="Markdown", reply_markup=markup)
     else:
-        msg_obj = getattr(target, "message", None)
-        if msg_obj and getattr(msg_obj, "photo", None):
+        chat_id = target.message.chat_id
+        bot = target.get_bot() if hasattr(target, "get_bot") else target.message.get_bot()
+
+        if video_id:
             try:
-                await target.edit_message_caption(caption=text, parse_mode="Markdown", reply_markup=markup)
+                await target.message.delete()
+            except Exception:
+                pass
+            try:
+                await bot.send_video(chat_id=chat_id, video=video_id, caption=text, parse_mode="Markdown", reply_markup=markup)
                 return
             except Exception:
                 pass
+        elif photo_id:
+            msg_obj = getattr(target, "message", None)
+            if msg_obj and getattr(msg_obj, "photo", None):
+                try:
+                    await target.edit_message_caption(caption=text, parse_mode="Markdown", reply_markup=markup)
+                    return
+                except Exception:
+                    pass
+            try:
+                await target.message.delete()
+            except Exception:
+                pass
+            try:
+                await bot.send_photo(chat_id=chat_id, photo=photo_id, caption=text, parse_mode="Markdown", reply_markup=markup)
+                return
+            except Exception:
+                pass
+
         try:
             await target.edit_message_text(text, parse_mode="Markdown", reply_markup=markup)
         except Exception:
-            await target.message.reply_text(text, parse_mode="Markdown", reply_markup=markup)
+            clean_text = text.replace("*", "").replace("_", "")
+            try:
+                await target.edit_message_text(clean_text, reply_markup=markup)
+            except Exception:
+                await bot.send_message(chat_id=chat_id, text=clean_text, reply_markup=markup)
 
 
 # ============================================================
@@ -386,6 +444,7 @@ async def vip_custom_menu_callback(update: Update, context: ContextTypes.DEFAULT
         tier_title = tier_names.get(user.vip_tier, user.vip_tier)
 
         photo_status = "✅ O'rnatilgan" if user.custom_photo_file_id else "❌ O'rnatilmagan"
+        video_status = "✅ O'rnatilgan" if user.custom_video_file_id else "❌ O'rnatilmagan"
         status_status = f"«{escape_md(user.custom_status)}»" if user.custom_status else "❌ O'rnatilmagan"
         audio_status = f"🎶 «{escape_md(user.custom_audio_title)}»" if (user.custom_audio_file_id or user.custom_audio_title) else "❌ O'rnatilmagan"
 
@@ -397,6 +456,7 @@ async def vip_custom_menu_callback(update: Update, context: ContextTypes.DEFAULT
             f"✨👑 **VIP PROFIL SOZLAMALARI STUDIYASI** 👑✨\n\n"
             f"Sizning VIP maqomingiz: **{tier_title}**\n\n"
             f"📸 **Profil fotosurati:** {photo_status}\n"
+            f"🎥 **Profil videosi (25,000+ so'm VIP):** {video_status}\n"
             f"✍️ **Shaxsiy shior / status:** {status_status}\n"
             f"🎵 **Fon musiqasi / gimn:** {audio_status}\n"
             f"{decree_line}\n"
@@ -409,6 +469,12 @@ async def vip_custom_menu_callback(update: Update, context: ContextTypes.DEFAULT
         buttons.append([InlineKeyboardButton("📸 Profil Rasmini O'rnatish / Yangilash", callback_data="vip_set_photo")])
         if user.custom_photo_file_id:
             buttons.append([InlineKeyboardButton("🗑️ Rasmni Olib Tashlash", callback_data="vip_remove_photo")])
+
+        # Video (25,000+ so'm paketlar: Lord, Dragonlord, Sovereign)
+        if user.vip_tier in ["lord", "dragonlord", "sovereign"]:
+            buttons.append([InlineKeyboardButton("🎥 Profil Videosini O'rnatish / Yangilash", callback_data="vip_set_video")])
+            if user.custom_video_file_id:
+                buttons.append([InlineKeyboardButton("🗑️ Videoni Olib Tashlash", callback_data="vip_remove_video")])
 
         # Status & Audio (Lord, Dragonlord, Sovereign)
         if user.vip_tier in ["lord", "dragonlord", "sovereign"]:
@@ -430,6 +496,41 @@ async def vip_custom_menu_callback(update: Update, context: ContextTypes.DEFAULT
             await query.message.reply_text(text, reply_markup=markup, parse_mode="Markdown")
         else:
             await query.edit_message_text(text, reply_markup=markup, parse_mode="Markdown")
+
+
+async def vip_set_video_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Video yuklashni boshlash (25,000+ so'mlik VIP foydalanuvchilar uchun)"""
+    query = update.callback_query
+    await query.answer()
+    context.user_data["awaiting_vip_video"] = True
+    context.user_data.pop("awaiting_vip_photo", None)
+    context.user_data.pop("awaiting_vip_status", None)
+    context.user_data.pop("awaiting_vip_audio", None)
+    context.user_data.pop("awaiting_vip_decree", None)
+
+    text = (
+        "🎥 **PROFIL VIDEOSINI YUKLASH (25,000+ SO'M VIP)**\n\n"
+        "Profil kartangizda fotosurat o'rniga jonli video yoki dumaloq video xabar namoyish etiladi!\n"
+        "Iltimos, profilingiz uchun istalgan **video, animatsiya (GIF) yoki video-xabar (krujok)** yuboring.\n\n"
+        "*(Bekor qilish uchun /cancel deb yozing)*"
+    )
+    buttons = [
+        [InlineKeyboardButton("🔙 VIP Studiyaga Qaytish", callback_data="menu_vip_custom")]
+    ]
+    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def vip_remove_video_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Videoni olib tashlash"""
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+
+    async with AsyncSessionLocal() as session:
+        await crud.update_user_custom_video(session, user_id, None)
+
+    await query.answer("🗑️ Profil videosi muvaffaqiyatli olib tashlandi!", show_alert=True)
+    await vip_custom_menu_callback(update, context)
 
 
 async def vip_set_photo_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -620,9 +721,20 @@ async def vip_preview_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         user = await crud.get_user_with_relations(session, user_id)
         if not user:
             return
-        text, photo_id, audio_id, audio_title = await format_user_profile_card(user, session, is_group=False)
+        text, photo_id, audio_id, audio_title, video_id = await format_user_profile_card(user, session, is_group=False)
 
-    if photo_id:
+    if video_id:
+        try:
+            await query.message.reply_video(video=video_id, caption=text, parse_mode="Markdown")
+        except Exception:
+            if photo_id:
+                try:
+                    await query.message.reply_photo(photo=photo_id, caption=text, parse_mode="Markdown")
+                except Exception:
+                    await query.message.reply_text(text, parse_mode="Markdown")
+            else:
+                await query.message.reply_text(text, parse_mode="Markdown")
+    elif photo_id:
         try:
             await query.message.reply_photo(photo=photo_id, caption=text, parse_mode="Markdown")
         except Exception:
@@ -771,6 +883,40 @@ async def vip_input_receiver(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return
         else:
             await msg.reply_text("⚠️ Iltimos, fotosurat (rasm) yuboring yoki bekor qilish uchun /cancel deb yozing.")
+            return
+
+    # 1b. Video kiritish (Lord, Valyriya, Sovereign - 25,000+ so'mlik VIP to'plamlar)
+    if u_data.get("awaiting_vip_video"):
+        video_file_id = None
+        if msg.video:
+            video_file_id = msg.video.file_id
+        elif msg.video_note:
+            video_file_id = msg.video_note.file_id
+        elif msg.animation:
+            video_file_id = msg.animation.file_id
+        elif msg.document and (msg.document.mime_type or "").startswith("video/"):
+            video_file_id = msg.document.file_id
+
+        if video_file_id:
+            async with AsyncSessionLocal() as session:
+                user = await crud.get_user_by_telegram_id(session, user_id)
+                if user and user.vip_tier in ["lord", "dragonlord", "sovereign"]:
+                    ok, res_msg = await crud.update_user_custom_video(session, user.id, video_file_id)
+                else:
+                    ok, res_msg = False, "Foydalanuvchi topilmadi yoki VIP darajangiz yetarli emas."
+            u_data.pop("awaiting_vip_video", None)
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("✨ VIP Studiyaga Qaytish", callback_data="menu_vip_custom")],
+                [InlineKeyboardButton("👤 Profilni Ko'rish", callback_data="menu_profile")],
+            ])
+            await msg.reply_text(f"🎉 **AJOYIB!**\n\n{res_msg}", reply_markup=kb, parse_mode="Markdown")
+            return
+        elif msg.text and msg.text.lower() in ["/cancel", "bekor"]:
+            u_data.pop("awaiting_vip_video", None)
+            await msg.reply_text("❌ Video o'rnatish bekor qilindi.", reply_markup=back_to_main_keyboard())
+            return
+        else:
+            await msg.reply_text("⚠️ Iltimos, video yoki dumaloq video xabar (video note) yuboring yoki bekor qilish uchun /cancel deb yozing.")
             return
 
     # 2. Status / Shior kiritish
@@ -1484,6 +1630,8 @@ def register_profile_handlers(app):
     app.add_handler(CallbackQueryHandler(vip_custom_menu_callback, pattern="^menu_vip_custom$"))
     app.add_handler(CallbackQueryHandler(vip_set_photo_callback, pattern="^vip_set_photo$"))
     app.add_handler(CallbackQueryHandler(vip_remove_photo_callback, pattern="^vip_remove_photo$"))
+    app.add_handler(CallbackQueryHandler(vip_set_video_callback, pattern="^vip_set_video$"))
+    app.add_handler(CallbackQueryHandler(vip_remove_video_callback, pattern="^vip_remove_video$"))
     app.add_handler(CallbackQueryHandler(vip_set_status_callback, pattern="^vip_set_status$"))
     app.add_handler(CallbackQueryHandler(vip_remove_status_callback, pattern="^vip_remove_status$"))
     app.add_handler(CallbackQueryHandler(vip_set_audio_callback, pattern="^vip_set_audio$"))
@@ -1506,10 +1654,10 @@ def register_profile_handlers(app):
     app.add_handler(CallbackQueryHandler(buy_food_callback, pattern="^buy_food:"))
     app.add_handler(CallbackQueryHandler(sell_res_callback, pattern="^sell_res:"))
 
-    # VIP Profil sozlamalari (rasm, shior, audio, farmon) qabul qiluvchi handler (group=3)
+    # VIP Profil sozlamalari (rasm, video, shior, audio, farmon) qabul qiluvchi handler (group=3)
     app.add_handler(
         MessageHandler(
-            (filters.PHOTO | filters.AUDIO | filters.VOICE | filters.Document.ALL | (filters.TEXT & ~filters.COMMAND)) & filters.ChatType.PRIVATE,
+            (filters.PHOTO | filters.VIDEO | filters.VIDEO_NOTE | filters.ANIMATION | filters.AUDIO | filters.VOICE | filters.Document.ALL | (filters.TEXT & ~filters.COMMAND)) & filters.ChatType.PRIVATE,
             vip_input_receiver,
         ),
         group=3,

@@ -401,11 +401,11 @@ async def admin_donate_approve_callback(update: Update, context: ContextTypes.DE
 
     v_tier = details.get("vip_tier")
     if v_tier == "lord":
-        congrats_text += "\n✨ **VIP IMTIYOZ:** Sizga «🏰 Lordlar Xazinasi» yaltiroq profili va fotosurat qo'yish huquqi berildi! /profile menyusida sozlang.\n"
+        congrats_text += "\n✨ **VIP IMTIYOZ:** Sizga «🏰 Lordlar Xazinasi» yaltiroq profili, fotosurat va 🎥 shaxsiy video qo'yish huquqi berildi! /profile menyusida sozlang.\n"
     elif v_tier == "dragonlord":
-        congrats_text += "\n⚜️ **VIP IMTIYOZ:** Sizga «🐉 Valyriya Merosi» olovli yaltiroq profili, fotosurat, shaxsiy shior va fon musiqasi sozlash huquqi berildi! /profile menyusida sozlang.\n"
+        congrats_text += "\n⚜️ **VIP IMTIYOZ:** Sizga «🐉 Valyriya Merosi» olovli yaltiroq profili, fotosurat, 🎥 shaxsiy video, shior va fon musiqasi sozlash huquqi berildi! /profile menyusida sozlang.\n"
     elif v_tier == "sovereign":
-        congrats_text += "\n👑 **VIP IMTIYOZ:** Sizga «👑 Temir Taxt Sohibi» imperatorlik yaltiroq profili, fotosurat, shior, musiqa, +25% doimiy daromad va Butun Vesterosga Qirollik Farmoni chiqarish huquqi berildi! /profile menyusida sozlang.\n"
+        congrats_text += "\n👑 **VIP IMTIYOZ:** Sizga «👑 Temir Taxt Sohibi» imperatorlik yaltiroq profili, fotosurat, 🎥 shaxsiy video, shior, musiqa, +25% doimiy daromad va Butun Vesterosga Qirollik Farmoni chiqarish huquqi berildi! /profile menyusida sozlang.\n"
 
     congrats_text += "\n⚔️ Vesteros taxti sari kurashda sizga zafarlar tilaymiz!"
 

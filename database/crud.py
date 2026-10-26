@@ -106,6 +106,16 @@ async def check_and_reset_daily_limits(session: AsyncSession, user: models.User)
 def track_user_gold_gain(user: models.User, amount: int) -> None:
     """O'yinchi ishlab topgan oltinini kunlik va haftalik reyting ko'rsatkichlariga qo'shish"""
     if amount and amount > 0:
+        today_str = datetime.utcnow().strftime("%Y-%m-%d")
+        week_str = datetime.utcnow().strftime("%Y-W%W")
+        if getattr(user, "daily_limit_date", "") != today_str:
+            user.daily_gold_earned = 0
+            user.daily_prestige_earned = 0
+            user.daily_limit_date = today_str
+        if getattr(user, "weekly_limit_date", "") != week_str:
+            user.weekly_gold_earned = 0
+            user.weekly_prestige_earned = 0
+            user.weekly_limit_date = week_str
         user.daily_gold_earned = (getattr(user, "daily_gold_earned", 0) or 0) + amount
         user.weekly_gold_earned = (getattr(user, "weekly_gold_earned", 0) or 0) + amount
 
@@ -113,6 +123,16 @@ def track_user_gold_gain(user: models.User, amount: int) -> None:
 def track_user_prestige_gain(user: models.User, amount: int) -> None:
     """O'yinchi ishlab topgan nufuzini kunlik va haftalik reyting ko'rsatkichlariga qo'shish"""
     if amount and amount > 0:
+        today_str = datetime.utcnow().strftime("%Y-%m-%d")
+        week_str = datetime.utcnow().strftime("%Y-W%W")
+        if getattr(user, "daily_limit_date", "") != today_str:
+            user.daily_gold_earned = 0
+            user.daily_prestige_earned = 0
+            user.daily_limit_date = today_str
+        if getattr(user, "weekly_limit_date", "") != week_str:
+            user.weekly_gold_earned = 0
+            user.weekly_prestige_earned = 0
+            user.weekly_limit_date = week_str
         user.daily_prestige_earned = (getattr(user, "daily_prestige_earned", 0) or 0) + amount
         user.weekly_prestige_earned = (getattr(user, "weekly_prestige_earned", 0) or 0) + amount
 
@@ -941,36 +961,78 @@ async def get_top_armies(session: AsyncSession, limit: int = 10) -> List[Tuple[m
 
 
 async def get_top10_prestige(session: AsyncSession, period: str = "all") -> List[models.User]:
-    """Prestige bo'yicha TOP 10 o'yinchilar: daily, weekly yoki all-time"""
-    query = (
-        select(models.User)
-        .where(models.User.is_banned == False)
-        .options(selectinload(models.User.house), selectinload(models.User.characters))
-    )
+    """Prestige bo'yicha TOP 10 o'yinchilar: daily, weekly yoki all-time (faqat aktual va faol ma'lumotlar)"""
+    today_str = datetime.utcnow().strftime("%Y-%m-%d")
+    week_str = datetime.utcnow().strftime("%Y-W%W")
+
     if period == "daily":
-        query = query.order_by(desc(models.User.daily_prestige_earned), desc(models.User.prestige), desc(models.User.level))
+        query = (
+            select(models.User)
+            .where(
+                models.User.is_banned == False,
+                models.User.daily_limit_date == today_str,
+                models.User.daily_prestige_earned > 0
+            )
+            .options(selectinload(models.User.house), selectinload(models.User.characters))
+            .order_by(desc(models.User.daily_prestige_earned), desc(models.User.prestige), desc(models.User.level))
+        )
     elif period == "weekly":
-        query = query.order_by(desc(models.User.weekly_prestige_earned), desc(models.User.prestige), desc(models.User.level))
+        query = (
+            select(models.User)
+            .where(
+                models.User.is_banned == False,
+                models.User.weekly_limit_date == week_str,
+                models.User.weekly_prestige_earned > 0
+            )
+            .options(selectinload(models.User.house), selectinload(models.User.characters))
+            .order_by(desc(models.User.weekly_prestige_earned), desc(models.User.prestige), desc(models.User.level))
+        )
     else:
-        query = query.order_by(desc(models.User.prestige), desc(models.User.level))
+        query = (
+            select(models.User)
+            .where(models.User.is_banned == False, models.User.prestige > 0)
+            .options(selectinload(models.User.house), selectinload(models.User.characters))
+            .order_by(desc(models.User.prestige), desc(models.User.level))
+        )
 
     result = await session.execute(query.limit(10))
     return list(result.scalars().all())
 
 
 async def get_top10_wealth(session: AsyncSession, period: str = "all") -> List[models.User]:
-    """Boylik (Oltin) bo'yicha TOP 10 o'yinchilar: daily, weekly yoki all-time"""
-    query = (
-        select(models.User)
-        .where(models.User.is_banned == False)
-        .options(selectinload(models.User.house), selectinload(models.User.characters))
-    )
+    """Boylik (Oltin) bo'yicha TOP 10 o'yinchilar: daily, weekly yoki all-time (faqat aktual va faol ma'lumotlar)"""
+    today_str = datetime.utcnow().strftime("%Y-%m-%d")
+    week_str = datetime.utcnow().strftime("%Y-W%W")
+
     if period == "daily":
-        query = query.order_by(desc(models.User.daily_gold_earned), desc(models.User.gold))
+        query = (
+            select(models.User)
+            .where(
+                models.User.is_banned == False,
+                models.User.daily_limit_date == today_str,
+                models.User.daily_gold_earned > 0
+            )
+            .options(selectinload(models.User.house), selectinload(models.User.characters))
+            .order_by(desc(models.User.daily_gold_earned), desc(models.User.gold))
+        )
     elif period == "weekly":
-        query = query.order_by(desc(models.User.weekly_gold_earned), desc(models.User.gold))
+        query = (
+            select(models.User)
+            .where(
+                models.User.is_banned == False,
+                models.User.weekly_limit_date == week_str,
+                models.User.weekly_gold_earned > 0
+            )
+            .options(selectinload(models.User.house), selectinload(models.User.characters))
+            .order_by(desc(models.User.weekly_gold_earned), desc(models.User.gold))
+        )
     else:
-        query = query.order_by(desc(models.User.gold))
+        query = (
+            select(models.User)
+            .where(models.User.is_banned == False, models.User.gold > 0)
+            .options(selectinload(models.User.house), selectinload(models.User.characters))
+            .order_by(desc(models.User.gold))
+        )
 
     result = await session.execute(query.limit(10))
     return list(result.scalars().all())
@@ -1622,8 +1684,8 @@ async def admin_reset_house_election_votes(session: AsyncSession, house_id: int)
 # ALLIANCE CRUD (1 TA HARBIY VA 1 TA TO'Y ITTIFOQI)
 # ============================================================
 
-# NPC xonadonlar ID lari (ittifoq tuzish taqiqlanadi)
-NPC_HOUSE_IDS = {47, 48, 49, 50}
+# NPC xonadonlar ID lari (barcha xonadonlar bilan ittifoq tuzishga ruxsat etiladi)
+NPC_HOUSE_IDS = set()
 
 
 async def get_active_alliances_for_house(session: AsyncSession, house_id: int) -> List[models.Alliance]:
@@ -1684,12 +1746,9 @@ async def propose_alliance(
     if from_house_id == to_house_id:
         return False, "O'z xonadoningizga ittifoq taklif qila olmaysiz!"
 
-    if to_house_id in NPC_HOUSE_IDS or from_house_id in NPC_HOUSE_IDS:
-        return False, "❌ White Walkers, Free Folk, Night's Watch yoki boshqa NPC xonadonlar bilan ittifoq tuzib bo'lmaydi!"
-
     to_house = await session.get(models.House, to_house_id)
-    if not to_house or getattr(to_house, "is_npc", False):
-        return False, "❌ Ushbu xonadon bilan ittifoq tuzish imkoni yo'q!"
+    if not to_house:
+        return False, "❌ Nishon xonadon topilmadi!"
 
     from_house = await session.get(models.House, from_house_id)
     if not from_house:
@@ -1719,6 +1778,9 @@ async def propose_alliance(
     if to_existing.scalars().first():
         return False, f"❌ {to_house.name} xonadonida allaqachon 1 ta faol {type_name_uz} mavjud!"
 
+    # Agar nishon xonadonda tirik lord bo'lmasa yoki NPC xonadon bo'lsa, ittifoq to'g'ridan-to'g'ri faollashadi
+    is_auto_accept = bool(getattr(to_house, "is_npc", False) or not to_house.lord_user_id or to_house.id in NPC_HOUSE_IDS)
+
     # Ushbu ikki xonadon o'rtasidagi aynan shu toifadagi mavjud aloqani tekshirish
     res = await session.execute(
         select(models.Alliance).where(
@@ -1733,27 +1795,31 @@ async def propose_alliance(
     if existing:
         if existing.status == "active":
             return False, f"Ushbu xonadon bilan allaqachon faol {type_name_uz} mavjud!"
-        elif existing.status == "pending":
+        elif existing.status == "pending" and not is_auto_accept:
             if existing.house_a_id == from_house_id:
                 return False, f"Ushbu xonadonga allaqachon {type_name_uz} taklifi yuborilgan, javob kutilmoqda."
             else:
                 return False, f"{to_house.name} xonadoni allaqachon sizga {type_name_uz} taklif qilgan! Uni qabul qilishingiz mumkin."
         else:
-            existing.status = "pending"
+            existing.status = "active" if is_auto_accept else "pending"
             existing.house_a_id = from_house_id
             existing.house_b_id = to_house_id
             existing.created_at = datetime.utcnow()
             await session.commit()
+            if is_auto_accept:
+                return True, f"🤝 {to_house.name} xonadoni bilan {type_name_uz} muvaffaqiyatli rasmiylashtirildi!"
             return True, f"🤝 {to_house.name} xonadoniga {type_name_uz} taklifi muvaffaqiyatli yuborildi!"
 
     new_alliance = models.Alliance(
         house_a_id=from_house_id,
         house_b_id=to_house_id,
         type=alliance_type,
-        status="pending",
+        status="active" if is_auto_accept else "pending",
     )
     session.add(new_alliance)
     await session.commit()
+    if is_auto_accept:
+        return True, f"🤝 {to_house.name} xonadoni bilan {type_name_uz} muvaffaqiyatli rasmiylashtirildi!"
     return True, f"🤝 {to_house.name} xonadoniga {type_name_uz} taklifi muvaffaqiyatli yuborildi!"
 
 
@@ -1826,8 +1892,6 @@ async def get_houses_for_alliance_picker(
         .outerjoin(models.User, models.User.house_id == models.House.id)
         .where(
             models.House.id != my_house_id,
-            models.House.id.not_in(NPC_HOUSE_IDS),
-            models.House.is_npc.is_(False),
         )
         .group_by(models.House.id)
         .order_by(
@@ -2608,22 +2672,24 @@ async def get_user_dragon(session: AsyncSession, user_id: int, dragon_id: Option
 
 
 def get_base_dragon_power_for_level(level: int, stage: str = "adult") -> int:
-    """Ajdar darajasi va bosqichiga mos asosiy quvvat (Grade A bazasi)"""
+    """Ajdar darajasi va bosqichiga mos asosiy quvvat"""
     level = max(1, min(20, level or 1))
     if stage == "egg":
-        return 120
-    base = 200
+        return 150
+    if stage == "baby":
+        return 200 + (level * 60)
+    base = 400
     for lvl in range(2, level + 1):
-        base += 35 + (lvl * 5)
+        base += 120 + (lvl * 25)
     return base
 
 
 def get_max_dragon_power(level: int, stage: str = "adult", artifact_code: Optional[str] = None) -> int:
-    """Ajdar darajasiga ko'ra ruxsat etilgan maksimal jangovar quvvat"""
+    """Ajdar darajasiga ko'ra ruxsat etilgan maksimal jangovar quvvat (balansli va me'yordagi chegara)"""
     level = max(1, min(20, level or 1))
     base = get_base_dragon_power_for_level(level, stage)
-    # Har bir daraja uchun parvarish, boqish va jang tajribasi bonusi (+25 har daraja)
-    care_bonus = level * 25
+    # Boqish, parvarish va jang tajribasi orqali olinadigan qo'shimcha quvvat
+    care_bonus = level * 120
     total = base + care_bonus
 
     if artifact_code:
@@ -3267,10 +3333,6 @@ async def liberate_conquered_castle(session: AsyncSession, user_id: int, territo
     terr.garrison_cavalry = 50
     terr.garrison_spearmen = 50
 
-    # 4. Foydalanuvchiga nufuz (prestige) mukofoti
-    prestige_reward = 25
-    user.prestige = (user.prestige or 0) + prestige_reward
-
     await session.commit()
 
     dragon_msg = f"\n🐉 Qal'adan qaytarilgan ajdarlar: **{', '.join(recalled_dragons)}**" if recalled_dragons else ""
@@ -3290,7 +3352,6 @@ async def liberate_conquered_castle(session: AsyncSession, user_id: int, territo
         f"👥 **SHAXSIY ARMIYANGIZGA QAYTARILGAN ASKARLAR ({tot_gar:,} ta):**\n"
         f"{troops_msg}"
         f"{dragon_msg}\n\n"
-        f"✨ **MUKOFOT:** Mardlik va adolat uchun **+{prestige_reward} Nufuz (Prestige)** berildi!\n\n"
         f"📊 Xonadoningiz qal'alari: **{new_h_count}/{MAX_HOUSE_CASTLES} ta**.\n"
         f"⚔️ Endi bemalol boshqa hududlarga yurish qilib, yangi qal'a zabt etishingiz mumkin!"
     )
@@ -3640,18 +3701,13 @@ async def create_pvp_duel(
     bet_gold: int,
     tactic: str,
 ) -> Tuple[bool, str, Optional[models.Duel], Optional[int]]:
-    """O'yinchi boshqa o'yinchiga duel taklif qiladi"""
+    """O'yinchi boshqa o'yinchiga duel taklif qiladi (Lordlararo limitsiz va pulsiz do'stona duel)"""
     challenger = await get_user_any(session, challenger_tg_or_id)
     if not challenger:
         return False, "Foydalanuvchi topilmadi.", None, None
 
-    await check_and_reset_daily_limits(session, challenger)
-    duel_cnt = getattr(challenger, "daily_duel_count", 0) or 0
-    if duel_cnt >= DAILY_DUEL_LIMIT:
-        return False, f"❌ Bugungi {DAILY_DUEL_LIMIT} ta duel limitingiz tugagan! Ertaga yana maydonga tushishingiz mumkin.", None, None
-
-    if bet_gold > 0 and challenger.gold < bet_gold:
-        return False, f"Duel uchun sizda kamida {bet_gold}🪙 oltin bo'lishi kerak!", None, None
+    # Lordlar o'rtasida duel limitsiz va pulsiz (0 oltin, sof mahorat sinovi)
+    bet_gold = 0
 
     opponent = None
     if opponent_target.isdigit():
@@ -3668,19 +3724,16 @@ async def create_pvp_duel(
     if opponent.id == challenger.id:
         return False, "O'zingizga qarshi duel e'lon qila olmaysiz!", None, None
 
-    if bet_gold > 0 and opponent.gold < bet_gold:
-        return False, f"{opponent.full_name} da garov uchun yetarli oltin ({bet_gold}🪙) yo'q!", None, None
-
     duel = models.Duel(
         challenger_id=challenger.id,
         opponent_id=opponent.id,
-        bet_gold=bet_gold,
+        bet_gold=0,
         challenger_tactic=tactic,
         status="pending",
     )
     session.add(duel)
     await session.commit()
-    return True, f"⚔️ {opponent.full_name}ga duel chaqirig'i yuborildi!", duel, opponent.telegram_id
+    return True, f"⚔️ {opponent.full_name}ga do'stona duel chaqirig'i yuborildi!", duel, opponent.telegram_id
 
 
 async def get_pending_duels_for_user(session: AsyncSession, user_tg_or_id: int) -> List[Tuple[models.Duel, str]]:
@@ -3704,7 +3757,7 @@ async def resolve_pvp_duel(
     opponent_tg_or_id: int,
     opponent_tactic: str,
 ) -> Dict[str, Any]:
-    """PvP duelini hisoblash va yakunlash"""
+    """PvP duelini hisoblash va yakunlash (Lordlararo limitsiz va pulsiz do'stona duel)"""
     duel = await session.get(models.Duel, duel_id)
     if not duel or duel.status != "pending":
         return {"success": False, "error": "Duel topilmadi yoki allaqachon yakunlangan."}
@@ -3714,23 +3767,8 @@ async def resolve_pvp_duel(
     if not challenger or not opponent:
         return {"success": False, "error": "Jang ishtirokchilaridan biri topilmadi."}
 
-    await check_and_reset_daily_limits(session, challenger)
-    await check_and_reset_daily_limits(session, opponent)
-
-    opp_duel_cnt = getattr(opponent, "daily_duel_count", 0) or 0
-    if opp_duel_cnt >= DAILY_DUEL_LIMIT:
-        return {"success": False, "error": f"❌ Bugungi {DAILY_DUEL_LIMIT} ta duel limitingiz tugagan! Ertaga yana maydonga tushishingiz mumkin."}
-
-    bet_gold = duel.bet_gold
-    if bet_gold > 0:
-        if challenger.gold < bet_gold:
-            duel.status = "cancelled"
-            await session.commit()
-            return {"success": False, "error": f"{challenger.full_name}da garov uchun yetarli oltin qolmagan!"}
-        if opponent.gold < bet_gold:
-            duel.status = "cancelled"
-            await session.commit()
-            return {"success": False, "error": f"{opponent.full_name}da garov uchun yetarli oltin qolmagan!"}
+    bet_gold = 0
+    duel.bet_gold = 0
 
     c_char_res = await session.execute(select(models.Character).where(models.Character.user_id == challenger.id))
     c_hero = c_char_res.scalars().first()
@@ -3784,34 +3822,16 @@ async def resolve_pvp_duel(
         loser_name = c_name
         duel.winner_id = opponent.id
 
-    if bet_gold > 0:
-        loser.gold = max(0, loser.gold - bet_gold)
-        winner.gold += bet_gold
-    else:
-        winner.gold += 50
-
-    winner.prestige += 8
-    winner.xp += 150
-    loser.prestige = max(0, loser.prestige - 2)
-    loser.xp += 50
-
-    challenger.daily_duel_count = (getattr(challenger, "daily_duel_count", 0) or 0) + 1
-    opponent.daily_duel_count = (getattr(opponent, "daily_duel_count", 0) or 0) + 1
     session.add(challenger)
     session.add(opponent)
 
-    from core.leveling import check_user_level_up
-    check_user_level_up(winner)
-    check_user_level_up(loser)
-
     tactic_names = {"heavy": "🗡️ Og'ir Zarba", "parry": "🛡️ Qalqonli Mudofaa", "agile": "⚡ Epchil Hamla"}
     outcome = (
-        f"⚔️ **LORDLARARO QONLI DUEL YAKUNLANDI!**\n\n"
+        f"⚔️ **LORDLARARO DO'STONA DUEL YAKUNLANDI!**\n\n"
         f"🏆 G'olib: **{winner.full_name}** ({winner_name}) — {tactic_names.get(duel.challenger_tactic if challenger_won else opponent_tactic)}\n"
-        f"💀 Mag'lub: **{loser.full_name}** ({loser_name}) — {tactic_names.get(opponent_tactic if challenger_won else duel.challenger_tactic)}\n\n"
-        f"📊 **MUKOFOTLAR:**\n"
-        f"• G'olib ({winner.full_name}): +{bet_gold if bet_gold > 0 else 50}🪙 oltin, +8🏆 Prestige, +150 XP\n"
-        f"• Mag'lub ({loser.full_name}): -{bet_gold if bet_gold > 0 else 0}🪙 oltin, +50 XP"
+        f"🛡️ Ishtirokchi: **{loser.full_name}** ({loser_name}) — {tactic_names.get(opponent_tactic if challenger_won else duel.challenger_tactic)}\n\n"
+        f"🤝 *Ushbu duel lordlar o'rtasida limitsiz va do'stona tarzda o'tkazildi (hech qanday oltin yoki nufuz berilmaydi/olinmaydi).* "
+        f"Har ikki jangchi maydonda o'z mahorati va sharafini namoyish etdi!"
     )
     duel.details = outcome
     await session.commit()
@@ -6283,6 +6303,28 @@ SPY_MISSION_COSTS = {
     "open_gates": 800,
 }
 
+
+def get_spy_mission_odds(territory: models.Territory, mission_type: str) -> Dict[str, Any]:
+    """Qal'a bo'yicha josuslik ehtimolliklari va qarshi-josuslik (counter-espionage) bonuslarini hisoblash"""
+    base_rates = {"scout": 0.85, "sabotage": 0.65, "open_gates": 0.55}
+    base = base_rates.get(mission_type, 0.50)
+    c_lvl = getattr(territory, "castle_level", 1) or 1
+    # Bino bonusi: Har bir qal'a bosqichi (castle_level) dushman josuslarini aniqlash ehtimolini +7% ga oshiradi
+    keep_bonus = max(0.0, (c_lvl - 1) * 0.07)
+    wall_def = getattr(territory, "defense", 0) or 0
+    wall_bonus = 0.05 if wall_def >= 1000 else (0.10 if wall_def >= 2000 else 0.0)
+    total_counter = keep_bonus + wall_bonus
+    effective_success = max(0.20, min(0.95, base - total_counter))
+    return {
+        "base_rate": base,
+        "effective_success": effective_success,
+        "success_pct": int(round(effective_success * 100)),
+        "detection_pct": int(round((1.0 - effective_success) * 100)),
+        "counter_bonus_pct": int(round(total_counter * 100)),
+        "castle_level": c_lvl,
+    }
+
+
 async def send_spy_mission(
     session: AsyncSession,
     user_id: int,
@@ -6346,18 +6388,25 @@ async def send_spy_mission(
     else:
         limit_str = ""
 
-    # Ehtimolliklar:
-    # scout: 85% success, 15% caught
-    # sabotage: 65% success, 35% caught
-    # open_gates: 55% success, 45% caught
+    # Ehtimolliklar va Qal'a Istehkomi (Keep/Castle Level) bonusi:
+    # scout: 85% base, sabotage: 65% base, open_gates: 55% base
     success_rates = {
         "scout": 0.85,
         "sabotage": 0.65,
         "open_gates": 0.55,
     }
 
+    base_rate = success_rates.get(mission_type, 0.50)
+    c_lvl = getattr(territory, "castle_level", 1) or 1
+    # Bino bonusi: Har bir qal'a bosqichi (castle_level) dushman josuslarini aniqlash ehtimolini +7% ga oshiradi
+    keep_detection_bonus = max(0.0, (c_lvl - 1) * 0.07)
+    wall_def = getattr(territory, "defense", 0) or 0
+    wall_detection_bonus = 0.05 if wall_def >= 1000 else (0.10 if wall_def >= 2000 else 0.0)
+    total_counter_bonus = keep_detection_bonus + wall_detection_bonus
+    effective_success = max(0.20, min(0.95, base_rate - total_counter_bonus))
+
     roll = random.random()
-    is_success = roll <= success_rates[mission_type]
+    is_success = roll <= effective_success
 
     report_data = {}
     now = datetime.utcnow()
@@ -7859,6 +7908,24 @@ async def update_user_custom_audio(session: AsyncSession, user_id: int, file_id:
         return True, f"✅ Profil fon musiqasi saqlandi: 🎶 «{user.custom_audio_title}»"
     else:
         return True, "🗑️ Profil musiqasi olib tashlandi."
+
+
+async def update_user_custom_video(session: AsyncSession, user_id: int, file_id: Optional[str]) -> Tuple[bool, str]:
+    """25,000+ so'mlik VIP foydalanuvchilar (Lord, Valyriya, Sovereign) profiliga video o'rnatish"""
+    user = await session.get(models.User, user_id)
+    if not user:
+        return False, "O'yinchi topilmadi."
+
+    allowed = ["lord", "dragonlord", "sovereign"]
+    if user.vip_tier not in allowed:
+        return False, "❌ Profilga video joylash uchun kamida 25,000 so'mlik «🏰 Lordlar Xazinasi» yoki undan yuqori VIP to'plam talab qilinadi."
+
+    user.custom_video_file_id = file_id
+    await session.commit()
+    if file_id:
+        return True, "✅ Profil videosi muvaffaqiyatli o'rnatildi! Endi profilingiz barcha lordlarga ushbu video bilan ko'rinadi."
+    else:
+        return True, "🗑️ Profil videosi olib tashlandi."
 
 
 async def use_royal_decree(session: AsyncSession, user_id: int) -> Tuple[bool, str]:

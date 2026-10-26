@@ -83,6 +83,7 @@ async def spy_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("🎯 Qal'aga josus yuborish", callback_data="spy_pick_page:0")],
+            [InlineKeyboardButton("ℹ️ Josuslik Qoidalari va Qo'llanma", callback_data="spy_guide")],
             [InlineKeyboardButton("📜 Barcha hisobotlarim", callback_data="spy_history")],
             [InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")],
         ])
@@ -202,21 +203,60 @@ async def spy_terr_detail_callback(update: Update, context: ContextTypes.DEFAULT
             if h:
                 h_name = f"{getattr(h, 'emoji', '🛡️')} {h.name}"
 
+        scout_odds = crud.get_spy_mission_odds(terr, "scout")
+        sabotage_odds = crud.get_spy_mission_odds(terr, "sabotage")
+        gates_odds = crud.get_spy_mission_odds(terr, "open_gates")
+
+        c_lvl = getattr(terr, "castle_level", 1) or 1
+        counter_bonus = scout_odds["counter_bonus_pct"]
+        def_val = getattr(terr, "defense", 0) or 0
+
         text = (
             f"🏰 **QAL'A: {terr.name}** ({terr.castle_name})\n"
             f"👑 Xonadon: **{h_name}**\n"
             f"🗺️ Mintaqa: **{terr.region}**\n"
+            f"🏛️ Qal'a Istehkomi: **Tier {c_lvl}** | 🛡️ Devor: **{def_val}** ball\n"
+            f"🚨 **Qarshi-josuslik hushyorligi:** **+{counter_bonus}%** ushlash xavfi\n"
             f"💰 Sizdagi oltin: **{u_gold:,}** Oltin\n\n"
             f"Ushbu qal'aga qanday operatsiya uyushtirilsin?"
         )
 
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton(f"🕵️ Razvedka {scout_tag} — 100💰", callback_data=f"spy_do:scout:{terr.id}")],
-            [InlineKeyboardButton(f"🔥 Sabotaj {sabotage_tag} — 400💰", callback_data=f"spy_do:sabotage:{terr.id}")],
-            [InlineKeyboardButton(f"🚪 Darvozalarni ochish {gates_tag} — 800💰", callback_data=f"spy_do:open_gates:{terr.id}")],
+            [InlineKeyboardButton(f"🕵️ Razvedka {scout_tag} — 100💰 ({scout_odds['success_pct']}% omad)", callback_data=f"spy_do:scout:{terr.id}")],
+            [InlineKeyboardButton(f"🔥 Sabotaj {sabotage_tag} — 400💰 ({sabotage_odds['success_pct']}% omad)", callback_data=f"spy_do:sabotage:{terr.id}")],
+            [InlineKeyboardButton(f"🚪 Darvoza {gates_tag} — 800💰 ({gates_odds['success_pct']}% omad)", callback_data=f"spy_do:open_gates:{terr.id}")],
+            [InlineKeyboardButton("ℹ️ Josuslik Qoidalari", callback_data="spy_guide")],
             [InlineKeyboardButton("🔙 Qal'alar ro'yxati", callback_data="spy_pick_page:0")],
         ])
         await _safe_edit_or_reply(query, update, text, reply_markup=keyboard)
+
+
+async def spy_guide_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Josuslik tizimi va bino bonuslari bo'yicha tushuntirish qo'llanmasi"""
+    query = update.callback_query
+    if query:
+        try:
+            await query.answer()
+        except Exception:
+            pass
+
+    text = (
+        "🕵️📜 **JOSUSLIK TIZIMI VA QOIDALARI QO'LLANMASI**\n\n"
+        "Vesterosda josuslar va ayg'oqchilar urushlar taqdirini hal qiladi!\n\n"
+        "🎯 **OPERATSIYALARNING ISHLASHI:**\n"
+        "1. 🕵️ **Razvedka (100💰):** Dushman qal'asidagi barcha garnizon kuchlari (piyoda, kamonchi, otliq, nayzachi), devor mustahkamligi, yovvoyi olov (wildfire) va mudofaadagi ajdaho quvvatini aniqlaydi.\n"
+        "2. 🔥 **Sabotaj (400💰):** Qal'adagi xavfli Yovvoyi Olov (Wildfire) bochkalariga o't qo'yib yo'q qiladi yoki mudofaa konstruksiyalariga zarba berib, devor mustahkamligini pasaytiradi.\n"
+        "3. 🚪 **Darvozalarni ochish (800💰):** Qal'aning og'ir temir darvozalarini ichkaridan buzib ochadi. Keyingi **2 soat** davomida qal'aga berilgan har qanday hujumda dushman devor mudofaasi **-30% zaiflashadi**!\n\n"
+        "🏰 **QARSHI-JOSUSLIK (MUDOFAA BINO BONUSELARI):**\n"
+        "• 🏛️ **Qal'a Istehkomi (Keep Tier 1-5):** Qal'a bosqichi qanchalik baland bo'lsa, dushman josuslarini fosh qilish va qatl etish ehtimoli shunchalik yuqori bo'ladi! Har bir yangi bosqich dushman josuslarini aniqlash imkoniyatini **+7% ga** oshiradi (Tier 5 da **+28%** qo'shimcha xavfsizlik).\n"
+        "• 🛡️ **Tosh Devorlar:** Devor mudofaasi 1000 dan oshsa **+5%**, 2000 dan oshsa **+10%** dushman ayg'oqchilarini aniqlash ehtimolini oshiradi.\n\n"
+        "⚠️ *Eslatma: Josus qo'lga olinsa, u darhol dorga osiladi, yollash xarajati va Nufuz boy beriladi!*"
+    )
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🎯 Qal'aga josus yuborish", callback_data="spy_pick_page:0")],
+        [InlineKeyboardButton("🔙 Josuslik menyusi", callback_data="menu_espionage")],
+    ])
+    await _safe_edit_or_reply(query, update, text, reply_markup=keyboard)
 
 
 async def spy_execute_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -305,4 +345,5 @@ def register_espionage_handlers(app: Application):
     app.add_handler(CallbackQueryHandler(spy_pick_terr_callback, pattern="^spy_pick_"))
     app.add_handler(CallbackQueryHandler(spy_terr_detail_callback, pattern="^spy_terr:\\d+$"))
     app.add_handler(CallbackQueryHandler(spy_execute_callback, pattern="^spy_do:(scout|sabotage|open_gates):\\d+$"))
+    app.add_handler(CallbackQueryHandler(spy_guide_callback, pattern="^spy_guide$"))
     app.add_handler(CallbackQueryHandler(spy_history_callback, pattern="^spy_history$"))
