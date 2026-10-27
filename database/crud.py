@@ -3450,6 +3450,7 @@ async def buy_artifact(session: AsyncSession, user_id: int, code: str) -> Tuple[
         a.is_equipped = False
 
     session.add(new_art)
+    await session.flush()
     user.equipped_artifact_id = new_art.id
     user.prestige += 25
     user.xp += 300

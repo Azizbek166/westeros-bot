@@ -212,6 +212,7 @@ async def init_db():
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS weekly_prestige_earned INTEGER DEFAULT 0",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS weekly_limit_date VARCHAR(10) DEFAULT ''",
                 "ALTER TABLE territories ADD COLUMN IF NOT EXISTS castle_tier INTEGER DEFAULT 2",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS equipped_artifact_id INTEGER",
             ]:
                 try:
                     await conn.execute(text(pg_alter))

@@ -41,6 +41,89 @@ GOT_AUDIO_PRESETS = {
 }
 
 
+async def safe_send_or_edit_panel(target, text: str, reply_markup=None, is_message: bool = False):
+    """
+    Profil panellari (Artefaktlar, Kon & Tegirmon, VIP Studiya) uchun xavfsiz jo'natish / tahrirlash mexanizmi:
+    1. Agar yangi xabar (is_message=True) bo'lsa -> target.reply_text (Markdown fallback bilan).
+    2. Agar CallbackQuery bo'lsa:
+       - Agar xabar oddiy matn (text) bo'lsa -> edit_message_text bilan tahrirlaydi.
+       - Agar xabar media (rasm, video, animatsiya) bo'lsa -> Telegram edit_message_text ga ruxsat bermaydi (400 Bad Request).
+         Shuning uchun eski media xabarni o'chirib (delete), yangi matnli panel xabarini yuboradi.
+    3. Agar Markdown formatlashda xatolik bo'lsa, xatolik bermay tozalangan plain-text bilan yuboradi.
+    Bu foydalanuvchilarda har qanday sharoitda tugmalar va panellar 100% ochilishini ta'minlaydi.
+    """
+    bot = None
+    if hasattr(target, "get_bot"):
+        try:
+            bot = target.get_bot()
+        except Exception:
+            pass
+    if not bot and hasattr(target, "bot"):
+        bot = target.bot
+
+    msg = target.message if hasattr(target, "message") else (target if is_message else None)
+    if not bot and msg and hasattr(msg, "get_bot"):
+        try:
+            bot = msg.get_bot()
+        except Exception:
+            pass
+
+    chat_id = getattr(msg, "chat_id", None)
+    if not chat_id and msg and hasattr(msg, "chat"):
+        chat_id = getattr(msg.chat, "id", None)
+
+    if is_message:
+        msg_obj = target.message if hasattr(target, "message") else target
+        try:
+            return await msg_obj.reply_text(text, parse_mode="Markdown", reply_markup=reply_markup)
+        except Exception:
+            clean = text.replace("*", "").replace("_", "").replace("`", "")
+            return await msg_obj.reply_text(clean, reply_markup=reply_markup)
+
+    # CallbackQuery orqali tahrirlash
+    is_media = bool(
+        getattr(msg, "photo", None) or 
+        getattr(msg, "video", None) or 
+        getattr(msg, "animation", None) or 
+        getattr(msg, "video_note", None) or 
+        getattr(msg, "document", None)
+    )
+
+    if not is_media and hasattr(target, "edit_message_text"):
+        try:
+            return await target.edit_message_text(text, parse_mode="Markdown", reply_markup=reply_markup)
+        except Exception as e:
+            err = str(e).lower()
+            if "message is not modified" in err:
+                return None
+            if "there is no text in the message to edit" not in err:
+                clean = text.replace("*", "").replace("_", "").replace("`", "")
+                try:
+                    return await target.edit_message_text(clean, reply_markup=reply_markup)
+                except Exception:
+                    pass
+
+    # Agar media xabar bo'lsa yoki edit_message_text rad etilgan bo'lsa:
+    if msg:
+        try:
+            await msg.delete()
+        except Exception:
+            pass
+
+    if chat_id and bot:
+        try:
+            return await bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown", reply_markup=reply_markup)
+        except Exception:
+            clean = text.replace("*", "").replace("_", "").replace("`", "")
+            return await bot.send_message(chat_id=chat_id, text=clean, reply_markup=reply_markup)
+    elif msg and hasattr(msg, "reply_text"):
+        try:
+            return await msg.reply_text(text, parse_mode="Markdown", reply_markup=reply_markup)
+        except Exception:
+            clean = text.replace("*", "").replace("_", "").replace("`", "")
+            return await msg.reply_text(clean, reply_markup=reply_markup)
+
+
 async def format_user_profile_card(user: models.User, session, is_group: bool = False) -> Tuple[str, Optional[str], Optional[str], Optional[str], Optional[str]]:
     """
     O'yinchi profil kartasini (shaxsiy chat yoki guruh uchun) VIP darajasiga qarab yaltiroq va boy formatda tayyorlash.
@@ -410,6 +493,21 @@ async def show_profile(target, user_id: int, is_message: bool):
             except Exception:
                 pass
 
+        msg_obj = getattr(target, "message", None)
+        is_media = bool(msg_obj and (getattr(msg_obj, "photo", None) or getattr(msg_obj, "video", None) or getattr(msg_obj, "animation", None)))
+        if is_media and not video_id and not photo_id:
+            try:
+                await target.message.delete()
+            except Exception:
+                pass
+            try:
+                await bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown", reply_markup=markup)
+                return
+            except Exception:
+                clean_text = text.replace("*", "").replace("_", "")
+                await bot.send_message(chat_id=chat_id, text=clean_text, reply_markup=markup)
+                return
+
         try:
             await target.edit_message_text(text, parse_mode="Markdown", reply_markup=markup)
         except Exception:
@@ -424,16 +522,16 @@ async def show_profile(target, user_id: int, is_message: bool):
 # VIP PROFIL SOZLAMALARI STUDIYASI (STUDIO & CUSTOMIZATION)
 # ============================================================
 
-async def vip_custom_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """VIP Profil Studiyasi Menyusi"""
-    query = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
-
+async def show_vip_studio_menu(target, user_id: int, is_message: bool = False):
+    """VIP Profil Studiyasi Menyusi (Media va oddiy xabarlarga to'liq xavfsiz)"""
     async with AsyncSessionLocal() as session:
         user = await crud.get_user_by_telegram_id(session, user_id)
         if not user or not user.vip_tier or user.vip_tier == "knight":
-            await query.answer("❌ Ushbu bo'lim faqat VIP (Lord, Valyriya, Temir Taxt) egalari uchundir!", show_alert=True)
+            msg = "❌ Ushbu bo'lim faqat VIP (Lord, Valyriya, Temir Taxt) egalari uchundir!"
+            if hasattr(target, "answer"):
+                await target.answer(msg, show_alert=True)
+            else:
+                await safe_send_or_edit_panel(target, msg, is_message=is_message)
             return
 
         tier_names = {
@@ -491,11 +589,19 @@ async def vip_custom_menu_callback(update: Update, context: ContextTypes.DEFAULT
         buttons.append([InlineKeyboardButton("🔙 Profilga Qaytish", callback_data="menu_profile")])
 
         markup = InlineKeyboardMarkup(buttons)
-        msg_obj = getattr(query, "message", None)
-        if msg_obj and getattr(msg_obj, "photo", None):
-            await query.message.reply_text(text, reply_markup=markup, parse_mode="Markdown")
-        else:
-            await query.edit_message_text(text, reply_markup=markup, parse_mode="Markdown")
+        await safe_send_or_edit_panel(target, text, reply_markup=markup, is_message=is_message)
+
+
+async def vip_custom_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """VIP Profil Studiyasi Menyusi Callback"""
+    query = update.callback_query
+    await query.answer()
+    await show_vip_studio_menu(query, query.from_user.id, is_message=False)
+
+
+async def vip_studio_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/studio, /vipstudio buyruqlari"""
+    await show_vip_studio_menu(update, update.effective_user.id, is_message=True)
 
 
 async def vip_set_video_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -512,12 +618,12 @@ async def vip_set_video_callback(update: Update, context: ContextTypes.DEFAULT_T
         "🎥 **PROFIL VIDEOSINI YUKLASH (25,000+ SO'M VIP)**\n\n"
         "Profil kartangizda fotosurat o'rniga jonli video yoki dumaloq video xabar namoyish etiladi!\n"
         "Iltimos, profilingiz uchun istalgan **video, animatsiya (GIF) yoki video-xabar (krujok)** yuboring.\n\n"
-        "*(Bekor qilish uchun /cancel deb yozing)*"
+        "💡 _Bekor qilish uchun quyidagi tugmani bosing yoki /cancel deb yozing._"
     )
     buttons = [
         [InlineKeyboardButton("🔙 VIP Studiyaga Qaytish", callback_data="menu_vip_custom")]
     ]
-    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+    await safe_send_or_edit_panel(query, text, reply_markup=InlineKeyboardMarkup(buttons))
 
 
 async def vip_remove_video_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -530,7 +636,7 @@ async def vip_remove_video_callback(update: Update, context: ContextTypes.DEFAUL
         await crud.update_user_custom_video(session, user_id, None)
 
     await query.answer("🗑️ Profil videosi muvaffaqiyatli olib tashlandi!", show_alert=True)
-    await vip_custom_menu_callback(update, context)
+    await show_vip_studio_menu(query, user_id, is_message=False)
 
 
 async def vip_set_photo_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -546,9 +652,12 @@ async def vip_set_photo_callback(update: Update, context: ContextTypes.DEFAULT_T
         "📸 **PROFIL FOTOSURATINI YUKLASH**\n\n"
         "Hurmatli Lord! O'z profilingiz uchun fotosuratni (rasm shaklida) botga yuboring.\n"
         "Yuborilgan fotosurat guruhda va botda profilingiz chaqirilganda porlab chiqadi!\n\n"
-        "💡 _Bekor qilish uchun /cancel deb yozing._"
+        "💡 _Bekor qilish uchun quyidagi tugmani bosing yoki /cancel deb yozing._"
     )
-    await query.message.reply_text(text, parse_mode="Markdown")
+    buttons = [
+        [InlineKeyboardButton("🔙 VIP Studiyaga Qaytish", callback_data="menu_vip_custom")]
+    ]
+    await safe_send_or_edit_panel(query, text, reply_markup=InlineKeyboardMarkup(buttons))
 
 
 async def vip_remove_photo_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -561,7 +670,7 @@ async def vip_remove_photo_callback(update: Update, context: ContextTypes.DEFAUL
             await crud.update_user_custom_photo(session, user.id, None)
 
     await query.answer("🗑️ Profil fotosurati olib tashlandi.", show_alert=True)
-    await vip_custom_menu_callback(update, context)
+    await show_vip_studio_menu(query, user_id, is_message=False)
 
 
 async def vip_set_status_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -577,9 +686,12 @@ async def vip_set_status_callback(update: Update, context: ContextTypes.DEFAULT_
         "✍️ **SHAXSIY SHIOR / STATUS YOZISH**\n\n"
         "Profilingizda aks etuvchi shaxsiy shior yoki matnni yozib yuboring (maksimal 100 belgi).\n"
         "Masalan: _«Qish yaqinlashmoqda, olov esa bizning qonimizda!»_\n\n"
-        "💡 _Bekor qilish uchun /cancel deb yozing._"
+        "💡 _Bekor qilish uchun quyidagi tugmani bosing yoki /cancel deb yozing._"
     )
-    await query.message.reply_text(text, parse_mode="Markdown")
+    buttons = [
+        [InlineKeyboardButton("🔙 VIP Studiyaga Qaytish", callback_data="menu_vip_custom")]
+    ]
+    await safe_send_or_edit_panel(query, text, reply_markup=InlineKeyboardMarkup(buttons))
 
 
 async def vip_remove_status_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -592,7 +704,7 @@ async def vip_remove_status_callback(update: Update, context: ContextTypes.DEFAU
             await crud.update_user_custom_status(session, user.id, None)
 
     await query.answer("🗑️ Shaxsiy shior olib tashlandi.", show_alert=True)
-    await vip_custom_menu_callback(update, context)
+    await show_vip_studio_menu(query, user_id, is_message=False)
 
 
 async def vip_set_audio_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -615,7 +727,7 @@ async def vip_set_audio_callback(update: Update, context: ContextTypes.DEFAULT_T
     buttons.append([InlineKeyboardButton("🔙 VIP Studiyaga Qaytish", callback_data="menu_vip_custom")])
 
     markup = InlineKeyboardMarkup(buttons)
-    await query.edit_message_text(text, reply_markup=markup, parse_mode="Markdown")
+    await safe_send_or_edit_panel(query, text, reply_markup=markup)
 
 
 async def vip_audio_pick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -645,7 +757,7 @@ async def vip_audio_pick_callback(update: Update, context: ContextTypes.DEFAULT_
         )
     except Exception:
         pass
-    await vip_custom_menu_callback(update, context)
+    await show_vip_studio_menu(query, user_id, is_message=False)
 
 
 async def vip_audio_upload_prompt_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -661,9 +773,13 @@ async def vip_audio_upload_prompt_callback(update: Update, context: ContextTypes
         "📤 **SHAXSIY MP3 AUDIO YUKLASH**\n\n"
         "Hurmatli Lord! Telegram orqali istalgan musiqa faylini (audio yoki ovozli xabar) shu yerga yuboring.\n"
         "Guruhda profilingiz chaqirilganda ushbu musiqangiz tantanali ravishda ijro etiladi!\n\n"
-        "💡 _Bekor qilish uchun /cancel deb yozing._"
+        "💡 _Bekor qilish uchun quyidagi tugmani bosing yoki /cancel deb yozing._"
     )
-    await query.message.reply_text(text, parse_mode="Markdown")
+    buttons = [
+        [InlineKeyboardButton("🔙 Musiqaga Qaytish", callback_data="vip_set_audio")],
+        [InlineKeyboardButton("🔙 VIP Studiyaga Qaytish", callback_data="menu_vip_custom")]
+    ]
+    await safe_send_or_edit_panel(query, text, reply_markup=InlineKeyboardMarkup(buttons))
 
 
 async def vip_audio_remove_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -676,7 +792,7 @@ async def vip_audio_remove_callback(update: Update, context: ContextTypes.DEFAUL
             await crud.update_user_custom_audio(session, user.id, None, None)
 
     await query.answer("🗑️ Fon musiqasi olib tashlandi.", show_alert=True)
-    await vip_custom_menu_callback(update, context)
+    await show_vip_studio_menu(query, user_id, is_message=False)
 
 
 async def vip_decree_prompt_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -706,9 +822,12 @@ async def vip_decree_prompt_callback(update: Update, context: ContextTypes.DEFAU
         f"Buyuk Hukmdor! Siz butun Vesteros xonadonlari, rasmiy kanal ({COMMUNITY_CHANNEL_URL}) "
         f"va guruhga ({COMMUNITY_GROUP_URL}) o'z nomingizdan imperatorlik farmonini e'lon qilishingiz mumkin!\n\n"
         f"Sizda qolgan farmonlar: **{cnt} ta**\n\n"
-        f"Farmon matnini yozib yuboring (yoki bekor qilish uchun /cancel deb yozing):"
+        f"Farmon matnini yozib yuboring (yoki bekor qilish uchun quyidagi tugmani bosing):"
     )
-    await query.message.reply_text(text, parse_mode="Markdown")
+    buttons = [
+        [InlineKeyboardButton("🔙 VIP Studiyaga Qaytish", callback_data="menu_vip_custom")]
+    ]
+    await safe_send_or_edit_panel(query, text, reply_markup=InlineKeyboardMarkup(buttons))
 
 
 async def vip_preview_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -772,7 +891,7 @@ async def profile_change_name_callback(update: Update, context: ContextTypes.DEF
         "Masalan: `Aegon Targaryen`, `Jon Snow`, `Daenerys`\n\n"
         "💡 _Bekor qilish uchun quyidagi tugmani bosing yoki /cancel deb yozing._"
     )
-    await query.message.reply_text(text, parse_mode="Markdown", reply_markup=kb)
+    await safe_send_or_edit_panel(query, text, reply_markup=kb)
 
 
 async def change_name_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1287,10 +1406,7 @@ async def show_artifacts_menu(target, user_id: int, is_message: bool = False, pa
 
     buttons.append([InlineKeyboardButton("🔙 Profilga Qaytish", callback_data="menu_profile")])
 
-    if is_message:
-        await target.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
-    else:
-        await target.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+    await safe_send_or_edit_panel(target, text, reply_markup=InlineKeyboardMarkup(buttons), is_message=is_message)
 
 
 async def show_iron_mine_menu(target, user_id: int, is_message: bool = False):
@@ -1378,10 +1494,7 @@ async def show_iron_mine_menu(target, user_id: int, is_message: bool = False):
             InlineKeyboardButton("🏠 Asosiy Menyu", callback_data="menu_main"),
         ])
 
-    if is_message:
-        await target.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
-    else:
-        await target.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+    await safe_send_or_edit_panel(target, text, reply_markup=InlineKeyboardMarkup(buttons), is_message=is_message)
 
 
 async def iron_mine_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1425,7 +1538,7 @@ async def upgrade_mine_callback(update: Update, context: ContextTypes.DEFAULT_TY
             return
         ok, msg = await crud.upgrade_iron_mine(session, user.id)
 
-    await query.answer(msg, show_alert=True)
+    await query.answer(str(msg)[:180], show_alert=True)
     await show_iron_mine_menu(query, user_id, is_message=False)
 
 
@@ -1440,7 +1553,7 @@ async def upgrade_grain_mill_callback(update: Update, context: ContextTypes.DEFA
             return
         ok, msg = await crud.upgrade_grain_mill(session, user.id)
 
-    await query.answer(msg, show_alert=True)
+    await query.answer(str(msg)[:180], show_alert=True)
     await show_iron_mine_menu(query, user_id, is_message=False)
 
 
@@ -1456,7 +1569,7 @@ async def buy_iron_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         ok, msg = await crud.buy_iron_with_gold(session, user.id, pack_code)
 
-    await query.answer(msg, show_alert=True)
+    await query.answer(str(msg)[:180], show_alert=True)
     await show_iron_mine_menu(query, user_id, is_message=False)
 
 
@@ -1472,7 +1585,7 @@ async def buy_food_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         ok, msg = await crud.buy_food_with_gold(session, user.id, pack_code)
 
-    await query.answer(msg, show_alert=True)
+    await query.answer(str(msg)[:180], show_alert=True)
     await show_iron_mine_menu(query, user_id, is_message=False)
 
 
@@ -1541,6 +1654,12 @@ async def sell_iron_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg, parse_mode="Markdown")
 
 
+async def artifacts_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/artifacts, /artifact, /artefakt, /armory, /qurolxona buyruqlari"""
+    user_id = update.effective_user.id
+    await show_artifacts_menu(update, user_id, is_message=True, page=0)
+
+
 async def artifacts_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -1569,7 +1688,7 @@ async def buy_artifact_callback(update: Update, context: ContextTypes.DEFAULT_TY
             return
         ok, msg = await crud.buy_artifact(session, user.id, code)
 
-    await query.answer(msg, show_alert=True)
+    await query.answer(str(msg)[:180], show_alert=True)
     await show_artifacts_menu(query, user_id, is_message=False, page=page)
 
 
@@ -1588,7 +1707,7 @@ async def equip_artifact_callback(update: Update, context: ContextTypes.DEFAULT_
             return
         ok, msg = await crud.equip_artifact(session, user.id, art_id)
 
-    await query.answer(msg, show_alert=True)
+    await query.answer(str(msg)[:180], show_alert=True)
     await show_artifacts_menu(query, user_id, is_message=False, page=page)
 
 
@@ -1618,6 +1737,8 @@ def register_profile_handlers(app):
     app.add_handler(CommandHandler(["status", "shior", "motto"], status_command))
     app.add_handler(CommandHandler(["farmon", "decree"], decree_command))
     app.add_handler(CommandHandler(["mine", "iron", "kon", "tegirmon"], iron_mine_command))
+    app.add_handler(CommandHandler(["artifacts", "artifact", "artefakt", "armory", "qurolxona"], artifacts_command))
+    app.add_handler(CommandHandler(["studio", "vipstudio"], vip_studio_command))
     app.add_handler(CommandHandler(["buyfood", "food", "oziq"], buy_food_command))
     app.add_handler(CommandHandler(["sellfood", "don_sotish"], sell_food_command))
     app.add_handler(CommandHandler(["selliron", "temir_sotish"], sell_iron_command))
