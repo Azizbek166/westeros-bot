@@ -4141,7 +4141,7 @@ async def claim_daily_bonus(session: AsyncSession, user_id: int) -> Tuple[bool, 
     # 3. Resurslar va sovrinlarni taqsimlash
     user.streak_count = new_streak
     user.last_streak_date = today_str
-    user.last_daily_bonus = now
+    user.last_daily_bonus = datetime.utcnow()
 
     user.gold = (user.gold or 0) + reward["gold"]
     user.food = (user.food or 0) + reward["food"]

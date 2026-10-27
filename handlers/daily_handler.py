@@ -21,11 +21,29 @@ def sanitize_md(text: str) -> str:
 async def safe_send_or_edit(target, text: str, reply_markup=None, is_message: bool = False):
     """
     Xabarni tahrirlash yoki yuborishning xavfsiz mexanizmi:
-    1. Markdown parse rejimi bilan urinadi.
-    2. Agar Telegram Markdown entity parsing xatoligi (BadRequest) bersa, plain-text da xabar chiqaradi.
-    3. Agar tahrirlash imkoni bo'lmasa, reply orqali javob qaytaradi.
+    1. Agar oldingi xabar media (rasm/video) bo'lsa, uni tozalab yangi matnli xabar yuboradi.
+    2. Markdown parse rejimi bilan urinadi.
+    3. Agar Telegram Markdown entity parsing xatoligi bersa, plain-text da xabar chiqaradi.
+    4. Agar tahrirlash imkoni bo'lmasa, reply orqali javob qaytaradi.
     Bu o'yinchilarda hech qachon tugma qotib qolmasligini ta'minlaydi.
     """
+    msg_obj = target if is_message else getattr(target, "message", None)
+    is_media = False
+    if not is_message and msg_obj:
+        if getattr(msg_obj, "photo", None) or getattr(msg_obj, "video", None) or getattr(msg_obj, "animation", None) or getattr(msg_obj, "document", None):
+            is_media = True
+
+    if is_media and msg_obj:
+        try:
+            await msg_obj.delete()
+        except Exception:
+            pass
+        try:
+            return await msg_obj.chat.send_message(text, parse_mode="Markdown", reply_markup=reply_markup)
+        except Exception:
+            plain_text = text.replace("**", "").replace("*", "").replace("_", "").replace("`", "")
+            return await msg_obj.chat.send_message(plain_text, parse_mode=None, reply_markup=reply_markup)
+
     try:
         if is_message:
             return await target.reply_text(text, parse_mode="Markdown", reply_markup=reply_markup)
@@ -46,13 +64,18 @@ async def safe_send_or_edit(target, text: str, reply_markup=None, is_message: bo
             except Exception:
                 pass
 
-        # 2-urinish: reply plain text
-        msg_obj = target if is_message else getattr(target, "message", None)
-        if msg_obj and hasattr(msg_obj, "reply_text"):
-            try:
-                return await msg_obj.reply_text(plain_text, parse_mode=None, reply_markup=reply_markup)
-            except Exception as e2:
-                logger.error(f"Plain text reply fallback failed: {e2}")
+        # 2-urinish: send_message yoki reply plain text
+        if msg_obj:
+            if hasattr(msg_obj, "chat") and hasattr(msg_obj.chat, "send_message"):
+                try:
+                    return await msg_obj.chat.send_message(plain_text, parse_mode=None, reply_markup=reply_markup)
+                except Exception:
+                    pass
+            if hasattr(msg_obj, "reply_text"):
+                try:
+                    return await msg_obj.reply_text(plain_text, parse_mode=None, reply_markup=reply_markup)
+                except Exception as e2:
+                    logger.error(f"Plain text reply fallback failed: {e2}")
 
 
 async def show_daily_menu(target, user_id: int, is_message: bool = False):
@@ -174,25 +197,32 @@ async def daily_claim_streak_callback(update: Update, context: ContextTypes.DEFA
     query = update.callback_query
     user_id = update.effective_user.id
 
-    async with AsyncSessionLocal() as session:
-        user = await crud.get_user_by_telegram_id(session, user_id)
-        if not user:
-            await query.answer("❌ Avval /start bosing.", show_alert=True)
-            return
-        ok, msg = await crud.claim_daily_bonus(session, user.id)
+    try:
+        async with AsyncSessionLocal() as session:
+            user = await crud.get_user_by_telegram_id(session, user_id)
+            if not user:
+                await query.answer("❌ Avval /start bosing.", show_alert=True)
+                return
+            ok, msg = await crud.claim_daily_bonus(session, user.id)
 
-    if ok:
-        await query.answer("🎉 Tabriklaymiz! Kunlik tuhfa xazinangizga qo'shildi!", show_alert=False)
-    else:
-        await query.answer("⏳ Bugungi tuhfa allaqachon olingan!", show_alert=True)
+        if ok:
+            await query.answer("🎉 Tabriklaymiz! Kunlik tuhfa xazinangizga qo'shildi!", show_alert=False)
+        else:
+            await query.answer("⏳ Bugungi tuhfa allaqachon olingan!", show_alert=True)
 
-    buttons = [
-        [InlineKeyboardButton("🎯 Kunlik Faollik Vazifalari", callback_data="daily_quests_menu")],
-        [InlineKeyboardButton("🎁 Kunlik Tuhfalar Markazi", callback_data="menu_daily")],
-        [InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")],
-    ]
-    markup = InlineKeyboardMarkup(buttons)
-    await safe_send_or_edit(query, msg, reply_markup=markup, is_message=False)
+        buttons = [
+            [InlineKeyboardButton("🎯 Kunlik Faollik Vazifalari", callback_data="daily_quests_menu")],
+            [InlineKeyboardButton("🎁 Kunlik Tuhfalar Markazi", callback_data="menu_daily")],
+            [InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")],
+        ]
+        markup = InlineKeyboardMarkup(buttons)
+        await safe_send_or_edit(query, msg, reply_markup=markup, is_message=False)
+    except Exception as e:
+        logger.error(f"Error in daily_claim_streak_callback: {e}", exc_info=True)
+        try:
+            await query.answer("⚠️ Tuhfani olishda xatolik yuz berdi. Qayta urinib ko'ring.", show_alert=True)
+        except Exception:
+            pass
 
 
 async def daily_open_chest_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -352,9 +382,9 @@ async def daily_calendar_callback(update: Update, context: ContextTypes.DEFAULT_
 async def daily_streak_already_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Streak allaqachon olingan bo'lsa xabar berish"""
     query = update.callback_query
-    now = datetime.utcnow()
-    remaining_hours = 23 - now.hour
-    remaining_mins = 59 - now.minute
+    tashkent_now = datetime.utcnow() + timedelta(hours=5)
+    remaining_hours = 23 - tashkent_now.hour
+    remaining_mins = 59 - tashkent_now.minute
     await query.answer(
         f"✅ Bugungi kunlik tuhfani allaqachon olgansiz!\nNavbatdagi tuhfa {remaining_hours} soat {remaining_mins} daqiqadan so'ng (ertaga) ochiladi.",
         show_alert=True
