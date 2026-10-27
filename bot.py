@@ -233,7 +233,7 @@ async def ban_check_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def command_audit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Foydalanuvchilar tomonidan botga berilgan barcha buyruq va so'rovlarni barcha adminlarga xabar qilish"""
+    """Foydalanuvchilar tomonidan botga berilgan buyruqlarni xavfsiz server logiga yozish (Telegram API ni spam qilib botni qotirmaslik uchun)"""
     if not update.effective_message or not update.effective_message.text:
         return
 
@@ -246,32 +246,13 @@ async def command_audit_callback(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     user_id = user.id
-    # Adminlarning o'z buyruqlari o'zlariga spam bo'lmasligi uchun
     admin_set = set([int(OWNER_ID)] + [int(a) for a in ADMIN_IDS])
     if user_id in admin_set:
         return
 
     full_name = user.full_name or "Noma'lum"
     username_str = f"@{user.username}" if user.username else "yo'q"
-    now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
-
-    msg = (
-        f"🔔 *O'YINCHIDAN YANGI BUYRUQ / SO'ROV!*\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"👤 Kimdan: *{escape_md(full_name)}* (`{user_id}`)\n"
-        f"🔗 Username: {username_str}\n"
-        f"💬 Buyruq: `{escape_md(text)}`\n"
-        f"⏱️ Vaqt: `{now_str}`"
-    )
-
-    reply_markup = None
-    if user.username:
-        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-        reply_markup = InlineKeyboardMarkup([
-            [InlineKeyboardButton(f"💬 {full_name} ga Yozish", url=f"https://t.me/{user.username}")]
-        ])
-
-    await notify_admins(context.application, msg, reply_markup=reply_markup)
+    logger.info(f"AUDIT CMD: [{user_id}] {full_name} ({username_str}) -> {text}")
 
 
 async def global_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
