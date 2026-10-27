@@ -446,26 +446,7 @@ async def init_db():
                     terr_obj.owner_house_id = None
                     terr_obj.conquered_by_user_id = None
 
-        # House Blackfyre (id=15) xonadonidagi ortiqcha va noto'g'ri biriktirilgan qal'alarni tozalash:
-        # Blackfyre shaxsan zabt etmagan begona va neytral qal'alarni ajratish
-        bf_terrs_res = await session.execute(
-            select(models.Territory)
-            .where(models.Territory.owner_house_id == 15)
-            .order_by(models.Territory.id)
-        )
-        for t in bf_terrs_res.scalars().all():
-            t_info = TERRITORIES_DATA.get(t.code, {})
-            if not t.conquered_by_user_id:
-                if t_info.get("initial_owner_id") is None:
-                    t.owner_house_id = None
-                    t.conquered_by_user_id = None
-                    logger.info(f"🏛️ Blackfyre xonadonidan neytral #{t.id} {t.name} qal'asi olindi va egasiz qilindi.")
-                elif t_info.get("initial_owner_id") != 15:
-                    t.owner_house_id = t_info.get("initial_owner_id")
-                    t.conquered_by_user_id = None
-                    logger.info(f"🏛️ #{t.id} {t.name} qal'asi o'zining kanonik egasi #{t.owner_house_id} ga qaytarildi.")
-
-        # Blackfyre da 5 ta qal'a limitini qat'iy tekshirish (ortiqcha qal'alarni egasiz qilish)
+        # House Blackfyre (id=15) da 5 ta qal'a limitini qat'iy tekshirish (ortiqcha qal'alarni egasiz qilish)
         bf_left_res = await session.execute(
             select(models.Territory)
             .where(models.Territory.owner_house_id == 15)

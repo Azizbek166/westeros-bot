@@ -291,7 +291,7 @@ TERRITORIES_DATA = {
         "name": "Gulltown",
         "region": "The Vale",
         "castle": "Gulltown Porti",
-        "initial_owner_id": 49,
+        "initial_owner_id": 15,
         "population": 90000,
         "gold_income": 310,
         "food_income": 680,
