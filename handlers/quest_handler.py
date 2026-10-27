@@ -88,6 +88,8 @@ async def quest_main_do_callback(update: Update, context: ContextTypes.DEFAULT_T
         user.iron += target_quest["reward_iron"]
         user.xp += target_quest["reward_xp"]
         user.prestige += 7
+        crud.track_user_gold_gain(user, target_quest["reward_gold"])
+        crud.track_user_prestige_gain(user, 7)
 
         from core.leveling import check_user_level_up
         lvl_up, new_lvl, lvl_msg = check_user_level_up(user)
@@ -279,6 +281,7 @@ async def citadel_answer_callback(update: Update, context: ContextTypes.DEFAULT_
             user.gold += 60
             user.iron += 35
             user.xp += 40
+            crud.track_user_gold_gain(user, 60)
             await session.commit()
             text = (
                 "✅ **TO'G'RI JAVOB!**\n\n"
@@ -297,10 +300,11 @@ async def citadel_answer_callback(update: Update, context: ContextTypes.DEFAULT_
                 f"📊 Qolgan viktorinalar: **{max(0, DAILY_QUIZ_LIMIT - user.daily_quiz_count)}/{DAILY_QUIZ_LIMIT}**"
             )
 
-        if user.daily_quiz_count >= DAILY_QUIZ_LIMIT:
+        if user.daily_quiz_count == DAILY_QUIZ_LIMIT:
             user.gold += 350
             user.iron += 200
             user.xp += 120
+            crud.track_user_gold_gain(user, 350)
             await session.commit()
             text += (
                 "\n\n🎉 **TABRIKLAYMIZ! KUNLIK VAZIFA BAJARILDI: Maester Saboqlari (5/5)!**\n"
@@ -373,6 +377,8 @@ async def council_answer_callback(update: Update, context: ContextTypes.DEFAULT_
         if user_ans == correct_idx:
             user.gold += reward
             user.prestige += 5
+            crud.track_user_gold_gain(user, reward)
+            crud.track_user_prestige_gain(user, 5)
             await session.commit()
             text = (
                 f"✅ **DONO QAROR!**\n\n"
@@ -388,10 +394,11 @@ async def council_answer_callback(update: Update, context: ContextTypes.DEFAULT_
                 f"📊 Qolgan masalalar: **{max(0, DAILY_COUNCIL_LIMIT - user.daily_council_count)}/{DAILY_COUNCIL_LIMIT}**"
             )
 
-        if user.daily_council_count >= DAILY_COUNCIL_LIMIT:
+        if user.daily_council_count == DAILY_COUNCIL_LIMIT:
             user.gold += 350
             user.food += 600
             user.xp += 120
+            crud.track_user_gold_gain(user, 350)
             await session.commit()
             text += (
                 "\n\n🎉 **TABRIKLAYMIZ! KUNLIK VAZIFA BAJARILDI: Kengash Maslahati (2/2)!**\n"
@@ -627,6 +634,8 @@ async def quest_rank_do_callback(update: Update, context: ContextTypes.DEFAULT_T
         user.iron += target_task["iron"]
         user.prestige += target_task["prestige"]
         user.xp += target_task["xp"]
+        crud.track_user_gold_gain(user, target_task["gold"])
+        crud.track_user_prestige_gain(user, target_task["prestige"])
 
         if user.house:
             user.house.prestige += (target_task["prestige"] // 2)

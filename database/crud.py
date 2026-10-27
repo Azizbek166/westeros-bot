@@ -64,39 +64,63 @@ async def get_user_any(session: AsyncSession, identifier: int, load_relations: b
     return user
 
 
+def get_game_today_str() -> str:
+    """O'yin sanasi (O'zbekiston / Toshkent vaqti UTC+5 bo'yicha YYYY-MM-DD)"""
+    return (datetime.utcnow() + timedelta(hours=5)).strftime("%Y-%m-%d")
+
+
+def get_game_week_str() -> str:
+    """O'yin haftasi (O'zbekiston / Toshkent vaqti UTC+5 bo'yicha YYYY-Www)"""
+    return (datetime.utcnow() + timedelta(hours=5)).strftime("%Y-W%W")
+
+
+def reset_user_daily_counters(user: models.User, today_str: Optional[str] = None) -> None:
+    """Foydalanuvchining barcha kunlik limitlari va faollik hisoblagichlarini to'liq va xavfsiz nolga tushirish"""
+    if today_str is None:
+        today_str = get_game_today_str()
+    user.daily_quiz_count = 0
+    user.daily_council_count = 0
+    user.daily_secret_quest_count = 0
+    user.daily_donation_count = 0
+    user.daily_story_quest_count = 0
+    user.daily_rank_quest_count = 0
+    user.daily_ww_attack_count = 0
+    user.daily_bandit_count = 0
+    user.daily_plague_count = 0
+    user.daily_duel_count = 0
+    user.daily_recruit_count = 0
+    user.daily_caravan_send_count = 0
+    user.daily_caravan_raid_count = 0
+    user.daily_spy_scout_count = 0
+    user.daily_spy_sabotage_count = 0
+    user.daily_spy_gates_count = 0
+    user.daily_quests_claimed_json = "{}"
+    user.daily_gold_earned = 0
+    user.daily_prestige_earned = 0
+    user.daily_limit_date = today_str
+
+
+def reset_user_weekly_counters(user: models.User, week_str: Optional[str] = None) -> None:
+    """Foydalanuvchining haftalik reyting ko'rsatkichlarini nolga tushirish"""
+    if week_str is None:
+        week_str = get_game_week_str()
+    user.weekly_gold_earned = 0
+    user.weekly_prestige_earned = 0
+    user.weekly_limit_date = week_str
+
+
 async def check_and_reset_daily_limits(session: AsyncSession, user: models.User) -> None:
     """Kunlik va haftalik limitlarni yangi kunda / yangi haftada 0 ga tushirish"""
-    today_str = datetime.utcnow().strftime("%Y-%m-%d")
-    week_str = datetime.utcnow().strftime("%Y-W%W")
+    today_str = get_game_today_str()
+    week_str = get_game_week_str()
     changed = False
 
-    if user.daily_limit_date != today_str:
-        user.daily_quiz_count = 0
-        user.daily_council_count = 0
-        user.daily_secret_quest_count = 0
-        user.daily_donation_count = 0
-        user.daily_story_quest_count = 0
-        user.daily_rank_quest_count = 0
-        user.daily_ww_attack_count = 0
-        user.daily_bandit_count = 0
-        user.daily_duel_count = 0
-        user.daily_recruit_count = 0
-        user.daily_caravan_send_count = 0
-        user.daily_caravan_raid_count = 0
-        user.daily_spy_scout_count = 0
-        user.daily_spy_sabotage_count = 0
-        user.daily_spy_gates_count = 0
-        user.daily_plague_count = 0
-        user.daily_quests_claimed_json = "{}"
-        user.daily_gold_earned = 0
-        user.daily_prestige_earned = 0
-        user.daily_limit_date = today_str
+    if getattr(user, "daily_limit_date", "") != today_str:
+        reset_user_daily_counters(user, today_str)
         changed = True
 
     if getattr(user, "weekly_limit_date", "") != week_str:
-        user.weekly_gold_earned = 0
-        user.weekly_prestige_earned = 0
-        user.weekly_limit_date = week_str
+        reset_user_weekly_counters(user, week_str)
         changed = True
 
     if changed:
@@ -106,16 +130,12 @@ async def check_and_reset_daily_limits(session: AsyncSession, user: models.User)
 def track_user_gold_gain(user: models.User, amount: int) -> None:
     """O'yinchi ishlab topgan oltinini kunlik va haftalik reyting ko'rsatkichlariga qo'shish"""
     if amount and amount > 0:
-        today_str = datetime.utcnow().strftime("%Y-%m-%d")
-        week_str = datetime.utcnow().strftime("%Y-W%W")
+        today_str = get_game_today_str()
+        week_str = get_game_week_str()
         if getattr(user, "daily_limit_date", "") != today_str:
-            user.daily_gold_earned = 0
-            user.daily_prestige_earned = 0
-            user.daily_limit_date = today_str
+            reset_user_daily_counters(user, today_str)
         if getattr(user, "weekly_limit_date", "") != week_str:
-            user.weekly_gold_earned = 0
-            user.weekly_prestige_earned = 0
-            user.weekly_limit_date = week_str
+            reset_user_weekly_counters(user, week_str)
         user.daily_gold_earned = (getattr(user, "daily_gold_earned", 0) or 0) + amount
         user.weekly_gold_earned = (getattr(user, "weekly_gold_earned", 0) or 0) + amount
 
@@ -123,16 +143,12 @@ def track_user_gold_gain(user: models.User, amount: int) -> None:
 def track_user_prestige_gain(user: models.User, amount: int) -> None:
     """O'yinchi ishlab topgan nufuzini kunlik va haftalik reyting ko'rsatkichlariga qo'shish"""
     if amount and amount > 0:
-        today_str = datetime.utcnow().strftime("%Y-%m-%d")
-        week_str = datetime.utcnow().strftime("%Y-W%W")
+        today_str = get_game_today_str()
+        week_str = get_game_week_str()
         if getattr(user, "daily_limit_date", "") != today_str:
-            user.daily_gold_earned = 0
-            user.daily_prestige_earned = 0
-            user.daily_limit_date = today_str
+            reset_user_daily_counters(user, today_str)
         if getattr(user, "weekly_limit_date", "") != week_str:
-            user.weekly_gold_earned = 0
-            user.weekly_prestige_earned = 0
-            user.weekly_limit_date = week_str
+            reset_user_weekly_counters(user, week_str)
         user.daily_prestige_earned = (getattr(user, "daily_prestige_earned", 0) or 0) + amount
         user.weekly_prestige_earned = (getattr(user, "weekly_prestige_earned", 0) or 0) + amount
 
@@ -233,7 +249,7 @@ async def create_user(
         raise ValueError("Bu xonadonda allaqachon Lord bor! Har bir xonadonga faqat 1 nafar hukmdor biriktiriladi.")
 
     shield_expiry = datetime.utcnow() + timedelta(hours=PEACE_SHIELD_HOURS)
-    today_str = datetime.utcnow().strftime("%Y-%m-%d")
+    today_str = get_game_today_str()
 
     # Har bir xonadonda 1 kishi bo'ladi va u xonadonning yagona mutlaq Lordi (King) hisoblanadi
     house = await session.get(models.House, house_id)
@@ -492,7 +508,7 @@ async def create_custom_house_user_and_territory(
     await session.flush()
 
     shield_expiry = datetime.utcnow() + timedelta(hours=PEACE_SHIELD_HOURS)
-    today_str = datetime.utcnow().strftime("%Y-%m-%d")
+    today_str = get_game_today_str()
 
     if existing_user:
         user = existing_user
@@ -816,6 +832,7 @@ async def recruit_troops(
         user.gold += 350
         user.food += 700
         user.xp += 150
+        track_user_gold_gain(user, 350)
         quest_completed = True
 
     # Tranzaksiyani yozish
@@ -962,8 +979,8 @@ async def get_top_armies(session: AsyncSession, limit: int = 10) -> List[Tuple[m
 
 async def get_top10_prestige(session: AsyncSession, period: str = "all") -> List[models.User]:
     """Prestige bo'yicha TOP 10 o'yinchilar: daily, weekly yoki all-time (faqat aktual va faol ma'lumotlar)"""
-    today_str = datetime.utcnow().strftime("%Y-%m-%d")
-    week_str = datetime.utcnow().strftime("%Y-W%W")
+    today_str = get_game_today_str()
+    week_str = get_game_week_str()
 
     if period == "daily":
         query = (
@@ -1001,8 +1018,8 @@ async def get_top10_prestige(session: AsyncSession, period: str = "all") -> List
 
 async def get_top10_wealth(session: AsyncSession, period: str = "all") -> List[models.User]:
     """Boylik (Oltin) bo'yicha TOP 10 o'yinchilar: daily, weekly yoki all-time (faqat aktual va faol ma'lumotlar)"""
-    today_str = datetime.utcnow().strftime("%Y-%m-%d")
-    week_str = datetime.utcnow().strftime("%Y-W%W")
+    today_str = get_game_today_str()
+    week_str = get_game_week_str()
 
     if period == "daily":
         query = (
@@ -3651,17 +3668,25 @@ async def fight_ai_champion(
 
     won = player_score >= champ_score
     if won:
-        user.gold += 150
-        user.prestige += 1
-        user.xp += 20
+        reward_gold = bet_gold if bet_gold > 0 else 150
+        reward_prestige = 2 if bet_gold >= 250 else 1
+        reward_xp = 25 if bet_gold > 0 else 20
+        user.gold += reward_gold
+        user.prestige += reward_prestige
+        user.xp += reward_xp
+        track_user_gold_gain(user, reward_gold)
+        track_user_prestige_gain(user, reward_prestige)
         outcome = (
             f"🏆 **G'ALABA!** Sizning qilich zarbangiz {champion_name}ning mudofaasini teshib o'tdi!\n"
-            f"🎁 Mukofot: **+150🪙 Oltin, +1 Prestige, +20 XP** ({user.daily_duel_count}/{DAILY_DUEL_LIMIT})"
+            f"🎁 Mukofot: **+{reward_gold:,}🪙 Oltin, +{reward_prestige} Prestige, +{reward_xp} XP** ({user.daily_duel_count}/{DAILY_DUEL_LIMIT})"
         )
     else:
+        reward_gold = 0
+        reward_prestige = 0
+        reward_xp = 5
         if bet_gold > 0:
             user.gold = max(0, user.gold - bet_gold)
-            outcome = f"💀 **MAG'LUBIYAT!** {champion_name} chaqqonlik bilan ustun keldi. (-{bet_gold}🪙 Garov yo'qotildi)"
+            outcome = f"💀 **MAG'LUBIYAT!** {champion_name} chaqqonlik bilan ustun keldi. (-{bet_gold:,}🪙 Garov yo'qotildi)"
         else:
             outcome = f"💀 **MAG'LUBIYAT!** Mashg'ulot jangida {champion_name} tajribasi ustun keldi."
         user.xp += 5
@@ -3674,7 +3699,7 @@ async def fight_ai_champion(
         user_id=user.id,
         action_type="duel",
         details=f"⚔️ Duel ({'G\'alaba' if won else 'Mag\'lubiyat'}): {champion_name} ga qarshi",
-        amount_gold=150 if won else (-bet_gold if bet_gold > 0 else 0),
+        amount_gold=reward_gold if won else (-bet_gold if bet_gold > 0 else 0),
     )
 
     await session.commit()
@@ -3688,9 +3713,9 @@ async def fight_ai_champion(
         "player_tactic": player_tactic,
         "champ_tactic": champ_tactic,
         "daily_duels": user.daily_duel_count,
-        "reward_gold": 500 if won else 0,
-        "reward_prestige": 3 if won else 0,
-        "reward_xp": 15 if won else 5,
+        "reward_gold": reward_gold,
+        "reward_prestige": reward_prestige,
+        "reward_xp": reward_xp,
     }
 
 
@@ -4072,14 +4097,14 @@ async def claim_daily_bonus(session: AsyncSession, user_id: int) -> Tuple[bool, 
     if not user:
         return False, "Foydalanuvchi topilmadi."
 
-    now = datetime.utcnow()
-    today_str = now.strftime("%Y-%m-%d")
-    today_date = now.date()
+    tashkent_now = datetime.utcnow() + timedelta(hours=5)
+    today_str = tashkent_now.strftime("%Y-%m-%d")
+    today_date = tashkent_now.date()
 
     # 1. Bugun allaqachon olinganmi?
     if user.last_streak_date == today_str:
-        remaining_hours = 23 - now.hour
-        remaining_mins = 59 - now.minute
+        remaining_hours = 23 - tashkent_now.hour
+        remaining_mins = 59 - tashkent_now.minute
         cal = format_streak_calendar(user.streak_count or 1, claimed_today=True)
         msg = (
             f"⏳ **BUGUNGI TUHFA ALLAQACHON QABUL QILINGAN!**\n\n"
@@ -4122,6 +4147,8 @@ async def claim_daily_bonus(session: AsyncSession, user_id: int) -> Tuple[bool, 
     user.iron = (user.iron or 0) + reward["iron"]
     user.prestige = (user.prestige or 0) + reward["prestige"]
     user.xp = (user.xp or 0) + reward["xp"]
+    track_user_gold_gain(user, reward["gold"])
+    track_user_prestige_gain(user, reward["prestige"])
 
     # Askarlarni qo'shish
     troops_msg = ""
@@ -4278,6 +4305,10 @@ async def claim_daily_quest_reward(session: AsyncSession, user_id: int, quest_ke
     user.iron = (user.iron or 0) + quest_info.get("iron", 0)
     user.prestige = (user.prestige or 0) + quest_info.get("prestige", 0)
     user.xp = (user.xp or 0) + quest_info.get("xp", 0)
+    if quest_info.get("gold", 0) > 0:
+        track_user_gold_gain(user, quest_info["gold"])
+    if quest_info.get("prestige", 0) > 0:
+        track_user_prestige_gain(user, quest_info["prestige"])
 
     army = await get_user_army(session, user.id)
     extra_units = []

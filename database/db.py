@@ -10,19 +10,32 @@ logger = logging.getLogger(__name__)
 from sqlalchemy import event, select, text, update, delete
 
 def create_custom_engine(db_url: str):
+    is_sqlite = "sqlite" in db_url
+    engine_kwargs = {
+        "echo": False,
+        "pool_pre_ping": True,
+    }
+    if not is_sqlite:
+        engine_kwargs.update({
+            "pool_size": 20,
+            "max_overflow": 30,
+            "pool_timeout": 30,
+            "pool_recycle": 1800,
+        })
     eng = create_async_engine(
         db_url,
-        echo=False,
-        pool_pre_ping=True,
+        **engine_kwargs
     )
-    if "sqlite" in eng.url.drivername:
+    if is_sqlite:
         @event.listens_for(eng.sync_engine, "connect")
         def set_sqlite_pragma(dbapi_connection, connection_record):
             try:
                 cursor = dbapi_connection.cursor()
                 cursor.execute("PRAGMA journal_mode=WAL")
                 cursor.execute("PRAGMA synchronous=NORMAL")
-                cursor.execute("PRAGMA busy_timeout=10000")
+                cursor.execute("PRAGMA busy_timeout=30000")
+                cursor.execute("PRAGMA cache_size=-64000")
+                cursor.execute("PRAGMA temp_store=MEMORY")
                 cursor.close()
             except Exception:
                 pass
@@ -513,18 +526,78 @@ async def init_db():
         logger.info("❄️ Tun Qiroli (White Walkers) reytingi 0 ga tushirildi va HP 1,000,000 ga kuchaytirildi.")
 
         # Kunlik va haftalik reytingdagi eski chalkash ma'lumotlarni tozalash (faqat aktual sana ko'rsatiladi)
-        today_clean_str = datetime.utcnow().strftime("%Y-%m-%d")
-        week_clean_str = datetime.utcnow().strftime("%Y-W%W")
+        today_clean_str = (datetime.utcnow() + timedelta(hours=5)).strftime("%Y-%m-%d")
+        week_clean_str = (datetime.utcnow() + timedelta(hours=5)).strftime("%Y-W%W")
+
+        # 1. Yangi kun kelgan o'yinchilarning barcha kunlik limitlarini to'liq va to'g'ri nolga tushirish
         await session.execute(
             update(models.User)
             .where(models.User.daily_limit_date != today_clean_str)
-            .values(daily_gold_earned=0, daily_prestige_earned=0, daily_limit_date=today_clean_str)
+            .values(
+                daily_quiz_count=0,
+                daily_council_count=0,
+                daily_secret_quest_count=0,
+                daily_donation_count=0,
+                daily_story_quest_count=0,
+                daily_rank_quest_count=0,
+                daily_ww_attack_count=0,
+                daily_bandit_count=0,
+                daily_plague_count=0,
+                daily_duel_count=0,
+                daily_recruit_count=0,
+                daily_caravan_send_count=0,
+                daily_caravan_raid_count=0,
+                daily_spy_scout_count=0,
+                daily_spy_sabotage_count=0,
+                daily_spy_gates_count=0,
+                daily_quests_claimed_json="{}",
+                daily_gold_earned=0,
+                daily_prestige_earned=0,
+                daily_limit_date=today_clean_str,
+            )
         )
         await session.execute(
             update(models.User)
             .where(models.User.weekly_limit_date != week_clean_str)
             .values(weekly_gold_earned=0, weekly_prestige_earned=0, weekly_limit_date=week_clean_str)
         )
+
+        # 2. Avvalgi xatolik tufayli qotib qolgan o'yinchilar limitlarini bir martalik to'liq yechish
+        mig_flag_res = await session.execute(
+            select(models.EventState).where(models.EventState.event_name == "daily_limits_unstick_v1")
+        )
+        if not mig_flag_res.scalars().first():
+            logger.info("🔧 O'yinchilarning qotib qolgan barcha limitlari va topshiriqlari 0 ga tushirilmoqda (bir martalik tozalash)...")
+            await session.execute(
+                update(models.User)
+                .values(
+                    daily_quiz_count=0,
+                    daily_council_count=0,
+                    daily_secret_quest_count=0,
+                    daily_donation_count=0,
+                    daily_story_quest_count=0,
+                    daily_rank_quest_count=0,
+                    daily_ww_attack_count=0,
+                    daily_bandit_count=0,
+                    daily_plague_count=0,
+                    daily_duel_count=0,
+                    daily_recruit_count=0,
+                    daily_caravan_send_count=0,
+                    daily_caravan_raid_count=0,
+                    daily_spy_scout_count=0,
+                    daily_spy_sabotage_count=0,
+                    daily_spy_gates_count=0,
+                    daily_quests_claimed_json="{}",
+                    daily_gold_earned=0,
+                    daily_prestige_earned=0,
+                    daily_limit_date=today_clean_str,
+                )
+            )
+            session.add(models.EventState(
+                event_name="daily_limits_unstick_v1",
+                data_json=json.dumps({"applied_at": today_clean_str}),
+                is_active=True,
+            ))
 
         # Fronterra va barcha maxsus xonadonlar maydonlarini tekshirib to'g'irlash (House panel crash bo'lmasligi uchun)
         all_houses_check = await session.execute(select(models.House))

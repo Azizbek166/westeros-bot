@@ -77,7 +77,7 @@ async def show_duel_hub(target, user_id: int, is_message: bool):
             f"⚔️ Hujum: **{h_atk}** | 🛡️ Mudofaa: **{h_def}**\n"
             f"🪙 Xazinangiz: **{user.gold:,}** oltin\n"
             f"🎯 Bugungi duel limitingiz: **{rem_duels}/{DAILY_DUEL_LIMIT}** ta jang qoldi\n"
-            f"🎁 G'alaba mukofoti: **+125🪙 Oltin, +1 Prestige, +15 XP**\n\n"
+            f"🎁 G'alaba mukofoti: **Garov miqdoricha Oltin (bepulda +150🪙), +1-2 Prestige, +20-25 XP**\n\n"
             f"Duel turlari:\n"
             f"• 👥 **PvP:** Haqiqiy o'yinchilarga duel e'lon qilish (`/duel @username`)\n"
             f"• ⚔️ **AI Chempionlar:** Vesteros afsonalari bilan jang (bepul yoki garovli)\n"
@@ -198,11 +198,14 @@ async def duel_execute_callback(update: Update, context: ContextTypes.DEFAULT_TY
     tactic_names = {"heavy": "🗡️ Og'ir Zarba", "parry": "🛡️ Qalqonli Mudofaa", "agile": "⚡ Epchil Hamla"}
 
     if won:
-        gold_line = "🪙 Oltin: **+500 tanga**\n"
-        prestige_line = "🏆 Prestige: **+3**\n"
-        xp_line = "⭐ XP: **+15 XP**"
+        rew_gold = res.get("reward_gold", 150)
+        rew_prest = res.get("reward_prestige", 1)
+        rew_xp = res.get("reward_xp", 20)
+        gold_line = f"🪙 Oltin: **+{rew_gold:,} tanga**\n"
+        prestige_line = f"🏆 Prestige: **+{rew_prest}**\n"
+        xp_line = f"⭐ XP: **+{rew_xp} XP**"
     else:
-        loss_gold = f"-{bet_gold} tanga" if bet_gold > 0 else "0 tanga"
+        loss_gold = f"-{bet_gold:,} tanga" if bet_gold > 0 else "0 tanga"
         gold_line = f"🪙 Oltin: **{loss_gold}**\n"
         prestige_line = "🏆 Prestige: **+0**\n"
         xp_line = "⭐ XP: **+5 XP**"

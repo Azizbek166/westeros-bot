@@ -1,6 +1,6 @@
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
 from sqlalchemy import select
@@ -69,15 +69,15 @@ async def show_daily_menu(target, user_id: int, is_message: bool = False):
 
         await crud.check_and_reset_daily_limits(session, user)
 
-        now = datetime.utcnow()
-        today_str = now.strftime("%Y-%m-%d")
+        today_str = crud.get_game_today_str()
+        tashkent_now = datetime.utcnow() + timedelta(hours=5)
 
         # 1. Streak holati
         streak_count = user.streak_count or 1
         is_streak_claimed = (user.last_streak_date == today_str)
         if is_streak_claimed:
-            remaining_hours = 23 - now.hour
-            remaining_mins = 59 - now.minute
+            remaining_hours = 23 - tashkent_now.hour
+            remaining_mins = 59 - tashkent_now.minute
             next_day = (streak_count % 7) + 1
             streak_status_line = f"✅ Bugungi tuhfa qabul qilingan!\n⏳ {next_day}-kun sovg'asi: `{remaining_hours}s {remaining_mins}d` dan so'ng ochiladi."
         else:
