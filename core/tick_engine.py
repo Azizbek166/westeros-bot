@@ -1,8 +1,10 @@
+from __future__ import annotations
 import json
 import random
 import logging
 import asyncio
 import html
+from typing import Optional, Dict, Any, List
 from datetime import datetime, timedelta
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
