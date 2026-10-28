@@ -1,3 +1,4 @@
+import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CommandHandler, CallbackQueryHandler, ContextTypes
 from database import AsyncSessionLocal, crud
@@ -5,6 +6,8 @@ from core.economy_engine import calculate_army_upkeep
 from core.anti_cheat import validate_recruitment
 from keyboards.menus import recruit_keyboard, back_to_main_keyboard
 from data.units_data import UNITS_DATA
+
+logger = logging.getLogger(__name__)
 
 
 async def army_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -55,9 +58,23 @@ async def show_army(target, user_id: int, is_message: bool):
         )
 
         if is_message:
-            await target.message.reply_text(text, parse_mode="Markdown", reply_markup=recruit_keyboard())
+            msg_obj = target.message if hasattr(target, "message") else target
+            await msg_obj.reply_text(text, parse_mode="Markdown", reply_markup=recruit_keyboard())
         else:
-            await target.edit_message_text(text, parse_mode="Markdown", reply_markup=recruit_keyboard())
+            msg_obj = target.message if hasattr(target, "message") else None
+            try:
+                if msg_obj and getattr(msg_obj, "photo", None):
+                    try:
+                        await msg_obj.delete()
+                    except Exception:
+                        pass
+                    await msg_obj.chat.send_message(text, parse_mode="Markdown", reply_markup=recruit_keyboard())
+                else:
+                    await target.edit_message_text(text, parse_mode="Markdown", reply_markup=recruit_keyboard())
+            except Exception as e:
+                if "Message is not modified" not in str(e):
+                    if msg_obj:
+                        await msg_obj.chat.send_message(text, parse_mode="Markdown", reply_markup=recruit_keyboard())
 
 
 async def recruit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -369,7 +386,11 @@ async def handle_quick_recruit_command(update: Update, context: ContextTypes.DEF
 async def siege_workshop_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Qamal qurollari ustaxonasi menyusi"""
     query = update.callback_query
-    await query.answer()
+    if query:
+        try:
+            await query.answer()
+        except Exception:
+            pass
     user_id = query.from_user.id
 
     async with AsyncSessionLocal() as session:
@@ -382,7 +403,7 @@ async def siege_workshop_menu_callback(update: Update, context: ContextTypes.DEF
         twrs = getattr(army, "siege_towers", 0) or 0
 
         text = (
-            f"🏹🗼 **QAMAL QUROLLARI USTAXONASI (SIEGE WORKSHOP)**\n\n"
+            f"🏹🗼 <b>QAMAL QUROLLARI USTAXONASI (SIEGE WORKSHOP)</b>\n\n"
             f"Dushman qal'alarining mustahkam devorlarini buzib kirish va o'z piyodalaringizni asrash uchun qamal mashinalarini yasang!\n\n"
             f"💰 Hamyoningiz: <b>{user.gold:,}🪙 Oltin | {user.iron:,}⛓️ Temir | {user.food:,}🌾 Oziq</b>\n\n"
             f"──────── <b>MAVJUD QAMAL QUROLLARI</b> ────────\n"
@@ -406,7 +427,19 @@ async def siege_workshop_menu_callback(update: Update, context: ContextTypes.DEF
             ],
             [InlineKeyboardButton("🔙 Armiyaga Qaytish", callback_data="menu_army")],
         ]
-        await query.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(buttons))
+        try:
+            msg_obj = query.message if hasattr(query, "message") else None
+            if msg_obj and getattr(msg_obj, "photo", None):
+                try:
+                    await msg_obj.delete()
+                except Exception:
+                    pass
+                await msg_obj.chat.send_message(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(buttons))
+            else:
+                await query.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(buttons))
+        except Exception as e:
+            if "Message is not modified" not in str(e):
+                logger.warning(f"Error editing siege workshop menu: {e}")
 
 
 async def build_siege_weapon_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -420,8 +453,12 @@ async def build_siege_weapon_callback(update: Update, context: ContextTypes.DEFA
     async with AsyncSessionLocal() as session:
         ok, msg = await crud.build_siege_weapon(session, user_id, w_type, amount)
 
-    await query.answer(msg[:150], show_alert=True)
-    await siege_workshop_menu_callback(update, context)
+    try:
+        await query.answer(msg[:150], show_alert=True)
+    except Exception:
+        pass
+    if ok:
+        await siege_workshop_menu_callback(update, context)
 
 
 def register_army_handlers(app):
