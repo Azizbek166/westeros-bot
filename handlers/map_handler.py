@@ -320,15 +320,15 @@ async def view_territory_callback(update: Update, context: ContextTypes.DEFAULT_
             except Exception:
                 clean_text = text.replace("*", "").replace("_", "").replace("`", "")
                 await context.bot.send_message(chat_id=chat_id, text=clean_text, reply_markup=InlineKeyboardMarkup(buttons))
-            else:
+        else:
+            try:
+                await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+            except Exception:
+                clean_text = text.replace("*", "").replace("_", "").replace("`", "")
                 try:
-                    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+                    await query.edit_message_text(clean_text, reply_markup=InlineKeyboardMarkup(buttons))
                 except Exception:
-                    clean_text = text.replace("*", "").replace("_", "").replace("`", "")
-                    try:
-                        await query.edit_message_text(clean_text, reply_markup=InlineKeyboardMarkup(buttons))
-                    except Exception:
-                        await context.bot.send_message(chat_id=chat_id, text=clean_text, reply_markup=InlineKeyboardMarkup(buttons))
+                    await context.bot.send_message(chat_id=chat_id, text=clean_text, reply_markup=InlineKeyboardMarkup(buttons))
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -562,9 +562,30 @@ async def show_my_castles(target, user_id: int, is_message: bool = False):
         buttons.append([InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")])
 
         if is_message:
-            await target.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+            msg_obj = target.message if hasattr(target, "message") else target
+            await msg_obj.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
         else:
-            await target.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+            msg_obj = target.message if hasattr(target, "message") else None
+            if msg_obj and getattr(msg_obj, "photo", None):
+                try:
+                    await msg_obj.delete()
+                except Exception:
+                    pass
+                try:
+                    await msg_obj.chat.send_message(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+                except Exception:
+                    clean_text = text.replace("**", "").replace("*", "").replace("`", "")
+                    await msg_obj.chat.send_message(clean_text, reply_markup=InlineKeyboardMarkup(buttons))
+            else:
+                try:
+                    await target.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+                except Exception:
+                    clean_text = text.replace("**", "").replace("*", "").replace("`", "")
+                    try:
+                        await target.edit_message_text(clean_text, reply_markup=InlineKeyboardMarkup(buttons))
+                    except Exception:
+                        if msg_obj:
+                            await msg_obj.chat.send_message(clean_text, reply_markup=InlineKeyboardMarkup(buttons))
 
 
 async def show_my_castle_detail(query, user_id: int, terr_id: int):
@@ -701,14 +722,26 @@ async def show_my_castle_detail(query, user_id: int, terr_id: int):
             buttons.append([InlineKeyboardButton("🔙 Qal'alarim Ro'yxati", callback_data="menu_castles")])
             buttons.append([InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")])
 
-            try:
-                await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
-            except Exception:
-                clean_text = text.replace("**", "").replace("*", "").replace("`", "")
+            chat_id = query.message.chat_id
+            if getattr(query.message, "photo", None):
                 try:
-                    await query.edit_message_text(clean_text, reply_markup=InlineKeyboardMarkup(buttons))
+                    await query.message.delete()
                 except Exception:
                     pass
+                try:
+                    await query.message.chat.send_message(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+                except Exception:
+                    clean_text = text.replace("**", "").replace("*", "").replace("`", "")
+                    await query.message.chat.send_message(clean_text, reply_markup=InlineKeyboardMarkup(buttons))
+            else:
+                try:
+                    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+                except Exception:
+                    clean_text = text.replace("**", "").replace("*", "").replace("`", "")
+                    try:
+                        await query.edit_message_text(clean_text, reply_markup=InlineKeyboardMarkup(buttons))
+                    except Exception:
+                        await query.message.chat.send_message(clean_text, reply_markup=InlineKeyboardMarkup(buttons))
     except Exception as e:
         logger.error(f"Error in show_my_castle_detail: {e}", exc_info=True)
         if hasattr(query, "answer"):
@@ -1132,9 +1165,30 @@ async def show_liberate_castles_menu(target, user_id: int, is_message: bool = Fa
         buttons.append([InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")])
 
         if is_message:
-            await target.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+            msg_obj = target.message if hasattr(target, "message") else target
+            await msg_obj.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
         else:
-            await target.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+            msg_obj = target.message if hasattr(target, "message") else None
+            if msg_obj and getattr(msg_obj, "photo", None):
+                try:
+                    await msg_obj.delete()
+                except Exception:
+                    pass
+                try:
+                    await msg_obj.chat.send_message(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+                except Exception:
+                    clean_text = text.replace("**", "").replace("*", "").replace("`", "")
+                    await msg_obj.chat.send_message(clean_text, reply_markup=InlineKeyboardMarkup(buttons))
+            else:
+                try:
+                    await target.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+                except Exception:
+                    clean_text = text.replace("**", "").replace("*", "").replace("`", "")
+                    try:
+                        await target.edit_message_text(clean_text, reply_markup=InlineKeyboardMarkup(buttons))
+                    except Exception:
+                        if msg_obj:
+                            await msg_obj.chat.send_message(clean_text, reply_markup=InlineKeyboardMarkup(buttons))
 
 
 async def liberate_castle_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):

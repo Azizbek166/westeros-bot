@@ -6688,12 +6688,8 @@ NPC_LEGENDARY_KNIGHTS = [
 
 
 def get_bracket_size(num_participants: int) -> int:
-    """Turnir setkasi o'lchamini hisoblash (Olimpiya 8, 16, 32, 64)"""
-    if num_participants <= 8:
-        return 8
-    elif num_participants <= 16:
-        return 16
-    elif num_participants <= 32:
+    """Turnir setkasi o'lchamini hisoblash (Olimpiya kamida 32 talik setka: 32, 64...)"""
+    if num_participants <= 32:
         return 32
     else:
         p = 32

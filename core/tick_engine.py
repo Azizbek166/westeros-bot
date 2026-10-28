@@ -12,8 +12,179 @@ from core.economy_engine import process_hourly_tick
 from core.leveling import check_user_level_up
 from core.notifier import notify_house_group, notify_owner
 from data.artifacts_data import ARTIFACTS_DATA
+from config import COMMUNITY_CHANNEL_ID, COMMUNITY_CHANNEL_URL
 
 logger = logging.getLogger(__name__)
+
+
+async def format_and_broadcast_major_battle_story(
+    bot_app,
+    session: AsyncSession,
+    territory: models.Territory,
+    attacker: models.User,
+    att_house: Optional[models.House],
+    old_owner_house_id: Optional[int],
+    battle_res: dict,
+    can_annex: bool,
+    dragon_pwr: int = 0,
+    def_dragon_pwr: int = 0,
+    att_champion: Optional[str] = None,
+    def_champion: Optional[str] = None,
+    weather_type: str = "normal",
+):
+    """
+    Katta urushlar va qal'a qamallari tugagach, Telegram kanalga (@northremembers1)
+    chiroyli, qisqa va qiziqarli Vesteros solnoma-hikoyasini e'lon qilish.
+    """
+    if not bot_app:
+        return
+
+    att_losses = battle_res.get("attacker_losses", {})
+    def_losses = battle_res.get("defender_losses", {})
+    att_loss_cnt = sum(att_losses.values()) if isinstance(att_losses, dict) else 0
+    def_loss_cnt = sum(def_losses.values()) if isinstance(def_losses, dict) else 0
+    total_losses = att_loss_cnt + def_loss_cnt
+
+    winner = battle_res.get("winner", "defender")
+    is_conquest = (winner == "attacker" and can_annex)
+    dragon_involved = (dragon_pwr > 0 or def_dragon_pwr > 0)
+    wildfire_used = bool(battle_res.get("wildfire_used", 0) > 0)
+    heavy_casualties = total_losses >= 60
+
+    # Katta urush mezonlari:
+    # 1. Qal'a egallandi (conquest)
+    # 2. Ajdaho jangga kirdi
+    # 3. Yovvoyi olov (Wildfire) portladi
+    # 4. Katta talofat (kamida 60+ jangchi halok bo'ldi)
+    if not (is_conquest or dragon_involved or wildfire_used or heavy_casualties):
+        return
+
+    att_house_name = att_house.name if att_house else "Vesteros Qo'shini"
+    def_house_name = "Neytral Qorovullar"
+    if old_owner_house_id:
+        try:
+            def_house = await session.get(models.House, old_owner_house_id)
+            if def_house:
+                def_house_name = def_house.name
+        except Exception:
+            pass
+
+    # Sarlavha
+    if is_conquest:
+        title = "📜 ══════ ⚔️ **VESTEROS SOLNOMASI: QAL'A QULASHI!** ⚔️ ══════ 📜"
+    elif winner == "attacker":
+        title = "📜 ══════ ⚔️ **VESTEROS SOLNOMASI: QONLI QAMAL** ⚔️ ══════ 📜"
+    else:
+        title = "📜 ══════ 🛡️ **VESTEROS SOLNOMASI: ENGIQMAS MUDOFAA** 🛡️ ══════ 📜"
+
+    castle_display = f"{territory.name} ({territory.castle_name})"
+    att_name = attacker.full_name or "Jasur Lord"
+
+    # Muqaddima (Ob-havo va hujum manzarasi)
+    intro_variants = [
+        f"Tun qorong'usi chekinib, {castle_display} osmonida jangovar burg'ular faryodi yangradi. **{att_house_name}** bayroqlari ostida Lord **{att_name}** qo'shini shiddatli qamalga kirdi.",
+        f"{castle_display} osmonini quyuq tutun qopladi. **{att_house_name}** xonadoni jangchilari qal'a poydevoriga kuchli zarba berib, qonli qamalni boshladilar.",
+        f"Vesteros yilnomachilari bugungi kunni qonli harflar bilan yozishadi: Lord **{att_name}** ({att_house_name}) ulkan lashkar bilan {castle_display} devorlari ostida saf tortdi.",
+    ]
+    if weather_type == "blizzard":
+        intro = f"Qahraton qor bo'roni va ayozli izg'irin ostida Lord **{att_name}** ({att_house_name}) lashkari muzlagan {castle_display} devorlari tomon qonli hamlaga o'tdi."
+    elif weather_type == "storm":
+        intro = f"Chaqmoqlar chaqnashi va dahshatli bo'ron ichra **{att_house_name}** qo'shini {castle_display} darvozalariga qarshi shiddatli hujum boshladi."
+    else:
+        intro = random.choice(intro_variants)
+
+    event_paragraphs = []
+
+    # Ajdaho
+    if dragon_pwr > 0 and def_dragon_pwr > 0:
+        event_paragraphs.append("🔥🐲 **Ajdaholar Raqsi:** Osmonda ikki ulkan maxluq to'qnashdi! Qal'a uzra olov va qora dud bo'ronlari yog'ilib, jang maydoni qonli jahannamga aylandi.")
+    elif dragon_pwr > 0:
+        event_paragraphs.append(f"🔥 **Drakaris!** Hujumchi Lordning ajdahosi osmondan qanot qoqib, {castle_display} burjlariga halokatli olov yog'dirdi. Mudofaa minoralari qora tutunga burkandi!")
+    elif def_dragon_pwr > 0:
+        event_paragraphs.append("🐲 **Mudofaa Qahri:** Qal'a uyasidan ko'tarilgan himoyachi ajdaho dushman saflarini o't ichida qoldirib, qamalni to'xtatishga urindi.")
+
+    # Wildfire
+    if wildfire_used:
+        event_paragraphs.append("🧪💥 **Yovvoyi Olov Portlashi!** Zovurlarda yashil sehrli olov chaqnadi. Alkimyogarlarning qadimiy quroli o'nlab jangchilarni bir lahzada kulga aylantirdi.")
+
+    # Sarkardalar
+    if att_champion and def_champion:
+        event_paragraphs.append(f"⚔️ **Sarkardalar Kurashi:** Ikki mashhur pahlavon — hujumchi **{att_champion}** va mudofaa posboni **{def_champion}** yakkama-yakka to'qnashib, mislsiz jasorat ko'rsatishdi.")
+    elif att_champion:
+        event_paragraphs.append(f"🗡️ Maydon markazida sarkarda **{att_champion}** eng oldingi saflarda turib, dushman to'siqlarini qilich zarbasi bilan yorib o'tdi.")
+    elif def_champion:
+        event_paragraphs.append(f"🛡️ Qal'a darvozasi oldida jasur posbon **{def_champion}** dushman to'lqinlarini mardonavor qaytarib, himoyachilarga ruh bag'ishladi.")
+
+    # Qamal va yakuniy bosqich (Kulminatsiya)
+    if is_conquest:
+        climax = (
+            f"⚡ Mudofaa devorlari dushman bosimiga dosh berolmadi va darvozalar parchalab tashlandi! "
+            f"**{def_house_name}** garnizoni batamom taslim etildi. "
+            f"Qal'aning eng baland minorasiga **{att_house_name}** mag'rur bayrog'i tikildi! "
+            f"👑 **{castle_display} endi {att_house_name} xonadoni tasarrufida!**"
+        )
+    elif winner == "attacker":
+        climax = (
+            f"⚡ Qonli to'qnashuvdan so'ng mudofaa chizig'i yorib o'tildi va qal'a xazinasi qo'lga kiritildi. "
+            f"Biroq {att_house_name} xonadoni qal'a limitiga ega bo'lganligi sababli, faqat behisob o'ljalar bilan safga qaytildi!"
+        )
+    else:
+        climax = (
+            f"🛡️ Qal'a devorlari va **{def_house_name}** garnizonining temir irodasi sinmadi! "
+            f"Lord **{att_name}** qamalining barcha urinishlari barbod bo'lib, omon qolgan hujumchilar chekinishga majbur bo'ldi. "
+            f"🏰 **{castle_display} qat'iyat bilan o'z mustaqilligini saqlab qoldi!**"
+        )
+
+    loot_gold = battle_res.get("loot", {}).get("gold", 0)
+    loot_food = battle_res.get("loot", {}).get("food", 0)
+    loot_iron = battle_res.get("loot", {}).get("iron", 0)
+
+    events_text = "\n\n".join(event_paragraphs)
+    if events_text:
+        events_text = "\n\n" + events_text
+
+    winning_side = att_house_name if winner == "attacker" else def_house_name
+
+    story = (
+        f"{title}\n\n"
+        f"🏰 **Hudud:** {castle_display}\n"
+        f"👑 **Hujumchi:** Lord **{att_name}** ({att_house_name})\n"
+        f"🛡️ **Himoyachi:** {def_house_name}\n\n"
+        f"📖 **Jangnomadan:**\n"
+        f"{intro}"
+        f"{events_text}\n\n"
+        f"{climax}\n\n"
+        f"📊 **Jang Natijalari:**\n"
+        f"• 💀 **Halok bo'lganlar:** Hujumchi: -{att_loss_cnt:,} | Qal'a: -{def_loss_cnt:,} (Jami: {total_losses:,})\n"
+        f"• 📦 **Qo'lga olingan o'lja:** 🪙 +{loot_gold:,} oltin, 🌾 +{loot_food:,} g'alla, ⛓️ +{loot_iron:,} temir\n"
+        f"• 🚩 **G'olib:** **{winning_side}**\n\n"
+        f"❄️ _«Vesterosda qon to'kilmagan kun yo'q. Qish kelmoqda...»_\n"
+        f"📢 **Rasmiy Kanal:** {COMMUNITY_CHANNEL_URL}"
+    )
+
+    try:
+        from config import COMMUNITY_CHANNEL_ID
+        bot = getattr(bot_app, "bot", bot_app)
+        if not bot or not COMMUNITY_CHANNEL_ID:
+            return
+
+        try:
+            await bot.send_message(
+                chat_id=COMMUNITY_CHANNEL_ID,
+                text=story,
+                parse_mode="Markdown",
+            )
+            logger.info(f"Katta urush hikoyasi kanalga ({COMMUNITY_CHANNEL_ID}) muvaffaqiyatli jo'natildi: {territory.name}")
+        except Exception as e_md:
+            logger.warning(f"Kanalga Markdown jo'natishda xatolik ({e_md}), xom matnda yuborilmoqda...")
+            clean_story = story.replace("**", "").replace("*", "").replace("`", "").replace("_", "")
+            await bot.send_message(
+                chat_id=COMMUNITY_CHANNEL_ID,
+                text=clean_story,
+                parse_mode=None,
+            )
+    except Exception as e:
+        logger.error(f"Kanalga urush hikoyasini yuborishda xatolik: {e}")
 
 
 async def process_due_marches(bot_app=None):
@@ -188,6 +359,7 @@ async def process_due_marches(bot_app=None):
                 # Agar hujumchi yutsa: Hududni egallash va o'lja
                 att_house = await session.get(models.House, attacker.house_id)
                 att_house_name = att_house.name if att_house else "Vesteros Qo'shini"
+                can_annex = False
 
                 if battle_res["winner"] == "attacker":
                     # Xonadon qal'alar soni tekshiruvi (Maksimal 5 ta qal'a limiti)
@@ -479,6 +651,26 @@ async def process_due_marches(bot_app=None):
                         )
                     except Exception:
                         pass
+
+                    # Katta urush bo'yicha rasmiy kanalga hikoya jo'natish
+                    try:
+                        await format_and_broadcast_major_battle_story(
+                            bot_app=bot_app,
+                            session=session,
+                            territory=territory,
+                            attacker=attacker,
+                            att_house=att_house,
+                            old_owner_house_id=old_owner_house_id,
+                            battle_res=battle_res,
+                            can_annex=can_annex,
+                            dragon_pwr=dragon_pwr,
+                            def_dragon_pwr=def_dragon_pwr,
+                            att_champion=att_champion,
+                            def_champion=def_champion,
+                            weather_type=weather_type,
+                        )
+                    except Exception as e_brd:
+                        logger.error(f"Urush hikoyasini kanalga yuborishda xatolik: {e_brd}")
 
                 # Yurish muvaffaqiyatli yakunlandi
                 march.status = "resolved"

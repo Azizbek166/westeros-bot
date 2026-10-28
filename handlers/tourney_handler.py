@@ -120,7 +120,7 @@ async def tourney_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
         parts = tourney.participants or []
         n_parts = len(parts)
-        k_size = crud.get_bracket_size(n_parts) if n_parts > 0 else 8
+        k_size = crud.get_bracket_size(n_parts) if n_parts > 0 else 32
         npc_needed = max(0, k_size - n_parts)
 
         readiness_badge = f"\n👥 **Ro'yxatdan o'tganlar:** `{n_parts} nafar ritsar` (Cheklovsiz, istalgancha lord qo'shila oladi!)\n"
@@ -351,11 +351,14 @@ async def tourney_tactic_pick_callback(update: Update, context: ContextTypes.DEF
         buttons = [
             [InlineKeyboardButton("🎯 Umumiy Asosiy Taktika", callback_data="tourney_choose_stage:general")],
             [
+                InlineKeyboardButton("⚔️ 1/16 Saralash", callback_data="tourney_choose_stage:r32"),
                 InlineKeyboardButton("⚔️ 1/8 Nimchorak", callback_data="tourney_choose_stage:r16"),
-                InlineKeyboardButton("🛡️ 1/4 Chorak Final", callback_data="tourney_choose_stage:qf"),
             ],
             [
+                InlineKeyboardButton("🛡️ 1/4 Chorak Final", callback_data="tourney_choose_stage:qf"),
                 InlineKeyboardButton("⚡ 1/2 Yarim Final", callback_data="tourney_choose_stage:sf"),
+            ],
+            [
                 InlineKeyboardButton("👑 Grand Final", callback_data="tourney_choose_stage:final"),
             ],
             [InlineKeyboardButton("🔙 Turnir maydoni", callback_data="menu_tourney")],
@@ -375,6 +378,7 @@ async def tourney_choose_stage_callback(update: Update, context: ContextTypes.DE
     stage = query.data.split(":")[1]
     stage_names = {
         "general": "🎯 Umumiy Asosiy Taktika",
+        "r32": "⚔️ 1/16 Saralash Final",
         "r16": "⚔️ 1/8 Nimchorak Final",
         "qf": "🛡️ 1/4 Chorak Final",
         "sf": "⚡ 1/2 Yarim Final",
@@ -474,6 +478,7 @@ async def tourney_seq_r1_callback(update: Update, context: ContextTypes.DEFAULT_
 
     stage_names = {
         "general": "Umumiy",
+        "r32": "1/16 Saralash",
         "r16": "1/8 Nimchorak",
         "qf": "1/4 Chorak Final",
         "sf": "1/2 Yarim Final",
@@ -874,13 +879,13 @@ def register_tourney_handlers(app: Application):
     app.add_handler(CallbackQueryHandler(tourney_pick_tactic_callback, pattern="^tourney_pick_tactic:(self|champ)$"))
     app.add_handler(CallbackQueryHandler(tourney_do_enter_callback, pattern="^tourney_do_enter:(self|champ)(?::(rock|scissors|paper|random|wall|strike|viper|whirlwind))?$"))
     app.add_handler(CallbackQueryHandler(tourney_tactic_pick_callback, pattern="^tourney_tactic_pick$"))
-    app.add_handler(CallbackQueryHandler(tourney_choose_stage_callback, pattern="^tourney_choose_stage:(general|r16|qf|sf|final)$"))
-    app.add_handler(CallbackQueryHandler(tourney_set_stage_tactic_callback, pattern="^tourney_set_stage_tactic:(general|r16|qf|sf|final):(rock|scissors|paper|random|wall|strike|viper|whirlwind)$"))
+    app.add_handler(CallbackQueryHandler(tourney_choose_stage_callback, pattern="^tourney_choose_stage:(general|r32|r16|qf|sf|final)$"))
+    app.add_handler(CallbackQueryHandler(tourney_set_stage_tactic_callback, pattern="^tourney_set_stage_tactic:(general|r32|r16|qf|sf|final):(rock|scissors|paper|random|wall|strike|viper|whirlwind)$"))
     app.add_handler(CallbackQueryHandler(tourney_set_tactic_callback, pattern="^tourney_set_tactic:(rock|scissors|paper|random|wall|strike|viper|whirlwind)$"))
-    app.add_handler(CallbackQueryHandler(tourney_seq_r1_callback, pattern="^tourney_seq_r1(?::(general|r16|qf|sf|final))?$"))
-    app.add_handler(CallbackQueryHandler(tourney_seq_r2_callback, pattern="^tourney_seq_r2(?::(general|r16|qf|sf|final))?:(rock|scissors|paper)$"))
-    app.add_handler(CallbackQueryHandler(tourney_seq_r3_callback, pattern="^tourney_seq_r3(?::(general|r16|qf|sf|final))?:(rock|scissors|paper):(rock|scissors|paper)$"))
-    app.add_handler(CallbackQueryHandler(tourney_seq_save_callback, pattern="^tourney_seq_save(?::(general|r16|qf|sf|final))?:(rock|scissors|paper):(rock|scissors|paper):(rock|scissors|paper)$"))
+    app.add_handler(CallbackQueryHandler(tourney_seq_r1_callback, pattern="^tourney_seq_r1(?::(general|r32|r16|qf|sf|final))?$"))
+    app.add_handler(CallbackQueryHandler(tourney_seq_r2_callback, pattern="^tourney_seq_r2(?::(general|r32|r16|qf|sf|final))?:(rock|scissors|paper)$"))
+    app.add_handler(CallbackQueryHandler(tourney_seq_r3_callback, pattern="^tourney_seq_r3(?::(general|r32|r16|qf|sf|final))?:(rock|scissors|paper):(rock|scissors|paper)$"))
+    app.add_handler(CallbackQueryHandler(tourney_seq_save_callback, pattern="^tourney_seq_save(?::(general|r32|r16|qf|sf|final))?:(rock|scissors|paper):(rock|scissors|paper):(rock|scissors|paper)$"))
     app.add_handler(CallbackQueryHandler(tourney_history_callback, pattern="^tourney_history$"))
     app.add_handler(CallbackQueryHandler(tourney_bracket_past_callback, pattern="^tourney_bracket_past:\\d+$"))
     app.add_handler(CallbackQueryHandler(tourney_bet_pick_callback, pattern="^tourney_bet_pick$"))
