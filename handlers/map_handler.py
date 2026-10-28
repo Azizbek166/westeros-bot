@@ -826,10 +826,10 @@ async def upgrade_walls_callback(update: Update, context: ContextTypes.DEFAULT_T
         user.gold -= 400
         user.iron -= 500
         terr.defense = min(MAX_WALL_DEFENSE, defense_val + 200)
-        user.prestige = (user.prestige or 0) + 50
+        # Qal'a mudofaasini kuchaytirganda prestige berilmaydi
         await session.commit()
 
-    await query.answer("🏰 Qal'a devorlari mustahkamlandi! (+200 Mudofaa, +50 Prestige)", show_alert=True)
+    await query.answer("🏰 Qal'a devorlari mustahkamlandi! (+200 Mudofaa)", show_alert=True)
     await show_my_castle_detail(query, user_id, terr_id)
 
 

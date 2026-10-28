@@ -120,10 +120,14 @@ async def tourney_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
         parts = tourney.participants or []
         n_parts = len(parts)
-        if n_parts >= 8:
-            readiness_badge = "\n🔥 **ARENA TO'LDI! Barcha 8 ritsar jangga tayyor!**\n"
+        k_size = crud.get_bracket_size(n_parts) if n_parts > 0 else 8
+        npc_needed = max(0, k_size - n_parts)
+
+        readiness_badge = f"\n👥 **Ro'yxatdan o'tganlar:** `{n_parts} nafar ritsar` (Cheklovsiz, istalgancha lord qo'shila oladi!)\n"
+        if npc_needed > 0:
+            readiness_badge += f"⚔️ **Joriy format:** `{k_size} talik Olimpiya Setkasi` *(Qolgan {npc_needed} ta o'rin afsonaviy NPC ritsarlar bilan to'ldiriladi)*\n"
         else:
-            readiness_badge = f"\n⏳ *Qolgan {8 - n_parts} ta bo'sh o'rin afsonaviy NPC ritsarlar bilan to'ldiriladi.*\n"
+            readiness_badge += f"⚔️ **Joriy format:** `{k_size} talik Olimpiya Setkasi` *(100% o'yinchilar bilan to'lgan!)*\n"
 
         parts_list = ""
         if parts:
@@ -143,22 +147,7 @@ async def tourney_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
         if user_is_entered:
             user_part = next((p for p in parts if p.user_id == user.id), None)
             if user_part:
-                cur_t = getattr(user_part, "tactic", "rock") or "rock"
-                cur_seq = getattr(user_part, "tactics_seq", "") or ""
-                icons = {"rock": "🪨 Tosh", "scissors": "✂️ Qaychi", "paper": "📜 Qog'oz", "random": "🎲 Tasodifiy"}
-                if cur_seq and "," in cur_seq:
-                    seq_items = [icons.get(x.strip().lower(), x) for x in cur_seq.split(",")[:3]]
-                    seq_fmt = " ➔ ".join(seq_items)
-                    tactic_info = f"\n🎯 **Sizning Taktikangiz:** {seq_fmt}\n"
-                else:
-                    tactic_labels = {
-                        "rock": "🪨 Tosh (Og'ir Zarba)",
-                        "scissors": "✂️ Qaychi (Epchil Hamla)",
-                        "paper": "📜 Qog'oz (Qalqonli Mudofaa)",
-                        "random": "🎲 Aralash / Tasodifiy",
-                    }
-                    tactic_info = f"\n🎯 **Sizning Taktikangiz:** {tactic_labels.get(cur_t, '🪨 Tosh')}\n"
-
+                tactic_info = "\n🎯 **Sizning Taktikalaringiz:**\n" + crud.format_participant_tactics_summary(user_part) + "\n"
                 f_perk = get_fighter_perk(user_part.fighter_name)
                 if f_perk:
                     perk_title = f_perk.get("title") or f_perk.get("name", "Mahorat")
@@ -183,7 +172,8 @@ async def tourney_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
         text = (
             f"🏇🏆 **{escape_md(str(tourney.name))}**\n\n"
-            f"Qirollikning 8 nafar eng dovyurak ritsarlari Tosh-Qaychi-Qog'oz saralash duellarida to'qnash keladi!\n\n"
+            f"Qirollikning eng dovyurak ritsarlari saralash Tosh-Qaychi-Qog'oz Olimpiya setkasida to'qnash keladi!\n"
+            f"Har bir ishtirokchi har bir bellashuvdan oldin o'z taktikasini erkin tanlashi mumkin.\n\n"
             f"💰 **Umumiy Jamg'arma:** **{tourney.prize_pool:,}** Oltin\n"
             f"🥇 1-O'rin g'olibi: **70%** jamg'arma + **100** Nufuz + **'Qirollik Chempioni'** unvoni\n"
             f"🥈 2-O'rin sohibi: **30%** jamg'arma + **50** Nufuz\n"
@@ -202,9 +192,9 @@ async def tourney_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
         if not user_is_entered:
             buttons.append([InlineKeyboardButton("🤺 Turnirga kirish (500💰)", callback_data="tourney_enter_pick")])
         else:
-            buttons.append([InlineKeyboardButton("⚙️ Taktikani Sozlash", callback_data="tourney_tactic_pick")])
+            buttons.append([InlineKeyboardButton("⚙️ Bellashuvlar Taktikasini Sozlash", callback_data="tourney_tactic_pick")])
 
-        buttons.append([InlineKeyboardButton("📊 Turnir Setkasini Ko'rish", callback_data="tourney_bracket")])
+        buttons.append([InlineKeyboardButton("📊 Turnir Setkasini Ko'rish (Juftliklar)", callback_data="tourney_bracket")])
         buttons.append([InlineKeyboardButton("🎰 Stavka tikish (1.8x)", callback_data="tourney_bet_pick")])
         buttons.append([InlineKeyboardButton("🏛️ Chempionlar Zali (Turnir Tarixi)", callback_data="tourney_history")])
         buttons.append([InlineKeyboardButton("📜 Qoidalar va Shartlar", callback_data="tourney_rules")])
@@ -328,7 +318,7 @@ async def tourney_pick_tactic_callback(update: Update, context: ContextTypes.DEF
 
 
 async def tourney_tactic_pick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Mavjud ishtirokchining taktikasini sozlash menyusi"""
+    """Mavjud ishtirokchining jang taktikasini sozlash boshqaruv paneli (Har bir bosqich uchun)"""
     query = update.callback_query
     if query:
         try:
@@ -336,36 +326,119 @@ async def tourney_tactic_pick_callback(update: Update, context: ContextTypes.DEF
         except Exception:
             pass
 
+    tg_user = update.effective_user
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_by_telegram_id(session, tg_user.id)
+        if not user:
+            return
+        tourney = await crud.get_active_tournament(session)
+        if not tourney:
+            return
+
+        part = next((p for p in (tourney.participants or []) if p.user_id == user.id), None)
+        if not part:
+            return
+
+        summary = crud.format_participant_tactics_summary(part)
+
+        text = (
+            "⚙️ **HAR BIR BELLASHUV VA BOSQICH TAKTIKASINI SOZLASH:**\n\n"
+            "Turnirda har bir bosqich uchun alohida strategiya va shaxsiy usul qo'llashingiz mumkin!\n\n"
+            f"📋 **Sizning joriy jangovar rejangiz:**\n"
+            f"{summary}\n\n"
+            "Qaysi bosqich jang taktikasini o'zgartirmoqchisiz? Quyidagi paneldan tanlang:"
+        )
+        buttons = [
+            [InlineKeyboardButton("🎯 Umumiy Asosiy Taktika", callback_data="tourney_choose_stage:general")],
+            [
+                InlineKeyboardButton("⚔️ 1/8 Nimchorak", callback_data="tourney_choose_stage:r16"),
+                InlineKeyboardButton("🛡️ 1/4 Chorak Final", callback_data="tourney_choose_stage:qf"),
+            ],
+            [
+                InlineKeyboardButton("⚡ 1/2 Yarim Final", callback_data="tourney_choose_stage:sf"),
+                InlineKeyboardButton("👑 Grand Final", callback_data="tourney_choose_stage:final"),
+            ],
+            [InlineKeyboardButton("🔙 Turnir maydoni", callback_data="menu_tourney")],
+        ]
+        await _safe_edit_or_reply(query, update, text, reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def tourney_choose_stage_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Tanlangan bosqich uchun taktika menyusi"""
+    query = update.callback_query
+    if query:
+        try:
+            await query.answer()
+        except Exception:
+            pass
+
+    stage = query.data.split(":")[1]
+    stage_names = {
+        "general": "🎯 Umumiy Asosiy Taktika",
+        "r16": "⚔️ 1/8 Nimchorak Final",
+        "qf": "🛡️ 1/4 Chorak Final",
+        "sf": "⚡ 1/2 Yarim Final",
+        "final": "👑 Grand Final",
+    }
+    st_title = stage_names.get(stage, "Jang Taktikasi")
+
     text = (
-        "⚙️ **JANG TAKTIKASINI SOZLASH:**\n\n"
-        "Raqibingizning ehtimoliy harakatini oldindan hisobga olib, taktik shablon tanlang yoki har bir raund uchun shaxsiy ketma-ketlik tuzing!\n\n"
+        f"⚙️ **{st_title.upper()} UCHUN TAKTIKA TANLANG:**\n\n"
+        "Ushbu bellashuvda raqibingizga qarshi qaysi uslubni qo'llamoqchisiz?\n\n"
         "📋 **Taktik Shablonlar (3 Raund):**\n"
         "• 🛡️ **Devor Mudofaasi:** 📜 Qog'oz ➔ 📜 Qog'oz ➔ 🪨 Tosh\n"
         "• ⚔️ **Shiddatli Hujum:** 🪨 Tosh ➔ ✂️ Qaychi ➔ 🪨 Tosh\n"
         "• ⚡ **Ilon Hamlasi:** ✂️ Qaychi ➔ ✂️ Qaychi ➔ 📜 Qog'oz\n"
         "• 🌪️ **Girdob Taktikasi:** 🪨 Tosh ➔ ✂️ Qaychi ➔ 📜 Qog'oz\n"
         "• 🎲 **Aralash:** Har raundda tasodifiy kutilmagan harakat\n\n"
-        "*(Durrang holatida ritsarlarning jang quvvati va afsonaviy chempion qobiliyatlari g'olibni hal qiladi!)*"
+        "Yoki 3 ta raund uchun o'zingiz shaxsiy ketma-ketlik tuzishingiz mumkin:"
     )
     buttons = [
-        [InlineKeyboardButton("🛡️ Devor Mudofaasi (📜, 📜, 🪨)", callback_data="tourney_set_tactic:wall")],
-        [InlineKeyboardButton("⚔️ Shiddatli Hujum (🪨, ✂️, 🪨)", callback_data="tourney_set_tactic:strike")],
-        [InlineKeyboardButton("⚡ Ilon Hamlasi (✂️, ✂️, 📜)", callback_data="tourney_set_tactic:viper")],
-        [InlineKeyboardButton("🌪️ Girdob Taktikasi (🪨, ✂️, 📜)", callback_data="tourney_set_tactic:whirlwind")],
-        [InlineKeyboardButton("🛠️ Shaxsiy Ketma-ketlik Terish (3 Raund)", callback_data="tourney_seq_r1")],
+        [InlineKeyboardButton("🛡️ Devor Mudofaasi (📜, 📜, 🪨)", callback_data=f"tourney_set_stage_tactic:{stage}:wall")],
+        [InlineKeyboardButton("⚔️ Shiddatli Hujum (🪨, ✂️, 🪨)", callback_data=f"tourney_set_stage_tactic:{stage}:strike")],
+        [InlineKeyboardButton("⚡ Ilon Hamlasi (✂️, ✂️, 📜)", callback_data=f"tourney_set_stage_tactic:{stage}:viper")],
+        [InlineKeyboardButton("🌪️ Girdob Taktikasi (🪨, ✂️, 📜)", callback_data=f"tourney_set_stage_tactic:{stage}:whirlwind")],
+        [InlineKeyboardButton("🛠️ Shaxsiy Ketma-ketlik Terish (3 Raund)", callback_data=f"tourney_seq_r1:{stage}")],
         [
-            InlineKeyboardButton("🪨 Faqat Tosh", callback_data="tourney_set_tactic:rock"),
-            InlineKeyboardButton("✂️ Faqat Qaychi", callback_data="tourney_set_tactic:scissors"),
-            InlineKeyboardButton("📜 Faqat Qog'oz", callback_data="tourney_set_tactic:paper"),
+            InlineKeyboardButton("🪨 Faqat Tosh", callback_data=f"tourney_set_stage_tactic:{stage}:rock"),
+            InlineKeyboardButton("✂️ Faqat Qaychi", callback_data=f"tourney_set_stage_tactic:{stage}:scissors"),
+            InlineKeyboardButton("📜 Faqat Qog'oz", callback_data=f"tourney_set_stage_tactic:{stage}:paper"),
         ],
-        [InlineKeyboardButton("🎲 Aralash / Kutilmagan", callback_data="tourney_set_tactic:random")],
-        [InlineKeyboardButton("🔙 Turnir maydoni", callback_data="menu_tourney")],
+        [InlineKeyboardButton("🎲 Aralash / Kutilmagan", callback_data=f"tourney_set_stage_tactic:{stage}:random")],
+        [InlineKeyboardButton("🔙 Bosqichlar ro'yxatiga qaytish", callback_data="tourney_tactic_pick")],
     ]
     await _safe_edit_or_reply(query, update, text, reply_markup=InlineKeyboardMarkup(buttons))
 
 
+async def tourney_set_stage_tactic_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Tanlangan bosqich taktikasini saqlash"""
+    query = update.callback_query
+    if query:
+        try:
+            await query.answer()
+        except Exception:
+            pass
+
+    parts = query.data.split(":")
+    stage = parts[1]
+    tactic = parts[2]
+
+    tg_user = update.effective_user
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_by_telegram_id(session, tg_user.id)
+        if not user:
+            return
+
+        ok, msg = await crud.update_tournament_tactic(session, user.id, tactic=tactic, stage=stage)
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("⚙️ Boshqa bosqich taktikasini sozlash", callback_data="tourney_tactic_pick")],
+            [InlineKeyboardButton("🏇 Turnir maydoniga qaytish", callback_data="menu_tourney")],
+        ])
+        await _safe_edit_or_reply(query, update, msg, reply_markup=keyboard)
+
+
 async def tourney_set_tactic_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Taktika o'zgarishini saqlash"""
+    """Taktika o'zgarishini saqlash (Eski callbacklar bilan moslik)"""
     query = update.callback_query
     if query:
         try:
@@ -380,7 +453,7 @@ async def tourney_set_tactic_callback(update: Update, context: ContextTypes.DEFA
         if not user:
             return
 
-        ok, msg = await crud.update_tournament_tactic(session, user.id, tactic)
+        ok, msg = await crud.update_tournament_tactic(session, user.id, tactic, stage="general")
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("🏇 Turnir maydoniga qaytish", callback_data="menu_tourney")]
         ])
@@ -396,8 +469,20 @@ async def tourney_seq_r1_callback(update: Update, context: ContextTypes.DEFAULT_
         except Exception:
             pass
 
+    parts = query.data.split(":")
+    stage = parts[1] if len(parts) > 1 else "general"
+
+    stage_names = {
+        "general": "Umumiy",
+        "r16": "1/8 Nimchorak",
+        "qf": "1/4 Chorak Final",
+        "sf": "1/2 Yarim Final",
+        "final": "Grand Final",
+    }
+    st_title = stage_names.get(stage, stage)
+
     text = (
-        "🛠️ **SHAXSIY TAKTIKA TUZISH (1/3 RAUND):**\n\n"
+        f"🛠️ **SHAXSIY TAKTIKA TUZISH ({st_title} — 1/3 RAUND):**\n\n"
         "1-Raund to'qnashuvi uchun asosiy zarbani tanlang:\n\n"
         "• 🪨 **Tosh:** ✂️ Qaychini yanchadi, 📜 Qog'ozga yutqazadi\n"
         "• ✂️ **Qaychi:** 📜 Qog'ozni kesadi, 🪨 Toshga yutqazadi\n"
@@ -405,11 +490,11 @@ async def tourney_seq_r1_callback(update: Update, context: ContextTypes.DEFAULT_
     )
     buttons = [
         [
-            InlineKeyboardButton("🪨 1-Raund: Tosh", callback_data="tourney_seq_r2:rock"),
-            InlineKeyboardButton("✂️ 1-Raund: Qaychi", callback_data="tourney_seq_r2:scissors"),
+            InlineKeyboardButton("🪨 1-Raund: Tosh", callback_data=f"tourney_seq_r2:{stage}:rock"),
+            InlineKeyboardButton("✂️ 1-Raund: Qaychi", callback_data=f"tourney_seq_r2:{stage}:scissors"),
         ],
-        [InlineKeyboardButton("📜 1-Raund: Qog'oz", callback_data="tourney_seq_r2:paper")],
-        [InlineKeyboardButton("🔙 Orqaga", callback_data="tourney_tactic_pick")],
+        [InlineKeyboardButton("📜 1-Raund: Qog'oz", callback_data=f"tourney_seq_r2:{stage}:paper")],
+        [InlineKeyboardButton("🔙 Orqaga", callback_data=f"tourney_choose_stage:{stage}")],
     ]
     await _safe_edit_or_reply(query, update, text, reply_markup=InlineKeyboardMarkup(buttons))
 
@@ -423,7 +508,14 @@ async def tourney_seq_r2_callback(update: Update, context: ContextTypes.DEFAULT_
         except Exception:
             pass
 
-    m1 = query.data.split(":")[1]
+    parts = query.data.split(":")
+    if len(parts) >= 3:
+        stage = parts[1]
+        m1 = parts[2]
+    else:
+        stage = "general"
+        m1 = parts[1]
+
     icons = {"rock": "🪨 Tosh", "scissors": "✂️ Qaychi", "paper": "📜 Qog'oz"}
     text = (
         "🛠️ **SHAXSIY TAKTIKA TUZISH (2/3 RAUND):**\n\n"
@@ -432,11 +524,11 @@ async def tourney_seq_r2_callback(update: Update, context: ContextTypes.DEFAULT_
     )
     buttons = [
         [
-            InlineKeyboardButton("🪨 2-Raund: Tosh", callback_data=f"tourney_seq_r3:{m1}:rock"),
-            InlineKeyboardButton("✂️ 2-Raund: Qaychi", callback_data=f"tourney_seq_r3:{m1}:scissors"),
+            InlineKeyboardButton("🪨 2-Raund: Tosh", callback_data=f"tourney_seq_r3:{stage}:{m1}:rock"),
+            InlineKeyboardButton("✂️ 2-Raund: Qaychi", callback_data=f"tourney_seq_r3:{stage}:{m1}:scissors"),
         ],
-        [InlineKeyboardButton("📜 2-Raund: Qog'oz", callback_data=f"tourney_seq_r3:{m1}:paper")],
-        [InlineKeyboardButton("🔙 Qayta boshlash", callback_data="tourney_seq_r1")],
+        [InlineKeyboardButton("📜 2-Raund: Qog'oz", callback_data=f"tourney_seq_r3:{stage}:{m1}:paper")],
+        [InlineKeyboardButton("🔙 Qayta boshlash", callback_data=f"tourney_seq_r1:{stage}")],
     ]
     await _safe_edit_or_reply(query, update, text, reply_markup=InlineKeyboardMarkup(buttons))
 
@@ -451,7 +543,13 @@ async def tourney_seq_r3_callback(update: Update, context: ContextTypes.DEFAULT_
             pass
 
     parts = query.data.split(":")
-    m1, m2 = parts[1], parts[2]
+    if len(parts) >= 4:
+        stage = parts[1]
+        m1, m2 = parts[2], parts[3]
+    else:
+        stage = "general"
+        m1, m2 = parts[1], parts[2]
+
     icons = {"rock": "🪨 Tosh", "scissors": "✂️ Qaychi", "paper": "📜 Qog'oz"}
     text = (
         "🛠️ **SHAXSIY TAKTIKA TUZISH (3/3 RAUND):**\n\n"
@@ -461,11 +559,11 @@ async def tourney_seq_r3_callback(update: Update, context: ContextTypes.DEFAULT_
     )
     buttons = [
         [
-            InlineKeyboardButton("🪨 3-Raund: Tosh", callback_data=f"tourney_seq_save:{m1}:{m2}:rock"),
-            InlineKeyboardButton("✂️ 3-Raund: Qaychi", callback_data=f"tourney_seq_save:{m1}:{m2}:scissors"),
+            InlineKeyboardButton("🪨 3-Raund: Tosh", callback_data=f"tourney_seq_save:{stage}:{m1}:{m2}:rock"),
+            InlineKeyboardButton("✂️ 3-Raund: Qaychi", callback_data=f"tourney_seq_save:{stage}:{m1}:{m2}:scissors"),
         ],
-        [InlineKeyboardButton("📜 3-Raund: Qog'oz", callback_data=f"tourney_seq_save:{m1}:{m2}:paper")],
-        [InlineKeyboardButton("🔙 Qayta boshlash", callback_data="tourney_seq_r1")],
+        [InlineKeyboardButton("📜 3-Raund: Qog'oz", callback_data=f"tourney_seq_save:{stage}:{m1}:{m2}:paper")],
+        [InlineKeyboardButton("🔙 Qayta boshlash", callback_data=f"tourney_seq_r1:{stage}")],
     ]
     await _safe_edit_or_reply(query, update, text, reply_markup=InlineKeyboardMarkup(buttons))
 
@@ -480,7 +578,13 @@ async def tourney_seq_save_callback(update: Update, context: ContextTypes.DEFAUL
             pass
 
     parts = query.data.split(":")
-    m1, m2, m3 = parts[1], parts[2], parts[3]
+    if len(parts) >= 5:
+        stage = parts[1]
+        m1, m2, m3 = parts[2], parts[3], parts[4]
+    else:
+        stage = "general"
+        m1, m2, m3 = parts[1], parts[2], parts[3]
+
     seq_str = f"{m1},{m2},{m3}"
 
     tg_user = update.effective_user
@@ -489,10 +593,12 @@ async def tourney_seq_save_callback(update: Update, context: ContextTypes.DEFAUL
         if not user:
             return
 
-        ok, msg = await crud.update_tournament_tactic(session, user.id, tactic=m1, tactics_seq=seq_str)
+        ok, msg = await crud.update_tournament_tactic(session, user.id, tactic=m1, tactics_seq=seq_str, stage=stage)
         keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("⚙️ Boshqa bosqich taktikasini sozlash", callback_data="tourney_tactic_pick")],
             [InlineKeyboardButton("🏇 Turnir maydoniga qaytish", callback_data="menu_tourney")]
         ])
+        await _safe_edit_or_reply(query, update, msg, reply_markup=keyboard)
         await _safe_edit_or_reply(query, update, msg, reply_markup=keyboard)
 
 
@@ -630,17 +736,16 @@ async def tourney_rules_callback(update: Update, context: ContextTypes.DEFAULT_T
 
     text = (
         "📜 **QIROL QO'LI TURNIRI QOIDALARI:**\n\n"
-        "1. **8 Talik Turnir Setkasi (Knockout):**\n"
-        "Turnirda 8 nafar ritsar ishtirok etadi. Bosqichlar: 1/4 Chorak Final ➔ 1/2 Yarim Final ➔ Grand Final! Agar o'yinchilar 8 tadan kam bo'lsa, bo'sh o'rinlar Vesteros afsonaviy ritsarlari (Ser Arthur Dayne, Ser Gregor Clegane, Ser Jaime Lannister va b.) bilan to'ldiriladi.\n\n"
-        "2. **Tosh-Qaychi-Qog'oz Duel Tizimi:**\n"
-        "Har bir duel 3 raundlik to'qnashuvdan iborat:\n"
+        "1. **Cheklovsiz Ishtirok & Olimpiya Play-off Setkasi:**\n"
+        "Turnirda istalgancha lord qatnasha oladi! Ro'yxatdan o'tganlar soniga qarab setka dinamik ravishda 8, 16 yoki 32 talik formatga kengayadi (1/16 ➔ 1/8 ➔ 1/4 ➔ 1/2 ➔ Grand Final). Bo'sh o'rinlar Vesteros afsonaviy ritsarlari (Ser Arthur Dayne, Ser Gregor Clegane, Ser Jaime Lannister va b.) bilan to'ldiriladi.\n\n"
+        "2. **Har Bir Bellashuvdan Oldin Alohida Taktika:**\n"
+        "Siz turnirning har bir bosqichi (1/8 Nimchorak, Chorak final, Yarim final, Grand Final) uchun oldindan yoki bellashuvdan avval [⚙️ Taktikani Sozlash] orqali alohida taktik reja belgilashingiz mumkin!\n\n"
+        "3. **Tosh-Qaychi-Qog'oz Duel Tizimi (3 Raund):**\n"
         "• 🪨 **Tosh (Og'ir Zarba):** ✂️ Qaychini yanchadi, 📜 Qog'ozga yutqazadi.\n"
         "• ✂️ **Qaychi (Epchil Hamla):** 📜 Qog'ozni kesadi, 🪨 Toshga yutqazadi.\n"
         "• 📜 **Qog'oz (Qalqonli Mudofaa):** 🪨 Toshni to'sadi, ✂️ Qaychiga yutqazadi.\n"
-        "• 🎲 **Aralash / Tasodifiy:** Har raundda tasodifiy yurish qiladi.\n"
-        "*(Bir xil taktika to'qnashganda, ritsarlarning sof quvvati sinovdan o'tadi!)*\n\n"
-        "3. **Taktikani Sozlash:**\n"
-        "Turnir boshlanguniga qadar istalgan vaqtda [⚙️ Taktikani Sozlash] orqali taktikangizni yangilashingiz mumkin.\n\n"
+        "• 🎲 **Aralash / Kutilmagan:** Har raundda tasodifiy kutilmagan harakat.\n"
+        "*(Bir xil taktika to'qnashganda, ritsarlarning sof quvvati va afsonaviy mahorati sinovdan o'tadi!)*\n\n"
         "4. **G'oliblik va Sovrinlar:**\n"
         "• 🥇 1-O'rin (Chempion): Jamg'armaning **70%** ulushi + **100** Nufuz + **'Qirollik Chempioni'** unvoni!\n"
         "• 🥈 2-O'rin (Finalist): Jamg'armaning **30%** ulushi + **50** Nufuz!\n\n"
@@ -769,11 +874,13 @@ def register_tourney_handlers(app: Application):
     app.add_handler(CallbackQueryHandler(tourney_pick_tactic_callback, pattern="^tourney_pick_tactic:(self|champ)$"))
     app.add_handler(CallbackQueryHandler(tourney_do_enter_callback, pattern="^tourney_do_enter:(self|champ)(?::(rock|scissors|paper|random|wall|strike|viper|whirlwind))?$"))
     app.add_handler(CallbackQueryHandler(tourney_tactic_pick_callback, pattern="^tourney_tactic_pick$"))
+    app.add_handler(CallbackQueryHandler(tourney_choose_stage_callback, pattern="^tourney_choose_stage:(general|r16|qf|sf|final)$"))
+    app.add_handler(CallbackQueryHandler(tourney_set_stage_tactic_callback, pattern="^tourney_set_stage_tactic:(general|r16|qf|sf|final):(rock|scissors|paper|random|wall|strike|viper|whirlwind)$"))
     app.add_handler(CallbackQueryHandler(tourney_set_tactic_callback, pattern="^tourney_set_tactic:(rock|scissors|paper|random|wall|strike|viper|whirlwind)$"))
-    app.add_handler(CallbackQueryHandler(tourney_seq_r1_callback, pattern="^tourney_seq_r1$"))
-    app.add_handler(CallbackQueryHandler(tourney_seq_r2_callback, pattern="^tourney_seq_r2:(rock|scissors|paper)$"))
-    app.add_handler(CallbackQueryHandler(tourney_seq_r3_callback, pattern="^tourney_seq_r3:(rock|scissors|paper):(rock|scissors|paper)$"))
-    app.add_handler(CallbackQueryHandler(tourney_seq_save_callback, pattern="^tourney_seq_save:(rock|scissors|paper):(rock|scissors|paper):(rock|scissors|paper)$"))
+    app.add_handler(CallbackQueryHandler(tourney_seq_r1_callback, pattern="^tourney_seq_r1(?::(general|r16|qf|sf|final))?$"))
+    app.add_handler(CallbackQueryHandler(tourney_seq_r2_callback, pattern="^tourney_seq_r2(?::(general|r16|qf|sf|final))?:(rock|scissors|paper)$"))
+    app.add_handler(CallbackQueryHandler(tourney_seq_r3_callback, pattern="^tourney_seq_r3(?::(general|r16|qf|sf|final))?:(rock|scissors|paper):(rock|scissors|paper)$"))
+    app.add_handler(CallbackQueryHandler(tourney_seq_save_callback, pattern="^tourney_seq_save(?::(general|r16|qf|sf|final))?:(rock|scissors|paper):(rock|scissors|paper):(rock|scissors|paper)$"))
     app.add_handler(CallbackQueryHandler(tourney_history_callback, pattern="^tourney_history$"))
     app.add_handler(CallbackQueryHandler(tourney_bracket_past_callback, pattern="^tourney_bracket_past:\\d+$"))
     app.add_handler(CallbackQueryHandler(tourney_bet_pick_callback, pattern="^tourney_bet_pick$"))

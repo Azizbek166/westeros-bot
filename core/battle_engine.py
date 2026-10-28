@@ -574,14 +574,27 @@ def get_fighter_perk(fighter_name: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-def get_fighter_move(fighter: Dict[str, Any], round_num: int) -> str:
-    """Ritsarning joriy raunddagi taktikasini aniqlash"""
+def get_fighter_move(fighter: Dict[str, Any], round_num: int, stage: Optional[str] = None) -> str:
+    """Ritsarning joriy raunddagi taktikasini aniqlash (har bir bellashuv/bosqich uchun alohida tanlashni qo'llab-quvvatlaydi)"""
+    # 1. Agar aynan ushbu bosqich (masalan, chorak final yoki final) uchun alohida taktika belgilangan bo'lsa
+    stage_tactics = fighter.get("stage_tactics") or {}
+    if stage and stage in stage_tactics:
+        st_val = stage_tactics[stage]
+        if isinstance(st_val, str) and "," in st_val:
+            moves = [m.strip().lower() for m in st_val.split(",") if m.strip().lower() in RPS_MOVES]
+            if len(moves) >= round_num:
+                return moves[round_num - 1]
+        elif isinstance(st_val, str) and st_val.lower() in RPS_MOVES:
+            return st_val.lower()
+
+    # 2. Standart 3 raundlik shaxsiy ketma-ketlik
     seq_str = fighter.get("tactics_seq", "")
     if seq_str:
         moves = [m.strip().lower() for m in seq_str.split(",") if m.strip().lower() in RPS_MOVES]
         if len(moves) >= round_num:
             return moves[round_num - 1]
 
+    # 3. Yagona umumiy taktika
     tactic = str(fighter.get("tactic", "random")).lower()
     if tactic in RPS_MOVES:
         return tactic
@@ -589,7 +602,7 @@ def get_fighter_move(fighter: Dict[str, Any], round_num: int) -> str:
     return random.choice(["rock", "scissors", "paper"])
 
 
-def resolve_tourney_duel(f1: Dict[str, Any], f2: Dict[str, Any]) -> Dict[str, Any]:
+def resolve_tourney_duel(f1: Dict[str, Any], f2: Dict[str, Any], stage: Optional[str] = None) -> Dict[str, Any]:
     """
     Turnirdagi ikki ritsar o'rtasidagi Tosh-Qaychi-Qog'oz qoidasiga asoslangan 3 raundlik jang.
     - 🪨 Tosh > ✂️ Qaychi
@@ -597,6 +610,7 @@ def resolve_tourney_duel(f1: Dict[str, Any], f2: Dict[str, Any]) -> Dict[str, An
     - 📜 Qog'oz > 🪨 Tosh
     - Durrang bo'lsa: Jangchilarning quvvati (power roll) to'qnashadi.
     - Maxsus qobiliyatlar (Champion Perks) hisobga olinadi.
+    - stage parametri orqali har bir bosqich uchun alohida taktika hisobga olinadi.
     """
     p1 = f1.get("power", 100)
     p2 = f2.get("power", 100)
@@ -616,8 +630,8 @@ def resolve_tourney_duel(f1: Dict[str, Any], f2: Dict[str, Any]) -> Dict[str, An
     round_details = []
 
     for r in range(1, 4):
-        m1 = get_fighter_move(f1, r)
-        m2 = get_fighter_move(f2, r)
+        m1 = get_fighter_move(f1, r, stage=stage)
+        m2 = get_fighter_move(f2, r, stage=stage)
         info1 = RPS_MOVES.get(m1, RPS_MOVES["rock"])
         info2 = RPS_MOVES.get(m2, RPS_MOVES["rock"])
 

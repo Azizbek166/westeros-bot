@@ -2040,10 +2040,9 @@ async def send_castle_reinforcements(
     territory.garrison_cavalry += cavalry
     territory.garrison_spearmen += spearmen
 
-    # Yordamchi hisobi
-    user.prestige += 7
+    # Garnizonga askar yuborilganda prestige berilmaydi
     await session.commit()
-    return True, f"✅ Qal'a mudofaasiga +{total_sent} askar safarbar qilindi! (+7 Prestige)"
+    return True, f"✅ Qal'a mudofaasiga +{total_sent} askar safarbar qilindi!"
 
 
 async def send_castle_reinforcements_proportional(
@@ -2128,7 +2127,7 @@ async def send_castle_reinforcements_proportional(
     territory.garrison_cavalry = (territory.garrison_cavalry or 0) + s_cav
     territory.garrison_spearmen = (territory.garrison_spearmen or 0) + s_sp
 
-    user.prestige = (user.prestige or 0) + 2
+    # Garnizonga askar joylashtirilganda prestige berilmaydi
     await session.commit()
     sent_dict = {
         "infantry": s_inf,
@@ -2137,7 +2136,7 @@ async def send_castle_reinforcements_proportional(
         "spearmen": s_sp,
         "total": tot_s,
     }
-    return True, f"✅ Qal'a mudofaasiga +{tot_s:,} askar joylashtirildi! (+2 Prestige)", sent_dict
+    return True, f"✅ Qal'a mudofaasiga +{tot_s:,} askar joylashtirildi!", sent_dict
 
 
 async def withdraw_castle_reinforcements(
@@ -4568,7 +4567,6 @@ async def upgrade_castle_keep(session: AsyncSession, user_id: int, territory_id:
     territory.gold_income = int((territory.gold_income or 200) * 1.25)
     territory.food_income = int((territory.food_income or 500) * 1.25)
     territory.iron_income = int((territory.iron_income or 100) * 1.25)
-    user.prestige = (user.prestige or 0) + 5
     user.xp = (user.xp or 0) + next_lvl * 30
 
     from core.leveling import check_user_level_up
@@ -6653,6 +6651,108 @@ async def get_or_create_active_tournament(session: AsyncSession) -> Optional[mod
     return await get_active_tournament(session)
 
 
+NPC_LEGENDARY_KNIGHTS = [
+    {"name": "🗡️ Ser Arthur Dayne (Tong Qilichi)", "power": 250, "tactic": "random", "tactics_seq": "rock,scissors,paper"},
+    {"name": "⚔️ Ser Gregor Clegane (Tog')", "power": 245, "tactic": "rock", "tactics_seq": "rock,rock,rock"},
+    {"name": "🦁 Ser Jaime Lannister (Qirolo'ldiruvchi)", "power": 240, "tactic": "scissors", "tactics_seq": "scissors,rock,scissors"},
+    {"name": "🛡️ Ser Barristan Selmy (Jasur)", "power": 235, "tactic": "paper", "tactics_seq": "paper,rock,paper"},
+    {"name": "🐍 Oberyn Martell (Qizil Ilon)", "power": 235, "tactic": "scissors", "tactics_seq": "scissors,paper,scissors"},
+    {"name": "🐺 Jon Snow (Oq Bo'ri)", "power": 225, "tactic": "rock", "tactics_seq": "rock,paper,rock"},
+    {"name": "🐕 Sandor Clegane (Tazi)", "power": 225, "tactic": "rock", "tactics_seq": "rock,scissors,rock"},
+    {"name": "🌹 Ser Loras Tyrell (Gullar Ritsari)", "power": 215, "tactic": "paper", "tactics_seq": "paper,scissors,paper"},
+    {"name": "🐉 Shahzoda Daemon Targaryen (Murtad)", "power": 248, "tactic": "rock", "tactics_seq": "rock,scissors,rock"},
+    {"name": "🐲 Shahzoda Aemon (Ajdarlar Ritsari)", "power": 246, "tactic": "paper", "tactics_seq": "paper,paper,rock"},
+    {"name": "🛡️ Ser Criston Cole (Qirol Tuzuvchi)", "power": 242, "tactic": "scissors", "tactics_seq": "scissors,scissors,paper"},
+    {"name": "👑 Shahzoda Rhaegar Targaryen", "power": 238, "tactic": "rock", "tactics_seq": "rock,scissors,paper"},
+    {"name": "🦌 Robert Baratheon (G'olib)", "power": 244, "tactic": "rock", "tactics_seq": "rock,rock,rock"},
+    {"name": "🌻 Ser Garlan Tyrell (Mardonavor)", "power": 232, "tactic": "scissors", "tactics_seq": "scissors,rock,paper"},
+    {"name": "🗡️ Syrio Forel (Braavos Birinchi Qilichi)", "power": 228, "tactic": "scissors", "tactics_seq": "scissors,scissors,paper"},
+    {"name": "🗡️ Bronn (Qora Suv Lordi)", "power": 218, "tactic": "random", "tactics_seq": "random,random,random"},
+    {"name": "🐻 Ser Jorah Mormont (Sadoqatli)", "power": 212, "tactic": "paper", "tactics_seq": "paper,rock,paper"},
+    {"name": "⚡ Beric Dondarrion (Yashin Lordi)", "power": 215, "tactic": "rock", "tactics_seq": "rock,scissors,rock"},
+    {"name": "🐙 Victarion Greyjoy (Temir Qo'l)", "power": 226, "tactic": "rock", "tactics_seq": "rock,rock,rock"},
+    {"name": "🐎 Xal Drogo (Buyuk Otliq)", "power": 236, "tactic": "rock", "tactics_seq": "rock,scissors,rock"},
+    {"name": "🏹 Brynden Tully (Qora Baliq)", "power": 220, "tactic": "paper", "tactics_seq": "paper,paper,rock"},
+    {"name": "🛡️ Ser Gerold Hightower (Oq Buqa)", "power": 234, "tactic": "paper", "tactics_seq": "paper,paper,rock"},
+    {"name": "🦇 Ser Oswell Whent", "power": 228, "tactic": "scissors", "tactics_seq": "scissors,rock,scissors"},
+    {"name": "☀️ Shahzoda Lewyn Martell", "power": 226, "tactic": "scissors", "tactics_seq": "scissors,scissors,paper"},
+    {"name": "🗡️ Gerold Dayne (Qorong'u Yulduz)", "power": 220, "tactic": "rock", "tactics_seq": "rock,scissors,rock"},
+    {"name": "🪓 Areo Hotah (Norvos Qo'riqchisi)", "power": 225, "tactic": "rock", "tactics_seq": "rock,rock,rock"},
+    {"name": "❄️ Tormund Giantsbane (Devkush)", "power": 214, "tactic": "rock", "tactics_seq": "rock,rock,scissors"},
+    {"name": "🐺 Robb Stark (Yosh Bo'ri)", "power": 228, "tactic": "rock", "tactics_seq": "rock,scissors,paper"},
+    {"name": "🦁 Tywin Lannister (Kasterli Qoyasi)", "power": 210, "tactic": "paper", "tactics_seq": "paper,paper,paper"},
+    {"name": "⚔️ Ser Duncan the Tall (Baland)", "power": 230, "tactic": "rock", "tactics_seq": "rock,paper,rock"},
+    {"name": "🗡️ Qhorin Halfhand (Yarimqo'l)", "power": 224, "tactic": "scissors", "tactics_seq": "scissors,scissors,paper"},
+    {"name": "🐻 Greatjon Umber (Devqomat)", "power": 222, "tactic": "rock", "tactics_seq": "rock,rock,rock"},
+]
+
+
+def get_bracket_size(num_participants: int) -> int:
+    """Turnir setkasi o'lchamini hisoblash (Olimpiya 8, 16, 32, 64)"""
+    if num_participants <= 8:
+        return 8
+    elif num_participants <= 16:
+        return 16
+    elif num_participants <= 32:
+        return 32
+    else:
+        p = 32
+        while p < num_participants:
+            p *= 2
+        return p
+
+
+def parse_participant_tactics(part: models.TournamentParticipant) -> dict:
+    """Ishtirokchining umumiy va bosqichlar bo'yicha taktikalarini olish"""
+    raw_seq = getattr(part, "tactics_seq", "") or ""
+    tactic = getattr(part, "tactic", "rock") or "rock"
+    result = {
+        "default": raw_seq if raw_seq and not raw_seq.startswith("{") else f"{tactic},{tactic},{tactic}",
+        "stages": {},
+    }
+    if raw_seq.startswith("{"):
+        try:
+            data = json.loads(raw_seq)
+            if "default" in data:
+                result["default"] = data["default"]
+            for k, v in data.items():
+                if k != "default":
+                    result["stages"][k] = v
+        except Exception:
+            pass
+    return result
+
+
+def format_participant_tactics_summary(part: models.TournamentParticipant) -> str:
+    """Foydalanuvchi interfeysi uchun taktikalar xulosasi"""
+    p_info = parse_participant_tactics(part)
+    icons = {"rock": "🪨 Tosh", "scissors": "✂️ Qaychi", "paper": "📜 Qog'oz", "random": "🎲 Kutilmagan"}
+
+    def _fmt_seq(seq_str):
+        if not seq_str:
+            return "🪨 Tosh"
+        items = [icons.get(x.strip().lower(), x) for x in seq_str.split(",")[:3]]
+        return " ➔ ".join(items) if len(items) > 1 else items[0]
+
+    stage_names = {
+        "r16": "⚔️ 1/8 Nimchorak",
+        "qf": "🛡️ 1/4 Chorak Final",
+        "sf": "⚡ 1/2 Yarim Final",
+        "final": "👑 Grand Final",
+    }
+
+    lines = [
+        f"• **Umumiy Asosiy Taktika:** {_fmt_seq(p_info['default'])}"
+    ]
+    for st_key, st_title in stage_names.items():
+        if st_key in p_info["stages"]:
+            lines.append(f"• **{st_title}:** {_fmt_seq(p_info['stages'][st_key])}")
+        else:
+            lines.append(f"• **{st_title}:** _Umumiy taktika bo'yicha_")
+
+    return "\n".join(lines)
+
+
 async def enter_tournament(
     session: AsyncSession,
     user_id: int,
@@ -6660,13 +6760,10 @@ async def enter_tournament(
     tactic: str = "rock",
     tactics_seq: str = "rock,scissors,paper",
 ) -> Tuple[bool, str]:
-    """Turnirga qatnashish (Kirish to'lovi: 2,000 Oltin, Maksimal: 8 ritsar)"""
+    """Turnirga qatnashish (Cheklovsiz ishtirokchilar, Kirish to'lovi: 500 Oltin)"""
     tourney = await get_active_tournament(session)
     if not tourney:
         return False, "❌ Ayni paytda faol ritsarlar turniri mavjud emas. Yangi turnir e'lon qilinishini kuting!"
-
-    if len(tourney.participants or []) >= 8:
-        return False, "❌ Ushbu turnirning barcha 8 ta o'rni to'lgan! Navbatdagi turnirni kuting."
 
     user_res = await session.execute(select(models.User).where(models.User.id == user_id))
     user = user_res.scalar_one_or_none()
@@ -6743,13 +6840,15 @@ async def enter_tournament(
     session.add(part)
     await session.commit()
 
+    parts_count = len(tourney.participants or [])
     return True, (
         f"🏇⚔️ **TURNIRGA QO'SHILDINGIZ!**\n\n"
         f"Jangchi: **{fighter_name}**\n"
         f"Jang kuchi: **{fighter_power}** quvvat\n"
-        f"🎯 Jang Taktikasi: **{t_label}**\n"
-        f"💰 Xazinaga +{fee:,} Oltin qo'shildi. Umumiy Jamg'arma: **{tourney.prize_pool:,}** Oltin!\n\n"
-        f"Turnir setkasi shakllantirilmoqda. G'oliblik sari omad yor bo'lsin!"
+        f"🎯 Boshlang'ich Taktika: **{t_label}**\n"
+        f"💰 Xazinaga +{fee:,} Oltin qo'shildi. Umumiy Jamg'arma: **{tourney.prize_pool:,}** Oltin!\n"
+        f"👥 Hozircha ishtirokchilar: **{parts_count}** nafar\n\n"
+        f"💡 _Eslatma: Har bir bosqich/bellashuvdan oldin o'z taktikangizni [⚙️ Taktikani Sozlash] orqali alohida o'zgartirishingiz mumkin!_"
     )
 
 
@@ -6758,8 +6857,9 @@ async def update_tournament_tactic(
     user_id: int,
     tactic: str,
     tactics_seq: Optional[str] = None,
+    stage: Optional[str] = None,
 ) -> Tuple[bool, str]:
-    """Turnir ishtirokchisining jang taktikasini o'zgartirish (Shablonlar va 3-raundlik ketma-ketlik)"""
+    """Turnir ishtirokchisining jang taktikasini o'zgartirish (Umumiy yoki har bir bosqich uchun alohida)"""
     tourney = await get_active_tournament(session)
     if not tourney:
         return False, "❌ Faol turnir topilmadi."
@@ -6804,24 +6904,19 @@ async def update_tournament_tactic(
 
     if tactic in presets:
         preset_info = presets[tactic]
-        part.tactic = preset_info["tactic"]
-        part.tactics_seq = preset_info["seq"]
+        eff_tactic = preset_info["tactic"]
+        eff_seq = preset_info["seq"]
         display_label = preset_info["label"]
     elif tactics_seq and "," in tactics_seq:
-        part.tactic = tactic
-        part.tactics_seq = tactics_seq
-        # Chiroyli ketma-ketlik matni
+        eff_tactic = tactic
+        eff_seq = tactics_seq
         seq_parts = [p.strip().lower() for p in tactics_seq.split(",")]
         icons = {"rock": "🪨 Tosh", "scissors": "✂️ Qaychi", "paper": "📜 Qog'oz", "random": "🎲 Tasodifiy"}
         seq_str = " ➔ ".join([icons.get(x, x) for x in seq_parts[:3]])
         display_label = f"🛠️ Maxsus Ketma-ketlik ({seq_str})"
     else:
-        part.tactic = tactic
-        if tactic != "random":
-            part.tactics_seq = f"{tactic},{tactic},{tactic}"
-        else:
-            part.tactics_seq = "random,random,random"
-
+        eff_tactic = tactic
+        eff_seq = f"{tactic},{tactic},{tactic}" if tactic != "random" else "random,random,random"
         tactic_labels = {
             "rock": "🪨 Tosh (Og'ir Zarba)",
             "scissors": "✂️ Qaychi (Epchil Hamla)",
@@ -6830,54 +6925,91 @@ async def update_tournament_tactic(
         }
         display_label = tactic_labels.get(tactic, tactic)
 
+    # Agar ma'lum bir bosqich uchun belgilansa (masalan, qf, sf, final, r16)
+    stage_names = {
+        "r16": "⚔️ 1/8 Nimchorak Final",
+        "qf": "🛡️ 1/4 Chorak Final",
+        "sf": "⚡ 1/2 Yarim Final",
+        "final": "👑 Grand Final",
+    }
+
+    if stage and stage in stage_names:
+        raw_seq = getattr(part, "tactics_seq", "") or ""
+        data = {}
+        if raw_seq.startswith("{"):
+            try:
+                data = json.loads(raw_seq)
+            except Exception:
+                data = {}
+        else:
+            data["default"] = raw_seq if raw_seq else f"{part.tactic},{part.tactic},{part.tactic}"
+        data[stage] = eff_seq
+        part.tactics_seq = json.dumps(data, ensure_ascii=False)
+        msg_title = f"**{stage_names[stage]}** bellashuvi uchun maxsus taktikangiz"
+    else:
+        # Umumiy asosiy taktika
+        part.tactic = eff_tactic
+        raw_seq = getattr(part, "tactics_seq", "") or ""
+        if raw_seq.startswith("{"):
+            try:
+                data = json.loads(raw_seq)
+            except Exception:
+                data = {}
+            data["default"] = eff_seq
+            part.tactics_seq = json.dumps(data, ensure_ascii=False)
+        else:
+            part.tactics_seq = eff_seq
+        msg_title = "Turnirdagi umumiy asosiy jang taktikangiz"
+
     await session.commit()
-    return True, f"✅ Turnirdagi jang taktikangiz muvaffaqiyatli belgilandi:\n**{display_label}**!"
+    return True, f"✅ {msg_title} muvaffaqiyatli belgilandi:\n**{display_label}**!"
 
 
 def format_tournament_bracket_view(bracket_data: dict, is_completed: bool = False) -> str:
-    """Turnir setkasini chiroyli matn va grafik ko'rinishda formatlash"""
-    if not bracket_data or not bracket_data.get("quarterfinals"):
+    """Turnir setkasini chiroyli matn va grafik ko'rinishda formatlash (8, 16, 32 talik setkalar)"""
+    if not bracket_data:
         return "📊 *Turnir setkasi hali shakllantirilmagan.*"
 
-    qfs = bracket_data.get("quarterfinals", [])
-    sfs = bracket_data.get("semifinals", [])
-    fn = bracket_data.get("final", {})
+    stages = bracket_data.get("stages", {})
+    if not stages:
+        stages = {}
+        if bracket_data.get("quarterfinals"):
+            stages["qf"] = bracket_data["quarterfinals"]
+        if bracket_data.get("semifinals"):
+            stages["sf"] = bracket_data["semifinals"]
+        if bracket_data.get("final"):
+            f_val = bracket_data["final"]
+            stages["final"] = [f_val] if isinstance(f_val, dict) else f_val
+
+    b_size = bracket_data.get("bracket_size", 8)
     champ = bracket_data.get("champion", {})
     runner = bracket_data.get("runner_up", {})
 
-    lines = [
-        "📊 ══════ ⚔️ **TURNIR SETKASI (8 TALIK)** ⚔️ ══════ 📊\n"
+    stage_order = [
+        ("r32", "1/16 SARALASH FINALLAR (32 Talik)"),
+        ("r16", "1/8 NIMCHORAK FINALLAR (16 Talik)"),
+        ("qf", "1/4 CHORAK FINALLAR"),
+        ("sf", "1/2 YARIM FINALLAR"),
+        ("final", "GRAND FINAL (QIROLLIK CHEMPIONLIGI)"),
     ]
 
-    # 1/4 Final
-    lines.append("🤺 **1/4 CHORAK FINALLAR (Tosh-Qaychi-Qog'oz):**")
-    for idx, q in enumerate(qfs, 1):
-        f1_name = q.get("f1_name", "Noma'lum")
-        f2_name = q.get("f2_name", "Noma'lum")
-        score = q.get("score", "-:-")
-        win_name = q.get("winner_name", "Kutilmoqda")
-        lines.append(f"  **Q{idx}:** {f1_name} 🆚 {f2_name}")
-        lines.append(f"       ┗ 🏅 G'olib: **{win_name}** ({score})\n")
+    lines = [
+        f"📊 ══════ ⚔️ **TURNIR SETKASI ({b_size} TALIK PLAY-OFF)** ⚔️ ══════ 📊\n"
+    ]
 
-    # 1/2 Final
-    if sfs:
-        lines.append("⚡ **1/2 YARIM FINALLAR:**")
-        for idx, s in enumerate(sfs, 1):
-            f1_name = s.get("f1_name", "Noma'lum")
-            f2_name = s.get("f2_name", "Noma'lum")
-            score = s.get("score", "-:-")
-            win_name = s.get("winner_name", "Kutilmoqda")
-            lines.append(f"  **SF{idx}:** {f1_name} 🆚 {f2_name}")
-            lines.append(f"        ┗ 🏅 G'olib: **{win_name}** ({score})\n")
-
-    # Final
-    if fn:
-        f1_name = fn.get("f1_name", "Noma'lum")
-        f2_name = fn.get("f2_name", "Noma'lum")
-        score = fn.get("score", "-:-")
-        lines.append("👑 **GRAND FINAL:**")
-        lines.append(f"  🏆 {f1_name} 🆚 {f2_name}")
-        lines.append(f"      ┗ 👑 CHEMPION: **{champ.get('name', 'Noma\'lum')}** ({score})\n")
+    for st_code, st_header in stage_order:
+        matches = stages.get(st_code, [])
+        if not matches:
+            continue
+        lines.append(f"🤺 **{st_header}:**")
+        for idx, m in enumerate(matches, 1):
+            f1_name = m.get("f1_name", "Noma'lum")
+            f2_name = m.get("f2_name", "Noma'lum")
+            score = m.get("score", "-:-")
+            win_name = m.get("winner_name", "Kutilmoqda")
+            tag = f"{st_code.upper()}-{idx}" if st_code != "final" else "FINAL"
+            lines.append(f"  **{tag}:** {f1_name} 🆚 {f2_name}")
+            lines.append(f"       ┗ 🏅 G'olib: **{win_name}** ({score})\n")
 
     if is_completed and champ:
         lines.append(f"🥇 **QIROLLIK CHEMPIONI:** {champ.get('name')}")
@@ -6888,14 +7020,13 @@ def format_tournament_bracket_view(bracket_data: dict, is_completed: bool = Fals
 
 
 async def get_tournament_bracket_display(session: AsyncSession, tourney_id: Optional[int] = None) -> str:
-    """Turnir setkasini ko'rish uchun formatlangan xabar olish"""
+    """Turnir setkasini ko'rish uchun formatlangan xabar olish (Kim bilan kim bellashishi to'liq ko'rsatiladi)"""
     tourney = None
     if tourney_id:
         tourney = await session.get(models.Tournament, tourney_id)
     else:
         tourney = await get_active_tournament(session)
         if not tourney:
-            # So'nggi yakunlangan turnirni tekshirish
             last_res = await session.execute(
                 select(models.Tournament)
                 .where(models.Tournament.status == "completed")
@@ -6915,128 +7046,59 @@ async def get_tournament_bracket_display(session: AsyncSession, tourney_id: Opti
         except Exception:
             pass
 
-    # Faol turnirning kutilayotgan setkasi (ro'yxatdan o'tganlar asosida)
+    # Faol turnirning kutilayotgan setkasi va qur'a juftliklari
     parts = list(tourney.participants or [])
+    num_p = len(parts)
+    k_size = get_bracket_size(num_p)
+    npc_needed = max(0, k_size - num_p)
+
+    stage_title = "1/4 Chorak Final" if k_size == 8 else ("1/8 Nimchorak Final" if k_size == 16 else "1/16 Saralash")
+
     lines = [
         f"📊 ══════ ⚔️ **{tourney.name} SETKASI** ⚔️ ══════ 📊\n",
-        f"📋 **Holat:** 🟢 Ro'yxatdan o'tish davom etmoqda ({len(parts)}/8 ritsar)",
-        f"💰 **Jamg'arma:** **{tourney.prize_pool:,}** Oltin\n",
-        "⚔️ **1/4 Chorak Final Qur'asi (8 Talik Setka):**",
+        f"📋 **Holat:** 🟢 Ro'yxatdan o'tish ochiq (Jami: **{num_p}** nafar ritsar)",
+        f"⚔️ **Format:** **{k_size} talik Olimpiya Play-off tizimi**",
+        f"💰 **Jamg'arma:** **{tourney.prize_pool:,}** Oltin",
+        f"🛡️ *Bo'sh o'rinlar ({npc_needed} ta) Vesteros afsonaviy NPC ritsarlari bilan to'ldiriladi.*\n",
+        f"🤺 **1-BOSQICH JUFTLIKLARI VA QUR'A ({stage_title}):**",
     ]
 
     slots = []
-    for i in range(8):
-        if i < len(parts):
+    for i in range(k_size):
+        if i < num_p:
             p = parts[i]
             tactic_icon = "🪨" if getattr(p, "tactic", "rock") == "rock" else ("✂️" if getattr(p, "tactic", "") == "scissors" else "📜")
-            slots.append(f"[{i+1}] {p.fighter_name} ({p.fighter_power}⚡ {tactic_icon})")
+            clean_pname = p.fighter_name
+            slots.append(f"[{i+1}] {clean_pname} ({p.fighter_power}⚡ {tactic_icon})")
         else:
-            slots.append(f"[{i+1}] _(Kutilayotgan ritsar / NPC)_")
+            slots.append(f"[{i+1}] _(Kutilayotgan ritsar / Afsonaviy NPC)_")
 
-    lines.append(f"  **Q1:** {slots[0]} 🆚 {slots[1]}")
-    lines.append(f"  **Q2:** {slots[2]} 🆚 {slots[3]}")
-    lines.append(f"  **Q3:** {slots[4]} 🆚 {slots[5]}")
-    lines.append(f"  **Q4:** {slots[6]} 🆚 {slots[7]}\n")
-    lines.append("⚡ **1/2 Yarim Final:** G'olib(Q1) vs G'olib(Q2)  |  G'olib(Q3) vs G'olib(Q4)")
-    lines.append("👑 **Final:** Yarim final g'oliblari to'qnashuvi\n")
-    lines.append("💡 *Turnir boshlanganda bo'sh o'rinlar Vesteros afsonalari bilan to'ldiriladi va barcha janglar Tosh-Qaychi-Qog'oz qoidasi bilan hal etiladi!*")
+    num_pairs = k_size // 2
+    for j in range(num_pairs):
+        f1_str = slots[j * 2]
+        f2_str = slots[j * 2 + 1]
+        lines.append(f"  • **Juftlik #{j+1}:** {f1_str} 🆚 {f2_str}")
+
+    lines.append("\n⚡ **Musobaqa zanjiri (Yo'l xaritasi):**")
+    if k_size == 16:
+        lines.append("• 1/4 Chorak Final: J1 vs J2  |  J3 vs J4  |  J5 vs J6  |  J7 vs J8")
+        lines.append("• 1/2 Yarim Final: QF1 vs QF2  |  QF3 vs QF4")
+        lines.append("• 👑 Grand Final: SF1 vs SF2")
+    elif k_size == 8:
+        lines.append("• 1/2 Yarim Final: J1 vs J2  |  J3 vs J4")
+        lines.append("• 👑 Grand Final: SF1 vs SF2")
+    elif k_size == 32:
+        lines.append("• 1/8 Nimchorak Final ➔ 1/4 Chorak Final ➔ 1/2 Yarim Final ➔ Grand Final")
+
+    lines.append("\n💡 *Cheklov yo'q: istalgancha o'yinchi qo'shilishi mumkin! Har bir bellashuvdan oldin o'z taktikangizni erkin o'zgartirishingiz mumkin.*")
 
     return "\n".join(lines)
-
-
-async def get_tournament_history(session: AsyncSession, limit: int = 5) -> List[Dict[str, Any]]:
-    """O'tgan yakunlangan turnirlar tarixi va shon-sharaf zalini olish"""
-    res = await session.execute(
-        select(models.Tournament)
-        .where(models.Tournament.status == "completed")
-        .order_by(desc(models.Tournament.id))
-        .limit(limit)
-    )
-    tourneys = res.scalars().all()
-    history = []
-    for t in tourneys:
-        b_data = {}
-        if t.bracket_json and t.bracket_json != "{}":
-            try:
-                b_data = json.loads(t.bracket_json)
-            except Exception:
-                b_data = {}
-        history.append({
-            "id": t.id,
-            "name": t.name,
-            "winner_name": t.winner_name or "Noma'lum",
-            "prize_pool": t.prize_pool or 0,
-            "concluded_at": t.concluded_at,
-            "bracket": b_data,
-        })
-    return history
-
-
-async def place_tournament_bet(
-    session: AsyncSession,
-    user_id: int,
-    participant_id: int,
-    bet_gold: int,
-) -> Tuple[bool, str]:
-    """Turnir ishtirokchisiga stavka tikish (500 - 5,000 Oltin)"""
-    if bet_gold < 500 or bet_gold > 5000:
-        return False, "❌ Stavka miqdori 500 dan 5,000 Oltin oralig'ida bo'lishi kerak."
-
-    tourney = await get_active_tournament(session)
-    if not tourney:
-        return False, "❌ Faol turnir topilmadi."
-
-    user_res = await session.execute(select(models.User).where(models.User.id == user_id))
-    user = user_res.scalar_one_or_none()
-    if not user:
-        return False, "❌ O'yinchi topilmadi."
-
-    if user.gold < bet_gold:
-        return False, f"❌ Stavka uchun {bet_gold:,}💰 Oltin kerak! (Sizda: {user.gold:,}💰)"
-
-    # Ishtirokchini tekshirish
-    part = await session.get(models.TournamentParticipant, participant_id)
-    if not part or part.tournament_id != tourney.id:
-        return False, "❌ Bunday ishtirokchi mavjud emas."
-
-    # Avvalgi stavka bormi?
-    existing_bet = await session.execute(
-        select(models.TournamentBet).where(
-            models.TournamentBet.tournament_id == tourney.id,
-            models.TournamentBet.user_id == user.id,
-            models.TournamentBet.participant_id == participant_id,
-        )
-    )
-    if existing_bet.scalar_one_or_none():
-        return False, "❌ Siz ushbu jangchiga allaqachon stavka tikgansiz!"
-
-    user.gold -= bet_gold
-    tourney.prize_pool += bet_gold
-
-    new_bet = models.TournamentBet(
-        tournament_id=tourney.id,
-        user_id=user.id,
-        participant_id=participant_id,
-        bet_gold=bet_gold,
-        status="placed",
-        created_at=datetime.utcnow(),
-    )
-    session.add(new_bet)
-    await session.commit()
-
-    return True, (
-        f"💰🎯 **STAVKA QABUL QILINDI!**\n\n"
-        f"Jangchi: **{part.fighter_name}**\n"
-        f"Tikilgan miqdor: **{bet_gold:,}** Oltin\n"
-        f"Kutilayotgan yutuq: **{int(bet_gold * 1.8):,}** Oltin (1.8x)\n"
-        f"Turnir jamg'armasi: **{tourney.prize_pool:,}** Oltin!"
-    )
 
 
 async def resolve_tournament(session: AsyncSession, bot_app=None) -> Tuple[bool, str]:
     """
     Turnirni yakunlash va g'oliblarni taqdirlash.
-    8 talik saralash setkasi (Quarterfinals -> Semifinals -> Final) va Tosh-Qaychi-Qog'oz jangi.
+    Cheklovsiz ishtirokchilar (8, 16, 32 talik dinamik setka) va har bir bellashuv uchun alohida taktika.
     """
     from core.battle_engine import resolve_tourney_duel
 
@@ -7045,29 +7107,20 @@ async def resolve_tournament(session: AsyncSession, bot_app=None) -> Tuple[bool,
         return False, "❌ Faol turnir topilmadi."
 
     parts = list(tourney.participants or [])
+    num_real = len(parts)
 
-    # NPC afsonaviy ritsarlar zaxirasi
-    npc_pool = [
-        {"name": "🗡️ Ser Arthur Dayne (Tong Qilichi)", "power": 250, "tactic": "random", "tactics_seq": "rock,scissors,paper"},
-        {"name": "⚔️ Ser Gregor Clegane (Tog')", "power": 245, "tactic": "rock", "tactics_seq": "rock,rock,rock"},
-        {"name": "🦁 Ser Jaime Lannister (Qirolo'ldiruvchi)", "power": 240, "tactic": "scissors", "tactics_seq": "scissors,rock,scissors"},
-        {"name": "🛡️ Ser Barristan Selmy (Jasur)", "power": 235, "tactic": "paper", "tactics_seq": "paper,rock,paper"},
-        {"name": "🐍 Oberyn Martell (Qizil Ilon)", "power": 235, "tactic": "scissors", "tactics_seq": "scissors,paper,scissors"},
-        {"name": "🐺 Jon Snow (Oq Bo'ri)", "power": 225, "tactic": "rock", "tactics_seq": "rock,paper,rock"},
-        {"name": "🐕 Sandor Clegane (Tazi)", "power": 225, "tactic": "rock", "tactics_seq": "rock,scissors,rock"},
-        {"name": "🌹 Ser Loras Tyrell (Gullar Ritsari)", "power": 215, "tactic": "paper", "tactics_seq": "paper,scissors,paper"},
-    ]
+    # Kamida 8 talik yoki keyingi power-of-2 setka
+    k_size = get_bracket_size(num_real)
 
-    # Agar 8 tadan kam bo'lsa, NPC lar bilan to'ldirish
     existing_names = {p.fighter_name for p in parts}
     npc_ids = set()
 
-    # Biror mavjud user_id olish (tizim/NPC bog'lanishi uchun)
     sys_uid_res = await session.execute(select(models.User.id).limit(1))
     sys_uid = sys_uid_res.scalar() or 1
 
-    for npc in npc_pool:
-        if len(parts) >= 8:
+    # Bo'sh o'rinlarni NPC afsonaviy ritsarlar bilan to'ldirish
+    for npc in NPC_LEGENDARY_KNIGHTS:
+        if len(parts) >= k_size:
             break
         if npc["name"] in existing_names:
             continue
@@ -7081,104 +7134,102 @@ async def resolve_tournament(session: AsyncSession, bot_app=None) -> Tuple[bool,
             joined_at=datetime.utcnow(),
         )
         session.add(npc_part)
-        tourney.prize_pool += 500  # NPC kirish to'lovi bonusi
+        tourney.prize_pool += 500
         parts.append(npc_part)
+        npc_ids.add(npc_part.id)
+
+    # Agar 32 tadan ko'p bo'lsa va zaxira yetmasa
+    idx_counter = 1
+    while len(parts) < k_size:
+        gen_name = f"🛡️ Ser Vesteros Ritsari #{idx_counter}"
+        npc_part = models.TournamentParticipant(
+            tournament_id=tourney.id,
+            user_id=sys_uid,
+            fighter_name=gen_name,
+            fighter_power=210 + (idx_counter % 25),
+            tactic="random",
+            tactics_seq="rock,scissors,paper",
+            joined_at=datetime.utcnow(),
+        )
+        session.add(npc_part)
+        tourney.prize_pool += 500
+        parts.append(npc_part)
+        npc_ids.add(npc_part.id)
+        idx_counter += 1
 
     await session.flush()
     for p in parts:
-        if any(npc["name"] == p.fighter_name for npc in npc_pool):
+        if any(npc["name"] == p.fighter_name for npc in NPC_LEGENDARY_KNIGHTS):
             npc_ids.add(p.id)
 
-    # 8 ritsarni tasodifiy qur'a bilan setkaga joylashtirish
+    # Qur'a tashlash
     random.shuffle(parts)
-    fighters = [
-        {
+
+    fighters = []
+    for p in parts[:k_size]:
+        t_info = parse_participant_tactics(p)
+        fighters.append({
             "id": p.id,
             "user_id": p.user_id,
             "name": p.fighter_name,
             "power": p.fighter_power,
             "tactic": getattr(p, "tactic", "rock") or "rock",
-            "tactics_seq": getattr(p, "tactics_seq", "rock,scissors,paper") or "rock,scissors,paper",
+            "tactics_seq": t_info["default"],
+            "stage_tactics": t_info["stages"],
             "is_npc": (p.id in npc_ids),
-        }
-        for p in parts[:8]
-    ]
+        })
+
+    # Bosqichlar ketma-ketligi
+    if k_size == 32:
+        stage_sequence = [("r32", "1/16 Final"), ("r16", "1/8 Nimchorak Final"), ("qf", "1/4 Chorak Final"), ("sf", "1/2 Yarim Final")]
+    elif k_size == 16:
+        stage_sequence = [("r16", "1/8 Nimchorak Final"), ("qf", "1/4 Chorak Final"), ("sf", "1/2 Yarim Final")]
+    else:
+        stage_sequence = [("qf", "1/4 Chorak Final"), ("sf", "1/2 Yarim Final")]
 
     duel_chronicle = []
+    bracket_stages = {}
+    current_fighters = fighters
 
-    # ============================================================
-    # 1/4 FINAL (4 TA JANG)
-    # ============================================================
-    duel_chronicle.append("🤺 **1/4 CHORAK FINAL JANGILARI (Tosh-Qaychi-Qog'oz):**")
-    qf_matches = []
-    sf_fighters = []
+    for st_code, st_title in stage_sequence:
+        duel_chronicle.append(f"\n\n⚔️ **{st_title.upper()} (Tosh-Qaychi-Qog'oz):**")
+        stage_matches = []
+        next_fighters = []
+        n_duels = len(current_fighters) // 2
+        for i in range(n_duels):
+            f1 = current_fighters[i * 2]
+            f2 = current_fighters[i * 2 + 1]
+            res = resolve_tourney_duel(f1, f2, stage=st_code)
+            winner = res["winner"]
+            loser = res["loser"]
+            next_fighters.append(winner)
 
-    for i in range(4):
-        f1 = fighters[i * 2]
-        f2 = fighters[i * 2 + 1]
-        res = resolve_tourney_duel(f1, f2)
-        winner = res["winner"]
-        loser = res["loser"]
-        sf_fighters.append(winner)
+            stage_matches.append({
+                "match": i + 1,
+                "f1_id": f1["id"],
+                "f1_name": f1["name"],
+                "f2_id": f2["id"],
+                "f2_name": f2["name"],
+                "winner_id": winner["id"],
+                "winner_name": winner["name"],
+                "score": f"{res['score_winner']}:{res['score_loser']}",
+                "log": res["log"],
+            })
 
-        qf_matches.append({
-            "match": i + 1,
-            "f1_id": f1["id"],
-            "f1_name": f1["name"],
-            "f2_id": f2["id"],
-            "f2_name": f2["name"],
-            "winner_id": winner["id"],
-            "winner_name": winner["name"],
-            "score": f"{res['score_winner']}:{res['score_loser']}",
-            "log": res["log"],
-        })
+            tag = f"{st_code.upper()}-{i+1}"
+            duel_chronicle.append(
+                f"\n⚔️ **{tag}: {f1['name']}** VS **{f2['name']}**\n"
+                f"{res['log']}\n"
+                f"🏅 G'olib: **{winner['name']}** ({res['score_winner']}:{res['score_loser']})"
+            )
+        bracket_stages[st_code] = stage_matches
+        current_fighters = next_fighters
 
-        duel_chronicle.append(
-            f"\n⚔️ **Q{i+1}: {f1['name']}** VS **{f2['name']}**\n"
-            f"{res['log']}\n"
-            f"🏅 G'olib: **{winner['name']}** ({res['score_winner']}:{res['score_loser']})"
-        )
-
-    # ============================================================
-    # 1/2 FINAL (2 TA JANG)
-    # ============================================================
-    duel_chronicle.append("\n\n⚡ **1/2 YARIM FINAL JANGILARI:**")
-    sf_matches = []
-    final_fighters = []
-
-    for i in range(2):
-        f1 = sf_fighters[i * 2]
-        f2 = sf_fighters[i * 2 + 1]
-        res = resolve_tourney_duel(f1, f2)
-        winner = res["winner"]
-        loser = res["loser"]
-        final_fighters.append(winner)
-
-        sf_matches.append({
-            "match": i + 1,
-            "f1_id": f1["id"],
-            "f1_name": f1["name"],
-            "f2_id": f2["id"],
-            "f2_name": f2["name"],
-            "winner_id": winner["id"],
-            "winner_name": winner["name"],
-            "score": f"{res['score_winner']}:{res['score_loser']}",
-            "log": res["log"],
-        })
-
-        duel_chronicle.append(
-            f"\n⚔️ **SF{i+1}: {f1['name']}** VS **{f2['name']}**\n"
-            f"{res['log']}\n"
-            f"🏅 G'olib: **{winner['name']}** ({res['score_winner']}:{res['score_loser']})"
-        )
-
-    # ============================================================
-    # GRAND FINAL (1 TA JANG)
-    # ============================================================
+    # GRAND FINAL
     duel_chronicle.append("\n\n👑 **GRAND FINAL (QIROLLIK CHEMPIONLIGI UCHUN):**")
-    f_final1 = final_fighters[0]
-    f_final2 = final_fighters[1]
-    final_res = resolve_tourney_duel(f_final1, f_final2)
+    f_final1 = current_fighters[0]
+    f_final2 = current_fighters[1]
+    final_res = resolve_tourney_duel(f_final1, f_final2, stage="final")
     champion = final_res["winner"]
     runner_up = final_res["loser"]
 
@@ -7192,6 +7243,7 @@ async def resolve_tournament(session: AsyncSession, bot_app=None) -> Tuple[bool,
         "score": f"{final_res['score_winner']}:{final_res['score_loser']}",
         "log": final_res["log"],
     }
+    bracket_stages["final"] = [final_match_dict]
 
     duel_chronicle.append(
         f"\n🏆 **FINAL: {f_final1['name']}** VS **{f_final2['name']}**\n"
@@ -7201,8 +7253,10 @@ async def resolve_tournament(session: AsyncSession, bot_app=None) -> Tuple[bool,
 
     # Setka ma'lumotlarini JSON formatda saqlash
     bracket_dict = {
-        "quarterfinals": qf_matches,
-        "semifinals": sf_matches,
+        "bracket_size": k_size,
+        "stages": bracket_stages,
+        "quarterfinals": bracket_stages.get("qf", []),
+        "semifinals": bracket_stages.get("sf", []),
         "final": final_match_dict,
         "champion": {"id": champion["id"], "user_id": champion["user_id"], "name": champion["name"], "is_npc": champion["is_npc"]},
         "runner_up": {"id": runner_up["id"], "user_id": runner_up["user_id"], "name": runner_up["name"], "is_npc": runner_up["is_npc"]},
