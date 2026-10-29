@@ -490,9 +490,9 @@ async def create_custom_house_user_and_territory(
         castle_name=clean_castle,
         owner_house_id=new_house.id,
         population=50000,
-        gold_income=320,
-        food_income=800,
-        iron_income=250,
+        gold_income=600,
+        food_income=1600,
+        iron_income=520,
         castle_tier=2,
         defense=500,
         garrison_infantry=200,
@@ -3357,17 +3357,30 @@ async def liberate_conquered_castle(session: AsyncSession, user_id: int, territo
     # Qal'aning barcha kanonik parametrlarini map_data dan asl holatiga qaytarish
     from data.map_data import TERRITORIES_DATA
     canon_info = TERRITORIES_DATA.get(terr.code, {})
+    tier_val = canon_info.get("castle_tier") if canon_info else (getattr(terr, "castle_tier", 2) or 2)
+    tier_defaults = {
+        1: {"gold": 1000, "food": 2000, "iron": 900},
+        2: {"gold": 600, "food": 1600, "iron": 520},
+        3: {"gold": 380, "food": 1100, "iron": 340},
+    }
+    d_inc = tier_defaults.get(tier_val, tier_defaults[2])
+
     if canon_info:
-        terr.gold_income = canon_info.get("gold_income", 200)
-        terr.food_income = canon_info.get("food_income", 500)
-        terr.iron_income = canon_info.get("iron_income", 100)
-        terr.castle_tier = canon_info.get("castle_tier", 2)
+        terr.gold_income = canon_info.get("gold_income", d_inc["gold"])
+        terr.food_income = canon_info.get("food_income", d_inc["food"])
+        terr.iron_income = canon_info.get("iron_income", d_inc["iron"])
+        terr.castle_tier = canon_info.get("castle_tier", tier_val)
         terr.defense = canon_info.get("defense", 500)
         terr.garrison_infantry = canon_info.get("garrison_infantry", 200)
         terr.garrison_archers = canon_info.get("garrison_archers", 100)
         terr.garrison_cavalry = canon_info.get("garrison_cavalry", 50)
         terr.garrison_spearmen = canon_info.get("garrison_spearmen", 50)
     else:
+        # Yangi ochilgan yoki custom qal'alar uchun Tier standart ko'rsatkichlari tiklanadi
+        terr.gold_income = d_inc["gold"]
+        terr.food_income = d_inc["food"]
+        terr.iron_income = d_inc["iron"]
+        terr.castle_tier = tier_val
         terr.defense = 500
         terr.garrison_infantry = 200
         terr.garrison_archers = 100
@@ -4598,6 +4611,17 @@ async def upgrade_castle_keep(session: AsyncSession, user_id: int, territory_id:
         territory.food_income = canon_info.get("food_income", territory.food_income)
         territory.iron_income = canon_info.get("iron_income", territory.iron_income)
         territory.castle_tier = canon_info.get("castle_tier", territory.castle_tier)
+    else:
+        tier_val = getattr(territory, "castle_tier", 2) or 2
+        tier_defaults = {
+            1: {"gold": 1000, "food": 2000, "iron": 900},
+            2: {"gold": 600, "food": 1600, "iron": 520},
+            3: {"gold": 380, "food": 1100, "iron": 340},
+        }
+        d_inc = tier_defaults.get(tier_val, tier_defaults[2])
+        territory.gold_income = territory.gold_income or d_inc["gold"]
+        territory.food_income = territory.food_income or d_inc["food"]
+        territory.iron_income = territory.iron_income or d_inc["iron"]
 
     user.xp = (user.xp or 0) + next_lvl * 30
 
@@ -4668,13 +4692,20 @@ async def reset_entire_game(session: AsyncSession) -> None:
     # 1. Hududlarni (qal'alarni) boshlang'ich holatiga qaytarish va tashqi kalitlarni uzish
     terrs_res = await session.execute(select(models.Territory))
     all_terrs = terrs_res.scalars().all()
+    tier_defaults = {
+        1: {"gold": 1000, "food": 2000, "iron": 900},
+        2: {"gold": 600, "food": 1600, "iron": 520},
+        3: {"gold": 380, "food": 1100, "iron": 340},
+    }
     for t in all_terrs:
         t_info = TERRITORIES_DATA.get(t.code, {})
         t.owner_house_id = t_info.get("initial_owner_id", t.owner_house_id)
-        t.gold_income = t_info.get("gold_income", 200)
-        t.food_income = t_info.get("food_income", 500)
-        t.iron_income = t_info.get("iron_income", 100)
-        t.castle_tier = t_info.get("castle_tier", 2)
+        tier_val = t_info.get("castle_tier", getattr(t, "castle_tier", 2) or 2)
+        d_inc = tier_defaults.get(tier_val, tier_defaults[2])
+        t.gold_income = t_info.get("gold_income", d_inc["gold"])
+        t.food_income = t_info.get("food_income", d_inc["food"])
+        t.iron_income = t_info.get("iron_income", d_inc["iron"])
+        t.castle_tier = tier_val
         t.garrison_infantry = t_info.get("garrison_infantry", 200)
         t.garrison_archers = t_info.get("garrison_archers", 100)
         t.garrison_cavalry = t_info.get("garrison_cavalry", 50)
@@ -5919,13 +5950,20 @@ async def check_and_conclude_season(session: AsyncSession, bot_app=None) -> Tupl
     # Qal'alarni dastlabki egalariga qaytarish, devor va olovlarni reset qilish
     from data.map_data import TERRITORIES_DATA
     terr_all = await session.execute(select(models.Territory))
+    tier_defaults = {
+        1: {"gold": 1000, "food": 2000, "iron": 900},
+        2: {"gold": 600, "food": 1600, "iron": 520},
+        3: {"gold": 380, "food": 1100, "iron": 340},
+    }
     for t in terr_all.scalars().all():
         init_info = TERRITORIES_DATA.get(t.code, {})
         t.owner_house_id = init_info.get("initial_owner_id", t.owner_house_id)
-        t.gold_income = init_info.get("gold_income", 200)
-        t.food_income = init_info.get("food_income", 500)
-        t.iron_income = init_info.get("iron_income", 100)
-        t.castle_tier = init_info.get("castle_tier", 2)
+        tier_val = init_info.get("castle_tier", getattr(t, "castle_tier", 2) or 2)
+        d_inc = tier_defaults.get(tier_val, tier_defaults[2])
+        t.gold_income = init_info.get("gold_income", d_inc["gold"])
+        t.food_income = init_info.get("food_income", d_inc["food"])
+        t.iron_income = init_info.get("iron_income", d_inc["iron"])
+        t.castle_tier = tier_val
         t.conquered_by_user_id = None
         t.defense = init_info.get("defense", 500)
         t.castle_level = 1

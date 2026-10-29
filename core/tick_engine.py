@@ -381,6 +381,17 @@ async def process_due_marches(bot_app=None):
                             territory.food_income = canon_info.get("food_income", territory.food_income)
                             territory.iron_income = canon_info.get("iron_income", territory.iron_income)
                             territory.castle_tier = canon_info.get("castle_tier", territory.castle_tier)
+                        else:
+                            tier_val = getattr(territory, "castle_tier", 2) or 2
+                            tier_defaults = {
+                                1: {"gold": 1000, "food": 2000, "iron": 900},
+                                2: {"gold": 600, "food": 1600, "iron": 520},
+                                3: {"gold": 380, "food": 1100, "iron": 340},
+                            }
+                            d_inc = tier_defaults.get(tier_val, tier_defaults[2])
+                            territory.gold_income = territory.gold_income or d_inc["gold"]
+                            territory.food_income = territory.food_income or d_inc["food"]
+                            territory.iron_income = territory.iron_income or d_inc["iron"]
                         # Qal'a egasi o'zgarganda mudofaadagi ajdar uyasiga qaytadi
                         if territory.reinforcements_json:
                             try:
