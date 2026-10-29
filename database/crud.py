@@ -1016,6 +1016,18 @@ async def get_top10_prestige(session: AsyncSession, period: str = "all") -> List
     return list(result.scalars().all())
 
 
+async def get_top10_xp(session: AsyncSession) -> List[models.User]:
+    """Tajriba (XP va Daraja) bo'yicha TOP 10 o'yinchilar"""
+    query = (
+        select(models.User)
+        .where(models.User.is_banned == False)
+        .options(selectinload(models.User.house), selectinload(models.User.characters))
+        .order_by(desc(models.User.level), desc(models.User.xp), desc(models.User.prestige))
+    )
+    result = await session.execute(query.limit(10))
+    return list(result.scalars().all())
+
+
 async def get_top10_wealth(session: AsyncSession, period: str = "all") -> List[models.User]:
     """Boylik (Oltin) bo'yicha TOP 10 o'yinchilar: daily, weekly yoki all-time (faqat aktual va faol ma'lumotlar)"""
     today_str = get_game_today_str()

@@ -24,7 +24,10 @@ async def generate_weekly_rankings(session: AsyncSession) -> Dict[str, Any]:
     # 1. TOP 10 Haftalik Nufuzli Lordlar (Weekly Prestige)
     top_prestige_users = await crud.get_top10_prestige(session, period="weekly")
 
-    # 2. TOP 10 Haftalik Eng Boy Lordlar (Weekly Gold Earned)
+    # 2. TOP 10 Eng Tajribali Lordlar (XP va Daraja)
+    top_xp_users = await crud.get_top10_xp(session)
+
+    # 3. TOP 10 Haftalik Eng Boy Lordlar (Weekly Gold Earned)
     top_wealth_users = await crud.get_top10_wealth(session, period="weekly")
 
     # 3. TOP 10 Qudratli Armiyalar
@@ -70,6 +73,7 @@ async def generate_weekly_rankings(session: AsyncSession) -> Dict[str, Any]:
 
     return {
         "top_prestige": top_prestige_users,
+        "top_xp": top_xp_users,
         "top_wealth": top_wealth_users,
         "top_armies": top_armies,
         "top_dragons": top_dragons,
@@ -101,12 +105,29 @@ def format_weekly_leaderboard_post(data: Dict[str, Any]) -> str:
             uname = f" (@{u.username})" if getattr(u, "username", None) else ""
             h_str = f"[{u.house.emoji} {u.house.name}]" if u.house else "[Mustaqil]"
             pts = getattr(u, "weekly_prestige_earned", 0) or 0
-            lines.append(f"{med} **{hero_name}**{uname} {h_str}\n     ↳ **+{pts:,} 🏆** bu hafta | Jami: `{u.prestige:,}` Nufuz (Lv.{u.level})")
+            lines.append(f"{med} **{hero_name}**{uname} {h_str}\n     ↳ **+{pts:,} 🏆** bu hafta | Jami: `{u.prestige:,}` Nufuz")
     else:
         lines.append("_Hozircha ma'lumotlar yo'q_")
     lines.append("")
 
-    # 2. Haftalik Boylik (Gold TOP 10)
+    # 2. Tajriba va Daraja (XP TOP 10)
+    lines.append("🌟 **TOP 10 ENG TAJRIBALI LORDLAR (DARAJA VA XP):**")
+    if data.get("top_xp"):
+        from core.leveling import LEVEL_TITLES
+        for idx, u in enumerate(data["top_xp"][:10]):
+            med = MEDALS[idx] if idx < len(MEDALS) else f"{idx+1}."
+            hero_name = u.characters[0].name if getattr(u, "characters", None) and len(u.characters) > 0 else u.full_name
+            uname = f" (@{u.username})" if getattr(u, "username", None) else ""
+            h_str = f"[{u.house.emoji} {u.house.name}]" if u.house else "[Mustaqil]"
+            lvl = u.level or 1
+            xp = u.xp or 0
+            lvl_title = LEVEL_TITLES.get(lvl, {}).get("title", f"Lord Lv.{lvl}")
+            lines.append(f"{med} **{hero_name}**{uname} {h_str}\n     ↳ **{lvl}-daraja** (`{xp:,} XP`) | *{lvl_title}*")
+    else:
+        lines.append("_Hozircha ma'lumotlar yo'q_")
+    lines.append("")
+
+    # 3. Haftalik Boylik (Gold TOP 10)
     lines.append("💰 **HAFTALIK TOP 10 ENG KO'P OLTIN TOPGAN LORDLAR:**")
     if data["top_wealth"]:
         for idx, u in enumerate(data["top_wealth"][:10]):
@@ -216,8 +237,20 @@ async def broadcast_weekly_leaderboard(bot_app, force: bool = False) -> Tuple[bo
                     target_user.prestige = (target_user.prestige or 0) + p_bonus
                     target_user.gold = (target_user.gold or 0) + g_bonus
 
+        # O'tgan hafta sarhisobini doimiy saqlab qo'yish (foydalanuvchilar botda ko'rishi uchun)
+        last_ev_res = await session.execute(
+            select(models.EventState).where(models.EventState.event_name == "last_weekly_leaderboard")
+        )
+        last_ev = last_ev_res.scalar_one_or_none()
+        if not last_ev:
+            last_ev = models.EventState(event_name="last_weekly_leaderboard", data_json=post_text, is_active=True)
+            session.add(last_ev)
+        else:
+            last_ev.data_json = post_text
+            last_ev.is_active = True
+
         if not force:
-            ev = models.EventState(event_name=week_key, current_value=now.strftime("%Y-%m-%d %H:%M:%S"))
+            ev = models.EventState(event_name=week_key, data_json=now.strftime("%Y-%m-%d %H:%M:%S"))
             session.add(ev)
 
         await session.commit()

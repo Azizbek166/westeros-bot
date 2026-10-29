@@ -64,10 +64,10 @@ async def hourly_economy_job(context: ContextTypes.DEFAULT_TYPE):
         # Failsafe: Agar 21:00-22:59 oralig'ida bot restart bo'lsa yoki o'chib qolsa, kunlik urushni o'tkazish
         await check_and_trigger_daily_war_failsafe(bot_app=context.application)
 
-        # Haftalik avtomatik TOP Reytinglarni rasmiy kanal va guruhga e'lon qilish (Har yakshanba 20:00+ UTC+5)
+        # Haftalik avtomatik TOP Reytinglarni rasmiy kanal va guruhga e'lon qilish (Hafta boshida / yakshanba 20:00 - dushanba 10:00 UTC+5)
         now_utc = datetime.utcnow()
         uz_now = now_utc + timedelta(hours=5)
-        if uz_now.weekday() == 6 and uz_now.hour >= 20:
+        if (uz_now.weekday() == 6 and uz_now.hour >= 20) or (uz_now.weekday() == 0 and uz_now.hour <= 10):
             try:
                 from core.leaderboard_engine import broadcast_weekly_leaderboard
                 ok, b_msg = await broadcast_weekly_leaderboard(bot_app=context.application, force=False)

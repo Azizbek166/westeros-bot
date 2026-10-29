@@ -52,15 +52,65 @@ async def format_prestige_text(session, period: str = "all") -> str:
 
             if period == "daily":
                 pts = getattr(u, "daily_prestige_earned", 0) or 0
-                lines.append(f"{med} **{escape_md(name)}**{t_badge}\n     {h_emoji} {escape_md(h_name)} — **+{pts:,} 🏆** bugun (Jami: {u.prestige:,} 🏆, Lv.{u.level})")
+                lines.append(f"{med} **{escape_md(name)}**{t_badge}\n     {h_emoji} {escape_md(h_name)} — **+{pts:,} 🏆** bugun (Jami: {u.prestige:,} 🏆)")
             elif period == "weekly":
                 pts = getattr(u, "weekly_prestige_earned", 0) or 0
-                lines.append(f"{med} **{escape_md(name)}**{t_badge}\n     {h_emoji} {escape_md(h_name)} — **+{pts:,} 🏆** bu hafta (Jami: {u.prestige:,} 🏆, Lv.{u.level})")
+                lines.append(f"{med} **{escape_md(name)}**{t_badge}\n     {h_emoji} {escape_md(h_name)} — **+{pts:,} 🏆** bu hafta (Jami: {u.prestige:,} 🏆)")
             else:
-                lines.append(f"{med} **{escape_md(name)}**{t_badge}\n     {h_emoji} {escape_md(h_name)} — **{u.prestige:,} 🏆** | {u.level}-daraja")
+                lines.append(f"{med} **{escape_md(name)}**{t_badge}\n     {h_emoji} {escape_md(h_name)} — **{u.prestige:,} 🏆** nufuz")
 
     lines.append(footer)
     return "\n".join(lines)
+
+
+async def format_xp_text(session) -> str:
+    """Foydalanuvchilarning tajriba va daraja (XP & Level) bo'yicha alohida TOP 10 reytingi"""
+    top_users = await crud.get_top10_xp(session)
+    header = "🌟 **VESTEROSNING ENG TAJRIBALI TOP 10 LORDLARI (DARAJA VA XP REYTINGI)**"
+    footer = "\n_Tajriba (XP) qal'alarni kengaytirish, janglar, topshiriqlar va turnirlar orqali qo'lga kiritiladi._"
+
+    lines = [header, ""]
+    if not top_users:
+        lines.append("_Hozircha tajribali lordlar mavjud emas._")
+    else:
+        from core.leveling import LEVEL_TITLES, MAX_LEVEL
+        for idx, u in enumerate(top_users):
+            med = MEDALS[idx] if idx < len(MEDALS) else f"{idx+1}."
+            name = get_user_display_name(u)
+            h_name = u.house.name if u.house else "Mustaqil"
+            h_emoji = u.house.emoji if u.house else "🏰"
+            t_badge = f" [🎖️ {escape_md(u.title)}]" if getattr(u, "title", None) else ""
+            lvl = u.level or 1
+            xp = u.xp or 0
+            lvl_info = LEVEL_TITLES.get(lvl, {})
+            title_name = lvl_info.get("title", f"Lord Lv.{lvl}")
+            next_xp = LEVEL_TITLES.get(lvl + 1, {}).get("xp_req", 0) if lvl < MAX_LEVEL else None
+            xp_desc = f"{xp:,} / {next_xp:,} XP" if next_xp else f"{xp:,} XP (Maksimal)"
+
+            lines.append(
+                f"{med} **{escape_md(name)}**{t_badge}\n"
+                f"     {h_emoji} {escape_md(h_name)} — **{lvl}-daraja** ({xp_desc})\n"
+                f"     └ 👑 Unvon: *{title_name}*"
+            )
+
+    lines.append(footer)
+    return "\n".join(lines)
+
+
+async def format_last_week_text(session) -> str:
+    """O'tgan haftadagi umumiy TOP 10 sarhisob jadvali (rasmiy hisobot)"""
+    from sqlalchemy import select
+    evt_res = await session.execute(
+        select(models.EventState).where(models.EventState.event_name == "last_weekly_leaderboard")
+    )
+    last_ev = evt_res.scalar_one_or_none()
+    if last_ev and last_ev.data_json:
+        return last_ev.data_json
+
+    from core.leaderboard_engine import generate_weekly_rankings, format_weekly_leaderboard_post
+    data = await generate_weekly_rankings(session)
+    post_text = format_weekly_leaderboard_post(data)
+    return post_text
 
 
 async def format_wealth_text(session, period: str = "all") -> str:
@@ -243,18 +293,22 @@ def get_ranking_keyboard(category: str = "prestige", period: str = "all") -> Inl
     buttons = [
         [
             InlineKeyboardButton(f"{'✅ ' if category == 'prestige' else ''}👑 Nufuz (Top 10)", callback_data="rank_cat:prestige:all"),
+            InlineKeyboardButton(f"{'✅ ' if category == 'xp' else ''}🌟 Tajriba/XP (Top 10)", callback_data="rank_cat:xp:all"),
+        ],
+        [
             InlineKeyboardButton(f"{'✅ ' if category == 'wealth' else ''}💰 Boylik (Top 10)", callback_data="rank_cat:wealth:all"),
-        ],
-        [
             InlineKeyboardButton(f"{'✅ ' if category == 'armies' else ''}🛡️ Armiya (Top 10)", callback_data="rank_cat:armies:all"),
+        ],
+        [
             InlineKeyboardButton(f"{'✅ ' if category == 'castles' else ''}🏰 Qal'alar (Top 10)", callback_data="rank_cat:castles:all"),
-        ],
-        [
             InlineKeyboardButton(f"{'✅ ' if category == 'dragons' else ''}🐉 Ajdarlar (Top 10)", callback_data="rank_cat:dragons:all"),
-            InlineKeyboardButton(f"{'✅ ' if category == 'houses' else ''}🏛️ Xonadonlar (Top 10)", callback_data="rank_cat:houses:all"),
         ],
         [
+            InlineKeyboardButton(f"{'✅ ' if category == 'houses' else ''}🏛️ Xonadonlar (Top 10)", callback_data="rank_cat:houses:all"),
             InlineKeyboardButton(f"{'✅ ' if category == 'champion' else ''}👑 Mavsum G'olibi (Taxt)", callback_data="rank_cat:champion:all"),
+        ],
+        [
+            InlineKeyboardButton(f"{'✅ ' if category == 'last_week' else ''}🗓️ O'tgan Hafta Sarhisobi (Top 10)", callback_data="rank_cat:last_week:all"),
         ],
     ]
 
@@ -277,6 +331,10 @@ async def show_ranking_hub(target, user_id: int, category: str = "prestige", per
     async with AsyncSessionLocal() as session:
         if category == "prestige":
             text = await format_prestige_text(session, period=period)
+        elif category == "xp":
+            text = await format_xp_text(session)
+        elif category == "last_week":
+            text = await format_last_week_text(session)
         elif category == "wealth":
             text = await format_wealth_text(session, period=period)
         elif category == "armies":
@@ -295,7 +353,7 @@ async def show_ranking_hub(target, user_id: int, category: str = "prestige", per
     if is_group:
         # Guruhda pastki qotib qolgan klaviaturalarni yo'qotish uchun ReplyKeyboardRemove yuboriladi
         group_footer = (
-            "\n💡 _Boshqa reytinglar: /top kun, /top hafta, /top oltin, /top armiya, /top qalalar, /top ajdar, /top taxt_"
+            "\n💡 _Boshqa reytinglar: /top xp, /top hafta, /top oltin, /top otgan_hafta, /top armiya, /top qalalar, /top ajdar, /top taxt_"
         )
         full_text = text + group_footer
         clean_kb = ReplyKeyboardRemove()
@@ -337,7 +395,13 @@ async def ranking_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     period = "all"
 
     if arg_str:
-        if any(w in arg_str for w in ["kun", "bugun", "daily", "day"]):
+        if any(w in arg_str for w in ["otgan", "o'tgan", "last_week", "lastweek", "sarhisob"]):
+            category = "last_week"
+            period = "all"
+        elif any(w in arg_str for w in ["xp", "tajriba", "daraja", "level", "lvl"]):
+            category = "xp"
+            period = "all"
+        elif any(w in arg_str for w in ["kun", "bugun", "daily", "day"]):
             category = "prestige"
             period = "daily"
         elif any(w in arg_str for w in ["hafta", "weekly", "week"]):
