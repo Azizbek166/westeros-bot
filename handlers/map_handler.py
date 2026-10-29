@@ -80,13 +80,16 @@ async def show_map(target, user_id: int, is_message: bool, tier_filter: str = "1
             owner_str = "🏳️ Egasiz (Neytral)"
 
         def_val = t.defense or 0
-        g_inc = t.gold_income or 0
+        c_lvl = getattr(t, "castle_level", 1) or 1
+        lvl_mult = 1.0 + (max(1, c_lvl) - 1) * 0.25
+        eff_g = int((t.gold_income or 0) * lvl_mult)
+        lvl_badge = f" *(Tier {c_lvl})*" if c_lvl > 1 else ""
 
         text += (
             f"**{idx}. 🏰 {c_name}** ({reg})\n"
             f"   └ 🏷️ Toifasi: **{tier_str}**\n"
             f"   └ 👑 Egasi: **{owner_str}**\n"
-            f"   └ 🛡️ Mudofaa: **{def_val}** ball | 💰 **+{g_inc}🪙/soat**\n\n"
+            f"   └ 🛡️ Mudofaa: **{def_val}** ball | 💰 **+{eff_g}🪙/soat**{lvl_badge}\n\n"
         )
 
     text += f"📄 Sahifa: **{page + 1}/{total_pages}** | Jami: **{total_count} ta qal'a**\n"
@@ -279,6 +282,12 @@ async def view_territory_callback(update: Update, context: ContextTypes.DEFAULT_
         g_inc = terr.gold_income or 0
         f_inc = terr.food_income or 0
         i_inc = terr.iron_income or 0
+        c_lvl = getattr(terr, 'castle_level', 1) or 1
+        lvl_mult = 1.0 + (max(1, c_lvl) - 1) * 0.25
+        eff_g_inc = int(g_inc * lvl_mult)
+        eff_f_inc = int(f_inc * lvl_mult)
+        eff_i_inc = int(i_inc * lvl_mult)
+        lvl_info = f" *(Tier {c_lvl}: +{int((lvl_mult - 1) * 100)}%)*" if c_lvl > 1 else ""
         def_val = terr.defense or 0
         c_name = terr.castle_name or terr.name or "Qal'a"
         t_name = terr.name or "Hudud"
@@ -298,7 +307,7 @@ async def view_territory_callback(update: Update, context: ContextTypes.DEFAULT_
             f"👑 Hukmron Xonadon: **{clean_owner}**{ally_tag}\n"
             f"👥 Aholi: **{pop:,}**\n\n"
             f"💰 **SOATLIK DAROMAD:**\n"
-            f"🪙 +{g_inc} oltin | 🌾 +{f_inc} oziq-ovqat | ⛓️ +{i_inc} temir\n\n"
+            f"🪙 +{eff_g_inc} oltin | 🌾 +{eff_f_inc} oziq-ovqat | ⛓️ +{eff_i_inc} temir{lvl_info}\n\n"
             f"🛡️ **QAL'A MUDOFAASI:** {def_val} ball\n"
             f"🐉 **MUDOFAADAGI AJDAR:** {dragon_info_str}\n\n"
             f"⚔️ **GARNIZON KUCHLARI:**\n"

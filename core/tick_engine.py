@@ -372,7 +372,15 @@ async def process_due_marches(bot_app=None):
                         territory.owner_house_id = attacker.house_id
                         territory.conquered_by_user_id = attacker.id
                         # Zabt etilgan qal'a mudofaa devorlari shikastlangan
-                        territory.defense = min(territory.defense, 300)
+                        territory.defense = min(territory.defense or 0, 300)
+                        territory.castle_level = 1
+                        from data.map_data import TERRITORIES_DATA
+                        canon_info = TERRITORIES_DATA.get(territory.code, {})
+                        if canon_info:
+                            territory.gold_income = canon_info.get("gold_income", territory.gold_income)
+                            territory.food_income = canon_info.get("food_income", territory.food_income)
+                            territory.iron_income = canon_info.get("iron_income", territory.iron_income)
+                            territory.castle_tier = canon_info.get("castle_tier", territory.castle_tier)
                         # Qal'a egasi o'zgarganda mudofaadagi ajdar uyasiga qaytadi
                         if territory.reinforcements_json:
                             try:

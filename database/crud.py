@@ -3337,17 +3337,30 @@ async def liberate_conquered_castle(session: AsyncSession, user_id: int, territo
     old_castle_name = terr.castle_name or terr.name
     terr.conquered_by_user_id = None
     terr.owner_house_id = None  # Butunlay egasiz neytral qal'a
-    terr.defense = 500  # Standart mudofaa tiklanadi
     terr.castle_level = 1
     terr.wildfire_count = 0
     terr.reinforcements_json = "{}"
     terr.gates_compromised_until = None
 
-    # Neytral qal'a garnizoni o'rnatiladi
-    terr.garrison_infantry = 200
-    terr.garrison_archers = 100
-    terr.garrison_cavalry = 50
-    terr.garrison_spearmen = 50
+    # Qal'aning barcha kanonik parametrlarini map_data dan asl holatiga qaytarish
+    from data.map_data import TERRITORIES_DATA
+    canon_info = TERRITORIES_DATA.get(terr.code, {})
+    if canon_info:
+        terr.gold_income = canon_info.get("gold_income", 200)
+        terr.food_income = canon_info.get("food_income", 500)
+        terr.iron_income = canon_info.get("iron_income", 100)
+        terr.castle_tier = canon_info.get("castle_tier", 2)
+        terr.defense = canon_info.get("defense", 500)
+        terr.garrison_infantry = canon_info.get("garrison_infantry", 200)
+        terr.garrison_archers = canon_info.get("garrison_archers", 100)
+        terr.garrison_cavalry = canon_info.get("garrison_cavalry", 50)
+        terr.garrison_spearmen = canon_info.get("garrison_spearmen", 50)
+    else:
+        terr.defense = 500
+        terr.garrison_infantry = 200
+        terr.garrison_archers = 100
+        terr.garrison_cavalry = 50
+        terr.garrison_spearmen = 50
 
     await session.commit()
 
@@ -4564,9 +4577,16 @@ async def upgrade_castle_keep(session: AsyncSession, user_id: int, territory_id:
     user.iron -= iron_cost
     territory.castle_level = next_lvl
     territory.defense = (territory.defense or 0) + 300
-    territory.gold_income = int((territory.gold_income or 200) * 1.25)
-    territory.food_income = int((territory.food_income or 500) * 1.25)
-    territory.iron_income = int((territory.iron_income or 100) * 1.25)
+    
+    # Baza daromadlarini map_data kanoniga muvofiq saqlash (ustiga qayta ko'paytirilmaydi)
+    from data.map_data import TERRITORIES_DATA
+    canon_info = TERRITORIES_DATA.get(territory.code, {})
+    if canon_info:
+        territory.gold_income = canon_info.get("gold_income", territory.gold_income)
+        territory.food_income = canon_info.get("food_income", territory.food_income)
+        territory.iron_income = canon_info.get("iron_income", territory.iron_income)
+        territory.castle_tier = canon_info.get("castle_tier", territory.castle_tier)
+
     user.xp = (user.xp or 0) + next_lvl * 30
 
     from core.leveling import check_user_level_up
@@ -4639,6 +4659,10 @@ async def reset_entire_game(session: AsyncSession) -> None:
     for t in all_terrs:
         t_info = TERRITORIES_DATA.get(t.code, {})
         t.owner_house_id = t_info.get("initial_owner_id", t.owner_house_id)
+        t.gold_income = t_info.get("gold_income", 200)
+        t.food_income = t_info.get("food_income", 500)
+        t.iron_income = t_info.get("iron_income", 100)
+        t.castle_tier = t_info.get("castle_tier", 2)
         t.garrison_infantry = t_info.get("garrison_infantry", 200)
         t.garrison_archers = t_info.get("garrison_archers", 100)
         t.garrison_cavalry = t_info.get("garrison_cavalry", 50)
@@ -5886,8 +5910,12 @@ async def check_and_conclude_season(session: AsyncSession, bot_app=None) -> Tupl
     for t in terr_all.scalars().all():
         init_info = TERRITORIES_DATA.get(t.code, {})
         t.owner_house_id = init_info.get("initial_owner_id", t.owner_house_id)
+        t.gold_income = init_info.get("gold_income", 200)
+        t.food_income = init_info.get("food_income", 500)
+        t.iron_income = init_info.get("iron_income", 100)
+        t.castle_tier = init_info.get("castle_tier", 2)
         t.conquered_by_user_id = None
-        t.defense = 500
+        t.defense = init_info.get("defense", 500)
         t.castle_level = 1
         t.wildfire_count = 0
         t.reinforcements_json = None
