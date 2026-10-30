@@ -1068,15 +1068,100 @@ async def get_top10_wealth(session: AsyncSession, period: str = "all") -> List[m
 
 
 async def get_top10_armies_detailed(session: AsyncSession) -> List[Dict[str, Any]]:
-    """Armiya soni va jang quvvati bo'yicha TOP 10 sarkardalar"""
-    result = await session.execute(
+    """Armiya soni, jang quvvati va qal'a garnizonlari bo'yicha TOP 10 harbiy kuchlar (Xonadon va sarkardalar)"""
+    # 1. Barcha xonadonlar va ularning hududlari/garnizonlarini olish
+    houses_res = await session.execute(
+        select(models.House)
+        .options(selectinload(models.House.territories))
+    )
+    houses = houses_res.scalars().all()
+
+    # 2. Barcha faol o'yinchilar va armiyalarni olish
+    users_res = await session.execute(
         select(models.User, models.Army)
         .join(models.Army, models.Army.user_id == models.User.id)
         .where(models.User.is_banned == False)
         .options(selectinload(models.User.house), selectinload(models.User.characters))
     )
+    users_armies = users_res.all()
+
+    # O'yinchilarni xonadonlar bo'yicha guruhlash
+    users_by_house = {}
+    independent_users = []
+    for user, army in users_armies:
+        if user.house_id:
+            users_by_house.setdefault(user.house_id, []).append((user, army))
+        else:
+            independent_users.append((user, army))
+
     army_list = []
-    for user, army in result.all():
+
+    # Har bir xonadonning jami harbiy kuchini hisoblash (harakatdagi armiya + qal'a garnizonlari)
+    for h in houses:
+        m_list = users_by_house.get(h.id, [])
+
+        # Xonadon a'zolarining harakatdagi qo'shinlari
+        act_inf = sum(a.infantry or 0 for _, a in m_list)
+        act_arc = sum(a.archers or 0 for _, a in m_list)
+        act_cav = sum(a.cavalry or 0 for _, a in m_list)
+        act_spm = sum(a.spearmen or 0 for _, a in m_list)
+        act_spc = sum(a.special_troops or 0 for _, a in m_list)
+        act_cat = sum(getattr(a, "catapults", 0) or 0 for _, a in m_list)
+        act_st = sum(getattr(a, "siege_towers", 0) or 0 for _, a in m_list)
+        active_troops = act_inf + act_arc + act_cav + act_spm + act_spc
+
+        # Xonadon qal'alarining garnizon mudofaa kuchlari
+        territories = h.territories or []
+        gar_inf = sum(t.garrison_infantry or 0 for t in territories)
+        gar_arc = sum(t.garrison_archers or 0 for t in territories)
+        gar_cav = sum(t.garrison_cavalry or 0 for t in territories)
+        gar_spm = sum(t.garrison_spearmen or 0 for t in territories)
+        garrison_troops = gar_inf + gar_arc + gar_cav + gar_spm
+
+        total_troops = active_troops + garrison_troops
+        if total_troops <= 0:
+            continue
+
+        tot_inf = act_inf + gar_inf
+        tot_arc = act_arc + gar_arc
+        tot_cav = act_cav + gar_cav
+        tot_spm = act_spm + gar_spm
+        power = int(
+            tot_inf * 1.0 +
+            tot_arc * 1.2 +
+            tot_cav * 2.5 +
+            tot_spm * 1.5 +
+            act_spc * 4.0 +
+            act_cat * 25.0 +
+            act_st * 20.0
+        )
+
+        # Xonadon Lordi yoki yetakchi sarkardasini aniqlash
+        lord_user = None
+        if h.lord_user_id:
+            for u, _ in m_list:
+                if u.telegram_id == h.lord_user_id:
+                    lord_user = u
+                    break
+        if not lord_user and m_list:
+            lord_user = max(m_list, key=lambda x: (x[0].prestige or 0, x[1].infantry or 0))[0]
+
+        if not lord_user and users_armies:
+            lord_user = users_armies[0][0]
+
+        army_list.append({
+            "house": h,
+            "user": lord_user,
+            "total_troops": total_troops,
+            "active_troops": active_troops,
+            "garrison_troops": garrison_troops,
+            "castles_count": len(territories),
+            "members_count": len(m_list),
+            "power": power,
+        })
+
+    # Mustaqil sarkardalar (xonadonsiz o'yinchilar)
+    for user, army in independent_users:
         inf = army.infantry or 0
         arc = army.archers or 0
         cav = army.cavalry or 0
@@ -1084,56 +1169,99 @@ async def get_top10_armies_detailed(session: AsyncSession) -> List[Dict[str, Any
         spc = army.special_troops or 0
         cat = getattr(army, "catapults", 0) or 0
         st = getattr(army, "siege_towers", 0) or 0
-        total_troops = inf + arc + cav + spm + spc
-        power = int(inf + arc * 1.2 + cav * 2.5 + spm * 1.5 + spc * 4.0 + cat * 25.0 + st * 20.0)
+        tot = inf + arc + cav + spm + spc
+        if tot <= 0:
+            continue
+        pwr = int(inf + arc * 1.2 + cav * 2.5 + spm * 1.5 + spc * 4.0 + cat * 25.0 + st * 20.0)
         army_list.append({
+            "house": None,
             "user": user,
-            "army": army,
-            "total_troops": total_troops,
-            "power": power,
+            "total_troops": tot,
+            "active_troops": tot,
+            "garrison_troops": 0,
+            "castles_count": 0,
+            "members_count": 1,
+            "power": pwr,
         })
+
     army_list.sort(key=lambda x: (x["power"], x["total_troops"]), reverse=True)
     return army_list[:10]
 
 
 async def get_top10_castles(session: AsyncSession) -> List[Dict[str, Any]]:
-    """Zabt etilgan yoki boshqarilayotgan qal'alar bo'yicha TOP 10 lordlar (Maksimal 5 ta limit)"""
+    """Zabt etilgan yoki boshqarilayotgan qal'alar darajasi va daromadiga asoslangan TOP 10 lordlar (Maksimal 5 ta limit)"""
     users_res = await session.execute(
         select(models.User)
         .where(models.User.is_banned == False)
         .options(selectinload(models.User.house), selectinload(models.User.characters))
     )
     users = users_res.scalars().all()
+
+    terr_res = await session.execute(select(models.Territory))
+    territories = terr_res.scalars().all()
+
+    terrs_by_user = {}
+    terrs_by_house = {}
+    for t in territories:
+        if t.conquered_by_user_id:
+            terrs_by_user.setdefault(t.conquered_by_user_id, []).append(t)
+        if t.owner_house_id:
+            terrs_by_house.setdefault(t.owner_house_id, []).append(t)
+
     user_castles = []
 
     for u in users:
-        # Shaxsan o'zi zabt etgan qal'alar
-        conq_res = await session.execute(
-            select(func.count(models.Territory.id)).where(models.Territory.conquered_by_user_id == u.id)
-        )
-        conq_cnt = conq_res.scalar() or 0
-
-        # Xonadon poytaxti / xonadoniga tegishli qal'alar (faqat Lord yoki King bo'lsa hisoblanadi)
-        house_cnt = 0
         is_lord_or_king = (u.rank in ["king", "commander"]) or bool(u.house and u.house.lord_user_id == u.telegram_id)
-        if u.house_id and is_lord_or_king:
-            h_terr_res = await session.execute(
-                select(func.count(models.Territory.id)).where(models.Territory.owner_house_id == u.house_id)
-            )
-            house_cnt = h_terr_res.scalar() or 0
+        u_terrs = terrs_by_user.get(u.id, [])
+        h_terrs = terrs_by_house.get(u.house_id, []) if (u.house_id and is_lord_or_king) else []
 
-        tot_castles = max(conq_cnt, house_cnt)
-        # Qat'iy 5 ta qal'a limiti (hech kim reytingda 5 tadan ko'p qal'a ko'rsata olmaydi)
-        tot_castles = min(MAX_HOUSE_CASTLES, tot_castles)
+        seen_ids = set()
+        combined_terrs = []
+        for t in (u_terrs + h_terrs):
+            if t.id not in seen_ids:
+                seen_ids.add(t.id)
+                combined_terrs.append(t)
 
-        if tot_castles > 0:
-            user_castles.append({
-                "user": u,
-                "castles_count": tot_castles,
-                "is_lord": is_lord_or_king,
+        if not combined_terrs:
+            continue
+
+        terr_metrics = []
+        for t in combined_terrs:
+            c_lvl = max(1, getattr(t, "castle_level", 1) or 1)
+            c_tier = getattr(t, "castle_tier", 2) or 2
+            multiplier = 1.0 + (c_lvl - 1) * 0.25
+            eff_gold = int((t.gold_income or 0) * multiplier)
+            score = (eff_gold * 10) + (c_lvl * 100) + ((4 - min(3, max(1, c_tier))) * 150)
+            terr_metrics.append({
+                "territory": t,
+                "level": c_lvl,
+                "tier": c_tier,
+                "effective_gold": eff_gold,
+                "score": score,
             })
 
-    user_castles.sort(key=lambda x: (x["castles_count"], getattr(x["user"], "prestige", 0) or 0), reverse=True)
+        terr_metrics.sort(key=lambda x: x["score"], reverse=True)
+        top_metrics = terr_metrics[:MAX_HOUSE_CASTLES]
+
+        total_count = len(top_metrics)
+        total_levels = sum(m["level"] for m in top_metrics)
+        total_gold_income = sum(m["effective_gold"] for m in top_metrics)
+        total_score = sum(m["score"] for m in top_metrics)
+        best_t = top_metrics[0]["territory"]
+
+        user_castles.append({
+            "user": u,
+            "castles_count": total_count,
+            "total_levels": total_levels,
+            "total_gold_income": total_gold_income,
+            "score": total_score,
+            "best_castle_name": best_t.name,
+            "best_castle_tier": top_metrics[0]["tier"],
+            "best_castle_level": top_metrics[0]["level"],
+            "is_lord": is_lord_or_king,
+        })
+
+    user_castles.sort(key=lambda x: (x["score"], x["total_gold_income"], x["total_levels"]), reverse=True)
     return user_castles[:10]
 
 

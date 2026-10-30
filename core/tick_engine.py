@@ -6,7 +6,8 @@ import asyncio
 import html
 from typing import Optional, Dict, Any, List
 from datetime import datetime, timedelta
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, func
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from database import models, AsyncSessionLocal, crud
 from core.battle_engine import calculate_battle
@@ -14,7 +15,7 @@ from core.economy_engine import process_hourly_tick
 from core.leveling import check_user_level_up
 from core.notifier import notify_house_group, notify_owner
 from data.artifacts_data import ARTIFACTS_DATA
-from config import COMMUNITY_CHANNEL_ID, COMMUNITY_CHANNEL_URL
+from config import COMMUNITY_CHANNEL_ID, COMMUNITY_CHANNEL_URL, escape_md
 
 logger = logging.getLogger(__name__)
 
@@ -723,6 +724,30 @@ async def process_due_marches(bot_app=None):
 
         await session.commit()
 
+        # Agar urush yopilgan va sarhisob kutilayotgan bo'lsa (recap_pending):
+        try:
+            ev_res = await session.execute(
+                select(models.EventState).where(models.EventState.event_name == "war_mode")
+            )
+            war_ev = ev_res.scalar_one_or_none()
+            if war_ev:
+                w_data = json.loads(war_ev.data_json or "{}")
+                if w_data.get("recap_pending"):
+                    rem_res = await session.execute(
+                        select(func.count(models.BattleMarch.id)).where(models.BattleMarch.status == "marching")
+                    )
+                    rem_cnt = rem_res.scalar() or 0
+                    if rem_cnt == 0:
+                        logger.info("⚔️ Barcha harbiy yurishlar yakunlandi! Umumiy urush sarhisobi e'lon qilinmoqda...")
+                        w_start = w_data.get("war_start_for_recap") or w_data.get("opened_at")
+                        w_end = datetime.utcnow().isoformat()
+                        w_data["recap_pending"] = False
+                        war_ev.data_json = json.dumps(w_data)
+                        await session.commit()
+                        asyncio.create_task(generate_and_broadcast_war_recap(bot_app, war_start_time=w_start, war_end_time=w_end))
+        except Exception as e_recap:
+            logger.error(f"process_due_marches recap_pending tekshiruvida xatolik: {e_recap}")
+
 
 async def run_white_walkers_step():
     """White Walker global reydi holatini yangilash"""
@@ -756,8 +781,310 @@ async def check_house_election_expiration(bot_app=None):
     return
 
 
+async def generate_and_broadcast_war_recap(bot_app=None, war_start_time=None, war_end_time=None) -> str:
+    """
+    Urush yakunlanganda barcha janglar bo'yicha to'liq statistik sarhisobni shakllantiradi va:
+    1. Rasmiy kanalga (@northremembers1)
+    2. Barcha Buyuk Xonadonlar guruhlariga
+    yuboradi hamda EventState ga 'last_war_recap' nomi bilan saqlaydi.
+    """
+    logger.info("📊 Umumiy urush statistikasi hisoblanmoqda...")
+    try:
+        async with AsyncSessionLocal() as session:
+            now = datetime.utcnow()
+
+            # 1. Vaqt oraliqlarini aniqlash
+            start_dt = None
+            if war_start_time:
+                try:
+                    start_dt = datetime.fromisoformat(str(war_start_time))
+                except Exception:
+                    pass
+            if not start_dt:
+                start_dt = now - timedelta(hours=3)
+
+            end_dt = None
+            if war_end_time:
+                try:
+                    end_dt = datetime.fromisoformat(str(war_end_time))
+                except Exception:
+                    pass
+            if not end_dt:
+                end_dt = now
+
+            # 2. Ushbu oraliqdagi barcha jang hisobotlarini (BattleReport) olish
+            rep_res = await session.execute(
+                select(models.BattleReport)
+                .where(models.BattleReport.timestamp >= start_dt)
+                .order_by(models.BattleReport.timestamp.asc())
+            )
+            reports = rep_res.scalars().all()
+
+            # Hududlar va foydalanuvchilar ma'lumotlarini tezkor xeshga olish
+            terrs_res = await session.execute(select(models.Territory))
+            territories = terrs_res.scalars().all()
+            terr_map = {t.id: t for t in territories}
+
+            users_res = await session.execute(
+                select(models.User).options(selectinload(models.User.characters), selectinload(models.User.house))
+            )
+            users = users_res.scalars().all()
+            user_map = {u.id: u for u in users}
+
+            dur_sec = max(0, int((end_dt - start_dt).total_seconds()))
+            dur_hours = dur_sec // 3600
+            dur_mins = (dur_sec % 3600) // 60
+            if dur_hours > 0:
+                duration_str = f"{dur_hours} soat {dur_mins} daqiqa"
+            else:
+                duration_str = f"{max(1, dur_mins)} daqiqa"
+
+            if not reports:
+                recap_post = (
+                    "🕊️ **QIROL FARMONI: URUSH RASMAN YAKUNLANDI (SULH BOSHLANDI)!**\n\n"
+                    f"⏱️ Urush rejimi davomiyligi: **{duration_str}**\n\n"
+                    "Ushbu harbiy davrda Vesteros chegaralari osoyishta bo'lib, yirik to'qnashuvlar sodir bo'lmadi.\n"
+                    "Barcha dushman qal'alariga hujumlar yopildi va umumiy tinchlik kuchga kirdi!\n\n"
+                    "🛡️ *Barcha xonadonlar iqtisodiyotni rivojlantirish va armiyani kuchaytirishga chorlanadi.*"
+                )
+            else:
+                total_battles = len(reports)
+                total_casualties = 0
+                total_loot_gold = 0
+                total_loot_food = 0
+                total_loot_iron = 0
+
+                biggest_battle = None
+                biggest_casualties = -1
+
+                house_loot = {}
+                house_losses = {}
+                conquered_castles = []
+                user_kills = {}
+
+                def parse_loss(loss_str):
+                    if not loss_str:
+                        return 0
+                    try:
+                        d = json.loads(loss_str)
+                        return sum(int(v or 0) for v in d.values()) if isinstance(d, dict) else 0
+                    except Exception:
+                        return 0
+
+                for rep in reports:
+                    att_loss = parse_loss(rep.attacker_losses_json)
+                    def_loss = parse_loss(rep.defender_losses_json)
+                    battle_cas = att_loss + def_loss
+                    total_casualties += battle_cas
+
+                    g_loot = rep.loot_gold or 0
+                    f_loot = rep.loot_food or 0
+                    i_loot = rep.loot_iron or 0
+                    total_loot_gold += g_loot
+                    total_loot_food += f_loot
+                    total_loot_iron += i_loot
+
+                    if battle_cas > biggest_casualties:
+                        biggest_casualties = battle_cas
+                        biggest_battle = rep
+
+                    att_h = rep.attacker_house_name or "Mustaqil"
+                    if att_h not in house_loot:
+                        house_loot[att_h] = {"gold": 0, "food": 0, "iron": 0, "victories": 0}
+                    house_loot[att_h]["gold"] += g_loot
+                    house_loot[att_h]["food"] += f_loot
+                    house_loot[att_h]["iron"] += i_loot
+                    if rep.result == "attacker_won":
+                        house_loot[att_h]["victories"] += 1
+
+                    house_losses[att_h] = house_losses.get(att_h, 0) + att_loss
+
+                    def_h = rep.defender_house_name or "Mustaqil/NPC"
+                    house_losses[def_h] = house_losses.get(def_h, 0) + def_loss
+
+                    if rep.result == "attacker_won":
+                        t_obj = terr_map.get(rep.territory_id)
+                        t_name = t_obj.name if t_obj else f"Qal'a #{rep.territory_id}"
+                        c_name = t_obj.castle_name if t_obj else ""
+                        att_u = user_map.get(rep.attacker_user_id)
+                        att_uname = att_u.full_name if att_u else f"Lord #{rep.attacker_user_id}"
+                        conquered_castles.append({
+                            "territory_name": t_name,
+                            "castle_name": c_name,
+                            "house": att_h,
+                            "conqueror": att_uname,
+                        })
+
+                    if rep.attacker_user_id:
+                        user_kills[rep.attacker_user_id] = user_kills.get(rep.attacker_user_id, 0) + def_loss
+                    if rep.defender_user_id:
+                        user_kills[rep.defender_user_id] = user_kills.get(rep.defender_user_id, 0) + att_loss
+
+                top_profit_house = None
+                top_profit_data = {"gold": 0, "food": 0, "iron": 0, "victories": 0}
+                max_profit_score = -1
+                for h_name, ldata in house_loot.items():
+                    score = ldata["gold"] + ldata["food"] + ldata["iron"]
+                    if score > max_profit_score:
+                        max_profit_score = score
+                        top_profit_house = h_name
+                        top_profit_data = ldata
+
+                top_damage_house = None
+                max_damage_val = -1
+                for h_name, loss_val in house_losses.items():
+                    if loss_val > max_damage_val:
+                        max_damage_val = loss_val
+                        top_damage_house = h_name
+
+                if biggest_battle:
+                    b_terr = terr_map.get(biggest_battle.territory_id)
+                    b_tname = f"🏰 **{b_terr.name}** ({b_terr.castle_name})" if b_terr else "🏰 **Noma'lum istehkom**"
+                    b_att_u = user_map.get(biggest_battle.attacker_user_id)
+                    b_att_name = b_att_u.full_name if b_att_u else "Sarkarda"
+                    b_att_h = biggest_battle.attacker_house_name or "Mustaqil"
+                    b_def_u = user_map.get(biggest_battle.defender_user_id) if biggest_battle.defender_user_id else None
+                    b_def_name = b_def_u.full_name if b_def_u else "Qal'a garnizoni"
+                    b_def_h = biggest_battle.defender_house_name or "Mustaqil/NPC"
+                    b_res = "Hujumchilar g'alaba qozondi 🚩" if biggest_battle.result == "attacker_won" else "Mudofaachilar qal'ani himoya qildi 🛡️"
+                    biggest_battle_text = (
+                        f"{b_tname}\n"
+                        f"     ⚔️ Hujumchi: **{escape_md(b_att_name)}** ({escape_md(b_att_h)})\n"
+                        f"     🛡️ Himoyachi: **{escape_md(b_def_name)}** ({escape_md(b_def_h)})\n"
+                        f"     💀 Jami talofat: **{biggest_casualties:,}** askar halok bo'ldi\n"
+                        f"     🚩 Natija: *{b_res}*"
+                    )
+                else:
+                    biggest_battle_text = "_Jiddiy to'qnashuv qayd etilmadi._"
+
+                if conquered_castles:
+                    c_lines = []
+                    seen_t = set()
+                    for cc in reversed(conquered_castles):
+                        t_k = cc["territory_name"]
+                        if t_k not in seen_t:
+                            seen_t.add(t_k)
+                            c_lines.append(f"• 🏰 **{escape_md(cc['territory_name'])}** — **{escape_md(cc['house'])}** (*{escape_md(cc['conqueror'])}*) tomonidan zabt etildi")
+                    conquered_text = "\n".join(c_lines[:8])
+                else:
+                    conquered_text = "_Ushbu urushda birorta ham qal'a dushmanga boy berilmadi, mudofaa yengilmas qoldi!_"
+
+                mvp_text = ""
+                if user_kills:
+                    top_user_id = max(user_kills.items(), key=lambda x: x[1])[0]
+                    mvp_kills = user_kills[top_user_id]
+                    top_u = user_map.get(top_user_id)
+                    if top_u and mvp_kills > 0:
+                        mvp_name = top_u.full_name
+                        mvp_h = top_u.house.name if top_u.house else "Mustaqil"
+                        mvp_text = f"🎖️ **Urush Qahramoni (Eng qonxo'r sarkarda):**\n👑 **{escape_md(mvp_name)}** ({escape_md(mvp_h)}) — dushmanning **{mvp_kills:,}** ta askarini yer tishlatdi!\n\n"
+
+                recap_post = (
+                    "⚔️ **QIROL FARMONI: URUSH RASMAN YAKUNLANDI (SULH BOSHLANDI)!** 🕊️\n\n"
+                    "Vesteros uzra e'lon qilingan harbiy holat o'z nihoyasiga yetdi. Barcha harbiy yurishlar va to'qnashuvlar yakunlandi!\n\n"
+                    "📊 **URUSHNING UMUMIY STATISTIKASI:**\n"
+                    f"⏱️ Urush davomiyligi: **{duration_str}**\n"
+                    f"⚔️ Jami to'qnashuvlar: **{total_battles} ta** jang\n"
+                    f"💀 Jami berilgan talofat: **{total_casualties:,}** halok bo'lgan askar\n"
+                    f"📦 Qo'lga kiritilgan o'ljalar: **+{total_loot_gold:,} 🪙**, **+{total_loot_food:,} 🌾**, **+{total_loot_iron:,} ⛓️**\n\n"
+                    "🏆 **ASOSIY KORSATKICHLAR VA XONADONLAR:**\n\n"
+                    f"💥 **Eng shiddatli va yirik to'qnashuv:**\n{biggest_battle_text}\n\n"
+                    f"💰 **Eng ko'p o'lja/foyda qilgan Xonadon:**\n"
+                    f"👑 **{escape_md(top_profit_house or 'Noma`lum')}**\n"
+                    f"     ├ 🪙 Oltin: **+{top_profit_data['gold']:,}** | 🌾 Don: **+{top_profit_data['food']:,}**\n"
+                    f"     └ ⛓️ Temir: **+{top_profit_data['iron']:,}** ({top_profit_data['victories']} ta zafar)\n\n"
+                    f"🩸 **Eng ko'p zarar/talofat ko'rgan Xonadon:**\n"
+                    f"🏰 **{escape_md(top_damage_house or 'Noma`lum')}** — jami **{max_damage_val if max_damage_val > 0 else 0:,}** askaridan ayrildi\n\n"
+                    f"{mvp_text}"
+                    f"🏰 **Zabt etilgan va boshqaruvga o'tgan qal'alar:**\n{conquered_text}\n\n"
+                    "🛡️ *Endi barcha Buyuk Xonadonlar qal'a devorlarini mustahkamlashi, garnizonlarni to'ldirishi va iqtisodni tiklashi lozim. Tinchlik davri boshlandi!*"
+                )
+
+            # 3. Hisobotni EventState da saqlash (istalgan vaqt /top urush orqali ko'rish mumkin bo'ladi)
+            ev_res = await session.execute(
+                select(models.EventState).where(models.EventState.event_name == "last_war_recap")
+            )
+            recap_ev = ev_res.scalar_one_or_none()
+            if not recap_ev:
+                recap_ev = models.EventState(event_name="last_war_recap")
+                session.add(recap_ev)
+            recap_ev.data_json = recap_post
+            recap_ev.is_active = True
+            await session.commit()
+            logger.info("✅ Oxirgi urush sarhisobi muvaffaqiyatli saqlandi.")
+
+            # 4. Kanal va guruhlarga e'lon tarqatish (Broadcast)
+            bot = getattr(bot_app, "bot", bot_app) if bot_app else None
+            if bot:
+                if COMMUNITY_CHANNEL_ID:
+                    try:
+                        await bot.send_message(
+                            chat_id=COMMUNITY_CHANNEL_ID,
+                            text=recap_post,
+                            parse_mode="Markdown",
+                        )
+                        logger.info(f"Urush sarhisobi rasmiy kanalga ({COMMUNITY_CHANNEL_ID}) jo'natildi.")
+                    except Exception as e_ch:
+                        logger.warning(f"Kanalga urush sarhisobini yuborishda xatolik: {e_ch}")
+
+                h_res = await session.execute(
+                    select(models.House).where(models.House.group_chat_id != None)
+                )
+                houses_with_groups = h_res.scalars().all()
+                for h in houses_with_groups:
+                    try:
+                        await bot.send_message(
+                            chat_id=h.group_chat_id,
+                            text=recap_post,
+                            parse_mode="Markdown",
+                        )
+                    except Exception as e_hg:
+                        logger.warning(f"Xonadon guruhiga ({h.name}, {h.group_chat_id}) urush sarhisobini yuborishda xatolik: {e_hg}")
+
+            return recap_post
+
+    except Exception as e:
+        logger.error(f"generate_and_broadcast_war_recap da xatolik: {e}", exc_info=True)
+        return ""
+
+
+async def check_and_trigger_war_recap_on_close(session, bot_app=None):
+    """Urush rejimi tugatilganda (yoki yopilganda) sarhisobni yo'lga qo'yish"""
+    try:
+        ev = await crud.get_or_create_war_event(session)
+        data = {}
+        try:
+            data = json.loads(ev.data_json or "{}")
+        except Exception:
+            data = {}
+
+        now = datetime.utcnow()
+        war_start_str = data.get("opened_at") or (ev.started_at.isoformat() if ev.started_at else None)
+        data["closed_at"] = now.isoformat()
+
+        # Yo'lda qolgan faol yurishlarni tekshiramiz
+        rem_res = await session.execute(
+            select(func.count(models.BattleMarch.id)).where(models.BattleMarch.status == "marching")
+        )
+        rem_cnt = rem_res.scalar() or 0
+        if rem_cnt > 0:
+            data["recap_pending"] = True
+            data["war_start_for_recap"] = war_start_str
+            data["war_end_for_recap"] = now.isoformat()
+            ev.data_json = json.dumps(data)
+            await session.commit()
+            logger.info(f"Urush yopildi, lekin {rem_cnt} ta harbiy yurish yo'lda. Barcha janglar tugagach umumiy urush sarhisobi e'lon qilinadi.")
+        else:
+            data["recap_pending"] = False
+            ev.data_json = json.dumps(data)
+            await session.commit()
+            asyncio.create_task(generate_and_broadcast_war_recap(bot_app, war_start_time=war_start_str, war_end_time=now.isoformat()))
+    except Exception as e:
+        logger.error(f"check_and_trigger_war_recap_on_close xatosi: {e}")
+
+
 async def check_war_mode_expiration(bot_app=None):
-    """Urush rejimi vaqti tugagan bo'lsa, uni avtomatik yopish va o'yinchilarga sulh e'lonini yuborish"""
+    """Urush rejimi vaqti tugagan bo'lsa, uni avtomatik yopish va sarhisobni e'lon qilish"""
     try:
         async with AsyncSessionLocal() as session:
             ev = await session.execute(
@@ -792,30 +1119,8 @@ async def check_war_mode_expiration(bot_app=None):
                 await session.commit()
 
                 logger.info("⚔️ Urush vaqti tugadi. Sulh rejimi kuchga kirdi.")
+                await check_and_trigger_war_recap_on_close(session, bot_app)
 
-                if bot_app:
-                    peace_announcement = (
-                        "🕊️ **QIROL FARMONI: URUSH YAKUNLANDI (SULH BOSHLANDI)!**\n\n"
-                        "Vesteros uzra belgilangan urush vaqti nihoyasiga yetdi.\n"
-                        "Qirol farmoniga binoan barcha dushman qal'alariga hujumlar to'xtatildi!\n\n"
-                        "🛡️ *Endi nima qilish kerak?*\n"
-                        "• O'z qal'angiz mudofaasini tiklang va garnizonni to'ldiring\n"
-                        "• Yangi askarlar yollang va don/temir to'plang\n"
-                        "• Keyingi urush uchun kuch to'plang!\n\n"
-                        "Keyingi harbiy holat admin tomonidan e'lon qilinadi."
-                    )
-
-                    users_res = await session.execute(select(models.User.telegram_id))
-                    all_ids = users_res.scalars().all()
-                    for tg_id in all_ids:
-                        try:
-                            await bot_app.bot.send_message(
-                                chat_id=tg_id,
-                                text=peace_announcement,
-                                parse_mode="Markdown",
-                            )
-                        except Exception:
-                            pass
     except Exception as e:
         logger.error(f"check_war_mode_expiration xatosi: {e}")
 

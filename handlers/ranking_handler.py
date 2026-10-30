@@ -1,12 +1,16 @@
 import logging
 from typing import Dict, Any, List
+from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import CommandHandler, CallbackQueryHandler, ContextTypes
 from database import AsyncSessionLocal, crud, models
 from keyboards.menus import back_to_main_keyboard
-from config import escape_md
+from config import escape_md, ADMIN_IDS
 
 logger = logging.getLogger(__name__)
+
+# Guruhlarni ortiqcha yuklama va spamdan himoyalash: Har 1 soatda (3600 soniya) faqat 1 marta ko'rish mumkin
+CHAT_RANK_COOLDOWN: Dict[int, datetime] = {}
 
 MEDALS = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
 
@@ -113,6 +117,31 @@ async def format_last_week_text(session) -> str:
     return post_text
 
 
+async def format_war_recap_text(session) -> str:
+    """Oxirgi bo'lib o'tgan urushning umumiy sarhisob hisoboti"""
+    from sqlalchemy import select
+    evt_res = await session.execute(
+        select(models.EventState).where(models.EventState.event_name == "last_war_recap")
+    )
+    last_ev = evt_res.scalar_one_or_none()
+    if last_ev and last_ev.data_json:
+        return last_ev.data_json
+
+    try:
+        from core.tick_engine import generate_and_broadcast_war_recap
+        text = await generate_and_broadcast_war_recap(bot_app=None)
+        if text:
+            return text
+    except Exception:
+        pass
+
+    return (
+        "⚔️ **OXIRGI URUSH SARHISOBI VA STATISTIKASI** 📊\n\n"
+        "_Hozircha yaqinda yakunlangan urush statistikasi mavjud emas._\n"
+        "Urush rejimi yakunlanishi bilan barcha qonli janglar, talofatlar va o'ljalar sarhisobi shu yerda aks etadi!"
+    )
+
+
 async def format_wealth_text(session, period: str = "all") -> str:
     top_users = await crud.get_top10_wealth(session, period=period)
     if period == "daily":
@@ -151,7 +180,7 @@ async def format_wealth_text(session, period: str = "all") -> str:
 async def format_armies_text(session) -> str:
     top_armies = await crud.get_top10_armies_detailed(session)
     lines = [
-        "🛡️ **VESTEROSNING ENG QUDRATLI TOP 10 SARKARDALARI VA ARMIYALARI**",
+        "🛡️ **VESTEROSNING ENG QUDRATLI TOP 10 HARBIY KUCHLARI VA ARMIYALARI**",
         ""
     ]
     if not top_armies:
@@ -159,22 +188,30 @@ async def format_armies_text(session) -> str:
     else:
         for idx, entry in enumerate(top_armies):
             med = MEDALS[idx] if idx < len(MEDALS) else f"{idx+1}."
-            u = entry["user"]
-            name = get_user_display_name(u)
-            h_name = u.house.name if u.house else "Mustaqil"
-            h_emoji = u.house.emoji if u.house else "🏰"
-            lines.append(
-                f"{med} **{escape_md(name)}** ({h_emoji} {escape_md(h_name)})\n"
-                f"     🛡️ **{entry['total_troops']:,}** askar | Jang quvvati: **{entry['power']:,} ⚡**"
-            )
-    lines.append("\n_Harbiy quvvat barcha qismlar, otliqlar, maxsus gvardiya va qamal qurollari bo'yicha hisoblanadi._")
+            h = entry.get("house")
+            u = entry.get("user")
+            if h:
+                lord_name = get_user_display_name(u) if u else "Boshqaruv Kengashi"
+                lines.append(
+                    f"{med} **{escape_md(h.name)} Xonadoni** {h.emoji} (Lord: *{escape_md(lord_name)}*)\n"
+                    f"     🛡️ Jami armiya: **{entry['total_troops']:,}** askar | Harbiy qudrat: **{entry['power']:,} ⚡**\n"
+                    f"     ├ ⚔️ Harakatdagi askarlar: **{entry['active_troops']:,}** ({entry['members_count']} ta sarkarda)\n"
+                    f"     └ 🏰 Qal'a garnizonlari: **{entry['garrison_troops']:,}** ({entry['castles_count']} ta qal'a mudofaasi)"
+                )
+            else:
+                name = get_user_display_name(u) if u else "Mustaqil Sarkarda"
+                lines.append(
+                    f"{med} **{escape_md(name)}** (🗡️ Mustaqil Sarkarda)\n"
+                    f"     🛡️ Jami armiya: **{entry['total_troops']:,}** askar | Harbiy qudrat: **{entry['power']:,} ⚡**"
+                )
+    lines.append("\n_Harbiy quvvat xonadonning barcha faol sarkardalari armiyasi hamda barcha qal'alarga joylashtirilgan mudofaa garnizonlarini to'liq o'z ichiga oladi._")
     return "\n".join(lines)
 
 
 async def format_castles_text(session) -> str:
     top_castles = await crud.get_top10_castles(session)
     lines = [
-        "🏰 **ENG KO'P QAL'A VA HUDUDLARNI ZABT ETGAN TOP 10 LORDLAR**",
+        "🏰 **ENG QUDRATLI QAL'ALAR VA VILOYATLAR SOHIBLARI (TOP 10)**",
         ""
     ]
     if not top_castles:
@@ -187,11 +224,15 @@ async def format_castles_text(session) -> str:
             h_name = u.house.name if u.house else "Mustaqil"
             h_emoji = u.house.emoji if u.house else "🏰"
             cnt = entry["castles_count"]
+            tot_lvl = entry.get("total_levels", cnt)
+            gold_inc = entry.get("total_gold_income", 0)
+            best_c = entry.get("best_castle_name", "")
             lines.append(
                 f"{med} **{escape_md(name)}** ({h_emoji} {escape_md(h_name)})\n"
-                f"     🏰 **{cnt} ta** qal'a va viloyat sohibi"
+                f"     🏰 **{cnt} ta qal'a** (Umumiy: **{tot_lvl} ⭐** daraja | **+{gold_inc:,} 🪙/soat**)\n"
+                f"     └ Bosh istehkomi: *{escape_md(best_c)}*"
             )
-    lines.append("\n_Har bir qo'lga kiritilgan qal'a xonadon va hukmdorga muntazam o'lpon keltiradi._")
+    lines.append("\n_Qal'alar reytingi qal'alarning istehkom darajasi (Tier/Level) va soatlik oltin tushumiga qarab saralanadi._")
     return "\n".join(lines)
 
 
@@ -308,7 +349,8 @@ def get_ranking_keyboard(category: str = "prestige", period: str = "all") -> Inl
             InlineKeyboardButton(f"{'✅ ' if category == 'champion' else ''}👑 Mavsum G'olibi (Taxt)", callback_data="rank_cat:champion:all"),
         ],
         [
-            InlineKeyboardButton(f"{'✅ ' if category == 'last_week' else ''}🗓️ O'tgan Hafta Sarhisobi (Top 10)", callback_data="rank_cat:last_week:all"),
+            InlineKeyboardButton(f"{'✅ ' if category == 'last_week' else ''}🗓️ O'tgan Hafta Sarhisobi", callback_data="rank_cat:last_week:all"),
+            InlineKeyboardButton(f"{'✅ ' if category == 'war_recap' else ''}⚔️ Urush Sarhisobi", callback_data="rank_cat:war_recap:all"),
         ],
     ]
 
@@ -335,6 +377,8 @@ async def show_ranking_hub(target, user_id: int, category: str = "prestige", per
             text = await format_xp_text(session)
         elif category == "last_week":
             text = await format_last_week_text(session)
+        elif category == "war_recap":
+            text = await format_war_recap_text(session)
         elif category == "wealth":
             text = await format_wealth_text(session, period=period)
         elif category == "armies":
@@ -353,7 +397,7 @@ async def show_ranking_hub(target, user_id: int, category: str = "prestige", per
     if is_group:
         # Guruhda pastki qotib qolgan klaviaturalarni yo'qotish uchun ReplyKeyboardRemove yuboriladi
         group_footer = (
-            "\n💡 _Boshqa reytinglar: /top xp, /top hafta, /top oltin, /top otgan_hafta, /top armiya, /top qalalar, /top ajdar, /top taxt_"
+            "\n💡 _Boshqa reytinglar: /top xp, /top hafta, /top oltin, /top otgan_hafta, /top armiya, /top qalalar, /top urush, /top ajdar, /top taxt_"
         )
         full_text = text + group_footer
         clean_kb = ReplyKeyboardRemove()
@@ -387,15 +431,43 @@ async def ranking_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     is_group = bool(chat and chat.type in ["group", "supergroup"])
     user_id = update.effective_user.id
 
-    # Parametrlar (masalan: /top kun, /top hafta, /top armiya, /top ajdar, /top oltin, /top taxt)
+    is_admin_user = (user_id in ADMIN_IDS)
+
+    # Guruhlarda spam va ortiqcha server yuklamasining oldini olish uchun 1 soatlik cheklov
+    if is_group and not is_admin_user:
+        now = datetime.utcnow()
+        last_time = CHAT_RANK_COOLDOWN.get(chat.id)
+        if last_time:
+            elapsed = (now - last_time).total_seconds()
+            if elapsed < 3600:
+                rem_mins = int((3600 - elapsed) // 60) + 1
+                cooldown_text = (
+                    f"⏳ **Guruhda reytinglar har 1 soatda faqat 1 marta yangilanadi!**\n\n"
+                    f"So'nggi ma'lumotlar yuqoridagi xabarda keltirilgan. Keyingi ko'rishga: **{rem_mins} daqiqa** qoldi.\n\n"
+                    f"💡 *Barcha reytinglarni istalgan vaqtda va navbatsiz ko'rish uchun botning o'ziga yozing: @ironthrone_rpgbot*"
+                )
+                try:
+                    await msg.reply_text(cooldown_text, parse_mode="Markdown")
+                except Exception:
+                    await msg.reply_text(cooldown_text)
+                return
+        CHAT_RANK_COOLDOWN[chat.id] = now
+
+    # Parametrlar (masalan: /top kun, /top hafta, /top armiya, /top ajdar, /top oltin, /top urush)
     args = context.args or []
     arg_str = " ".join(args).lower().strip()
+    cmd_text = (msg.text or "").lower()
 
     category = "prestige"
     period = "all"
 
-    if arg_str:
-        if any(w in arg_str for w in ["otgan", "o'tgan", "last_week", "lastweek", "sarhisob"]):
+    if any(c in cmd_text for c in ["war_recap", "urush_sarhisob", "urush_statistika"]):
+        category = "war_recap"
+    elif arg_str:
+        if any(w in arg_str for w in ["urush", "jang", "war", "recap"]):
+            category = "war_recap"
+            period = "all"
+        elif any(w in arg_str for w in ["otgan", "o'tgan", "last_week", "lastweek", "sarhisob"]):
             category = "last_week"
             period = "all"
         elif any(w in arg_str for w in ["xp", "tajriba", "daraja", "level", "lvl"]):
@@ -450,5 +522,6 @@ async def ranking_category_callback(update: Update, context: ContextTypes.DEFAUL
 
 def register_ranking_handlers(app):
     app.add_handler(CommandHandler(["rank", "ranking", "top", "reyting", "leaderboard", "reytinglar"], ranking_command))
+    app.add_handler(CommandHandler(["war_recap", "urush_sarhisob", "urush_statistika"], ranking_command))
     app.add_handler(CallbackQueryHandler(ranking_callback, pattern="^menu_rank$"))
     app.add_handler(CallbackQueryHandler(ranking_category_callback, pattern="^rank_cat:"))

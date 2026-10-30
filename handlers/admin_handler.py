@@ -1317,6 +1317,11 @@ async def admin_war_action_callback(update: Update, context: ContextTypes.DEFAUL
             if mode == "off":
                 await crud.set_war_status(session, is_active=False, opened_by=user_id)
                 alert_msg = "✅ Urush to'xtatildi! Vesterosda sulh davri boshlandi."
+                try:
+                    from core.tick_engine import check_and_trigger_war_recap_on_close
+                    await check_and_trigger_war_recap_on_close(session, context.application if hasattr(context, "application") else context)
+                except Exception as e_rec:
+                    logger.error(f"adm_war_set off recap xatosi: {e_rec}")
                 if bcast == "bcast":
                     bcast_text = (
                         "🕊️ **QIROL FARMONI: UMUMIY SULH (TINCHLIK) E'LON QILINDI!**\n\n"
@@ -1432,8 +1437,13 @@ async def set_war_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         elif action in ["off", "close", "stop", "yopish"]:
             await crud.set_war_status(session, is_active=False, opened_by=user_id)
+            try:
+                from core.tick_engine import check_and_trigger_war_recap_on_close
+                await check_and_trigger_war_recap_on_close(session, context.application if hasattr(context, "application") else context)
+            except Exception as e_rec:
+                logger.error(f"/setwar off recap xatosi: {e_rec}")
             await update.message.reply_text(
-                "✅ **Urush to'xtatildi! Sulh rejimi faollashtirildi.**",
+                "✅ **Urush to'xtatildi! Sulh rejimi faollashtirildi va umumiy urush statistikasi e'lon qilinmoqda.**",
                 parse_mode="Markdown"
             )
         else:
@@ -1441,6 +1451,23 @@ async def set_war_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "Foydalanish: `/setwar on 2` (2 soatga ochish) yoki `/setwar off` (yopish)",
                 parse_mode="Markdown"
             )
+
+
+async def adm_war_recap_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin uchun: Oxirgi urush sarhisobini zudlik bilan hisoblab, rasmiy kanal va xonadon guruhlariga e'lon qilish"""
+    user_id = update.effective_user.id
+    if not is_admin(user_id):
+        return
+    msg = await update.message.reply_text("⏳ Urush statistikasi hisoblanmoqda va sarhisob tayyorlanmoqda...")
+    try:
+        from core.tick_engine import generate_and_broadcast_war_recap
+        recap = await generate_and_broadcast_war_recap(bot_app=context.application if hasattr(context, "application") else context)
+        if recap:
+            await msg.edit_text(f"✅ **Urush sarhisobi muvaffaqiyatli e'lon qilindi va saqlandi!**\n\n{recap[:3500]}", parse_mode="Markdown")
+        else:
+            await msg.edit_text("❌ Sarhisobni hisoblashda xatolik yuz berdi.")
+    except Exception as e:
+        await msg.edit_text(f"❌ Xatolik yuz berdi: {e}")
 
 
 # ============================================================
@@ -3984,6 +4011,7 @@ def register_admin_handlers(app):
     app.add_handler(CallbackQueryHandler(admin_wipe_confirm_callback, pattern="^admin_wipe_confirm$"))
     app.add_handler(CommandHandler(["setwar", "warcontrol"], set_war_command))
     app.add_handler(CommandHandler(["dailywar", "trigger_npc_raid", "daily2100"], admin_daily_war_command))
+    app.add_handler(CommandHandler(["adm_war_recap", "force_war_recap", "war_recap_adm"], adm_war_recap_command))
     app.add_handler(CallbackQueryHandler(admin_war_control_callback, pattern="^admin_war_control$"))
     app.add_handler(CallbackQueryHandler(admin_war_action_callback, pattern="^(adm_war_set:|adm_war_add:|adm_war_bcast_now|adm_war_trigger_daily_npc)"))
 
