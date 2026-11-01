@@ -26,6 +26,7 @@ from core.tick_engine import (
     check_and_trigger_daily_war_failsafe,
 )
 from core.economy_engine import process_hourly_tick
+from core.daily_events_engine import register_daily_events_jobs
 from handlers import register_all_handlers
 from database import crud
 
@@ -326,6 +327,9 @@ def main():
         interval=300,
         first=60,
     )
+
+    # 5. Har kunlik 4 ta avtomatik Eventlar va Kunlik Ajdarlar Turniri (Asia/Tashkent UTC+5)
+    register_daily_events_jobs(app)
 
     # Kunlik urush va NPC hujumlari - ADMIN BOSHQARUVI:
     # Foydalanuvchi talabi: Urush va NPC bosqinlari avtomatik boshlanmaydi, admin qo'lda boshlaydi (/dailywar yoki Admin Panel)

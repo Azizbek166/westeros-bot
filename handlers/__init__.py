@@ -10,6 +10,7 @@ from handlers.events_handler import register_events_handlers
 from handlers.ranking_handler import register_ranking_handlers
 from handlers.admin_handler import register_admin_handlers
 from handlers.dragon_handler import register_dragon_handlers
+from handlers.dragon_duel_handler import register_dragon_duel_handlers
 from handlers.duel_handler import register_duel_handlers
 from handlers.raven_handler import register_raven_handlers
 from handlers.trade_handler import register_trade_handlers
@@ -21,6 +22,7 @@ from handlers.tourney_handler import register_tourney_handlers
 from handlers.caravan_handler import register_caravan_handlers
 from handlers.weather_handler import register_weather_handlers
 from handlers.daily_handler import register_daily_handlers
+from handlers.daily_events_handler import register_daily_events_handlers
 from handlers.donate_handler import register_donate_handlers
 from handlers.community_handler import register_community_handlers
 from handlers.support_handler import register_support_handlers
@@ -29,6 +31,7 @@ def register_all_handlers(app):
     """Barcha bot handlerlarini Application ga ro'yxatdan o'tkazish"""
     register_start_handlers(app)
     register_daily_handlers(app)
+    register_daily_events_handlers(app)
     register_donate_handlers(app)
     register_community_handlers(app)
     register_support_handlers(app)
@@ -43,6 +46,7 @@ def register_all_handlers(app):
     register_ranking_handlers(app)
     register_admin_handlers(app)
     register_dragon_handlers(app)
+    register_dragon_duel_handlers(app)
     register_duel_handlers(app)
     register_raven_handlers(app)
     register_trade_handlers(app)

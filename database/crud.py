@@ -7392,6 +7392,7 @@ async def resolve_tournament(session: AsyncSession, bot_app=None) -> Tuple[bool,
     duel_chronicle = []
     bracket_stages = {}
     current_fighters = fighters
+    sf_losers = []
 
     for st_code, st_title in stage_sequence:
         duel_chronicle.append(f"\n\n⚔️ **{st_title.upper()} (Tosh-Qaychi-Qog'oz):**")
@@ -7405,6 +7406,8 @@ async def resolve_tournament(session: AsyncSession, bot_app=None) -> Tuple[bool,
             winner = res["winner"]
             loser = res["loser"]
             next_fighters.append(winner)
+            if st_code == "sf":
+                sf_losers.append(loser)
 
             stage_matches.append({
                 "match": i + 1,
@@ -7426,6 +7429,34 @@ async def resolve_tournament(session: AsyncSession, bot_app=None) -> Tuple[bool,
             )
         bracket_stages[st_code] = stage_matches
         current_fighters = next_fighters
+
+    # 3-O'RIN UCHUN BAHIS (KICHIK FINAL)
+    third_place = None
+    if len(sf_losers) >= 2:
+        duel_chronicle.append("\n\n🥉 **3-O'RIN UCHUN JANG (KICHIK FINAL):**")
+        bronze_res = resolve_tourney_duel(sf_losers[0], sf_losers[1], stage="sf")
+        third_place = bronze_res["winner"]
+        bronze_loser = bronze_res["loser"]
+        bronze_match_dict = {
+            "f1_id": sf_losers[0]["id"],
+            "f1_name": sf_losers[0]["name"],
+            "f2_id": sf_losers[1]["id"],
+            "f2_name": sf_losers[1]["name"],
+            "winner_id": third_place["id"],
+            "winner_name": third_place["name"],
+            "score": f"{bronze_res['score_winner']}:{bronze_res['score_loser']}",
+            "log": bronze_res["log"],
+        }
+        bracket_stages["bronze"] = [bronze_match_dict]
+        duel_chronicle.append(
+            f"\n🥉 **3-O'RIN BAHSI: {sf_losers[0]['name']}** VS **{sf_losers[1]['name']}**\n"
+            f"{bronze_res['log']}\n"
+            f"🥉 **3-O'RIN SOVRINDORI:** **{third_place['name']}** ({bronze_res['score_winner']}:{bronze_res['score_loser']})"
+        )
+    elif len(sf_losers) == 1:
+        third_place = sf_losers[0]
+    else:
+        third_place = {"id": 0, "user_id": 0, "name": "Noma'lum ritsar", "is_npc": True}
 
     # GRAND FINAL
     duel_chronicle.append("\n\n👑 **GRAND FINAL (QIROLLIK CHEMPIONLIGI UCHUN):**")
@@ -7459,15 +7490,18 @@ async def resolve_tournament(session: AsyncSession, bot_app=None) -> Tuple[bool,
         "stages": bracket_stages,
         "quarterfinals": bracket_stages.get("qf", []),
         "semifinals": bracket_stages.get("sf", []),
+        "bronze": bracket_stages.get("bronze", []),
         "final": final_match_dict,
         "champion": {"id": champion["id"], "user_id": champion["user_id"], "name": champion["name"], "is_npc": champion["is_npc"]},
         "runner_up": {"id": runner_up["id"], "user_id": runner_up["user_id"], "name": runner_up["name"], "is_npc": runner_up["is_npc"]},
+        "third_place": {"id": third_place["id"], "user_id": third_place.get("user_id", 0), "name": third_place["name"], "is_npc": third_place.get("is_npc", True)},
     }
     tourney.bracket_json = json.dumps(bracket_dict, ensure_ascii=False)
 
-    # Mukofotlarni hisoblash
-    first_prize = int(tourney.prize_pool * 0.70)
-    second_prize = int(tourney.prize_pool * 0.30)
+    # Mukofotlarni hisoblash (1-o'rin 60%, 2-o'rin 25%, 3-o'rin 15%)
+    first_prize = int(tourney.prize_pool * 0.60)
+    second_prize = int(tourney.prize_pool * 0.25)
+    third_prize = int(tourney.prize_pool * 0.15)
 
     tourney.status = "completed"
     tourney.concluded_at = datetime.utcnow()
@@ -7496,6 +7530,17 @@ async def resolve_tournament(session: AsyncSession, bot_app=None) -> Tuple[bool,
             runner_prize_info = f"💰 Mukofot: **+{second_prize:,}** Oltin va **+50** Nufuz!"
     else:
         runner_prize_info = f"🥈 2-O'rin sharafi topshirildi."
+
+    # 3-O'rin: Bronza sovrindori
+    third_prize_info = ""
+    if third_place and not third_place.get("is_npc") and third_place.get("user_id") and third_place["user_id"] != champion["user_id"] and third_place["user_id"] != runner_up["user_id"]:
+        third_user = await session.get(models.User, third_place["user_id"])
+        if third_user:
+            third_user.gold = (third_user.gold or 0) + third_prize
+            third_user.prestige = (third_user.prestige or 0) + 25
+            third_prize_info = f"💰 Mukofot: **+{third_prize:,}** Oltin va **+25** Nufuz!"
+    else:
+        third_prize_info = f"🥉 3-O'rin sharafi topshirildi."
 
     # Stavkalarni to'lash
     bets_res = await session.execute(
@@ -7526,6 +7571,8 @@ async def resolve_tournament(session: AsyncSession, bot_app=None) -> Tuple[bool,
         f"{champ_prize_info}\n\n"
         f"🥈 **FINALIST (2-O'rin):** {runner_up['name']}\n"
         f"{runner_prize_info}\n\n"
+        f"🥉 **BRONZA SOVRINDORI (3-O'rin):** {third_place['name']}\n"
+        f"{third_prize_info}\n\n"
         f"{''.join(duel_chronicle)}\n\n"
         f"🎰 **YUTUQLI STAVKALAR TO'LOVI (1.8x):**\n"
         f"{payout_text}\n\n"
@@ -7536,6 +7583,24 @@ async def resolve_tournament(session: AsyncSession, bot_app=None) -> Tuple[bool,
     await session.commit()
 
     if bot_app:
+        from config import COMMUNITY_CHANNEL_ID
+        channel_post = (
+            f"🏆 TURNIR YAKUNLANDI!\n\n"
+            f"👑 Turnir chempioni: {champion['name']}\n\n"
+            f"🥇 1-o‘rin: {champion['name']}\n"
+            f"🥈 2-o‘rin: {runner_up['name']}\n"
+            f"🥉 3-o‘rin: {third_place['name']}\n\n"
+            f"⚔️ Ishtirokchilar soni: {len(parts)} ta."
+        )
+        if COMMUNITY_CHANNEL_ID:
+            try:
+                await bot_app.bot.send_message(
+                    chat_id=COMMUNITY_CHANNEL_ID,
+                    text=channel_post
+                )
+            except Exception as e:
+                print(f"Kanalga turnir yakuni xabarini yuborishda xatolik: {e}")
+
         users_res = await session.execute(select(models.User.telegram_id))
         all_ids = users_res.scalars().all()
         for tg_id in all_ids:
@@ -8240,27 +8305,55 @@ async def create_donation_request(
     user_full_name: str,
     user_username: str,
     tier_id: str,
-    receipt_file_id: Optional[str] = None
+    receipt_file_id: Optional[str] = None,
+    request_type: str = "tier",
+    troop_type: Optional[str] = None,
+    troop_count: int = 0,
+    price_uzs: Optional[int] = None,
+    price_label: Optional[str] = None,
+    tier_name: Optional[str] = None,
+    amount: Optional[int] = None,
 ) -> Optional[models.DonationRequest]:
-    """Yangi to'lov cheki so'rovini bazaga saqlash"""
-    from config import DONATE_TIERS
-    tier = DONATE_TIERS.get(tier_id)
-    if not tier:
-        return None
+    """Yangi to'lov cheki so'rovini bazaga saqlash (VIP to'plam yoki Qo'shin sotib olish)"""
+    if amount is not None and price_uzs is None:
+        price_uzs = amount
+    if request_type == "troops":
+        req = models.DonationRequest(
+            user_id=user_id,
+            telegram_id=telegram_id,
+            user_full_name=user_full_name or "",
+            user_username=user_username or "",
+            tier_id="troops",
+            tier_name=tier_name or f"Qo'shin: {troop_count:,} ta",
+            price_uzs=price_uzs or 0,
+            price_label=price_label or f"{price_uzs:,} so'm",
+            receipt_file_id=receipt_file_id,
+            status="pending",
+            request_type="troops",
+            troop_type=troop_type,
+            troop_count=troop_count,
+            created_at=datetime.utcnow()
+        )
+    else:
+        from config import DONATE_TIERS
+        tier = DONATE_TIERS.get(tier_id)
+        if not tier:
+            return None
 
-    req = models.DonationRequest(
-        user_id=user_id,
-        telegram_id=telegram_id,
-        user_full_name=user_full_name or "",
-        user_username=user_username or "",
-        tier_id=tier_id,
-        tier_name=tier["name"],
-        price_uzs=tier["price_uzs"],
-        price_label=tier["price_label"],
-        receipt_file_id=receipt_file_id,
-        status="pending",
-        created_at=datetime.utcnow()
-    )
+        req = models.DonationRequest(
+            user_id=user_id,
+            telegram_id=telegram_id,
+            user_full_name=user_full_name or "",
+            user_username=user_username or "",
+            tier_id=tier_id,
+            tier_name=tier["name"],
+            price_uzs=tier["price_uzs"],
+            price_label=tier["price_label"],
+            receipt_file_id=receipt_file_id,
+            status="pending",
+            request_type="tier",
+            created_at=datetime.utcnow()
+        )
     session.add(req)
     await session.commit()
     await session.refresh(req)
@@ -8321,6 +8414,59 @@ async def approve_donation_request(
     if req.status != "pending":
         return False, f"Ushbu so'rov allaqachon ko'rib chiqilgan (Holati: {req.status})!", {}
 
+    if getattr(req, "request_type", "tier") == "troops" or req.tier_id == "troops":
+        # Qo'shin sotib olish so'rovini tasdiqlash
+        army_res = await session.execute(
+            select(models.Army).where(models.Army.user_id == req.user_id)
+        )
+        army = army_res.scalar_one_or_none()
+        if not army:
+            army = models.Army(user_id=req.user_id, infantry=100, archers=50, cavalry=25, spearmen=25)
+            session.add(army)
+            await session.flush()
+
+        t_type = getattr(req, "troop_type", "infantry") or "infantry"
+        t_count = getattr(req, "troop_count", 0) or 0
+        if t_type == "infantry":
+            army.infantry = (army.infantry or 0) + t_count
+        elif t_type == "archers":
+            army.archers = (army.archers or 0) + t_count
+        elif t_type == "cavalry":
+            army.cavalry = (army.cavalry or 0) + t_count
+        elif t_type == "spearmen":
+            army.spearmen = (army.spearmen or 0) + t_count
+
+        session.add(models.Transaction(
+            user_id=req.user_id,
+            amount_gold=0,
+            amount_food=0,
+            amount_iron=0,
+            action_type="buy_troops_donate",
+            details=f"Admin #{admin_telegram_id} tasdiqladi: +{t_count:,} ta {t_type} ({req.price_uzs:,} so'm)"
+        ))
+
+        req.status = "approved"
+        req.reviewed_by_admin_id = admin_telegram_id
+        req.reviewed_at = datetime.utcnow()
+        await session.commit()
+
+        troop_names = {
+            "infantry": "Oddiy askar",
+            "archers": "Kamonchi",
+            "cavalry": "Otliq",
+            "spearmen": "Nayzachi",
+        }
+        details = {
+            "is_troops": True,
+            "troop_type": t_type,
+            "troop_name": troop_names.get(t_type, t_type),
+            "troop_count": t_count,
+            "tier_name": req.tier_name,
+            "price_label": req.price_label,
+            "amount": req.price_uzs or 0,
+        }
+        return True, f"+{t_count:,} ta {troop_names.get(t_type, t_type)} armiyaga muvaffaqiyatli qo'shildi!", details
+
     ok, msg, details = await apply_donate_rewards(session, req.telegram_id, req.tier_id)
     if not ok:
         return False, msg, {}
@@ -8351,7 +8497,635 @@ async def reject_donation_request(
     req.reviewed_at = datetime.utcnow()
     await session.commit()
 
-    return True, "To'lov so'rovi rad etildi.", req
+# ============================================================
+# 32. ERKIN AJDARLAR DUELI CRUD
+# ============================================================
+
+async def create_dragon_duel_entry(
+    session: AsyncSession,
+    challenger_user_id: int,
+    challenger_dragon_id: int,
+    defender_user_id: Optional[int] = None,
+    is_open_lobby: bool = False
+) -> models.DragonDuel:
+    """Yangi ajdarlar dueli yaratish (ochiq zal yoki to'g'ridan-to'g'ri chaqiruv)"""
+    duel = models.DragonDuel(
+        challenger_user_id=challenger_user_id,
+        challenger_dragon_id=challenger_dragon_id,
+        defender_user_id=defender_user_id,
+        status="open_lobby" if is_open_lobby else "pending",
+        is_open_lobby=is_open_lobby,
+        created_at=datetime.utcnow()
+    )
+    session.add(duel)
+    await session.commit()
+    await session.refresh(duel)
+    return duel
+
+
+async def get_open_dragon_duels(session: AsyncSession, exclude_user_id: Optional[int] = None, limit: int = 15) -> List[models.DragonDuel]:
+    """Ochiq duel zalidagi faol takliflarni olish"""
+    stmt = (
+        select(models.DragonDuel)
+        .options(
+            selectinload(models.DragonDuel.challenger),
+            selectinload(models.DragonDuel.challenger_dragon)
+        )
+        .where(models.DragonDuel.status == "open_lobby")
+    )
+    if exclude_user_id:
+        stmt = stmt.where(models.DragonDuel.challenger_user_id != exclude_user_id)
+    stmt = stmt.order_by(models.DragonDuel.id.desc()).limit(limit)
+    res = await session.execute(stmt)
+    return list(res.scalars().all())
+
+
+async def get_dragon_duel_by_id(session: AsyncSession, duel_id: int) -> Optional[models.DragonDuel]:
+    """Duelni ID bo'yicha to'liq ma'lumotlari bilan olish"""
+    stmt = (
+        select(models.DragonDuel)
+        .options(
+            selectinload(models.DragonDuel.challenger),
+            selectinload(models.DragonDuel.defender),
+            selectinload(models.DragonDuel.challenger_dragon),
+            selectinload(models.DragonDuel.defender_dragon),
+        )
+        .where(models.DragonDuel.id == duel_id)
+    )
+    res = await session.execute(stmt)
+    return res.scalar_one_or_none()
+
+
+async def get_user_pending_dragon_duels(session: AsyncSession, user_id: int) -> List[models.DragonDuel]:
+    """Foydalanuvchiga yuborilgan kutilayotgan duel chaqiruvlari"""
+    stmt = (
+        select(models.DragonDuel)
+        .options(
+            selectinload(models.DragonDuel.challenger),
+            selectinload(models.DragonDuel.challenger_dragon)
+        )
+        .where(
+            models.DragonDuel.defender_user_id == user_id,
+            models.DragonDuel.status == "pending"
+        )
+        .order_by(models.DragonDuel.id.desc())
+    )
+    res = await session.execute(stmt)
+    return list(res.scalars().all())
+
+
+async def complete_dragon_duel(
+    session: AsyncSession,
+    duel_id: int,
+    defender_user_id: int,
+    defender_dragon_id: int,
+    winner_dragon_id: int,
+    winner_user_id: int,
+    duel_log: str
+) -> Tuple[bool, str, Optional[models.DragonDuel]]:
+    """Ajdarlar duelini yakunlash va natijasini saqlash"""
+    duel = await get_dragon_duel_by_id(session, duel_id)
+    if not duel:
+        return False, "Duel topilmadi.", None
+
+    if duel.status not in ["pending", "open_lobby"]:
+        return False, f"Ushbu duel allaqachon yakunlangan (Holati: {duel.status}).", duel
+
+    duel.defender_user_id = defender_user_id
+    duel.defender_dragon_id = defender_dragon_id
+    duel.winner_dragon_id = winner_dragon_id
+    duel.winner_user_id = winner_user_id
+    duel.duel_log = duel_log
+    duel.status = "completed"
+    duel.completed_at = datetime.utcnow()
+
+    await session.commit()
+    await session.refresh(duel)
+    return True, "Duel muvaffaqiyatli yakunlandi.", duel
+
+
+async def cancel_or_reject_dragon_duel(
+    session: AsyncSession,
+    duel_id: int,
+    user_id: int
+) -> Tuple[bool, str]:
+    """Duelni bekor qilish yoki rad etish"""
+    duel = await get_dragon_duel_by_id(session, duel_id)
+    if not duel:
+        return False, "Duel topilmadi."
+
+    if duel.status not in ["pending", "open_lobby"]:
+        return False, "Ushbu duelni bekor qilib bo'lmaydi."
+
+    if duel.challenger_user_id == user_id:
+        duel.status = "cancelled"
+        duel.completed_at = datetime.utcnow()
+        await session.commit()
+        return True, "Duel bekor qilindi."
+    elif duel.defender_user_id == user_id:
+        duel.status = "rejected"
+        duel.completed_at = datetime.utcnow()
+        await session.commit()
+        return True, "Duel rad etildi."
+
+    return False, "Sizda bu duelni bekor qilish huquqi yo'q."
+
+
+# ============================================================
+# 33. KUNLIK AVTOMATIK AJDARLAR TURNIRI CRUD
+# ============================================================
+
+async def get_or_create_daily_dragon_tourney(
+    session: AsyncSession,
+    tourney_date: Optional[str] = None
+) -> models.DailyDragonTournament:
+    """Bugungi kunlik ajdarlar turnirini olish yoki yaratish"""
+    if not tourney_date:
+        now_uzb = datetime.utcnow() + timedelta(hours=5)
+        tourney_date = now_uzb.strftime("%Y-%m-%d")
+
+    stmt = (
+        select(models.DailyDragonTournament)
+        .options(selectinload(models.DailyDragonTournament.participants))
+        .where(models.DailyDragonTournament.tourney_date == tourney_date)
+        .order_by(models.DailyDragonTournament.id.desc())
+    )
+    res = await session.execute(stmt)
+    tourney = res.scalars().first()
+
+    if not tourney:
+        tourney = models.DailyDragonTournament(
+            tourney_date=tourney_date,
+            status="registration",
+            created_at=datetime.utcnow()
+        )
+        session.add(tourney)
+        await session.commit()
+        await session.refresh(tourney)
+
+    return tourney
+
+
+async def register_dragon_for_daily_tourney(
+    session: AsyncSession,
+    tourney_id: int,
+    user_id: int,
+    dragon_id: int
+) -> Tuple[bool, str]:
+    """Ajdarni bugungi kunlik turnirga ro'yxatdan o'tkazish"""
+    tourney = await session.get(models.DailyDragonTournament, tourney_id)
+    if not tourney:
+        return False, "Turnir topilmadi."
+
+    if tourney.status != "registration":
+        return False, "Turnirga ro'yxatdan o'tish yakunlangan!"
+
+    # Foydalanuvchi allaqachon ro'yxatdan o'tganmi?
+    part_chk = await session.execute(
+        select(models.DailyDragonTournamentParticipant).where(
+            models.DailyDragonTournamentParticipant.tournament_id == tourney_id,
+            models.DailyDragonTournamentParticipant.user_id == user_id
+        )
+    )
+    if part_chk.scalar_one_or_none():
+        return False, "Siz allaqachon bugungi turnirga ajdaringizni ro'yxatdan o'tkazgansiz!"
+
+    dragon = await session.get(models.Dragon, dragon_id)
+    if not dragon or dragon.user_id != user_id:
+        return False, "Ajdar topilmadi yoki sizga tegishli emas."
+
+    if dragon.stage == "egg":
+        return False, "Tuxum jangga kira olmaydi! Avval tuxumni ochiring."
+
+    part = models.DailyDragonTournamentParticipant(
+        tournament_id=tourney_id,
+        user_id=user_id,
+        dragon_id=dragon.id,
+        dragon_name=dragon.name,
+        dragon_power=dragon.power or 100,
+        dragon_stage=dragon.stage,
+        is_npc=False,
+        joined_at=datetime.utcnow()
+    )
+    session.add(part)
+    await session.commit()
+    return True, f"«{dragon.name}» bugungi kunlik ajdarlar turniriga muvaffaqiyatli ro'yxatdan o'tdi!"
+
+
+async def resolve_daily_dragon_tourney(
+    session: AsyncSession,
+    bot_app=None
+) -> Tuple[bool, str]:
+    """Kunlik avtomatik ajdarlar turnirini o'tkazish va yakunlash"""
+    from core.dragon_battle import simulate_dragon_battle, LEGENDARY_NPC_DRAGONS
+
+    now_uzb = datetime.utcnow() + timedelta(hours=5)
+    tourney_date = now_uzb.strftime("%Y-%m-%d")
+
+    # Bugungi yoki ochiq turnirni topamiz
+    stmt = (
+        select(models.DailyDragonTournament)
+        .options(
+            selectinload(models.DailyDragonTournament.participants).selectinload(models.DailyDragonTournamentParticipant.user)
+        )
+        .where(models.DailyDragonTournament.status == "registration")
+        .order_by(models.DailyDragonTournament.id.desc())
+    )
+    res = await session.execute(stmt)
+    tourney = res.scalars().first()
+
+    if not tourney:
+        return False, "Ro'yxatga olish holatidagi kunlik ajdarlar turniri topilmadi."
+
+    participants = list(tourney.participants or [])
+    fighters = []
+
+    for p in participants:
+        d_obj = await session.get(models.Dragon, p.dragon_id)
+        fighters.append({
+            "id": p.dragon_id,
+            "part_id": p.id,
+            "name": p.dragon_name,
+            "grade": getattr(d_obj, "grade", "B") if d_obj else "B",
+            "stage": p.dragon_stage,
+            "level": getattr(d_obj, "level", 5) if d_obj else 5,
+            "power": p.dragon_power,
+            "user_id": p.user_id,
+            "user_name": p.user.username or p.user.full_name if p.user else "Lord",
+            "is_npc": False,
+        })
+
+    # Setka hajmi (kamida 8 talik)
+    k_size = 8 if len(fighters) <= 8 else 16
+
+    # Bo'sh o'rinlarni afsonaviy NPC ajdarlari bilan to'ldirish
+    existing_names = {f["name"] for f in fighters}
+    npc_idx = 0
+    for npc in LEGENDARY_NPC_DRAGONS:
+        if len(fighters) >= k_size:
+            break
+        if npc["name"] in existing_names:
+            continue
+        fighters.append({
+            "id": 9000 + npc_idx,
+            "part_id": 9000 + npc_idx,
+            "name": npc["name"],
+            "grade": npc["grade"],
+            "stage": npc["stage"],
+            "level": npc["level"],
+            "power": npc["power"],
+            "user_id": 0,
+            "user_name": npc["user_name"],
+            "is_npc": True,
+        })
+        npc_idx += 1
+
+    random.shuffle(fighters)
+    current_round_fighters = fighters[:k_size]
+
+    stages_names = [
+        ("qf", "1/4 Chorak Final"),
+        ("sf", "1/2 Yarim Final"),
+        ("final", "Grand Final")
+    ]
+    if k_size == 16:
+        stages_names.insert(0, ("r16", "1/8 Nimchorak Final"))
+
+    chronicle = []
+    bracket_stages = {}
+
+    for st_code, st_title in stages_names:
+        chronicle.append(f"\n\n🌪️ **{st_title.upper()}:**")
+        next_round_fighters = []
+        stage_matches = []
+        n_matches = len(current_round_fighters) // 2
+
+        for i in range(n_matches):
+            d1 = current_round_fighters[i * 2]
+            d2 = current_round_fighters[i * 2 + 1]
+            res_battle = simulate_dragon_battle(d1, d2)
+            winner = res_battle["winner"]
+            loser = res_battle["loser"]
+            next_round_fighters.append(winner)
+
+            stage_matches.append({
+                "match": i + 1,
+                "d1_name": d1["name"],
+                "d2_name": d2["name"],
+                "winner_name": winner["name"],
+                "score": f"{res_battle['winner_score']}:{res_battle['loser_score']}",
+            })
+
+            chronicle.append(
+                f"\n🔥 **{d1['name']}** VS **{d2['name']}**\n"
+                f"👑 G'olib: **{winner['name']}** ({winner['user_name']}) [{res_battle['winner_score']}:{res_battle['loser_score']}]"
+            )
+
+        bracket_stages[st_code] = stage_matches
+        current_round_fighters = next_round_fighters
+
+    champion = current_round_fighters[0]
+
+    tourney.champion_dragon_id = champion["id"] if not champion.get("is_npc") else None
+    tourney.champion_dragon_name = champion["name"]
+    tourney.champion_user_id = champion["user_id"] if not champion.get("is_npc") else None
+    tourney.champion_user_name = champion["user_name"]
+    tourney.bracket_json = json.dumps(bracket_stages, ensure_ascii=False)
+    tourney.status = "completed"
+    tourney.concluded_at = datetime.utcnow()
+
+    recap_text = (
+        f"🐉👑 **KUNLIK AJDARLAR TURNIRI YAKUNLANDI!**\n\n"
+        f"🏆 **TURNIR CHEMPIONI:** **{champion['name']}**\n"
+        f"👤 Sohibi: **{champion['user_name']}**\n"
+        f"⚔️ Ishtirokchilar: {len(fighters)} ta ajdar\n"
+        f"{''.join(chronicle)}\n\n"
+        f"✨ Barcha qatnashchilarga tashakkur! Keyingi avtomatik turnir ertaga o'tkaziladi."
+    )
+    tourney.details = recap_text
+    await session.commit()
+
+    if bot_app:
+        from config import COMMUNITY_CHANNEL_ID
+        channel_msg = (
+            f"🐉🏆 **KUNLIK AJDARLAR TURNIRI CHEMPIONI!**\n\n"
+            f"👑 **Chempion Ajdar:** {champion['name']}\n"
+            f"👤 **Hukmdori:** {champion['user_name']}\n"
+            f"⚔️ **Ishtirokchilar:** {len(fighters)} ta ajdar\n\n"
+            f"Barcha janglar avtomatik tarzda shiddatli kurash ostida yakunlandi! ⚔️"
+        )
+        if COMMUNITY_CHANNEL_ID:
+            try:
+                await bot_app.bot.send_message(chat_id=COMMUNITY_CHANNEL_ID, text=channel_msg)
+            except Exception as e:
+                print(f"Kanalga ajdarlar turnirini yuborishda xatolik: {e}")
+
+        # Qatnashchilarga xabar berish
+        for f in fighters:
+            if not f.get("is_npc") and f.get("user_id"):
+                u_obj = await session.get(models.User, f["user_id"])
+                if u_obj and u_obj.telegram_id:
+                    try:
+                        await bot_app.bot.send_message(
+                            chat_id=u_obj.telegram_id,
+                            text=recap_text,
+                            parse_mode="Markdown"
+                        )
+                    except Exception:
+                        pass
+
+    return True, recap_text
+
+
+# ============================================================
+# 34. HAR KUNLIK TASODIFIY VOQEALAR (DAILY EVENTS) CRUD
+# ============================================================
+
+DAILY_EVENTS_CONFIG = {
+    "dragons_flight": {
+        "title": "🐉 AJDARLAR PARVOZI",
+        "description": "Vesteros osmonida qadimgi ajdarlar parvozi! Qatnashgan barcha lordlarga xazinadan 5,000 oltin mukofot beriladi.",
+        "reward_type": "all_gold",
+        "gold_amount": 5000,
+    },
+    "royal_treasury": {
+        "title": "💰 QIROLLIK XAZINASI",
+        "description": "Qirollik maxfiy xazinasi eshiklari ochildi! Qatnashuvchilar orasidan tasodifiy g'oliblar aniqlanib, ulkan xazina taqsimlanadi.",
+        "reward_type": "random_gold",
+    },
+    "merchant_caravan": {
+        "title": "🐫 SAVDOGARLAR KARVONI",
+        "description": "Erkin Shaharlardan boy savdogarlar karvoni Westeros bo'ylab keldi! Barcha ishtirokchilar tasodifiy resurslar va oltin sovg'alar oladi.",
+        "reward_type": "random_resources",
+    },
+    "northern_threat": {
+        "title": "❄️ SHIMOLDAN XAVF (WHITE WALKERS)",
+        "description": "Devor ortidan Oq Yuruvchilar xavfi yaqinlashmoqda! Shimol mudofaasiga qo'shilgan mard lordlar shon-sharaf va jangovar mukofotlarga ega bo'ladi.",
+        "reward_type": "combat_rewards",
+    },
+}
+
+
+async def get_or_create_daily_scheduled_event(
+    session: AsyncSession,
+    event_code: str,
+    event_date: Optional[str] = None
+) -> models.DailyScheduledEvent:
+    """Belgilangan kunlik eventni olish yoki yaratish"""
+    if not event_date:
+        now_uzb = datetime.utcnow() + timedelta(hours=5)
+        event_date = now_uzb.strftime("%Y-%m-%d")
+
+    cfg = DAILY_EVENTS_CONFIG.get(event_code, {
+        "title": "QIROLLIK VOQEASI",
+        "description": "Westerosda yangi voqea boshlandi."
+    })
+
+    stmt = (
+        select(models.DailyScheduledEvent)
+        .options(selectinload(models.DailyScheduledEvent.participants))
+        .where(
+            models.DailyScheduledEvent.event_code == event_code,
+            models.DailyScheduledEvent.event_date == event_date
+        )
+        .order_by(models.DailyScheduledEvent.id.desc())
+    )
+    res = await session.execute(stmt)
+    event = res.scalars().first()
+
+    if not event:
+        event = models.DailyScheduledEvent(
+            event_code=event_code,
+            event_date=event_date,
+            title=cfg["title"],
+            status="active",
+            participants_count=0,
+            started_at=datetime.utcnow()
+        )
+        session.add(event)
+        await session.commit()
+        await session.refresh(event)
+
+    return event
+
+
+async def join_daily_scheduled_event(
+    session: AsyncSession,
+    event_id: int,
+    user_id: int,
+    telegram_id: int
+) -> Tuple[bool, str]:
+    """O'yinchini kunlik eventga ro'yxatdan o'tkazish (faqat bir marta)"""
+    event = await session.get(models.DailyScheduledEvent, event_id)
+    if not event:
+        return False, "Voqea topilmadi."
+
+    if event.status != "active":
+        return False, "Ushbu voqea allaqachon yakunlangan!"
+
+    # Tekshirish: o'yinchi allaqachon qatnashganmi?
+    chk = await session.execute(
+        select(models.DailyEventParticipant).where(
+            models.DailyEventParticipant.event_id == event_id,
+            models.DailyEventParticipant.user_id == user_id
+        )
+    )
+    if chk.scalar_one_or_none():
+        return False, "⚠️ Siz allaqachon ushbu voqeada qatnashgansiz! Har bir eventda faqat bir marta ishtirok etish mumkin."
+
+    part = models.DailyEventParticipant(
+        event_id=event_id,
+        user_id=user_id,
+        telegram_id=telegram_id,
+        reward_given=False,
+        joined_at=datetime.utcnow()
+    )
+    session.add(part)
+    event.participants_count = (event.participants_count or 0) + 1
+    await session.commit()
+    return True, f"✅ Siz «{event.title}» voqeasiga muvaffaqiyatli qo'shildingiz! Natijalar va mukofotlar voqea yakunlangach beriladi."
+
+
+async def resolve_daily_scheduled_event(
+    session: AsyncSession,
+    event_id: int,
+    bot_app=None
+) -> Tuple[bool, str]:
+    """Kunlik eventni yakunlash va mukofotlarni barcha ishtirokchilarga xavfsiz tarqatish"""
+    stmt = (
+        select(models.DailyScheduledEvent)
+        .options(
+            selectinload(models.DailyScheduledEvent.participants).selectinload(models.DailyEventParticipant.user)
+        )
+        .where(models.DailyScheduledEvent.id == event_id)
+    )
+    res = await session.execute(stmt)
+    event = res.scalar_one_or_none()
+
+    if not event:
+        return False, "Voqea topilmadi."
+
+    if event.status != "active":
+        return False, f"Voqea allaqachon yakunlangan (Holati: {event.status})."
+
+    participants = list(event.participants or [])
+    event_code = event.event_code
+    winners_list = []
+    payout_details = []
+
+    # 1. AJDARLAR PARVOZI (Har bir qatnashgan o'yinchiga 5 000 gold)
+    if event_code == "dragons_flight":
+        for part in participants:
+            if not part.reward_given and part.user:
+                part.user.gold = (part.user.gold or 0) + 5000
+                part.reward_given = True
+                part.reward_details = "+5,000🪙 Oltin"
+                session.add(models.Transaction(
+                    user_id=part.user_id,
+                    amount_gold=5000,
+                    amount_food=0,
+                    amount_iron=0,
+                    action_type="daily_event_reward",
+                    details=f"Ajdarlar Parvozi mukofoti: +5,000 oltin"
+                ))
+        summary_msg = f"Har bir qatnashgan {len(participants)} ta lordga **+5,000🪙 Oltin** mukofot berildi!"
+
+    # 2. QIROLLIK XAZINASI (Tasodifiy g'oliblarga katta gold)
+    elif event_code == "royal_treasury":
+        if participants:
+            n_winners = max(1, min(len(participants), 5))
+            winners = random.sample(participants, n_winners)
+            winner_ids = {w.id for w in winners}
+            for part in participants:
+                if not part.reward_given and part.user:
+                    if part.id in winner_ids:
+                        part.user.gold = (part.user.gold or 0) + 20000
+                        part.reward_given = True
+                        part.reward_details = "+20,000🪙 Bosh Oltin Xazinasi"
+                        winners_list.append(part.user.username or part.user.full_name)
+                    else:
+                        part.user.gold = (part.user.gold or 0) + 2000
+                        part.reward_given = True
+                        part.reward_details = "+2,000🪙 Rag'batlantiruvchi Oltin"
+            summary_msg = f"{len(winners)} ta bosh g'olibga **+20,000🪙 Oltin**, qolgan barcha ishtirokchilarga **+2,000🪙 Oltin** berildi!"
+        else:
+            summary_msg = "Hech kim qatnashmadi."
+
+    # 3. SAVDOGARLAR KARVONI (Tasodifiy resurslar va gold)
+    elif event_code == "merchant_caravan":
+        for part in participants:
+            if not part.reward_given and part.user:
+                package = random.choice([
+                    {"food": 10000, "iron": 0, "gold": 4000, "label": "+10,000🌾 Oziq va +4,000🪙 Oltin"},
+                    {"food": 0, "iron": 6000, "gold": 4000, "label": "+6,000⛓️ Temir va +4,000🪙 Oltin"},
+                    {"food": 5000, "iron": 3000, "gold": 5000, "label": "+5,000🌾 +3,000⛓️ +5,000🪙 Oltin"},
+                    {"food": 0, "iron": 0, "gold": 10000, "label": "+10,000🪙 Oltin"},
+                ])
+                part.user.food = (part.user.food or 0) + package["food"]
+                part.user.iron = (part.user.iron or 0) + package["iron"]
+                part.user.gold = (part.user.gold or 0) + package["gold"]
+                part.reward_given = True
+                part.reward_details = package["label"]
+        summary_msg = f"Barcha {len(participants)} ta qatnashuvchiga boy karvon resurslari va oltin taqsimlandi!"
+
+    # 4. SHIMOLDAN XAVF (White Walkers hujumi: gold + prestige)
+    elif event_code == "northern_threat":
+        for part in participants:
+            if not part.reward_given and part.user:
+                part.user.gold = (part.user.gold or 0) + 8000
+                part.user.prestige = (part.user.prestige or 0) + 20
+                part.reward_given = True
+                part.reward_details = "+8,000🪙 Oltin va +20⭐ Nufuz"
+        summary_msg = f"Shimol mudofaasida qatnashgan {len(participants)} ta lordga **+8,000🪙 Oltin** va **+20⭐ Nufuz** berildi!"
+
+    else:
+        summary_msg = "Voqea muvaffaqiyatli yakunlandi."
+
+    event.status = "concluded"
+    event.concluded_at = datetime.utcnow()
+    event.winners_json = json.dumps(winners_list, ensure_ascii=False)
+    event.details = summary_msg
+
+    await session.commit()
+
+    recap_report = (
+        f"🌟 **{event.title} YAKUNLANDI!**\n\n"
+        f"📊 **Ishtirokchilar soni:** {len(participants)} ta lord\n"
+        f"🎁 **Mukofotlar:** {summary_msg}\n\n"
+        f"Barcha mukofotlar ishtirokchilarning shaxsiy hisobiga to'liq o'tkazildi! ⚔️"
+    )
+
+    if bot_app:
+        from config import COMMUNITY_CHANNEL_ID
+        if COMMUNITY_CHANNEL_ID:
+            try:
+                await bot_app.bot.send_message(
+                    chat_id=COMMUNITY_CHANNEL_ID,
+                    text=recap_report,
+                    parse_mode="Markdown"
+                )
+            except Exception as e:
+                print(f"Kanalga daily event xabarini yuborishda xatolik: {e}")
+
+        # Ishtirokchilarga shaxsiy xabar
+        for part in participants:
+            if part.telegram_id:
+                try:
+                    await bot_app.bot.send_message(
+                        chat_id=part.telegram_id,
+                        text=(
+                            f"🎁 **{event.title} NATIJASI!**\n\n"
+                            f"Hurmatli Lord! Siz voqeada muvaffaqiyatli qatnashdingiz.\n"
+                            f"Sizning mukofotingiz: **{part.reward_details}**!\n\n"
+                            f"Boyliklar hisobingizga yuklandi. Vesteros taxti sari olg'a! ⚔️"
+                        ),
+                        parse_mode="Markdown"
+                    )
+                except Exception:
+                    pass
+
+    return True, recap_report
+
 
 
 

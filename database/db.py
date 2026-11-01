@@ -153,6 +153,9 @@ async def init_db():
                 "ALTER TABLE users ADD COLUMN weekly_limit_date VARCHAR(10) DEFAULT ''",
                 "ALTER TABLE users ADD COLUMN custom_video_file_id VARCHAR(255)",
                 "ALTER TABLE territories ADD COLUMN castle_tier INTEGER DEFAULT 2",
+                "ALTER TABLE donation_requests ADD COLUMN request_type VARCHAR(50) DEFAULT 'tier'",
+                "ALTER TABLE donation_requests ADD COLUMN troop_type VARCHAR(50)",
+                "ALTER TABLE donation_requests ADD COLUMN troop_count INTEGER DEFAULT 0",
             ]:
                 try:
                     await conn.execute(text(alter_stmt))
@@ -213,6 +216,9 @@ async def init_db():
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS weekly_limit_date VARCHAR(10) DEFAULT ''",
                 "ALTER TABLE territories ADD COLUMN IF NOT EXISTS castle_tier INTEGER DEFAULT 2",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS equipped_artifact_id INTEGER",
+                "ALTER TABLE donation_requests ADD COLUMN IF NOT EXISTS request_type VARCHAR(50) DEFAULT 'tier'",
+                "ALTER TABLE donation_requests ADD COLUMN IF NOT EXISTS troop_type VARCHAR(50)",
+                "ALTER TABLE donation_requests ADD COLUMN IF NOT EXISTS troop_count INTEGER DEFAULT 0",
             ]:
                 try:
                     await conn.execute(text(pg_alter))

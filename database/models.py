@@ -10,6 +10,7 @@ from sqlalchemy import (
     ForeignKey,
     Text,
     Index,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
 from database.db import Base
@@ -707,8 +708,114 @@ class DonationRequest(Base):
     status = Column(String(20), default="pending", index=True)  # pending, approved, rejected
     reviewed_by_admin_id = Column(BigInteger, nullable=True)
     admin_notes = Column(Text, nullable=True)
+    request_type = Column(String(50), default="tier")  # tier or troops
+    troop_type = Column(String(50), nullable=True)      # infantry, archers, cavalry, spearmen
+    troop_count = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
     reviewed_at = Column(DateTime, nullable=True)
+
+
+# ============================================================
+# 29. DRAGON DUELS (ERKIN AJDARLAR DUELI)
+# ============================================================
+class DragonDuel(Base):
+    __tablename__ = "dragon_duels"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    challenger_user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    challenger_dragon_id = Column(Integer, ForeignKey("dragons.id"), nullable=False)
+    defender_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    defender_dragon_id = Column(Integer, ForeignKey("dragons.id"), nullable=True)
+    status = Column(String(30), default="pending", index=True)  # pending, completed, rejected, cancelled, open_lobby
+    winner_dragon_id = Column(Integer, nullable=True)
+    winner_user_id = Column(Integer, nullable=True)
+    duel_log = Column(Text, default="")
+    is_open_lobby = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    completed_at = Column(DateTime, nullable=True)
+
+    challenger = relationship("User", foreign_keys=[challenger_user_id])
+    defender = relationship("User", foreign_keys=[defender_user_id])
+    challenger_dragon = relationship("Dragon", foreign_keys=[challenger_dragon_id])
+    defender_dragon = relationship("Dragon", foreign_keys=[defender_dragon_id])
+
+
+# ============================================================
+# 30. DAILY DRAGON TOURNAMENTS (KUNLIK AVTOMATIK AJDARLAR TURNIRI)
+# ============================================================
+class DailyDragonTournament(Base):
+    __tablename__ = "daily_dragon_tournaments"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    tourney_date = Column(String(20), nullable=False, index=True)
+    status = Column(String(30), default="registration", index=True)  # registration, in_progress, completed
+    bracket_json = Column(Text, default="{}")
+    champion_dragon_id = Column(Integer, nullable=True)
+    champion_dragon_name = Column(String(100), nullable=True)
+    champion_user_id = Column(Integer, nullable=True)
+    champion_user_name = Column(String(100), nullable=True)
+    details = Column(Text, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    concluded_at = Column(DateTime, nullable=True)
+
+    participants = relationship("DailyDragonTournamentParticipant", back_populates="tournament", cascade="all, delete-orphan")
+
+
+class DailyDragonTournamentParticipant(Base):
+    __tablename__ = "daily_dragon_tournament_participants"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    tournament_id = Column(Integer, ForeignKey("daily_dragon_tournaments.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    dragon_id = Column(Integer, nullable=False)
+    dragon_name = Column(String(100), nullable=False)
+    dragon_power = Column(Integer, default=100)
+    dragon_stage = Column(String(30), default="adult")
+    is_npc = Column(Boolean, default=False)
+    joined_at = Column(DateTime, default=datetime.utcnow)
+
+    tournament = relationship("DailyDragonTournament", back_populates="participants")
+    user = relationship("User")
+
+
+# ============================================================
+# 31. DAILY SCHEDULED EVENTS (HAR KUNLIK VOQEALAR)
+# ============================================================
+class DailyScheduledEvent(Base):
+    __tablename__ = "daily_scheduled_events"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    event_code = Column(String(50), nullable=False, index=True)  # dragons_flight, royal_treasury, merchant_caravan, northern_threat
+    event_date = Column(String(20), nullable=False, index=True)
+    title = Column(String(150), nullable=False)
+    status = Column(String(30), default="active", index=True)  # active, concluded
+    participants_count = Column(Integer, default=0)
+    winners_json = Column(Text, default="[]")
+    details = Column(Text, default="")
+    started_at = Column(DateTime, default=datetime.utcnow)
+    concluded_at = Column(DateTime, nullable=True)
+
+    participants = relationship("DailyEventParticipant", back_populates="event", cascade="all, delete-orphan")
+
+
+class DailyEventParticipant(Base):
+    __tablename__ = "daily_event_participants"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    event_id = Column(Integer, ForeignKey("daily_scheduled_events.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    telegram_id = Column(BigInteger, nullable=False, index=True)
+    reward_given = Column(Boolean, default=False)
+    reward_details = Column(Text, default="")
+    joined_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("event_id", "user_id", name="uq_daily_event_user"),
+    )
+
+    event = relationship("DailyScheduledEvent", back_populates="participants")
+    user = relationship("User")
+
 
 
 

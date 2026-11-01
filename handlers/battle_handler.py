@@ -1632,6 +1632,18 @@ async def handle_battle_text_input(update: Update, context: ContextTypes.DEFAULT
         await handle_recruit_text_input(update, context)
         return
 
+    # Agar foydalanuvchi donate qo'shin summasini kiritayotgan bo'lsa
+    if "awaiting_donate_troop_custom" in context.user_data:
+        from handlers.donate_handler import handle_donate_troop_amount_text
+        await handle_donate_troop_amount_text(update, context)
+        return
+
+    # Agar foydalanuvchi ajdarlar dueli raqibini kiritayotgan bo'lsa
+    if "awaiting_dragon_duel_target" in context.user_data:
+        from handlers.dragon_duel_handler import handle_dragon_duel_target_input
+        await handle_dragon_duel_target_input(update, context)
+        return
+
     text = update.message.text.strip()
     user_id = update.effective_user.id
 

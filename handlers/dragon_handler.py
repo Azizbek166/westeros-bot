@@ -158,6 +158,7 @@ async def show_dragon_hub(target, user_id: int, is_message: bool):
         if len(dragons) < 3:
             buttons.append([InlineKeyboardButton(f"🥚 Yangi Ajdar Xarid Qilish ({len(dragons)}/3)", callback_data="dragon_buy_more")])
 
+        buttons.append([InlineKeyboardButton("🔥 Ajdarlar Dueli va Turniri", callback_data="dragon_duel_menu")])
         buttons.append([InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")])
 
         try:
