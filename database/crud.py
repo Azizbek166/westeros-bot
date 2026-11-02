@@ -426,15 +426,17 @@ async def join_house(
 
 # ============================================================
 # YANGI OCHILGAN VA CUSTOM QAL'ALAR UCHUN ME'YORIY STANDARTLAR
-# (Yangi o'yinchilar ochgan qal'alar 60 ta kanonik qal'alardan
-# daromadi va mudofaasi ustun bo'lib ketmasligi uchun Tier 3 dan boshlanadi)
+# (Yangi o'yinchilar ochgan qal'alar Winterfell va King's Landing'dan
+# biroz kamroq, kuchli va serdaromad darajada ushlab turiladi:
+# Winterfell: 1100 Gold, 2400 Food, 950 Iron, 1600 Def
+# King's Landing: 1200 Gold, 2500 Food, 900 Iron, 1600 Def)
 # ============================================================
 CUSTOM_CASTLE_LEVEL_STANDARDS = {
-    1: {"tier": 3, "gold": 250, "food": 700, "iron": 200, "defense": 450},
-    2: {"tier": 3, "gold": 300, "food": 850, "iron": 250, "defense": 520},
-    3: {"tier": 3, "gold": 360, "food": 1000, "iron": 300, "defense": 600},
-    4: {"tier": 2, "gold": 450, "food": 1200, "iron": 380, "defense": 700},
-    5: {"tier": 2, "gold": 550, "food": 1400, "iron": 450, "defense": 800},
+    1: {"tier": 2, "gold": 900, "food": 2000, "iron": 800, "defense": 1250},
+    2: {"tier": 2, "gold": 950, "food": 2100, "iron": 840, "defense": 1330},
+    3: {"tier": 2, "gold": 1000, "food": 2200, "iron": 880, "defense": 1400},
+    4: {"tier": 2, "gold": 1050, "food": 2300, "iron": 910, "defense": 1480},
+    5: {"tier": 1, "gold": 1080, "food": 2380, "iron": 930, "defense": 1550},
 }
 
 
@@ -472,7 +474,7 @@ async def create_custom_house_user_and_territory(
     next_h_id = (max_h_id_res.scalar() or 50) + 1
     h_code = f"custom_{telegram_id}_{next_h_id}"
 
-    # Create House (Boshlang'ich adolatli xazina)
+    # Create House (Mustahkam xazina)
     new_house = models.House(
         id=next_h_id,
         code=h_code,
@@ -482,10 +484,10 @@ async def create_custom_house_user_and_territory(
         description=f"{full_name} tomonidan asos solingan shonli xonadon.",
         lord_user_id=telegram_id,
         lord_elected_at=datetime.utcnow(),
-        gold=1500,
-        food=3000,
-        iron=800,
-        prestige=25,
+        gold=4000,
+        food=8000,
+        iron=1800,
+        prestige=50,
         defense_bonus=1.0,
         special_troop_name=f"{clean_house} Gvardiyasi",
         is_npc=False,
@@ -498,7 +500,7 @@ async def create_custom_house_user_and_territory(
     next_t_id = (max_t_id_res.scalar() or 60) + 1
     t_code = f"terr_{telegram_id}_{next_t_id}"
 
-    # Create Territory (Yangi ochilgan qal'a: Tier 3 boshlang'ich me'yorlarida yaratiladi)
+    # Create Territory (Yangi ochilgan qal'a: Winterfell va King's Landing'dan biroz kamroq me'yorlarida yaratiladi)
     c_std = CUSTOM_CASTLE_LEVEL_STANDARDS[1]
     new_territory = models.Territory(
         id=next_t_id,
@@ -507,16 +509,16 @@ async def create_custom_house_user_and_territory(
         region=region,
         castle_name=clean_castle,
         owner_house_id=new_house.id,
-        population=30000,
+        population=60000,
         gold_income=c_std["gold"],
         food_income=c_std["food"],
         iron_income=c_std["iron"],
         castle_tier=c_std["tier"],
         defense=c_std["defense"],
-        garrison_infantry=150,
-        garrison_archers=80,
-        garrison_cavalry=30,
-        garrison_spearmen=40,
+        garrison_infantry=350,
+        garrison_archers=200,
+        garrison_cavalry=100,
+        garrison_spearmen=100,
         is_capital=True,
         castle_level=1,
         wildfire_count=0,
