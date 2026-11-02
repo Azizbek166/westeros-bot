@@ -526,6 +526,7 @@ class IronBank(Base):
     loan_due_at = Column(DateTime, nullable=True)          # Qarz qaytarish oxirgi muddati (5 kun)
     loan_interest_rate = Column(Float, default=0.10)       # 10% foiz
     is_defaulted = Column(Boolean, default=False)          # Qarz muddati o'tib ketgan
+    last_golden_company_raid_at = Column(DateTime, nullable=True) # Oxirgi Oltin Gala bosqini vaqti
 
     created_at = Column(DateTime, default=datetime.utcnow)
     user = relationship("User")

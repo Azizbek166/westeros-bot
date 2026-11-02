@@ -33,7 +33,7 @@ async def show_bank_hub(target, user_id: int, is_message: bool = False):
         dep_gold = bank.deposit_gold or 0
         hourly_yield = int(dep_gold * crud.HOURLY_INTEREST_RATE)
 
-        # Foiz olish vaqti (soatbay hisoblanadi, soatiga +0.375%)
+        # Foiz olish vaqti (soatbay hisoblanadi, soatiga +1.0%)
         now = datetime.utcnow()
         last_claim = bank.last_interest_claimed_at or bank.deposit_updated_at or now
         elapsed_sec = max(0, (now - last_claim).total_seconds())
@@ -66,7 +66,17 @@ async def show_bank_hub(target, user_id: int, is_message: bool = False):
                     h_left = int((diff_sec % 86400) // 3600)
                     loan_status_str = f"Muddati: <b>{d_left} kun {h_left} soat qoldi</b>"
                 else:
-                    loan_status_str = "🚨 <b>MUDDATI O'TIB KETGAN (MUBORAK 'OLTIN GALA' KELMOQDA)!</b>"
+                    # Agar hali reyd qilinmagan bo'lsa, zudlik bilan 50,000 ballik Oltin Gala bosqini uyushtiriladi
+                    if not bank.last_golden_company_raid_at:
+                        await crud.execute_golden_company_debt_raid(session, bank)
+                        await session.refresh(bank)
+                        await session.refresh(user)
+                        loan_gold = bank.loan_gold or 0
+                        total_loan_due = int(loan_gold * 1.10) if loan_gold > 0 else 0
+                        loan_status_str = "🚨 <b>MUDDATI O'TGAN! 50,000 ballik «Oltin Gala» armiyasi qal'angizga bostirib kirdi va xazinani musodara qildi!</b>"
+                    else:
+                        r_time = bank.last_golden_company_raid_at.strftime("%H:%M")
+                        loan_status_str = f"🚨 <b>MUDDATI O'TGAN! Oltin Gala qasringizga hujum qilgan ({r_time}). Qarzni zudlik bilan yoping!</b>"
             else:
                 loan_status_str = "Muddati: 5 kun"
 
@@ -76,7 +86,7 @@ async def show_bank_hub(target, user_id: int, is_message: bool = False):
             f"💰 Hamyoningiz: <b>{user.gold:,}🪙 Oltin</b>\n\n"
             f"──────── <b>OMONAT BO'LIMI</b> ────────\n"
             f"• Saqlanayotgan oltin: <b>{dep_gold:,} / 50,000🪙</b>\n"
-            f"• Soatlik daromad: <b>+{hourly_yield:,}🪙/soat</b> (+0.375%)\n"
+            f"• Soatlik daromad: <b>+{hourly_yield:,}🪙/soat</b> (+1.0%)\n"
             f"• Yig'ilgan tayyor foiz: {interest_status_str}\n\n"
             f"──────── <b>KREDIT (QARZ) BO'LIMI</b> ────────\n"
             f"• Asosiy qarz: <b>{loan_gold:,}🪙</b>\n"
@@ -136,7 +146,7 @@ async def bank_dep_menu_callback(update: Update, context: ContextTypes.DEFAULT_T
 
     text = (
         f"📥 <b>BRAAVOS TEMIR BANKIGA OMONAT QO'YISH</b>\n\n"
-        f"Omonatga qo'yilgan har bir oltin sizga har soatda <b>+0.375%</b> sof foyda keltiradi!\n"
+        f"Omonatga qo'yilgan har bir oltin sizga har soatda <b>+1.0%</b> sof foyda keltiradi!\n"
         f"Maksimal depozit: <b>50,000🪙</b> (siz yana ko'pi bilan <b>{max_add:,}🪙</b> qo'ya olasiz).\n\n"
         f"Hamyoningizda mavjud: <b>{user.gold:,}🪙 Oltin</b>\n\n"
         f"Qancha oltin omonatga qo'ymoqchisiz?"
@@ -353,7 +363,7 @@ async def bank_int_wait_info_callback(update: Update, context: ContextTypes.DEFA
     elapsed_sec = max(0, (now - last_claim).total_seconds())
     rem_mins = max(1, int((3600 - (elapsed_sec % 3600)) // 60))
     await query.answer(
-        f"⏳ Omonat foizlari har 1 soatda to'planadi (soatiga +0.375%).\nKeyingi soatlik foiz tushishiga taxminan {rem_mins} daqiqa qoldi!",
+        f"⏳ Omonat foizlari har 1 soatda to'planadi (soatiga +1.0%).\nKeyingi soatlik foiz tushishiga taxminan {rem_mins} daqiqa qoldi!",
         show_alert=True
     )
 

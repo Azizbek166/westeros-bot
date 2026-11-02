@@ -156,6 +156,7 @@ async def init_db():
                 "ALTER TABLE donation_requests ADD COLUMN request_type VARCHAR(50) DEFAULT 'tier'",
                 "ALTER TABLE donation_requests ADD COLUMN troop_type VARCHAR(50)",
                 "ALTER TABLE donation_requests ADD COLUMN troop_count INTEGER DEFAULT 0",
+                "ALTER TABLE iron_bank ADD COLUMN last_golden_company_raid_at DATETIME",
             ]:
                 try:
                     await conn.execute(text(alter_stmt))
@@ -219,6 +220,7 @@ async def init_db():
                 "ALTER TABLE donation_requests ADD COLUMN IF NOT EXISTS request_type VARCHAR(50) DEFAULT 'tier'",
                 "ALTER TABLE donation_requests ADD COLUMN IF NOT EXISTS troop_type VARCHAR(50)",
                 "ALTER TABLE donation_requests ADD COLUMN IF NOT EXISTS troop_count INTEGER DEFAULT 0",
+                "ALTER TABLE iron_bank ADD COLUMN IF NOT EXISTS last_golden_company_raid_at TIMESTAMP",
             ]:
                 try:
                     await conn.execute(text(pg_alter))

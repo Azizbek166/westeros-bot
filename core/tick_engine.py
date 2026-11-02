@@ -214,6 +214,35 @@ async def process_due_marches(bot_app=None):
                     march.status = "failed"
                     continue
 
+                # Nishon qal'a Tinchlik Qalqoni (Peace Shield) himoyasida ekanligini tekshirish
+                is_shielded, shield_until, defender_name = await crud.get_territory_shield_status(session, territory)
+                if is_shielded:
+                    march.status = "shield_blocked"
+                    att_army_obj = await crud.get_user_army(session, attacker.id)
+                    if att_army_obj:
+                        att_army_obj.infantry = (att_army_obj.infantry or 0) + (march.infantry or 0)
+                        att_army_obj.archers = (att_army_obj.archers or 0) + (march.archers or 0)
+                        att_army_obj.cavalry = (att_army_obj.cavalry or 0) + (march.cavalry or 0)
+                        att_army_obj.spearmen = (att_army_obj.spearmen or 0) + (march.spearmen or 0)
+                        att_army_obj.special_troops = (att_army_obj.special_troops or 0) + (march.special_troops or 0)
+                        att_army_obj.catapults = (att_army_obj.catapults or 0) + (getattr(march, "catapults", 0) or 0)
+                        att_army_obj.siege_towers = (att_army_obj.siege_towers or 0) + (getattr(march, "siege_towers", 0) or 0)
+
+                    if bot_app and attacker.telegram_id:
+                        try:
+                            await bot_app.bot.send_message(
+                                chat_id=attacker.telegram_id,
+                                text=(
+                                    f"🛡️ **QAL'A TINCHLIK QALQONI BILAN HIMOYALANGAN!**\n\n"
+                                    f"Sizning qo'shiningiz {territory.name} qal'asiga yetib bordi, ammo qal'a egasi ({defender_name or 'Yangi Lord'}) "
+                                    f"Tinchlik Qalqoni himoyasida bo'lgani sababli barcha askarlaringiz jangsiz o'z xonadoningizga qaytib keldi."
+                                ),
+                                parse_mode="Markdown"
+                            )
+                        except Exception:
+                            pass
+                    continue
+
                 # Hujumchi tarkibi
                 att_army = {
                     "infantry": march.infantry,

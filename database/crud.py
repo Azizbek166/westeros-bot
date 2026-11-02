@@ -5586,7 +5586,7 @@ async def buy_wildfire_defense(session: AsyncSession, user_id: int, territory_id
 # ============================================================
 
 MAX_BANK_DEPOSIT = 50000
-HOURLY_INTEREST_RATE = 0.00375  # 0.375% soatlik daromad (soatiga +0.375%)
+HOURLY_INTEREST_RATE = 0.01  # 1.0% soatlik daromad (soatiga +1.0%)
 DAILY_INTEREST_RATE = HOURLY_INTEREST_RATE * 24  # orqaga moslik uchun
 LOAN_INTEREST_RATE = 0.10    # 10% kredit foizi
 LOAN_DAYS = 5                # 5 kunlik muddat
@@ -5667,7 +5667,7 @@ async def deposit_to_iron_bank(session: AsyncSession, user_id: int, amount: int)
         f"🏦 **OMONAT QABUL QILINDI!**\n\n"
         f"Braavos Temir Bankiga **+{amount:,}🪙 Oltin** topshirdingiz.{accrued_note}\n"
         f"Jami omonatingiz: **{bank.deposit_gold:,}🪙**\n"
-        f"Soatlik daromad: **+{hourly_yield:,}🪙/soat** (soatiga +0.375%)\n"
+        f"Soatlik daromad: **+{hourly_yield:,}🪙/soat** (soatiga +1.0%)\n"
         f"Hamyoningizda qoldi: **{user.gold:,}🪙**"
     )
 
@@ -5740,7 +5740,7 @@ async def claim_iron_bank_interest(session: AsyncSession, user_id: int) -> Tuple
 
     if hours_elapsed < 1:
         rem_mins = max(1, int((3600 - (elapsed_seconds % 3600)) // 60))
-        return False, f"⏳ Foizlar har soatda to'planadi (soatiga +0.375%). Keyingi soatlik foizga: {rem_mins} daqiqa qoldi."
+        return False, f"⏳ Foizlar har soatda to'planadi (soatiga +1.0%). Keyingi soatlik foizga: {rem_mins} daqiqa qoldi."
 
     raw_profit = curr_dep * HOURLY_INTEREST_RATE * hours_elapsed
     profit = int(raw_profit)
@@ -5761,7 +5761,7 @@ async def claim_iron_bank_interest(session: AsyncSession, user_id: int) -> Tuple
 
     return True, (
         f"🪙 **BANK FOIZI MUVAFFAQIYATLI OLINDI!**\n\n"
-        f"Braavos Temir Banki omonatingizdan **+{profit:,}🪙 Oltin** sof foyda berdi! ({period_str} +0.375% soatlik daromad)\n"
+        f"Braavos Temir Banki omonatingizdan **+{profit:,}🪙 Oltin** sof foyda berdi! ({period_str} +1.0% soatlik daromad)\n"
         f"Hamyoningizdagi jami oltin: **{user.gold:,}🪙**"
     )
 
@@ -9398,6 +9398,210 @@ async def sync_territories_canon_balance(session: AsyncSession) -> int:
     await session.commit()
     logger.info(f"✅ Qalalar balansi muvaffaqiyatli sinxronlashtirildi: {updated_count} ta qal'a yangilandi.")
     return updated_count
+
+
+# ============================================================
+# 36. TINCHLIK QALQONI (PEACE SHIELD) TEKSHIRUVI
+# ============================================================
+
+async def get_territory_shield_status(session: AsyncSession, territory: models.Territory) -> Tuple[bool, Optional[datetime], Optional[str]]:
+    """Qal'aning Tinchlik Qalqoni (Peace Shield) himoyasida ekanligini aniqlash"""
+    if not territory:
+        return False, None, None
+
+    now = datetime.utcnow()
+
+    # 1. Agar qal'a biror o'yinchi tomonidan egallangan bo'lsa
+    if getattr(territory, "conquered_by_user_id", None):
+        c_user = await session.get(models.User, territory.conquered_by_user_id)
+        if c_user and c_user.peace_shield_until and c_user.peace_shield_until > now:
+            return True, c_user.peace_shield_until, c_user.full_name
+
+    # 2. Qal'a egasi bo'lgan xonadon Lordining tinchlik qalqoni
+    if territory.owner_house_id:
+        house = await session.get(models.House, territory.owner_house_id)
+        if house and house.lord_user_id:
+            lord_user = await get_user_by_telegram_id(session, house.lord_user_id)
+            if lord_user and lord_user.peace_shield_until and lord_user.peace_shield_until > now:
+                return True, lord_user.peace_shield_until, lord_user.full_name
+
+        # Agar xonadon a'zolaridan birida faol qalqon bo'lsa
+        users_res = await session.execute(
+            select(models.User).where(models.User.house_id == territory.owner_house_id)
+        )
+        for u in users_res.scalars().all():
+            if u.peace_shield_until and u.peace_shield_until > now:
+                return True, u.peace_shield_until, u.full_name
+
+    return False, None, None
+
+
+# ============================================================
+# 37. TEMIR BANK QARZDORLARIGA "GOLDEN COMPANY" BOSQINI (50,000 BALL)
+# ============================================================
+
+GOLDEN_COMPANY_TROOPS = {
+    "infantry": 10000,       # 10,000 ball
+    "archers": 5000,         # 6,000 ball
+    "cavalry": 6000,         # 15,000 ball
+    "spearmen": 6000,        # 9,000 ball
+    "special_troops": 2500,  # 10,000 ball (Jangovar fillar va Oltin Gala elitasi)
+}
+# Jami armiya kuchi: 10,000*1 + 5,000*1.2 + 6,000*2.5 + 6,000*1.5 + 2,500*4 = 50,000 ball!
+
+
+async def execute_golden_company_debt_raid(
+    session: AsyncSession,
+    bank: models.IronBank,
+    bot_app=None,
+) -> Tuple[bool, str]:
+    """Qarzi muddati o'tgan o'yinchining qal'asiga Temir Bank tomonidan 50,000 ballik Golden Company armiyasi hujumi"""
+    user = await session.get(models.User, bank.user_id)
+    if not user or (bank.loan_gold or 0) <= 0:
+        return False, "Qarzdor topilmadi yoki qarz yo'q."
+
+    now = datetime.utcnow()
+    # 24 soatda ko'pi bilan 1 marta bosqin uyushtiriladi
+    if bank.last_golden_company_raid_at:
+        elapsed = (now - bank.last_golden_company_raid_at).total_seconds()
+        if elapsed < 86400:
+            return False, "Oxirgi 24 soat ichida Oltin Gala allaqachon hujum qilgan."
+
+    # Qarzdorning qal'asini qidirish:
+    target_terr = None
+    # 1. Shaxsiy egallangan qal'asi
+    t_res = await session.execute(
+        select(models.Territory).where(models.Territory.conquered_by_user_id == user.id)
+    )
+    target_terr = t_res.scalars().first()
+
+    # 2. Xonadoniga tegishli poytaxt yoki birinchi qal'a
+    if not target_terr and user.house_id:
+        t_res2 = await session.execute(
+            select(models.Territory).where(models.Territory.owner_house_id == user.house_id)
+            .order_by(models.Territory.is_capital.desc(), models.Territory.id.asc())
+        )
+        target_terr = t_res2.scalars().first()
+
+    c_name = target_terr.name if target_terr else "Bosh qarorgoh / Shaxsiy Lager"
+    initial_def = (target_terr.defense or 500) if target_terr else 500
+
+    from core.battle_engine import calculate_battle
+    def_garrison = {
+        "infantry": (target_terr.garrison_infantry or 100) if target_terr else 100,
+        "archers": (target_terr.garrison_archers or 50) if target_terr else 50,
+        "cavalry": (target_terr.garrison_cavalry or 30) if target_terr else 30,
+        "spearmen": (target_terr.garrison_spearmen or 30) if target_terr else 30,
+        "special_troops": 0,
+    }
+
+    battle_res = calculate_battle(
+        attacker_army=GOLDEN_COMPANY_TROOPS,
+        defender_garrison=def_garrison,
+        castle_defense=initial_def,
+        attacker_champion="Harry Strickland",
+    )
+
+    winner = battle_res.get("winner", "attacker")
+    def_losses = battle_res.get("defender_losses", {})
+
+    # Qal'a garnizoni yo'qotishlarini qo'llash
+    if target_terr:
+        target_terr.garrison_infantry = max(0, (target_terr.garrison_infantry or 0) - def_losses.get("infantry", 0))
+        target_terr.garrison_archers = max(0, (target_terr.garrison_archers or 0) - def_losses.get("archers", 0))
+        target_terr.garrison_cavalry = max(0, (target_terr.garrison_cavalry or 0) - def_losses.get("cavalry", 0))
+        target_terr.garrison_spearmen = max(0, (target_terr.garrison_spearmen or 0) - def_losses.get("spearmen", 0))
+        target_terr.defense = max(100, (target_terr.defense or 500) - 350)
+
+    total_debt = int(bank.loan_gold * (1.0 + (bank.loan_interest_rate or 0.10)))
+    seized_gold = 0
+
+    if winner == "attacker":
+        # Temir Bank o'yinchining hamyonidan qarzni undiradi
+        avail_gold = user.gold or 0
+        seized_gold = min(avail_gold, total_debt)
+        user.gold -= seized_gold
+
+        rem_debt = total_debt - seized_gold
+        if rem_debt <= 0:
+            bank.loan_gold = 0
+            bank.loan_due_at = None
+            bank.is_defaulted = False
+        else:
+            bank.loan_gold = rem_debt
+
+        user.prestige = max(0, (user.prestige or 0) - 20)
+        result_desc = (
+            f"❌ **QAL'A MUDOFAASI YORIB O'TILDI!**\n"
+            f"Oltin Gala qal'a darvozalarini buzib kirdi, garnizonga og'ir talofat yetkazildi va istehkom mudofaasi zaiflashdi (-350 🛡️).\n"
+            f"💰 **Temir Bank musodara qilgan oltin:** **-{seized_gold:,} 🪙**\n"
+            f"Qolgan qarz: **{bank.loan_gold:,} 🪙**"
+        )
+    else:
+        result_desc = (
+            f"🛡️ **MARDONAVOR MUDOFAA!**\n"
+            f"Qal'a garnizoni va armiyangiz Oltin Galaning 50,000 ballik shiddatli hujumini qaytarishga erishdi!\n"
+            f"Biroq Temir Bank o'z haqidan kechmaydi. Qarz hali ham to'lanishi shart: **{total_debt:,} 🪙**!"
+        )
+
+    bank.last_golden_company_raid_at = now
+    bank.is_defaulted = True
+    await session.commit()
+
+    raid_report = (
+        f"🏛️ **BRAAVOS TEMIR BANKI: 'OLTIN GALA' QASRINGIZGA BOSTIRIB KIRDI!**\n\n"
+        f"_«Temir Bank o'z haqini har doim oladi!»_\n\n"
+        f"Siz olgan **{total_debt:,}🪙** qarz muddati o'tib ketgani sababli, bank sizning **{c_name}** qal'angizga qarshi **50,000 ballik «Golden Company» (Oltin Gala)** yollanma armiyasini jo'natdi!\n\n"
+        f"⚔️ **JANG NATIJASI:**\n"
+        f"{result_desc}\n\n"
+        f"💀 **Yo'qotilgan garnizon:**\n"
+        f"• Piyoda: -{def_losses.get('infantry', 0):,}\n"
+        f"• Kamonchi: -{def_losses.get('archers', 0):,}\n"
+        f"• Otliq: -{def_losses.get('cavalry', 0):,}\n"
+        f"• Nayzachi: -{def_losses.get('spearmen', 0):,}\n\n"
+        f"⚠️ _Eslatma: Agar qarzni tezda /bank orqali to'lamasangiz, Oltin Gala har 24 soatda yangi bosqin uyushtiradi!_"
+    )
+
+    if bot_app and user.telegram_id:
+        try:
+            await bot_app.bot.send_message(
+                chat_id=user.telegram_id,
+                text=raid_report,
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            logger.warning(f"Qarzdor {user.telegram_id} ga Oltin Gala xabarini yuborishda xatolik: {e}")
+
+    return True, raid_report
+
+
+async def check_and_trigger_all_golden_company_raids(session: AsyncSession, bot_app=None) -> int:
+    """Muddati o'tib ketgan barcha qarzdorlarga 50,000 ballik Oltin Gala hujumlarini o'tkazish"""
+    now = datetime.utcnow()
+    res = await session.execute(
+        select(models.IronBank)
+        .where(
+            models.IronBank.loan_gold > 0,
+            models.IronBank.loan_due_at.isnot(None),
+            models.IronBank.loan_due_at <= now,
+        )
+    )
+    overdue_banks = res.scalars().all()
+    raided_count = 0
+    for b in overdue_banks:
+        if b.last_golden_company_raid_at:
+            elapsed = (now - b.last_golden_company_raid_at).total_seconds()
+            if elapsed < 86400:
+                continue
+        try:
+            ok, _ = await execute_golden_company_debt_raid(session, b, bot_app=bot_app)
+            if ok:
+                raided_count += 1
+        except Exception as e:
+            logger.error(f"Golden Company raid xatosi (Bank ID {b.id}): {e}")
+
+    return raided_count
+
 
 
 

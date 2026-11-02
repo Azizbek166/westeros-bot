@@ -342,6 +342,22 @@ async def render_march_prep(update: Update, context: ContextTypes.DEFAULT_TYPE, 
                 )
                 return
 
+            # Tinchlik Qalqoni (Peace Shield) tekshiruvi:
+            is_shielded, shield_until, defender_name = await crud.get_territory_shield_status(session, terr)
+            if is_shielded and shield_until:
+                diff = shield_until - datetime.utcnow()
+                hours_left = max(1, int(diff.total_seconds() // 3600))
+                if query:
+                    await query.answer("🛡️ Ushbu qal'a Tinchlik Qalqoni himoyasida!", show_alert=True)
+                await safe_reply(
+                    f"🛡️ **QAL'A TINCHLIK QALQONI (PEACE SHIELD) BILAN HIMOYALANGAN!**\n\n"
+                    f"Ushbu qal'a egasi ({defender_name or 'Yangi Lord'}) hozirda daxlsizlik qalqoniga ega.\n"
+                    f"🕊️ Qalqon tugashiga: **{hours_left} soat** qoldi.\n\n"
+                    f"_Yangi qo'shilgan o'yinchilar dastlabki kunlarda dushman hujumlaridan to'liq himoyalanadi!_",
+                    InlineKeyboardMarkup([[InlineKeyboardButton("🗺️ Xaritaga Qaytish", callback_data="menu_map")]])
+                )
+                return
+
             # Ittifoqchi xonadonga hujum qilish taqiqlanadi
             if user.house_id and terr.owner_house_id and user.house_id != terr.owner_house_id:
                 allies = await crud.get_active_alliances_for_house(session, user.house_id)
@@ -800,6 +816,17 @@ async def send_custom_march_callback(update: Update, context: ContextTypes.DEFAU
             await query.answer(err_msg, show_alert=True)
             return
 
+        # Tinchlik Qalqoni (Peace Shield) tekshiruvi:
+        is_shielded, shield_until, defender_name = await crud.get_territory_shield_status(session, terr)
+        if is_shielded and shield_until:
+            diff = shield_until - datetime.utcnow()
+            hours_left = max(1, int(diff.total_seconds() // 3600))
+            await query.answer(
+                f"🛡️ Ushbu qal'a egasi Tinchlik Qalqoni himoyasida ({hours_left} soat qoldi)! Unga hujum qilib bo'lmaydi.",
+                show_alert=True
+            )
+            return
+
         if user.house_id and terr.owner_house_id and user.house_id != terr.owner_house_id:
             allies = await crud.get_active_alliances_for_house(session, user.house_id)
             allied_ids = {a.house_a_id if a.house_b_id == user.house_id else a.house_b_id for a in allies}
@@ -1021,6 +1048,17 @@ async def send_march_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         is_allowed, err_msg = can_attack_target(user, terr)
         if not is_allowed:
             await query.answer(err_msg, show_alert=True)
+            return
+
+        # Tinchlik Qalqoni (Peace Shield) tekshiruvi:
+        is_shielded, shield_until, defender_name = await crud.get_territory_shield_status(session, terr)
+        if is_shielded and shield_until:
+            diff = shield_until - datetime.utcnow()
+            hours_left = max(1, int(diff.total_seconds() // 3600))
+            await query.answer(
+                f"🛡️ Ushbu qal'a egasi Tinchlik Qalqoni himoyasida ({hours_left} soat qoldi)! Unga hujum qilib bo'lmaydi.",
+                show_alert=True
+            )
             return
 
         if user.house_id and terr.owner_house_id and user.house_id != terr.owner_house_id:

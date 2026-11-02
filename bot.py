@@ -60,7 +60,9 @@ async def hourly_economy_job(context: ContextTypes.DEFAULT_TYPE):
             await crud.check_and_conclude_season(session, bot_app=context.application)
             await crud.check_and_rotate_weather(session, bot_app=context.application)
             await crud.check_and_resolve_weekly_tournament(session, bot_app=context.application)
-        logger.info("💰 Soatlik iqtisodiyot, ob-havo va turnir hisoblandi.")
+            # Temir Bank qarzdorlariga Oltin Gala (Golden Company 50,000 ball) bosqini
+            await crud.check_and_trigger_all_golden_company_raids(session, bot_app=context.application)
+        logger.info("💰 Soatlik iqtisodiyot, ob-havo, turnir va bank reydlari hisoblandi.")
         await check_house_election_expiration(bot_app=context.application)
         # Failsafe: Agar 21:00-22:59 oralig'ida bot restart bo'lsa yoki o'chib qolsa, kunlik urushni o'tkazish
         await check_and_trigger_daily_war_failsafe(bot_app=context.application)
