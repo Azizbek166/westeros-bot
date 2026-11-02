@@ -350,28 +350,24 @@ async def init_db():
                 )
                 session.add(new_territory)
             else:
-                # Barcha qal'alar solig'i va toifasini map_data bilan muvofiqlashtirish (egasiz qal'alarga tegilmaydi)
-                result.gold_income = t_info.get("gold_income", 40)
-                result.food_income = t_info.get("food_income", 100)
-                result.iron_income = t_info.get("iron_income", 30)
-                result.castle_tier = t_info.get("castle_tier", 2)
+                # Barcha 60 ta qal'alar solig'i va toifasini map_data bilan muvofiqlashtirish
+                result.gold_income = t_info.get("gold_income", result.gold_income)
+                result.food_income = t_info.get("food_income", result.food_income)
+                result.iron_income = t_info.get("iron_income", result.iron_income)
+                result.castle_tier = t_info.get("castle_tier", result.castle_tier)
 
-        # Barcha yangi ochilgan yoki custom qal'alar daromadini ham 2x me'yorlarga to'g'rilash
+        # Barcha yangi ochilgan yoki custom qal'alar daromadini ham me'yoriy boshlang'ich darajaga keltirish
+        from database.crud import CUSTOM_CASTLE_LEVEL_STANDARDS
         all_terrs_res = await session.execute(select(models.Territory))
-        tier_standards = {
-            1: {"gold": 1000, "food": 2000, "iron": 900},
-            2: {"gold": 600, "food": 1600, "iron": 520},
-            3: {"gold": 380, "food": 1100, "iron": 340},
-        }
         for terr in all_terrs_res.scalars().all():
             if terr.id > 60 or terr.code not in TERRITORIES_DATA:
-                c_tier = terr.castle_tier or 2
-                std = tier_standards.get(c_tier, tier_standards[2])
-                if (terr.gold_income or 0) < std["gold"]:
-                    terr.gold_income = std["gold"]
-                    terr.food_income = std["food"]
-                    terr.iron_income = std["iron"]
-                    terr.castle_tier = c_tier
+                c_lvl = min(5, max(1, getattr(terr, "castle_level", 1) or 1))
+                std = CUSTOM_CASTLE_LEVEL_STANDARDS.get(c_lvl, CUSTOM_CASTLE_LEVEL_STANDARDS[1])
+                terr.gold_income = std["gold"]
+                terr.food_income = std["food"]
+                terr.iron_income = std["iron"]
+                terr.castle_tier = std["tier"]
+                terr.defense = std["defense"]
 
 
         # Tun Qiroli (White Walkers) global eventini 500,000 HP ga yangilash

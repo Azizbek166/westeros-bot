@@ -424,6 +424,20 @@ async def join_house(
     return user
 
 
+# ============================================================
+# YANGI OCHILGAN VA CUSTOM QAL'ALAR UCHUN ME'YORIY STANDARTLAR
+# (Yangi o'yinchilar ochgan qal'alar 60 ta kanonik qal'alardan
+# daromadi va mudofaasi ustun bo'lib ketmasligi uchun Tier 3 dan boshlanadi)
+# ============================================================
+CUSTOM_CASTLE_LEVEL_STANDARDS = {
+    1: {"tier": 3, "gold": 250, "food": 700, "iron": 200, "defense": 450},
+    2: {"tier": 3, "gold": 300, "food": 850, "iron": 250, "defense": 520},
+    3: {"tier": 3, "gold": 360, "food": 1000, "iron": 300, "defense": 600},
+    4: {"tier": 2, "gold": 450, "food": 1200, "iron": 380, "defense": 700},
+    5: {"tier": 2, "gold": 550, "food": 1400, "iron": 450, "defense": 800},
+}
+
+
 async def create_custom_house_user_and_territory(
     session: AsyncSession,
     telegram_id: int,
@@ -458,7 +472,7 @@ async def create_custom_house_user_and_territory(
     next_h_id = (max_h_id_res.scalar() or 50) + 1
     h_code = f"custom_{telegram_id}_{next_h_id}"
 
-    # Create House
+    # Create House (Boshlang'ich adolatli xazina)
     new_house = models.House(
         id=next_h_id,
         code=h_code,
@@ -468,10 +482,10 @@ async def create_custom_house_user_and_territory(
         description=f"{full_name} tomonidan asos solingan shonli xonadon.",
         lord_user_id=telegram_id,
         lord_elected_at=datetime.utcnow(),
-        gold=5000,
-        food=10000,
-        iron=2000,
-        prestige=100,
+        gold=1500,
+        food=3000,
+        iron=800,
+        prestige=25,
         defense_bonus=1.0,
         special_troop_name=f"{clean_house} Gvardiyasi",
         is_npc=False,
@@ -484,7 +498,8 @@ async def create_custom_house_user_and_territory(
     next_t_id = (max_t_id_res.scalar() or 60) + 1
     t_code = f"terr_{telegram_id}_{next_t_id}"
 
-    # Create Territory (exactly 1 custom castle)
+    # Create Territory (Yangi ochilgan qal'a: Tier 3 boshlang'ich me'yorlarida yaratiladi)
+    c_std = CUSTOM_CASTLE_LEVEL_STANDARDS[1]
     new_territory = models.Territory(
         id=next_t_id,
         code=t_code,
@@ -492,16 +507,16 @@ async def create_custom_house_user_and_territory(
         region=region,
         castle_name=clean_castle,
         owner_house_id=new_house.id,
-        population=50000,
-        gold_income=600,
-        food_income=1600,
-        iron_income=520,
-        castle_tier=2,
-        defense=500,
-        garrison_infantry=200,
-        garrison_archers=100,
-        garrison_cavalry=50,
-        garrison_spearmen=50,
+        population=30000,
+        gold_income=c_std["gold"],
+        food_income=c_std["food"],
+        iron_income=c_std["iron"],
+        castle_tier=c_std["tier"],
+        defense=c_std["defense"],
+        garrison_infantry=150,
+        garrison_archers=80,
+        garrison_cavalry=30,
+        garrison_spearmen=40,
         is_capital=True,
         castle_level=1,
         wildfire_count=0,
@@ -3506,33 +3521,30 @@ async def liberate_conquered_castle(session: AsyncSession, user_id: int, territo
     # Qal'aning barcha kanonik parametrlarini map_data dan asl holatiga qaytarish
     from data.map_data import TERRITORIES_DATA
     canon_info = TERRITORIES_DATA.get(terr.code, {})
-    tier_val = canon_info.get("castle_tier") if canon_info else (getattr(terr, "castle_tier", 2) or 2)
-    tier_defaults = {
-        1: {"gold": 1000, "food": 2000, "iron": 900},
-        2: {"gold": 600, "food": 1600, "iron": 520},
-        3: {"gold": 380, "food": 1100, "iron": 340},
-    }
-    d_inc = tier_defaults.get(tier_val, tier_defaults[2])
 
     if canon_info:
-        terr.gold_income = canon_info.get("gold_income", d_inc["gold"])
-        terr.food_income = canon_info.get("food_income", d_inc["food"])
-        terr.iron_income = canon_info.get("iron_income", d_inc["iron"])
+        tier_val = canon_info.get("castle_tier", 2)
+        terr.gold_income = canon_info.get("gold_income", 350)
+        terr.food_income = canon_info.get("food_income", 1000)
+        terr.iron_income = canon_info.get("iron_income", 300)
         terr.castle_tier = canon_info.get("castle_tier", tier_val)
-        terr.defense = canon_info.get("defense", 500)
+        terr.defense = canon_info.get("defense", 600)
         terr.garrison_infantry = canon_info.get("garrison_infantry", 200)
         terr.garrison_archers = canon_info.get("garrison_archers", 100)
         terr.garrison_cavalry = canon_info.get("garrison_cavalry", 50)
         terr.garrison_spearmen = canon_info.get("garrison_spearmen", 50)
     else:
-        # Yangi ochilgan yoki custom qal'alar uchun Tier standart ko'rsatkichlari tiklanadi
-        terr.gold_income = d_inc["gold"]
-        terr.food_income = d_inc["food"]
-        terr.iron_income = d_inc["iron"]
-        terr.castle_tier = tier_val
-        terr.defense = 500
-        terr.garrison_infantry = 200
-        terr.garrison_archers = 100
+        # Yangi ochilgan yoki custom qal'alar boshlang'ich Tier 3 holatiga qaytariladi
+        c_std = CUSTOM_CASTLE_LEVEL_STANDARDS[1]
+        terr.gold_income = c_std["gold"]
+        terr.food_income = c_std["food"]
+        terr.iron_income = c_std["iron"]
+        terr.castle_tier = c_std["tier"]
+        terr.defense = c_std["defense"]
+        terr.garrison_infantry = 150
+        terr.garrison_archers = 80
+        terr.garrison_cavalry = 30
+        terr.garrison_spearmen = 40
         terr.garrison_cavalry = 50
         terr.garrison_spearmen = 50
 
@@ -4761,16 +4773,12 @@ async def upgrade_castle_keep(session: AsyncSession, user_id: int, territory_id:
         territory.iron_income = canon_info.get("iron_income", territory.iron_income)
         territory.castle_tier = canon_info.get("castle_tier", territory.castle_tier)
     else:
-        tier_val = getattr(territory, "castle_tier", 2) or 2
-        tier_defaults = {
-            1: {"gold": 1000, "food": 2000, "iron": 900},
-            2: {"gold": 600, "food": 1600, "iron": 520},
-            3: {"gold": 380, "food": 1100, "iron": 340},
-        }
-        d_inc = tier_defaults.get(tier_val, tier_defaults[2])
-        territory.gold_income = territory.gold_income or d_inc["gold"]
-        territory.food_income = territory.food_income or d_inc["food"]
-        territory.iron_income = territory.iron_income or d_inc["iron"]
+        # Yangi ochilgan yoki custom qal'alar uchun Level bo'yicha me'yoriy o'sish (Tier 3 dan boshlanadi)
+        custom_std = CUSTOM_CASTLE_LEVEL_STANDARDS.get(next_lvl, CUSTOM_CASTLE_LEVEL_STANDARDS[5])
+        territory.gold_income = custom_std["gold"]
+        territory.food_income = custom_std["food"]
+        territory.iron_income = custom_std["iron"]
+        territory.castle_tier = custom_std["tier"]
 
     user.xp = (user.xp or 0) + next_lvl * 30
 
@@ -9349,30 +9357,39 @@ async def sync_territories_canon_balance(session: AsyncSession) -> int:
                 if val.get("id") == t.id:
                     c_data = val
                     break
-        if not c_data:
-            continue
+        if c_data:
+            # 60 ta kanonik Westeros qal'asi
+            t.castle_tier = c_data.get("castle_tier", t.castle_tier or 2)
+            t.gold_income = c_data.get("gold_income", t.gold_income)
+            t.food_income = c_data.get("food_income", t.food_income)
+            t.iron_income = c_data.get("iron_income", t.iron_income)
 
-        t.castle_tier = c_data.get("castle_tier", t.castle_tier or 2)
-        t.gold_income = c_data.get("gold_income", t.gold_income)
-        t.food_income = c_data.get("food_income", t.food_income)
-        t.iron_income = c_data.get("iron_income", t.iron_income)
+            canon_def = c_data.get("defense", 500)
+            t_tier = t.castle_tier or 2
+            min_d = tier_min_def.get(t_tier, 500)
 
-        canon_def = c_data.get("defense", 500)
-        t_tier = t.castle_tier or 2
-        min_d = tier_min_def.get(t_tier, 500)
+            # Balans nomutanosibliklarini qat'iy to'g'rilash (Tier 1 > Tier 2 > Tier 3)
+            if t_tier == 3 and (t.defense or 0) > 750:
+                t.defense = canon_def
+            elif t_tier == 2 and (t.defense or 0) > 1100:
+                t.defense = canon_def
+            elif (t.defense or 0) < min_d:
+                t.defense = canon_def
 
-        # Balans nomutanosibliklarini qat'iy to'g'rilash (Tier 1 > Tier 2 > Tier 3)
-        if t_tier == 3 and (t.defense or 0) > 750:
-            t.defense = canon_def
-        elif t_tier == 2 and (t.defense or 0) > 1100:
-            t.defense = canon_def
-        elif (t.defense or 0) < min_d:
-            t.defense = canon_def
-
-        t.garrison_infantry = c_data.get("garrison_infantry", t.garrison_infantry)
-        t.garrison_archers = c_data.get("garrison_archers", t.garrison_archers)
-        t.garrison_cavalry = c_data.get("garrison_cavalry", t.garrison_cavalry)
-        t.garrison_spearmen = c_data.get("garrison_spearmen", t.garrison_spearmen)
+            t.garrison_infantry = c_data.get("garrison_infantry", t.garrison_infantry)
+            t.garrison_archers = c_data.get("garrison_archers", t.garrison_archers)
+            t.garrison_cavalry = c_data.get("garrison_cavalry", t.garrison_cavalry)
+            t.garrison_spearmen = c_data.get("garrison_spearmen", t.garrison_spearmen)
+        else:
+            # Yangi kelgan o'yinchilar ochgan barcha yangi qal'alar (Custom Castles)
+            # Ularning daromadi 60 ta asosiy qal'adan ko'p bo'lmasligi uchun Level bo'yicha me'yorlashtiriladi
+            c_lvl = min(5, max(1, getattr(t, "castle_level", 1) or 1))
+            c_std = CUSTOM_CASTLE_LEVEL_STANDARDS.get(c_lvl, CUSTOM_CASTLE_LEVEL_STANDARDS[1])
+            t.castle_tier = c_std["tier"]
+            t.gold_income = c_std["gold"]
+            t.food_income = c_std["food"]
+            t.iron_income = c_std["iron"]
+            t.defense = c_std["defense"]
 
         updated_count += 1
 

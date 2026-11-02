@@ -151,6 +151,11 @@ async def render_keepalive_job(context: ContextTypes.DEFAULT_TYPE):
 async def on_startup(app: Application):
     """Bot qayta ishga tushganda yoki start berganda buyruqlarni o'rnatish va bosh egaga xabar berish"""
     try:
+        # Ma'lumotlar bazasini Telegram botining faol asyncio event loop'i ichida initsializatsiya qilish
+        logger.info("📦 Ma'lumotlar bazasi initsializatsiya qilinmoqda...")
+        await init_db()
+        logger.info("✅ Baza tayyor.")
+
         private_commands = [
             BotCommand("start", "👑 Asosiy Menyu / Boshlash"),
             BotCommand("profile", "👤 Lord Profili & Armiya"),
@@ -273,12 +278,7 @@ def main():
     # Render.com yoki bulutli port bo'lsa healthcheck serverni yoqish
     start_health_server()
 
-    # 1. Ma'lumotlar bazasini initsializatsiya qilish
-    logger.info("📦 Ma'lumotlar bazasi initsializatsiya qilinmoqda...")
-    asyncio.run(init_db())
-    logger.info("✅ Baza tayyor.")
-
-    # 2. Telegram Bot Application
+    # 1. Telegram Bot Application (post_init da on_startup orqali init_db bir xil event loop'da ishga tushadi)
     app = (
         Application
         .builder()
@@ -346,8 +346,8 @@ def main():
     print("🏰 50 ta Xonadon | 60 ta Qal'a (10 ta NPC) | 21:00 Urush")
     print("==================================================")
 
-    # Polling rejimida ishga tushirish
-    app.run_polling()
+    # Polling rejimida ishga tushirish (drop_pending_updates bilan eski qotib qolgan Conflict xatolarining oldi olinadi)
+    app.run_polling(drop_pending_updates=True)
 
 
 if __name__ == "__main__":
