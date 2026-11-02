@@ -40,6 +40,9 @@ async def dragon_duel_menu_callback(update: Update, context: ContextTypes.DEFAUL
             InlineKeyboardButton("🏆 Kunlik Ajdarlar Turniri", callback_data="dragon_tourney_menu"),
         ],
         [
+            InlineKeyboardButton("🏆 Duelchilar Reytingi", callback_data="rank_cat:dragon_duels:all"),
+        ],
+        [
             InlineKeyboardButton("🔙 Ajdarlar Markazi", callback_data="menu_dragon"),
             InlineKeyboardButton("🏠 Asosiy Menyu", callback_data="menu_main"),
         ]

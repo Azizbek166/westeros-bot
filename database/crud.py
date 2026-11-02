@@ -1,5 +1,8 @@
+import logging
 import json
 import random
+
+logger = logging.getLogger(__name__)
 from datetime import datetime, timedelta
 from typing import Optional, List, Tuple, Dict, Any
 from sqlalchemy import select, update, delete, desc, func, or_
@@ -1189,7 +1192,7 @@ async def get_top10_armies_detailed(session: AsyncSession) -> List[Dict[str, Any
 
 
 async def get_top10_castles(session: AsyncSession) -> List[Dict[str, Any]]:
-    """Zabt etilgan yoki boshqarilayotgan qal'alar darajasi va daromadiga asoslangan TOP 10 lordlar (Maksimal 5 ta limit)"""
+    """Zabt etilgan yoki boshqarilayotgan qal'alar soni, toifasi, darajasi va daromadiga asoslangan Castle Ranking (TOP 10)"""
     users_res = await session.execute(
         select(models.User)
         .where(models.User.is_banned == False)
@@ -1211,12 +1214,12 @@ async def get_top10_castles(session: AsyncSession) -> List[Dict[str, Any]]:
     user_castles = []
 
     for u in users:
-        is_lord_or_king = (u.rank in ["king", "commander"]) or bool(u.house and u.house.lord_user_id == u.telegram_id)
         u_terrs = terrs_by_user.get(u.id, [])
-        h_terrs = terrs_by_house.get(u.house_id, []) if (u.house_id and is_lord_or_king) else []
+        h_terrs = terrs_by_house.get(u.house_id, []) if u.house_id else []
 
         seen_ids = set()
         combined_terrs = []
+        # Shaxsan o'zi zabt etgan qal'alar va xonadon qal'alari
         for t in (u_terrs + h_terrs):
             if t.id not in seen_ids:
                 seen_ids.add(t.id)
@@ -1229,15 +1232,28 @@ async def get_top10_castles(session: AsyncSession) -> List[Dict[str, Any]]:
         for t in combined_terrs:
             c_lvl = max(1, getattr(t, "castle_level", 1) or 1)
             c_tier = getattr(t, "castle_tier", 2) or 2
+            tier_pts = {1: 1500, 2: 1000, 3: 600}.get(c_tier, 800)
             multiplier = 1.0 + (c_lvl - 1) * 0.25
             eff_gold = int((t.gold_income or 0) * multiplier)
-            score = (eff_gold * 10) + (c_lvl * 100) + ((4 - min(3, max(1, c_tier))) * 150)
+            eff_food = int((t.food_income or 0) * multiplier)
+            eff_iron = int((t.iron_income or 0) * multiplier)
+            tot_income = eff_gold + eff_food + eff_iron
+            c_def = getattr(t, "defense", 500) or 500
+
+            # Umumiy Castle Ranking Score formulasi:
+            # 1. Toifa (Tier): T1=1500, T2=1000, T3=600
+            # 2. Qal'a darajasi (Level): level * 300
+            # 3. Daromad (Income): jami soatlik daromad // 2
+            # 4. Mudofaa (Defense): mudofaa // 2
+            castle_score = tier_pts + (c_lvl * 300) + (tot_income // 2) + (c_def // 2)
             terr_metrics.append({
                 "territory": t,
                 "level": c_lvl,
                 "tier": c_tier,
                 "effective_gold": eff_gold,
-                "score": score,
+                "total_income": tot_income,
+                "defense": c_def,
+                "score": castle_score,
             })
 
         terr_metrics.sort(key=lambda x: x["score"], reverse=True)
@@ -1246,22 +1262,27 @@ async def get_top10_castles(session: AsyncSession) -> List[Dict[str, Any]]:
         total_count = len(top_metrics)
         total_levels = sum(m["level"] for m in top_metrics)
         total_gold_income = sum(m["effective_gold"] for m in top_metrics)
-        total_score = sum(m["score"] for m in top_metrics)
-        best_t = top_metrics[0]["territory"]
+        total_all_income = sum(m["total_income"] for m in top_metrics)
+
+        # Umumiy o'yinchi balli: barcha qal'alar balli + (soni * 500)
+        total_score = sum(m["score"] for m in top_metrics) + (total_count * 500)
+        best_m = top_metrics[0]
+        best_t = best_m["territory"]
 
         user_castles.append({
             "user": u,
             "castles_count": total_count,
             "total_levels": total_levels,
             "total_gold_income": total_gold_income,
+            "total_all_income": total_all_income,
             "score": total_score,
             "best_castle_name": best_t.name,
-            "best_castle_tier": top_metrics[0]["tier"],
-            "best_castle_level": top_metrics[0]["level"],
-            "is_lord": is_lord_or_king,
+            "best_castle_tier": best_m["tier"],
+            "best_castle_level": best_m["level"],
+            "is_lord": (u.rank in ["king", "commander"]) or bool(u.house and u.house.lord_user_id == u.telegram_id),
         })
 
-    user_castles.sort(key=lambda x: (x["score"], x["total_gold_income"], x["total_levels"]), reverse=True)
+    user_castles.sort(key=lambda x: (x["score"], x["castles_count"], x["total_all_income"]), reverse=True)
     return user_castles[:10]
 
 
@@ -8794,6 +8815,47 @@ async def resolve_daily_dragon_tourney(
     chronicle = []
     bracket_stages = {}
 
+    # Mukofotlar jadvali
+    REWARDS_CONFIG = {
+        "champion": {
+            "label": "🥇 1-O'RIN (Turnir Chempioni)",
+            "gold": 30000,
+            "food": 2000,
+            "iron": 2500,
+            "prestige": 50,
+            "xp": 1000,
+        },
+        "runner_up": {
+            "label": "🥈 2-O'RIN (Grand Finalist)",
+            "gold": 15000,
+            "food": 1200,
+            "iron": 1500,
+            "prestige": 25,
+            "xp": 500,
+        },
+        "semi_finalist": {
+            "label": "🥉 3-O'RIN (Yarim Finalchi)",
+            "gold": 8000,
+            "food": 800,
+            "iron": 800,
+            "prestige": 10,
+            "xp": 300,
+        },
+        "participant": {
+            "label": "🎖️ Ishtirokchi (Mardonavor qatnashuv)",
+            "gold": 2500,
+            "food": 500,
+            "iron": 300,
+            "prestige": 2,
+            "xp": 100,
+        },
+    }
+
+    user_placements = {}
+    for f in fighters:
+        if not f.get("is_npc") and f.get("user_id"):
+            user_placements[f["user_id"]] = "participant"
+
     for st_code, st_title in stages_names:
         chronicle.append(f"\n\n🌪️ **{st_title.upper()}:**")
         next_round_fighters = []
@@ -8807,6 +8869,15 @@ async def resolve_daily_dragon_tourney(
             winner = res_battle["winner"]
             loser = res_battle["loser"]
             next_round_fighters.append(winner)
+
+            if st_code == "sf":
+                if not loser.get("is_npc") and loser.get("user_id"):
+                    user_placements[loser["user_id"]] = "semi_finalist"
+            elif st_code == "final":
+                if not loser.get("is_npc") and loser.get("user_id"):
+                    user_placements[loser["user_id"]] = "runner_up"
+                if not winner.get("is_npc") and winner.get("user_id"):
+                    user_placements[winner["user_id"]] = "champion"
 
             stage_matches.append({
                 "match": i + 1,
@@ -8825,6 +8896,8 @@ async def resolve_daily_dragon_tourney(
         current_round_fighters = next_round_fighters
 
     champion = current_round_fighters[0]
+    if not champion.get("is_npc") and champion.get("user_id"):
+        user_placements[champion["user_id"]] = "champion"
 
     tourney.champion_dragon_id = champion["id"] if not champion.get("is_npc") else None
     tourney.champion_dragon_name = champion["name"]
@@ -8834,13 +8907,48 @@ async def resolve_daily_dragon_tourney(
     tourney.status = "completed"
     tourney.concluded_at = datetime.utcnow()
 
+    # Mukofotlarni database'ga yozish va o'yinchilar balansiga o'tkazish
+    reward_lines = []
+    for f in fighters:
+        if f.get("is_npc") or not f.get("user_id"):
+            continue
+        uid = f["user_id"]
+        place_role = user_placements.get(uid, "participant")
+        rew = REWARDS_CONFIG[place_role]
+
+        u_obj = await session.get(models.User, uid)
+        if u_obj:
+            from core.leveling import check_user_level_up
+            u_obj.gold = (u_obj.gold or 0) + rew["gold"]
+            u_obj.food = (u_obj.food or 0) + rew["food"]
+            u_obj.iron = (u_obj.iron or 0) + rew["iron"]
+            u_obj.prestige = (u_obj.prestige or 0) + rew["prestige"]
+            u_obj.xp = (u_obj.xp or 0) + rew["xp"]
+            check_user_level_up(u_obj)
+
+            await log_player_activity(
+                session=session,
+                user_id=u_obj.id,
+                action_type="dragon_tournament_reward",
+                details=f"🐲 Ajdarlar turniri mukofoti: {rew['label']} (+{rew['gold']:,} oltin, +{rew['prestige']} prestige)",
+                amount_gold=rew["gold"],
+                amount_food=rew["food"],
+                amount_iron=rew["iron"],
+            )
+
+            if place_role in ["champion", "runner_up", "semi_finalist"]:
+                reward_lines.append(f"• {rew['label']}: **{escape_md(u_obj.full_name)}** (+{rew['gold']:,} 🪙, +{rew['iron']:,} ⛓️, +{rew['prestige']} 🏆)")
+
     recap_text = (
         f"🐉👑 **KUNLIK AJDARLAR TURNIRI YAKUNLANDI!**\n\n"
         f"🏆 **TURNIR CHEMPIONI:** **{champion['name']}**\n"
         f"👤 Sohibi: **{champion['user_name']}**\n"
-        f"⚔️ Ishtirokchilar: {len(fighters)} ta ajdar\n"
+        f"⚔️ Ishtirokchilar soni: {len(fighters)} ta ajdar\n"
         f"{''.join(chronicle)}\n\n"
-        f"✨ Barcha qatnashchilarga tashakkur! Keyingi avtomatik turnir ertaga o'tkaziladi."
+        f"🎁 **G'OLIBLAR VA SOVRINLAR:**\n"
+        f"{chr(10).join(reward_lines) if reward_lines else 'Barcha qatnashchilarga mukofotlar tarqatildi.'}\n\n"
+        f"✨ Barcha ishtirokchilar mardonavor qatnashuv uchun +2,500 oltin, +500 oziq-ovqat va +100 XP mukofotiga ega bo'ldi!\n"
+        f"Keyingi avtomatik turnir ertaga o'tkaziladi."
     )
     tourney.details = recap_text
     await session.commit()
@@ -8852,27 +8960,49 @@ async def resolve_daily_dragon_tourney(
             f"👑 **Chempion Ajdar:** {champion['name']}\n"
             f"👤 **Hukmdori:** {champion['user_name']}\n"
             f"⚔️ **Ishtirokchilar:** {len(fighters)} ta ajdar\n\n"
+            f"🎁 **Sovrinlar:**\n"
+            f"🥇 1-o'rin: +30,000 🪙, +2,500 ⛓️, +50 Prestige\n"
+            f"🥈 2-o'rin: +15,000 🪙, +1,500 ⛓️, +25 Prestige\n"
+            f"🥉 3-o'rin: +8,000 🪙, +800 ⛓️, +10 Prestige\n"
+            f"🎖️ Barcha ishtirokchilar: +2,500 🪙, +500 🌾 taqdirlandi!\n\n"
             f"Barcha janglar avtomatik tarzda shiddatli kurash ostida yakunlandi! ⚔️"
         )
         if COMMUNITY_CHANNEL_ID:
             try:
-                await bot_app.bot.send_message(chat_id=COMMUNITY_CHANNEL_ID, text=channel_msg)
+                bot = getattr(bot_app, "bot", bot_app)
+                await bot.send_message(chat_id=COMMUNITY_CHANNEL_ID, text=channel_msg)
             except Exception as e:
                 print(f"Kanalga ajdarlar turnirini yuborishda xatolik: {e}")
 
-        # Qatnashchilarga xabar berish
+        # Qatnashchilarga shaxsiy aniq natija va olgan mukofotini yuborish
         for f in fighters:
             if not f.get("is_npc") and f.get("user_id"):
-                u_obj = await session.get(models.User, f["user_id"])
+                uid = f["user_id"]
+                place_role = user_placements.get(uid, "participant")
+                rew = REWARDS_CONFIG[place_role]
+                u_obj = await session.get(models.User, uid)
                 if u_obj and u_obj.telegram_id:
+                    personal_text = (
+                        f"🐲🏆 **KUNLIK AJDARLAR TURNIRI YAKUNLANDI!**\n\n"
+                        f"🛡️ Ishtirokchi ajdaringiz: **{escape_md(f['name'])}**\n"
+                        f"📊 Turnirdagi natijangiz: **{rew['label']}**\n\n"
+                        f"🎁 **Sizga topshirilgan mukofotlar:**\n"
+                        f"• 🪙 Oltin: **+{rew['gold']:,}**\n"
+                        f"• 🌾 Oziq-ovqat: **+{rew['food']:,}**\n"
+                        f"• ⛓️ Temir: **+{rew['iron']:,}**\n"
+                        f"• 🏆 Prestige: **+{rew['prestige']}**\n"
+                        f"• ✨ Tajriba (XP): **+{rew['xp']}**\n\n"
+                        f"💰 *Mukofotlar xazinangizga muvaffaqiyatli qo'shildi!*"
+                    )
                     try:
-                        await bot_app.bot.send_message(
+                        bot = getattr(bot_app, "bot", bot_app)
+                        await bot.send_message(
                             chat_id=u_obj.telegram_id,
-                            text=recap_text,
+                            text=personal_text,
                             parse_mode="Markdown"
                         )
-                    except Exception:
-                        pass
+                    except Exception as e_pm:
+                        logger.warning(f"Ishtirokchi {u_obj.telegram_id} ga shaxsiy turnir xabarini yuborishda xatolik: {e_pm}")
 
     return True, recap_text
 
@@ -9125,6 +9255,131 @@ async def resolve_daily_scheduled_event(
                     pass
 
     return True, recap_report
+
+
+# ============================================================
+# 35. AJDAR DUELCHILARI REYTINGI VA QALALARNI BALANSLASH
+# ============================================================
+
+async def get_top10_dragon_duelists(session: AsyncSession) -> List[Dict[str, Any]]:
+    """Ajdarlar duelida eng faol va eng kuchli natija ko'rsatgan lordlar reytingi (TOP 10)"""
+    stmt = (
+        select(models.DragonDuel)
+        .where(models.DragonDuel.status == "completed")
+        .order_by(models.DragonDuel.completed_at.desc())
+    )
+    res = await session.execute(stmt)
+    duels = res.scalars().all()
+
+    user_stats: Dict[int, Dict[str, Any]] = {}
+
+    for d in duels:
+        c_uid = d.challenger_user_id
+        d_uid = d.defender_user_id
+        w_uid = d.winner_user_id
+
+        for uid in [c_uid, d_uid]:
+            if not uid:
+                continue
+            if uid not in user_stats:
+                user_stats[uid] = {
+                    "user_id": uid,
+                    "total_duels": 0,
+                    "wins": 0,
+                    "losses": 0,
+                    "points": 0,
+                }
+            user_stats[uid]["total_duels"] += 1
+            if uid == w_uid:
+                user_stats[uid]["wins"] += 1
+                user_stats[uid]["points"] += 10  # Har bir g'alaba uchun 10 ochko
+            else:
+                user_stats[uid]["losses"] += 1
+                user_stats[uid]["points"] += 2   # Mardonavor qatnashuv uchun 2 ochko
+
+    if not user_stats:
+        return []
+
+    u_ids = list(user_stats.keys())
+    users_res = await session.execute(
+        select(models.User)
+        .where(models.User.id.in_(u_ids))
+        .options(selectinload(models.User.house), selectinload(models.User.characters))
+    )
+    users_dict = {u.id: u for u in users_res.scalars().all()}
+
+    rank_list = []
+    for uid, st in user_stats.items():
+        u = users_dict.get(uid)
+        if not u or u.is_banned:
+            continue
+        tot = st["total_duels"]
+        w = st["wins"]
+        l = st["losses"]
+        winrate = round((w / tot * 100), 1) if tot > 0 else 0.0
+        pts = st["points"]
+
+        rank_list.append({
+            "user": u,
+            "total_duels": tot,
+            "wins": w,
+            "losses": l,
+            "winrate": winrate,
+            "points": pts,
+        })
+
+    # Ochkolar, g'alabalar va winrate bo'yicha saralash
+    rank_list.sort(key=lambda x: (x["points"], x["wins"], x["winrate"]), reverse=True)
+    return rank_list[:10]
+
+
+async def sync_territories_canon_balance(session: AsyncSession) -> int:
+    """Barcha 60 ta qal'aning daromad, toifa va bazaviy mudofaasini map_data dagi kanonik balansga moslashtirish"""
+    from data.map_data import TERRITORIES_DATA
+    res = await session.execute(select(models.Territory))
+    terrs = res.scalars().all()
+    updated_count = 0
+
+    tier_min_def = {1: 1350, 2: 880, 3: 580}
+
+    for t in terrs:
+        c_data = TERRITORIES_DATA.get(t.code)
+        if not c_data:
+            for k, val in TERRITORIES_DATA.items():
+                if val.get("id") == t.id:
+                    c_data = val
+                    break
+        if not c_data:
+            continue
+
+        t.castle_tier = c_data.get("castle_tier", t.castle_tier or 2)
+        t.gold_income = c_data.get("gold_income", t.gold_income)
+        t.food_income = c_data.get("food_income", t.food_income)
+        t.iron_income = c_data.get("iron_income", t.iron_income)
+
+        canon_def = c_data.get("defense", 500)
+        t_tier = t.castle_tier or 2
+        min_d = tier_min_def.get(t_tier, 500)
+
+        # Balans nomutanosibliklarini qat'iy to'g'rilash (Tier 1 > Tier 2 > Tier 3)
+        if t_tier == 3 and (t.defense or 0) > 750:
+            t.defense = canon_def
+        elif t_tier == 2 and (t.defense or 0) > 1100:
+            t.defense = canon_def
+        elif (t.defense or 0) < min_d:
+            t.defense = canon_def
+
+        t.garrison_infantry = c_data.get("garrison_infantry", t.garrison_infantry)
+        t.garrison_archers = c_data.get("garrison_archers", t.garrison_archers)
+        t.garrison_cavalry = c_data.get("garrison_cavalry", t.garrison_cavalry)
+        t.garrison_spearmen = c_data.get("garrison_spearmen", t.garrison_spearmen)
+
+        updated_count += 1
+
+    await session.commit()
+    logger.info(f"✅ Qalalar balansi muvaffaqiyatli sinxronlashtirildi: {updated_count} ta qal'a yangilandi.")
+    return updated_count
+
 
 
 

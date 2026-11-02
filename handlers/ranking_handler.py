@@ -211,7 +211,7 @@ async def format_armies_text(session) -> str:
 async def format_castles_text(session) -> str:
     top_castles = await crud.get_top10_castles(session)
     lines = [
-        "🏰 **ENG QUDRATLI QAL'ALAR VA VILOYATLAR SOHIBLARI (TOP 10)**",
+        "🏰 **ENG QUDRATLI QAL'ALAR VA ISTEHKOMLAR REYTINGI (TOP 10)**",
         ""
     ]
     if not top_castles:
@@ -226,13 +226,47 @@ async def format_castles_text(session) -> str:
             cnt = entry["castles_count"]
             tot_lvl = entry.get("total_levels", cnt)
             gold_inc = entry.get("total_gold_income", 0)
+            score = entry.get("score", 0)
             best_c = entry.get("best_castle_name", "")
+            b_tier = entry.get("best_castle_tier", 1)
+            b_lvl = entry.get("best_castle_level", 1)
             lines.append(
                 f"{med} **{escape_md(name)}** ({h_emoji} {escape_md(h_name)})\n"
-                f"     🏰 **{cnt} ta qal'a** (Umumiy: **{tot_lvl} ⭐** daraja | **+{gold_inc:,} 🪙/soat**)\n"
-                f"     └ Bosh istehkomi: *{escape_md(best_c)}*"
+                f"     🏰 **{cnt} ta qal'a** | ⭐ Castle Score: **{score:,} ball**\n"
+                f"     📊 Darajalar: **{tot_lvl} ⭐️** | Oltin daromadi: **+{gold_inc:,} 🪙/soat**\n"
+                f"     👑 Bosh istehkomi: *{escape_md(best_c)}* (Tier {b_tier}, Lv {b_lvl})"
             )
-    lines.append("\n_Qal'alar reytingi qal'alarning istehkom darajasi (Tier/Level) va soatlik oltin tushumiga qarab saralanadi._")
+    lines.append("\n_Castle Score formulasi: Qal'alar soni, toifasi (Tier 1-3), mudofaa qudrati, darajasi va soatlik tushumlari asosida adolatli hisoblanadi._")
+    return "\n".join(lines)
+
+
+async def format_dragon_duels_text(session) -> str:
+    """Ajdarlar duelida eng faol va kuchli o'yinchilar reytingi (Dragon Duel Ranking)"""
+    top_duelists = await crud.get_top10_dragon_duelists(session)
+    lines = [
+        "🐲⚔️ **ENG MOHIR VA KUCHLI AJDAR DUELCHILARI (TOP 10)**",
+        ""
+    ]
+    if not top_duelists:
+        lines.append("_Hozircha yakunlangan ajdarlar dueli mavjud emas._\n_Siz birinchi bo'lib /dragon_duels orqali do'stlaringizga duel e'lon qilishingiz mumkin!_")
+    else:
+        for idx, entry in enumerate(top_duelists):
+            med = MEDALS[idx] if idx < len(MEDALS) else f"{idx+1}."
+            u = entry["user"]
+            name = get_user_display_name(u)
+            h_name = u.house.name if u.house else "Mustaqil"
+            h_emoji = u.house.emoji if u.house else "⚔️"
+            tot = entry["total_duels"]
+            w = entry["wins"]
+            l = entry["losses"]
+            wr = entry["winrate"]
+            pts = entry["points"]
+            lines.append(
+                f"{med} **{escape_md(name)}** ({h_emoji} {escape_md(h_name)})\n"
+                f"     ⚔️ **{tot} ta duel** (🏆 {w} g'alaba | 💀 {l} mag'lubiyat)\n"
+                f"     📈 G'alaba foizi: **{wr}%** | ⭐ Duel balli: **{pts:,} ochko**"
+            )
+    lines.append("\n_Ajdarlar Dueli reytingi: Har bir g'alaba uchun +10 ball, mag'lubiyat uchun +2 ball beriladi._")
     return "\n".join(lines)
 
 
@@ -345,11 +379,14 @@ def get_ranking_keyboard(category: str = "prestige", period: str = "all") -> Inl
             InlineKeyboardButton(f"{'✅ ' if category == 'dragons' else ''}🐉 Ajdarlar (Top 10)", callback_data="rank_cat:dragons:all"),
         ],
         [
+            InlineKeyboardButton(f"{'✅ ' if category == 'dragon_duels' else ''}🐲⚔️ Duelchilar (Top 10)", callback_data="rank_cat:dragon_duels:all"),
             InlineKeyboardButton(f"{'✅ ' if category == 'houses' else ''}🏛️ Xonadonlar (Top 10)", callback_data="rank_cat:houses:all"),
-            InlineKeyboardButton(f"{'✅ ' if category == 'champion' else ''}👑 Mavsum G'olibi (Taxt)", callback_data="rank_cat:champion:all"),
         ],
         [
+            InlineKeyboardButton(f"{'✅ ' if category == 'champion' else ''}👑 Mavsum G'olibi (Taxt)", callback_data="rank_cat:champion:all"),
             InlineKeyboardButton(f"{'✅ ' if category == 'last_week' else ''}🗓️ O'tgan Hafta Sarhisobi", callback_data="rank_cat:last_week:all"),
+        ],
+        [
             InlineKeyboardButton(f"{'✅ ' if category == 'war_recap' else ''}⚔️ Urush Sarhisobi", callback_data="rank_cat:war_recap:all"),
         ],
     ]
@@ -387,6 +424,8 @@ async def show_ranking_hub(target, user_id: int, category: str = "prestige", per
             text = await format_castles_text(session)
         elif category == "dragons":
             text = await format_dragons_text(session)
+        elif category == "dragon_duels":
+            text = await format_dragon_duels_text(session)
         elif category == "houses":
             text = await format_houses_text(session)
         elif category == "champion":
@@ -397,7 +436,7 @@ async def show_ranking_hub(target, user_id: int, category: str = "prestige", per
     if is_group:
         # Guruhda pastki qotib qolgan klaviaturalarni yo'qotish uchun ReplyKeyboardRemove yuboriladi
         group_footer = (
-            "\n💡 _Boshqa reytinglar: /top xp, /top hafta, /top oltin, /top otgan_hafta, /top armiya, /top qalalar, /top urush, /top ajdar, /top taxt_"
+            "\n💡 _Boshqa reytinglar: /top xp, /top hafta, /top oltin, /top otgan_hafta, /top armiya, /top qalalar, /top urush, /top ajdar, /top duelchilar, /top taxt_"
         )
         full_text = text + group_footer
         clean_kb = ReplyKeyboardRemove()
@@ -490,6 +529,8 @@ async def ranking_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             category = "castles"
         elif any(w in arg_str for w in ["ajdar", "dragon", "dragons", "ajdarlar"]):
             category = "dragons"
+        elif any(w in arg_str for w in ["duel", "duellar", "duelchi", "duelchilar", "dragon_duels"]):
+            category = "dragon_duels"
         elif any(w in arg_str for w in ["xonadon", "house", "houses", "oilalar"]):
             category = "houses"
         elif any(w in arg_str for w in ["taxt", "chempion", "champion", "winner", "qirol", "g'olib"]):

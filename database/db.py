@@ -395,6 +395,7 @@ async def init_db():
                 is_active=True,
             )
             session.add(new_ww)
+            await session.flush()
 
         # Mavsumlar (30-kunlik Seasons) tizimi boshlang'ich 1-mavsumini ishga tushirish
         from datetime import timedelta
@@ -653,6 +654,9 @@ async def init_db():
             if (drg.power or 0) > max_p:
                 logger.info(f"🐉 Ajdar #{drg.id} ({drg.name}, Daraja {drg.level}) quvvati normallashtirildi: {drg.power:,} -> {max_p:,}")
                 drg.power = max_p
+
+        # Qalalar balansini kanonik daromad, toifa va mudofaaga qat'iy sinxronlashtirish (Tier 1 > Tier 2 > Tier 3)
+        await crud.sync_territories_canon_balance(session)
 
         await session.commit()
         logger.info("✅ 50 ta Xonadon va Westeros hududlari bazaga kiritildi.")
