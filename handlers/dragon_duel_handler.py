@@ -265,92 +265,125 @@ async def dragon_duel_fight_callback(update: Update, context: ContextTypes.DEFAU
 
     user = update.effective_user
 
-    async with AsyncSessionLocal() as session:
-        user_db = await crud.get_user_with_relations(session, user.id)
-        if not user_db:
-            return
-
-        duel = await crud.get_dragon_duel_by_id(session, duel_id)
-        if not duel or duel.status not in ["pending", "open_lobby"]:
-            await query.answer("Ushbu duel allaqachon yakunlangan!", show_alert=True)
-            return
-
-        d1_obj = duel.challenger_dragon
-        d2_obj = await session.get(models.Dragon, my_dragon_id)
-
-        if not d1_obj or not d2_obj or d2_obj.user_id != user_db.id:
-            await query.answer("Ajdar ma'lumotlarida xatolik!", show_alert=True)
-            return
-
-        c_user = duel.challenger
-        challenger_name = c_user.username or c_user.full_name if c_user else "Lord 1"
-        challenger_tg_id = c_user.telegram_id if c_user else 0
-        defender_name = user_db.username or user_db.full_name or "Lord 2"
-
-        d1_dict = {
-            "id": d1_obj.id,
-            "name": d1_obj.name,
-            "grade": d1_obj.grade,
-            "stage": d1_obj.stage,
-            "level": d1_obj.level,
-            "power": d1_obj.power or 100,
-            "user_id": duel.challenger_user_id,
-            "user_name": challenger_name,
-        }
-
-        d2_dict = {
-            "id": d2_obj.id,
-            "name": d2_obj.name,
-            "grade": d2_obj.grade,
-            "stage": d2_obj.stage,
-            "level": d2_obj.level,
-            "power": d2_obj.power or 100,
-            "user_id": user_db.id,
-            "user_name": defender_name,
-        }
-
-        # Simulyatsiya
-        battle_res = simulate_dragon_battle(d1_dict, d2_dict)
-        winner_dragon = battle_res["winner"]
-        duel_log = battle_res["duel_log"]
-
-        ok, msg, updated_duel = await crud.complete_dragon_duel(
-            session=session,
-            duel_id=duel.id,
-            defender_user_id=user_db.id,
-            defender_dragon_id=d2_obj.id,
-            winner_dragon_id=winner_dragon["id"],
-            winner_user_id=winner_dragon["user_id"],
-            duel_log=duel_log
-        )
-
-    # Natija klaviaturasi
-    res_kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🌐 Ochiq Duel Zaliga Qaytish", callback_data="dragon_duel_lobby")],
-        [InlineKeyboardButton("🔙 Ajdarlar Dueli Menyusi", callback_data="dragon_duel_menu")]
-    ])
-
-    # 1. Jangni qabul qilgan (himoyachi) lordga xabar
     try:
-        await query.edit_message_text(duel_log, parse_mode="Markdown", reply_markup=res_kb)
-    except Exception:
-        await query.message.reply_text(duel_log, parse_mode="Markdown", reply_markup=res_kb)
+        async with AsyncSessionLocal() as session:
+            user_db = await crud.get_user_with_relations(session, user.id)
+            if not user_db:
+                await query.edit_message_text("❌ Foydalanuvchi ma'lumotlari topilmadi.")
+                return
 
-    # 2. Chaqiruvchi (challenger) lordga telegram xabari yuborish
-    if challenger_tg_id and challenger_tg_id != user.id:
+            duel = await crud.get_dragon_duel_by_id(session, duel_id)
+            if not duel or duel.status not in ["pending", "open_lobby"]:
+                await query.edit_message_text(
+                    "❌ Ushbu duel allaqachon yakunlangan yoki bekor qilingan!",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Duel Zaliga Qaytish", callback_data="dragon_duel_lobby")]])
+                )
+                return
+
+            d1_obj = duel.challenger_dragon
+            if not d1_obj and duel.challenger_dragon_id:
+                d1_obj = await session.get(models.Dragon, duel.challenger_dragon_id)
+
+            d2_obj = await session.get(models.Dragon, my_dragon_id)
+
+            if not d1_obj or not d2_obj or (d2_obj.user_id not in [user_db.id, getattr(user_db, "telegram_id", 0)]):
+                await query.edit_message_text(
+                    "❌ Ajdar ma'lumotlarida xatolik yuz berdi (ajdar topilmadi yoki sizga tegishli emas)!",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Duel Zaliga Qaytish", callback_data="dragon_duel_lobby")]])
+                )
+                return
+
+            c_user = duel.challenger
+            if not c_user and duel.challenger_user_id:
+                c_user = await crud.get_user_any(session, duel.challenger_user_id)
+
+            challenger_name = c_user.username or c_user.full_name if c_user else "Lord 1"
+            challenger_tg_id = c_user.telegram_id if c_user else 0
+            defender_name = user_db.username or user_db.full_name or "Lord 2"
+
+            d1_dict = {
+                "id": d1_obj.id,
+                "name": escape_md(d1_obj.name),
+                "grade": d1_obj.grade,
+                "stage": d1_obj.stage,
+                "level": d1_obj.level,
+                "power": d1_obj.power or 100,
+                "user_id": duel.challenger_user_id,
+                "user_name": escape_md(challenger_name),
+            }
+
+            d2_dict = {
+                "id": d2_obj.id,
+                "name": escape_md(d2_obj.name),
+                "grade": d2_obj.grade,
+                "stage": d2_obj.stage,
+                "level": d2_obj.level,
+                "power": d2_obj.power or 100,
+                "user_id": user_db.id,
+                "user_name": escape_md(defender_name),
+            }
+
+            # Simulyatsiya
+            battle_res = simulate_dragon_battle(d1_dict, d2_dict)
+            winner_dragon = battle_res["winner"]
+            duel_log = battle_res["duel_log"]
+
+            ok, msg, updated_duel = await crud.complete_dragon_duel(
+                session=session,
+                duel_id=duel.id,
+                defender_user_id=user_db.id,
+                defender_dragon_id=d2_obj.id,
+                winner_dragon_id=winner_dragon["id"],
+                winner_user_id=winner_dragon["user_id"],
+                duel_log=duel_log
+            )
+
+        # Natija klaviaturasi
+        res_kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🌐 Ochiq Duel Zaliga Qaytish", callback_data="dragon_duel_lobby")],
+            [InlineKeyboardButton("🔙 Ajdarlar Dueli Menyusi", callback_data="dragon_duel_menu")]
+        ])
+
+        # 1. Jangni qabul qilgan (himoyachi) lordga xabar
         try:
+            await query.edit_message_text(duel_log, parse_mode="Markdown", reply_markup=res_kb)
+        except Exception as e_edit:
+            logger.warning(f"Dragon duel log markdown edit xatosi: {e_edit}")
+            clean_log = duel_log.replace("**", "").replace("*", "").replace("`", "")
+            try:
+                await query.edit_message_text(clean_log, reply_markup=res_kb)
+            except Exception:
+                await query.message.reply_text(clean_log, reply_markup=res_kb)
+
+        # 2. Chaqiruvchi (challenger) lordga telegram xabari yuborish
+        if challenger_tg_id and challenger_tg_id != user.id:
             notify_text = (
                 f"🔔 **AJDARINGIZ DUELDA JANG QILDI!**\n\n"
-                f"Sizning ochiq chaqiruvingizni Lord **{defender_name}** qabul qildi.\n\n"
+                f"Sizning chaqiruvingizni Lord **{escape_md(defender_name)}** qabul qildi.\n\n"
                 f"{duel_log}"
             )
-            await context.bot.send_message(
-                chat_id=challenger_tg_id,
-                text=notify_text,
-                parse_mode="Markdown"
-            )
-        except Exception as e:
-            print(f"Challenger {challenger_tg_id} ga duel natijasini yuborishda xatolik: {e}")
+            try:
+                await context.bot.send_message(
+                    chat_id=challenger_tg_id,
+                    text=notify_text,
+                    parse_mode="Markdown"
+                )
+            except Exception as e_send:
+                logger.warning(f"Challenger ga xabar yuborishda markdown xatosi: {e_send}")
+                clean_notify = notify_text.replace("**", "").replace("*", "").replace("`", "")
+                try:
+                    await context.bot.send_message(
+                        chat_id=challenger_tg_id,
+                        text=clean_notify
+                    )
+                except Exception:
+                    pass
+    except Exception as e:
+        logger.error(f"dragon_duel_fight_callback xatosi: {e}", exc_info=True)
+        try:
+            await query.message.reply_text(f"❌ Jang hisoblashda xatolik yuz berdi: {e}")
+        except Exception:
+            pass
 
 
 async def dragon_duel_cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):

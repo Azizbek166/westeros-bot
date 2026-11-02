@@ -462,43 +462,50 @@ async def pvp_inbox_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     user_id = query.from_user.id
 
     async with AsyncSessionLocal() as session:
-        user = await crud.get_user_by_telegram_id(session, user_id)
+        user = await crud.get_user_any(session, user_id)
         if not user:
             return
         pending = await crud.get_pending_duels_for_user(session, user.id)
+        # Ajdarlar duelidagi kelgan chaqiruvlarni ham tekshiramiz
+        dragon_pending = await crud.get_user_pending_dragon_duels(session, user.id)
 
-    if not pending:
+    if not pending and not dragon_pending:
         text = "📭 Hozircha sizga hech kim duel chaqirig'i yubormagan."
         buttons = [[InlineKeyboardButton("🔙 Arenaga Qaytish", callback_data="menu_duel")]]
     else:
         text = "📬 **SIZGA KELGAN DUEL CHAQIRIQLARI:**\n\n"
         buttons = []
-        for duel, challenger_name in pending:
-            bet_str = "Bepul" if duel.bet_gold == 0 else f"{duel.bet_gold}🪙"
-            text += f"• ⚔️ **{challenger_name}** | Garov: **{bet_str}**\n"
+        if pending:
+            for duel, challenger_name in pending:
+                bet_str = "Bepul" if duel.bet_gold == 0 else f"{duel.bet_gold}🪙"
+                text += f"• ⚔️ **{escape_md(challenger_name)}** | Garov: **{bet_str}**\n"
+                btn_name = challenger_name[:18]
+                buttons.append([
+                    InlineKeyboardButton(f"✅ Qabul: {btn_name}", callback_data=f"pvp_accept:{duel.id}"),
+                    InlineKeyboardButton("❌ Rad", callback_data=f"pvp_reject:{duel.id}"),
+                ])
+        
+        if dragon_pending:
+            text += f"\n🐉 **Ajdarlar dueli:** Sizda {len(dragon_pending)} ta chaqiruv mavjud!\n"
             buttons.append([
-                InlineKeyboardButton(f"✅ Qabul: {challenger_name}", callback_data=f"pvp_accept:{duel.id}"),
-                InlineKeyboardButton("❌ Rad", callback_data=f"pvp_reject:{duel.id}"),
+                InlineKeyboardButton(f"🐉 Ajdarlar Dueli Takliflari ({len(dragon_pending)})", callback_data="dragon_duel_inbox")
             ])
+
         buttons.append([InlineKeyboardButton("🔙 Arenaga Qaytish", callback_data="menu_duel")])
 
-    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+    try:
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+    except Exception as e_md:
+        clean_text = text.replace("**", "").replace("*", "").replace("`", "")
+        try:
+            await query.edit_message_text(clean_text, reply_markup=InlineKeyboardMarkup(buttons))
+        except Exception:
+            await query.message.reply_text(clean_text, reply_markup=InlineKeyboardMarkup(buttons))
 
 
 async def pvp_accept_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Raqib duelni qabul qilganda taktika tanlashi"""
+    """Raqib duelni qabul qilganda taktika tanlashi (Limitsiz erkin lordlar dueli)"""
     query = update.callback_query
-    tg_user_id = query.from_user.id
-
-    async with AsyncSessionLocal() as session:
-        user = await crud.get_user_by_telegram_id(session, tg_user_id)
-        if user:
-            await crud.check_and_reset_daily_limits(session, user)
-            duel_cnt = getattr(user, "daily_duel_count", 0) or 0
-            if duel_cnt >= DAILY_DUEL_LIMIT:
-                await query.answer(f"❌ Bugungi {DAILY_DUEL_LIMIT} ta duel limitingiz tugagan! Ertaga yana maydonga tushishingiz mumkin.", show_alert=True)
-                return
-
     await query.answer()
 
     duel_id = int(query.data.split(":")[1])
@@ -514,7 +521,10 @@ async def pvp_accept_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         "⚔️ **DUELNI QABUL QILDINGIZ!**\n\n"
         "O'z taktikangizni tanlang — shundan so'ng jang darhol hisoblanadi:"
     )
-    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+    try:
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+    except Exception:
+        await query.message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
 
 
 async def pvp_resolve_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -549,7 +559,11 @@ async def pvp_resolve_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         [InlineKeyboardButton("⚔️ Duellar Arenasi", callback_data="menu_duel")],
         [InlineKeyboardButton("🔙 Bosh Menyu", callback_data="menu_main")],
     ]
-    await query.edit_message_text(outcome_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+    try:
+        await query.edit_message_text(outcome_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+    except Exception:
+        clean_outcome = outcome_text.replace("**", "").replace("*", "").replace("`", "")
+        await query.edit_message_text(clean_outcome, reply_markup=InlineKeyboardMarkup(buttons))
 
     # Challenger ga xabar yuborish
     challenger_tg = res["challenger_tg_id"]
@@ -558,7 +572,11 @@ async def pvp_resolve_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             alert = f"🔔 **SIZ E'LON QILGAN DUEL YAKUNLANDI!**\n\n{outcome_text}"
             await context.bot.send_message(chat_id=challenger_tg, text=alert, parse_mode="Markdown")
         except Exception:
-            pass
+            clean_alert = f"🔔 SIZ E'LON QILGAN DUEL YAKUNLANDI!\n\n{outcome_text}".replace("**", "").replace("*", "").replace("`", "")
+            try:
+                await context.bot.send_message(chat_id=challenger_tg, text=clean_alert)
+            except Exception:
+                pass
 
 
 async def pvp_reject_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):

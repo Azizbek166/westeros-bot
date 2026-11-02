@@ -84,121 +84,163 @@ async def generate_weekly_rankings(session: AsyncSession) -> Dict[str, Any]:
     }
 
 
-def format_weekly_leaderboard_post(data: Dict[str, Any]) -> str:
-    """Rasmiy Telegram kanal va guruh uchun haftalik reyting posti"""
+def format_weekly_leaderboard_parts(data: Dict[str, Any]) -> List[str]:
+    """Haftalik reytingni Telegram 4096 belgilik chekloviga mos 2 ta xavfsiz qismga ajratish"""
     now_str = datetime.utcnow().strftime("%d.%m.%Y")
 
-    lines = [
+    # 1-QISM: TOP LORDLAR (NUFUZ, TAJRIBA VA BOYLIK)
+    part1_lines = [
         "╔══════════════════════════════╗",
-        "  👑 **WESTEROS BUYUK HAFTALIK REYTINGI** 🏆",
+        "  👑 **WESTEROS HAFTALIK REYTINGI (1-QISM)** 🏆",
         "╚══════════════════════════════╝\n",
         f"📅 **Sana:** `{now_str}`",
-        "Qirollik Saroyi va Temir Bank tomonidan Vesteros bo'yicha yakunlangan haftaning eng qudratli hukmdorlari va xonadonlari e'lon qilindi!\n",
+        "Qirollik Saroyi va Temir Bank tomonidan yakunlangan haftaning eng qudratli hukmdorlari e'lon qilindi!\n",
+        "🏆 **HAFTALIK TOP 10 NUFUZLI LORDLAR:**"
     ]
-
-    # 1. Haftalik Nufuz (Prestige TOP 10)
-    lines.append("🏆 **HAFTALIK TOP 10 NUFUZLI LORDLAR:**")
-    if data["top_prestige"]:
+    if data.get("top_prestige"):
         for idx, u in enumerate(data["top_prestige"][:10]):
             med = MEDALS[idx] if idx < len(MEDALS) else f"{idx+1}."
-            hero_name = u.characters[0].name if getattr(u, "characters", None) and len(u.characters) > 0 else u.full_name
-            uname = f" (@{u.username})" if getattr(u, "username", None) else ""
-            h_str = f"[{u.house.emoji} {u.house.name}]" if u.house else "[Mustaqil]"
+            hero_name = escape_md(u.characters[0].name if getattr(u, "characters", None) and len(u.characters) > 0 else u.full_name)
+            uname = f" (@{escape_md(u.username)})" if getattr(u, "username", None) else ""
+            h_str = f"[{u.house.emoji} {escape_md(u.house.name)}]" if u.house else "[Mustaqil]"
             pts = getattr(u, "weekly_prestige_earned", 0) or 0
-            lines.append(f"{med} **{hero_name}**{uname} {h_str}\n     ↳ **+{pts:,} 🏆** bu hafta | Jami: `{u.prestige:,}` Nufuz")
+            part1_lines.append(f"{med} **{hero_name}**{uname} {h_str}\n     ↳ **+{pts:,} 🏆** bu hafta | Jami: `{u.prestige:,}` Nufuz")
     else:
-        lines.append("_Hozircha ma'lumotlar yo'q_")
-    lines.append("")
+        part1_lines.append("_Hozircha ma'lumotlar yo'q_")
+    part1_lines.append("")
 
-    # 2. Tajriba va Daraja (XP TOP 10)
-    lines.append("🌟 **TOP 10 ENG TAJRIBALI LORDLAR (DARAJA VA XP):**")
+    part1_lines.append("🌟 **TOP 10 ENG TAJRIBALI LORDLAR (DARAJA VA XP):**")
     if data.get("top_xp"):
         from core.leveling import LEVEL_TITLES
         for idx, u in enumerate(data["top_xp"][:10]):
             med = MEDALS[idx] if idx < len(MEDALS) else f"{idx+1}."
-            hero_name = u.characters[0].name if getattr(u, "characters", None) and len(u.characters) > 0 else u.full_name
-            uname = f" (@{u.username})" if getattr(u, "username", None) else ""
-            h_str = f"[{u.house.emoji} {u.house.name}]" if u.house else "[Mustaqil]"
+            hero_name = escape_md(u.characters[0].name if getattr(u, "characters", None) and len(u.characters) > 0 else u.full_name)
+            uname = f" (@{escape_md(u.username)})" if getattr(u, "username", None) else ""
+            h_str = f"[{u.house.emoji} {escape_md(u.house.name)}]" if u.house else "[Mustaqil]"
             lvl = u.level or 1
             xp = u.xp or 0
             lvl_title = LEVEL_TITLES.get(lvl, {}).get("title", f"Lord Lv.{lvl}")
-            lines.append(f"{med} **{hero_name}**{uname} {h_str}\n     ↳ **{lvl}-daraja** (`{xp:,} XP`) | *{lvl_title}*")
+            part1_lines.append(f"{med} **{hero_name}**{uname} {h_str}\n     ↳ **{lvl}-daraja** (`{xp:,} XP`) | *{lvl_title}*")
     else:
-        lines.append("_Hozircha ma'lumotlar yo'q_")
-    lines.append("")
+        part1_lines.append("_Hozircha ma'lumotlar yo'q_")
+    part1_lines.append("")
 
-    # 3. Haftalik Boylik (Gold TOP 10)
-    lines.append("💰 **HAFTALIK TOP 10 ENG KO'P OLTIN TOPGAN LORDLAR:**")
-    if data["top_wealth"]:
+    part1_lines.append("💰 **HAFTALIK TOP 10 ENG KO'P OLTIN TOPGAN LORDLAR:**")
+    if data.get("top_wealth"):
         for idx, u in enumerate(data["top_wealth"][:10]):
             med = MEDALS[idx] if idx < len(MEDALS) else f"{idx+1}."
-            hero_name = u.characters[0].name if getattr(u, "characters", None) and len(u.characters) > 0 else u.full_name
-            uname = f" (@{u.username})" if getattr(u, "username", None) else ""
-            h_str = f"[{u.house.emoji} {u.house.name}]" if u.house else "[Mustaqil]"
+            hero_name = escape_md(u.characters[0].name if getattr(u, "characters", None) and len(u.characters) > 0 else u.full_name)
+            uname = f" (@{escape_md(u.username)})" if getattr(u, "username", None) else ""
+            h_str = f"[{u.house.emoji} {escape_md(u.house.name)}]" if u.house else "[Mustaqil]"
             gold_pts = getattr(u, "weekly_gold_earned", 0) or 0
-            lines.append(f"{med} **{hero_name}**{uname} {h_str}\n     ↳ **+{gold_pts:,} 🪙** bu hafta | Xazina: `{u.gold:,}` 🪙")
+            part1_lines.append(f"{med} **{hero_name}**{uname} {h_str}\n     ↳ **+{gold_pts:,} 🪙** bu hafta | Xazina: `{u.gold:,}` 🪙")
     else:
-        lines.append("_Hozircha xazina ma'lumotlari yo'q_")
-    lines.append("")
+        part1_lines.append("_Hozircha xazina ma'lumotlari yo'q_")
 
-    # 3. Armiya (TOP 5)
-    lines.append("⚔️ **TOP 5 ENG QUDRATLI ARMIYALAR:**")
-    if data["top_armies"]:
+    # 2-QISM: HARBIY KUCHLAR, AJDARLAR, XONADONLAR VA TEMIR TAXT
+    part2_lines = [
+        "╔══════════════════════════════╗",
+        "  ⚔️ **WESTEROS HAFTALIK REYTINGI (2-QISM)** 🏆",
+        "╚══════════════════════════════╝\n",
+        "⚔️ **TOP 5 ENG QUDRATLI ARMIYALAR:**"
+    ]
+    if data.get("top_armies"):
         for idx, entry in enumerate(data["top_armies"][:5]):
             med = MEDALS[idx] if idx < len(MEDALS) else f"{idx+1}."
             u = entry["user"]
-            hero_name = u.characters[0].name if getattr(u, "characters", None) and len(u.characters) > 0 else u.full_name
-            lines.append(f"{med} **{hero_name}** — `{entry['total_troops']:,}` Askar (Jang kuchi: `{entry['power']:,}` ⚡)")
+            hero_name = escape_md(u.characters[0].name if getattr(u, "characters", None) and len(u.characters) > 0 else u.full_name)
+            part2_lines.append(f"{med} **{hero_name}** — `{entry['total_troops']:,}` Askar (Jang kuchi: `{entry['power']:,}` ⚡)")
     else:
-        lines.append("_Hozircha armiya ma'lumotlari yo'q_")
-    lines.append("")
+        part2_lines.append("_Hozircha armiya ma'lumotlari yo'q_")
+    part2_lines.append("")
 
-    # 4. Ajdarlar (TOP 5)
-    if data["top_dragons"]:
-        lines.append("🐉 **TOP 5 AFSONAVIY AJDARLAR:**")
+    if data.get("top_dragons"):
+        part2_lines.append("🐉 **TOP 5 AFSONAVIY AJDARLAR:**")
         for idx, entry in enumerate(data["top_dragons"][:5]):
             med = MEDALS[idx] if idx < len(MEDALS) else f"{idx+1}."
             d = entry["dragon"]
             u = entry["user"]
-            lines.append(f"{med} 🐲 **{d.name}** (`{d.power:,}` quvvat) — Egasi: *{u.full_name}* (Lv.{d.level})")
-        lines.append("")
+            part2_lines.append(f"{med} 🐲 **{escape_md(d.name)}** (`{d.power:,}` quvvat) — Egasi: *{escape_md(u.full_name)}* (Lv.{d.level})")
+        part2_lines.append("")
 
-    # 5. Xonadonlar (TOP 5)
-    lines.append("🏰 **TOP 5 ENG KUCHLI BUYUK XONADONLAR:**")
-    if data["top_houses"]:
+    part2_lines.append("🏰 **TOP 5 ENG KUCHLI BUYUK XONADONLAR:**")
+    if data.get("top_houses"):
         for idx, h_info in enumerate(data["top_houses"][:5]):
             med = MEDALS[idx] if idx < len(MEDALS) else f"{idx+1}."
             h = h_info["house"]
-            lines.append(f"{med} **{h.emoji} {h.name}** — `{h_info['territories']}` ta Hudud | `{h_info['members']}` ta Lord (`{h_info['prestige']:,}` P)")
-    lines.append("")
+            part2_lines.append(f"{med} **{h.emoji} {escape_md(h.name)}** — `{h_info['territories']}` ta Hudud | `{h_info['members']}` ta Lord (`{h_info['prestige']:,}` P)")
+    part2_lines.append("")
 
-    # 6. Temir Taxt Sohibi (Mavsum Chempioni)
     champ = data.get("champion", {})
     if champ.get("user"):
         c_u = champ["user"]
         c_h = champ.get("house")
-        h_name = f"{c_h.emoji} {c_h.name}" if c_h else "Mustaqil"
+        h_name = f"{c_h.emoji} {escape_md(c_h.name)}" if c_h else "Mustaqil"
         how = "🏰 King's Landing qal'asi sohibi!" if champ.get("kings_landing_held") else f"📊 Mavsum Balli: `{champ.get('score', 0):,}`"
-        lines.append("───────────────────────────────")
-        lines.append("👑 **TEMIR TAXTNING JORIY SOYIBI (MAVSUM G'OLIBI):**")
-        lines.append(f"🏰 Hukmdor: **{c_u.full_name}** ({h_name})")
-        lines.append(f"📌 Holat: {how}")
-        lines.append("───────────────────────────────\n")
+        part2_lines.append("───────────────────────────────")
+        part2_lines.append("👑 **TEMIR TAXTNING JORIY SOHIBI (MAVSUM G'OLIBI):**")
+        part2_lines.append(f"🏰 Hukmdor: **{escape_md(c_u.full_name)}** ({h_name})")
+        part2_lines.append(f"📌 Holat: {how}")
+        part2_lines.append("───────────────────────────────\n")
 
-    # MVP va Mukofotlar
     if data.get("mvp"):
         mvp = data["mvp"]
-        mvp_name = mvp.username or mvp.full_name or "Lord"
-        lines.append("🎖️ **HAFTA QAHRAMONI (WEEKLY MVP):**")
-        lines.append(f"👑 **{mvp_name}**")
-        lines.append("Qahramonga Vesteros saroyi nomidan **+100 🏆 Nufuz** va **+2,500 🪙 Oltin** berildi!\n")
+        mvp_name = escape_md(mvp.username or mvp.full_name or "Lord")
+        part2_lines.append("🎖️ **HAFTA QAHRAMONI (WEEKLY MVP):**")
+        part2_lines.append(f"👑 **{mvp_name}**")
+        part2_lines.append("Qahramonga Vesteros saroyi nomidan **+100 🏆 Nufuz** va **+2,500 🪙 Oltin** berildi!\n")
 
-    lines.append("⚔️ Taxt sari shafqatsiz kurash davom etadi! O'z xonadoningiz bayrog'ini baland ko'taring!")
-    lines.append(f"🎮 **O'yin boti:** @ironthrone_rpgbot")
-    lines.append(f"💬 **Rasmiy Guruh:** {COMMUNITY_GROUP_URL}")
-    lines.append(f"📢 **Rasmiy Kanal:** {COMMUNITY_CHANNEL_URL}")
+    part2_lines.append("⚔️ Taxt sari shafqatsiz kurash davom etadi! O'z xonadoningiz bayrog'ini baland ko'taring!")
+    part2_lines.append(f"🎮 **O'yin boti:** @ironthrone_rpgbot")
+    part2_lines.append(f"💬 **Rasmiy Guruh:** {COMMUNITY_GROUP_URL}")
+    part2_lines.append(f"📢 **Rasmiy Kanal:** {COMMUNITY_CHANNEL_URL}")
 
-    return "\n".join(lines)
+    return ["\n".join(part1_lines), "\n".join(part2_lines)]
+
+
+def format_weekly_leaderboard_post(data: Dict[str, Any]) -> str:
+    """Rasmiy Telegram kanal va guruh uchun haftalik reyting posti (birlashtirilgan to'liq matn)"""
+    parts = format_weekly_leaderboard_parts(data)
+    return "\n\n───────────────────────────────\n\n".join(parts)
+
+
+async def send_safe_telegram_chunk(bot, chat_id: Union[int, str], text: str, parse_mode: str = "Markdown", disable_web_page_preview: bool = True):
+    """Xabarni 4000 belgidan oshirmasdan xavfsiz jo'natish"""
+    chunks = []
+    if len(text) <= 3900:
+        chunks = [text]
+    else:
+        lines = text.split("\n")
+        cur_chunk = []
+        cur_len = 0
+        for l in lines:
+            if cur_len + len(l) + 1 > 3800:
+                chunks.append("\n".join(cur_chunk))
+                cur_chunk = [l]
+                cur_len = len(l)
+            else:
+                cur_chunk.append(l)
+                cur_len += len(l) + 1
+        if cur_chunk:
+            chunks.append("\n".join(cur_chunk))
+
+    for c in chunks:
+        try:
+            await bot.send_message(
+                chat_id=chat_id,
+                text=c,
+                parse_mode=parse_mode,
+                disable_web_page_preview=disable_web_page_preview
+            )
+        except Exception as e_md:
+            logger.warning(f"send_message markdown error for {chat_id}: {e_md}, falling back to plain text")
+            clean_c = c.replace("**", "").replace("*", "").replace("`", "")
+            await bot.send_message(
+                chat_id=chat_id,
+                text=clean_c,
+                disable_web_page_preview=disable_web_page_preview
+            )
+        await asyncio.sleep(0.4)
 
 
 async def broadcast_weekly_leaderboard(bot_app, force: bool = False) -> Tuple[bool, str]:
@@ -221,7 +263,8 @@ async def broadcast_weekly_leaderboard(bot_app, force: bool = False) -> Tuple[bo
                 return False, "Ushbu hafta uchun reyting allaqachon e'lon qilingan."
 
         data = await generate_weekly_rankings(session)
-        post_text = format_weekly_leaderboard_post(data)
+        post_parts = format_weekly_leaderboard_parts(data)
+        full_text = "\n\n───────────────────────────────\n\n".join(post_parts)
 
         # Hafta yetakchilarini taqdirlash (Top 1, 2, 3)
         rewards = [
@@ -243,10 +286,10 @@ async def broadcast_weekly_leaderboard(bot_app, force: bool = False) -> Tuple[bo
         )
         last_ev = last_ev_res.scalar_one_or_none()
         if not last_ev:
-            last_ev = models.EventState(event_name="last_weekly_leaderboard", data_json=post_text, is_active=True)
+            last_ev = models.EventState(event_name="last_weekly_leaderboard", data_json=full_text, is_active=True)
             session.add(last_ev)
         else:
-            last_ev.data_json = post_text
+            last_ev.data_json = full_text
             last_ev.is_active = True
 
         if not force:
@@ -255,19 +298,15 @@ async def broadcast_weekly_leaderboard(bot_app, force: bool = False) -> Tuple[bo
 
         await session.commit()
 
-    # Kanal va Guruhga yuborish
+    # Kanal va Guruhga xavfsiz qismlarga bo'lib yuborish
     sent_targets = []
     errors = []
 
     for target in [CHANNEL_CHAT_ID, GROUP_CHAT_ID]:
         try:
-            await bot.send_message(
-                chat_id=target,
-                text=post_text,
-                parse_mode="Markdown",
-                disable_web_page_preview=True
-            )
-            sent_targets.append(target)
+            for part in post_parts:
+                await send_safe_telegram_chunk(bot, target, part, parse_mode="Markdown")
+            sent_targets.append(str(target))
         except Exception as e:
             logger.warning(f"Kanal/Guruh {target} ga haftalik reyting yuborishda xatolik: {e}")
             errors.append(f"{target}: {e}")
