@@ -163,7 +163,7 @@ async def on_startup(app: Application):
         logger.info("✅ Baza tayyor.")
         
         try:
-            from database import models
+            from database import models, crud
             from sqlalchemy import select
             async with AsyncSessionLocal() as s_audit:
                 res = await s_audit.execute(
@@ -180,6 +180,38 @@ async def on_startup(app: Application):
                     }
                     for r in rows
                 ]
+
+                # Top 10 armies
+                top10_data = await crud.get_top10_armies_detailed(s_audit)
+                GLOBAL_SERVER_AUDIT["top10_armies"] = [
+                    {
+                        "house_id": entry["house"].id if entry.get("house") else None,
+                        "house_name": entry["house"].name if entry.get("house") else "None",
+                        "lord_name": entry["user"].full_name if entry.get("user") else "None",
+                        "total_troops": entry["total_troops"],
+                        "active_troops": entry["active_troops"],
+                        "garrison_troops": entry["garrison_troops"],
+                        "castles_count": entry["castles_count"],
+                        "power": entry["power"],
+                    }
+                    for entry in top10_data
+                ]
+
+                # Territories
+                t_res = await s_audit.execute(
+                    select(models.Territory.id, models.Territory.name, models.Territory.owner_house_id, models.Territory.garrison_infantry, models.Territory.garrison_archers, models.Territory.garrison_cavalry, models.Territory.garrison_spearmen)
+                    .where((models.Territory.owner_house_id.isnot(None)) | (models.Territory.id <= 60))
+                    .order_by(models.Territory.id)
+                )
+                GLOBAL_SERVER_AUDIT["territories"] = [
+                    {
+                        "id": r[0], "name": r[1], "house_id": r[2],
+                        "total_garrison": (r[3] or 0) + (r[4] or 0) + (r[5] or 0) + (r[6] or 0),
+                        "troops": [r[3] or 0, r[4] or 0, r[5] or 0, r[6] or 0]
+                    }
+                    for r in t_res.fetchall()
+                ]
+
                 GLOBAL_SERVER_AUDIT["loaded_at"] = datetime.utcnow().isoformat()
         except Exception as e_aud:
             GLOBAL_SERVER_AUDIT["error"] = str(e_aud)

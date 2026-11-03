@@ -685,6 +685,148 @@ async def init_db():
             ))
             logger.info(f"✅ O'yinchilar profillaridan ortiqcha askarlarni olib tashlash yakunlandi: {cleaned_count} ta o'yinchi yangilandi.")
 
+        # 4. Qal'alar garnizonlarini xatolikdan oldingi tarixiy holatiga tiklash:
+        # SSU ga 2.2M, boshqa faol xonadonlarga 2.0M - 2.5M, Buranovga tegilmaydi (7M saqlanadi).
+        mig_garrisons_res = await session.execute(
+            select(models.EventState).where(models.EventState.event_name == "restore_historical_house_castle_garrisons_v3")
+        )
+        if not mig_garrisons_res.scalars().first():
+            logger.info("🏰 Qal'alar garnizonlari xatolikdan oldingi tarixiy me'yoriga tiklanmoqda...")
+            
+            target_house_garrisons = {
+                298: 2200000,  # House SSU (Lord Sarvarbek Salimov @Salimovoffical)
+                304: 2500000,  # ASSUC (Lord iи Ии @ASOS_008)
+                70:  2400000,  # Kuroda house (Lord S ETANARU KURODA @Zoxidbekstudio)
+                99:  2200000,  # Old bro (Lord Umidjon @UBTYS)
+                300: 2100000,  # The ring (Lord Abduxalil @Abduxalil_2)
+                26:  2000000,  # House Uller (Lord Akhmadovv @Akhmadovv_77)
+                239: 2000000,  # House Knigt (Lord . @lord_of_westeros)
+                16:  2000000,  # House Darklyn (Lord Shuhrat @w_muhammadjonov_008)
+            }
+
+            restored_details = {}
+
+            all_houses_db = (await session.execute(select(models.House))).scalars().all()
+            for h in all_houses_db:
+                # Buranov va House Dark (#105) ga QAT'IY TEGILMAYDI!
+                if h.id == 105 or (h.name and "dark" in h.name.lower()) or (h.name and "buranov" in h.name.lower()):
+                    logger.info(f"🛡️ House #{h.id} ({h.name}) - Buranov garnizoniga mutlaqo tegilmadi (asl 7M saqlandi).")
+                    continue
+
+                # Target xonadon ekanligini aniqlash (id yoki nom bo'yicha)
+                target_total = None
+                if h.id in target_house_garrisons:
+                    target_total = target_house_garrisons[h.id]
+                else:
+                    h_lower = (h.name or "").lower()
+                    if "ssu" in h_lower:
+                        target_total = 2200000
+                    elif "assuc" in h_lower:
+                        target_total = 2500000
+                    elif "kuroda" in h_lower:
+                        target_total = 2400000
+                    elif "old bro" in h_lower:
+                        target_total = 2200000
+                    elif "ring" in h_lower:
+                        target_total = 2100000
+                    elif "uller" in h_lower:
+                        target_total = 2000000
+                    elif "knigt" in h_lower or "knight" in h_lower:
+                        target_total = 2000000
+                    elif "darklyn" in h_lower:
+                        target_total = 2000000
+
+                if not target_total:
+                    continue
+
+                # Ushbu xonadon qal'alarini qidirish
+                t_res = await session.execute(
+                    select(models.Territory).where(models.Territory.owner_house_id == h.id)
+                )
+                house_terrs = t_res.scalars().all()
+
+                # Agar qal'a topilmasa, lord user bo'yicha qidirish
+                if not house_terrs and h.lord_user_id:
+                    lord_res = await session.execute(
+                        select(models.User).where(models.User.telegram_id == h.lord_user_id)
+                    )
+                    lord_u = lord_res.scalar_one_or_none()
+                    if lord_u:
+                        t_u_res = await session.execute(
+                            select(models.Territory).where(models.Territory.conquered_by_user_id == lord_u.id)
+                        )
+                        house_terrs = t_u_res.scalars().all()
+                        for ht in house_terrs:
+                            ht.owner_house_id = h.id
+
+                # Agar xonadon uchun hali ham qal'a bo'lmasa, uning boshlang'ich qal'asini topish
+                if not house_terrs:
+                    for t_code, t_info in TERRITORIES_DATA.items():
+                        if t_info.get("initial_owner_id") == h.id:
+                            terr_cand = await session.get(models.Territory, t_info["id"])
+                            if terr_cand:
+                                terr_cand.owner_house_id = h.id
+                                house_terrs.append(terr_cand)
+                                break
+
+                if not house_terrs:
+                    logger.warning(f"⚠️ Xonadon #{h.id} ({h.name}) uchun qal'a topilmadi!")
+                    continue
+
+                k = len(house_terrs)
+                per_castle = target_total // k
+                rem = target_total - (per_castle * k)
+
+                logger.info(f"🏰 Xonadon #{h.id} ({h.name}): {k} ta qal'a topildi. Jami tiklanadigan garnizon: {target_total:,}")
+
+                for idx, t in enumerate(house_terrs):
+                    c_quota = per_castle + (rem if idx == (k - 1) else 0)
+                    inf = int(c_quota * 0.35)
+                    arc = int(c_quota * 0.25)
+                    cav = int(c_quota * 0.20)
+                    spm = c_quota - (inf + arc + cav)
+
+                    t.garrison_infantry = inf
+                    t.garrison_archers = arc
+                    t.garrison_cavalry = cav
+                    t.garrison_spearmen = spm
+                    t.owner_house_id = h.id
+                    logger.info(f"   -> Qal'a #{t.id} {t.name}: {c_quota:,} askar (Oddiy: {inf:,}, Kamonchi: {arc:,}, Otliq: {cav:,}, Nayzachi: {spm:,})")
+
+                restored_details[h.id] = {
+                    "house_name": h.name,
+                    "castles_count": k,
+                    "target_garrison": target_total,
+                }
+
+            # O'lpon yig'ishdagi kelajakdagi noto'g'ri sanalarni tozalash
+            users_taxes_res = await session.execute(
+                select(models.User).where(models.User.castle_taxes_json.isnot(None))
+            )
+            for u in users_taxes_res.scalars().all():
+                try:
+                    now_utc = datetime.utcnow()
+                    u_t_dict = json.loads(u.castle_taxes_json)
+                    changed = False
+                    clean_dict = {}
+                    for c_id_str, t_str in u_t_dict.items():
+                        dt_val = datetime.fromisoformat(t_str)
+                        if dt_val > now_utc:
+                            changed = True
+                        else:
+                            clean_dict[c_id_str] = t_str
+                    if changed:
+                        u.castle_taxes_json = json.dumps(clean_dict)
+                except Exception:
+                    u.castle_taxes_json = "{}"
+
+            session.add(models.EventState(
+                event_name="restore_historical_house_castle_garrisons_v3",
+                data_json=json.dumps({"applied_at": today_clean_str, "details": restored_details}),
+                is_active=True,
+            ))
+            logger.info("✅ Qal'alar garnizonlari xatolikdan oldingi tarixiy holatiga to'liq tiklandi.")
+
         # Fronterra va barcha maxsus xonadonlar maydonlarini tekshirib to'g'irlash (House panel crash bo'lmasligi uchun)
         all_houses_check = await session.execute(select(models.House))
         for h in all_houses_check.scalars().all():

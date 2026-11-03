@@ -3178,8 +3178,8 @@ def get_user_castle_tax_hours(user: models.User, territory: models.Territory, no
         except Exception:
             last_tax = None
 
-    if not last_tax:
-        # Foydalanuvchi hali bu qal'adan o'lpon olmagan bo'lsa, kamida 4 soatlik to'liq o'lpon tayyor holatda beriladi!
+    if not last_tax or last_tax > now:
+        # Foydalanuvchi hali bu qal'adan o'lpon olmagan bo'lsa yoki vaqt zonasi xatosi bo'lsa, kamida 4 soatlik to'liq o'lpon tayyor holatda beriladi!
         last_tax = now - timedelta(hours=4)
 
     elapsed_seconds = max(0, (now - last_tax).total_seconds())
