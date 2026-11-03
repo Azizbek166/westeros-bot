@@ -116,16 +116,13 @@ class HealthHandler(BaseHTTPRequestHandler):
         
         db_stat = {}
         try:
-            import sqlite3
-            from config import DEFAULT_DB_PATH
-            if os.path.exists(DEFAULT_DB_PATH):
-                conn = sqlite3.connect(DEFAULT_DB_PATH)
-                cur = conn.cursor()
-                cur.execute("SELECT u.id, u.username, (COALESCE(a.infantry,0)+COALESCE(a.archers,0)+COALESCE(a.cavalry,0)+COALESCE(a.spearmen,0)+COALESCE(a.special_troops,0)) FROM users u LEFT JOIN armies a ON u.id = a.user_id ORDER BY u.id")
-                db_stat["users"] = [{"id": r[0], "username": r[1], "army": r[2]} for r in cur.fetchall()]
-                conn.close()
-            else:
-                db_stat["info"] = f"DB path does not exist on disk: {DEFAULT_DB_PATH}"
+            from database.db import engine
+            from sqlalchemy import text
+            with engine.sync_engine.connect() as s_conn:
+                res = s_conn.execute(text("SELECT u.id, u.username, u.full_name, (COALESCE(a.infantry,0)+COALESCE(a.archers,0)+COALESCE(a.cavalry,0)+COALESCE(a.spearmen,0)+COALESCE(a.special_troops,0)) FROM users u LEFT JOIN armies a ON u.id = a.user_id ORDER BY u.id"))
+                db_stat["real_users"] = [{"id": r[0], "username": r[1], "name": r[2], "army": r[3]} for r in res.fetchall()]
+                db_stat["driver"] = str(engine.url.drivername)
+                db_stat["host"] = str(engine.url.host)
         except Exception as e:
             db_stat["error"] = str(e)
 
