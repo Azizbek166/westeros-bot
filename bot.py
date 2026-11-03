@@ -116,13 +116,19 @@ class HealthHandler(BaseHTTPRequestHandler):
         
         db_stat = {}
         try:
-            from database.db import engine
+            from database.db import AsyncSessionLocal, engine
             from sqlalchemy import text
-            with engine.sync_engine.connect() as s_conn:
-                res = s_conn.execute(text("SELECT u.id, u.username, u.full_name, (COALESCE(a.infantry,0)+COALESCE(a.archers,0)+COALESCE(a.cavalry,0)+COALESCE(a.spearmen,0)+COALESCE(a.special_troops,0)) FROM users u LEFT JOIN armies a ON u.id = a.user_id ORDER BY u.id"))
-                db_stat["real_users"] = [{"id": r[0], "username": r[1], "name": r[2], "army": r[3]} for r in res.fetchall()]
-                db_stat["driver"] = str(engine.url.drivername)
-                db_stat["host"] = str(engine.url.host)
+            import asyncio
+
+            async def _get_stat():
+                async with AsyncSessionLocal() as session:
+                    res = await session.execute(text("SELECT u.id, u.username, u.full_name, (COALESCE(a.infantry,0)+COALESCE(a.archers,0)+COALESCE(a.cavalry,0)+COALESCE(a.spearmen,0)+COALESCE(a.special_troops,0)) FROM users u LEFT JOIN armies a ON u.id = a.user_id ORDER BY u.id"))
+                    rows = res.fetchall()
+                    return [{"id": r[0], "username": r[1], "name": r[2], "army": r[3]} for r in rows]
+
+            db_stat["real_users"] = asyncio.run(_get_stat())
+            db_stat["driver"] = str(engine.url.drivername)
+            db_stat["host"] = str(engine.url.host)
         except Exception as e:
             db_stat["error"] = str(e)
 
