@@ -651,6 +651,7 @@ async def init_db():
             select(models.User).where(models.User.is_banned == False)
         )
         all_users = all_users_fetch.scalars().all()
+        houses_map = {h.id: h for h in all_houses_list}
 
         for u in all_users:
             army_res = await session.execute(
@@ -664,38 +665,74 @@ async def init_db():
 
             curr_tot = (army.infantry or 0) + (army.archers or 0) + (army.cavalry or 0) + (army.spearmen or 0)
 
-            # Target miqdorni birma-bir tahlil orqali aniqlash:
-            # 1. House SSU a'zosi yoki Lordi bo'lsa: 2,200,000 askar!
-            # 2. Bot Egasi (OWNER_ID) bo'lsa: 1,000,000 askar!
-            # 3. House Blackfyre bo'lsa: 200,000 askar!
-            # 4. Donat orqali qo'shin olgan bo'lsa: o'sha jami sotib olingan qo'shin miqdori!
-            # 5. Boshqa faol xonadon Lordi yoki a'zosi bo'lsa: kamida 200,000 askar!
-            if (u.house_id in ssu_h_ids) or (u.telegram_id in ssu_lord_tg_ids):
-                target_troops = 2200000
-            elif u.telegram_id == OWNER_ID:
-                target_troops = 1000000
-            elif u.house_id == 15 or "blackfyre" in (getattr(u.house, "code", "") or "").lower():
-                target_troops = 200000
-            else:
-                target_troops = 200000 if u.house_id else 0
-
-            # Donat so'rovlarida yozilgan umumiy qo'shin miqdorini hisoblash:
+            # 1. Donat so'rovlari tahlili (VIP to'plamlar, qo'shin xaridlari, to'langan summalar):
+            don_troops = 0
             try:
-                from sqlalchemy import func
+                from config import DONATE_TIERS
                 don_res = await session.execute(
-                    select(func.sum(models.DonationRequest.troop_count))
+                    select(models.DonationRequest)
                     .where(
-                        models.DonationRequest.telegram_id == u.telegram_id,
-                        models.DonationRequest.status == "approved"
+                        or_(
+                            models.DonationRequest.telegram_id == u.telegram_id,
+                            models.DonationRequest.user_id == u.id
+                        ),
+                        models.DonationRequest.status.in_(["approved", "completed"])
                     )
                 )
-                don_total = don_res.scalar() or 0
-                if don_total and don_total > target_troops:
-                    target_troops = don_total
-            except Exception:
-                pass
+                for d in don_res.scalars().all():
+                    if getattr(d, "troop_count", 0):
+                        don_troops += d.troop_count
+                    t_id = getattr(d, "tier_id", None)
+                    if t_id in DONATE_TIERS:
+                        t_info = DONATE_TIERS[t_id]
+                        t_sum = (t_info.get("infantry", 0) + t_info.get("archers", 0) +
+                                 t_info.get("cavalry", 0) + t_info.get("spearmen", 0) +
+                                 t_info.get("special_troops", 0))
+                        don_troops += t_sum
+                    price = getattr(d, "price_uzs", 0) or getattr(d, "amount", 0) or 0
+                    if price >= 10000 and not getattr(d, "troop_count", 0) and t_id not in DONATE_TIERS:
+                        don_troops += price
+            except Exception as e_don:
+                logger.warning(f"Donat tahlili xatosi (u={u.id}): {e_don}")
 
-            if target_troops > 0 and curr_tot < target_troops:
+            # 2. Tranzaksiyalar (yollangan askarlar) tahlili:
+            recruited_troops = 0
+            try:
+                import re
+                tx_res = await session.execute(
+                    select(models.Transaction).where(
+                        models.Transaction.user_id == u.id,
+                        models.Transaction.action_type.in_(["recruit_troops", "buy_troops_donate"])
+                    )
+                )
+                for tx in tx_res.scalars().all():
+                    if tx.details:
+                        m = re.search(r'\+?([0-9,]+)\s*(?:ta)?\s*(?:infantry|archers|cavalry|spearmen|special|askar|oddiy)', tx.details, re.IGNORECASE)
+                        if m:
+                            recruited_troops += int(m.group(1).replace(",", ""))
+            except Exception as e_tx:
+                logger.warning(f"Tranzaksiya tahlili xatosi (u={u.id}): {e_tx}")
+
+            # 3. Foydalanuvchi unvoni, xonadoni va roli bo'yicha tahlil:
+            h = houses_map.get(u.house_id)
+            is_ssu = (u.house_id in ssu_h_ids) or (u.telegram_id in ssu_lord_tg_ids)
+            is_owner = (u.telegram_id == OWNER_ID)
+            is_lord = bool(h and (h.lord_user_id == u.telegram_id or h.lord_user_id == u.id)) or (u.rank in ["king", "commander"])
+
+            if is_ssu:
+                base_target = 2200000
+            elif is_owner:
+                base_target = 1000000
+            elif is_lord:
+                base_target = 1000000
+            elif u.house_id:
+                base_target = 200000
+            else:
+                base_target = 0
+
+            target_troops = max(base_target, don_troops, recruited_troops, curr_tot)
+
+            if target_troops > curr_tot:
                 needed = target_troops - curr_tot
                 add_inf = int(needed * 0.35)
                 add_arc = int(needed * 0.25)
@@ -705,7 +742,7 @@ async def init_db():
                 army.archers = (army.archers or 0) + add_arc
                 army.cavalry = (army.cavalry or 0) + add_cav
                 army.spearmen = (army.spearmen or 0) + add_sp
-                logger.info(f"🛡️ O'yinchi #{u.id} ({u.full_name}, TG: {u.telegram_id}, House #{u.house_id}) armiyasiga {needed:,} ta yo'qolgan askar tiklab berildi (Jami: {target_troops:,}).")
+                logger.info(f"🛡️ O'yinchi #{u.id} ({u.full_name}, TG: {u.telegram_id}, House #{u.house_id}) armiyasiga {needed:,} ta askar tiklab berildi (Jami: {target_troops:,}).")
 
         # D) Qal'alar garnizonini tekshirish va tiklash:
         # 1. House SSU qal'asiga kamida 1,000,000 mudofaa garnizoni!
@@ -733,7 +770,8 @@ async def init_db():
                 t.garrison_spearmen = (t.garrison_spearmen or 0) + add_sp
                 logger.info(f"🏰 House SSU qal'asi #{t.id} {t.name} garnizoniga {needed:,} ta askar tiklandi (Jami: 1,000,000).")
 
-        # 2. Boshqa barcha faol xonadon qal'alari (agar garnizon <= 1,500 bo'lsa) +50,000 mudofaa
+        # 2. Boshqa barcha faol xonadon qal'alari:
+        # Poytaxt va Lord qal'alari kamida 200,000, boshqa qal'alar kamida 50,000 mudofaa
         active_h_ids = {u.house_id for u in all_users if u.house_id and u.house_id not in ssu_h_ids}
         if active_h_ids:
             act_terrs_res = await session.execute(
@@ -741,12 +779,19 @@ async def init_db():
             )
             for t in act_terrs_res.scalars().all():
                 tot_g = (t.garrison_infantry or 0) + (t.garrison_archers or 0) + (t.garrison_cavalry or 0) + (t.garrison_spearmen or 0)
-                if tot_g <= 1500:
-                    t.garrison_infantry = (t.garrison_infantry or 0) + 17500
-                    t.garrison_archers = (t.garrison_archers or 0) + 12500
-                    t.garrison_cavalry = (t.garrison_cavalry or 0) + 10000
-                    t.garrison_spearmen = (t.garrison_spearmen or 0) + 10000
-                    logger.info(f"🏰 Xonadon #{t.owner_house_id} ning #{t.id} {t.name} qal'asi garnizoniga +50,000 ta mudofaa askari tiklandi.")
+                is_cap = bool(t.is_capital or t.castle_tier == 1 or t.id <= 20)
+                target_g = 200000 if is_cap else 50000
+                if tot_g < target_g:
+                    needed = target_g - tot_g
+                    add_inf = int(needed * 0.35)
+                    add_arc = int(needed * 0.25)
+                    add_cav = int(needed * 0.20)
+                    add_sp = needed - (add_inf + add_arc + add_cav)
+                    t.garrison_infantry = (t.garrison_infantry or 0) + add_inf
+                    t.garrison_archers = (t.garrison_archers or 0) + add_arc
+                    t.garrison_cavalry = (t.garrison_cavalry or 0) + add_cav
+                    t.garrison_spearmen = (t.garrison_spearmen or 0) + add_sp
+                    logger.info(f"🏰 Xonadon #{t.owner_house_id} ning #{t.id} {t.name} qal'asi garnizoniga {needed:,} ta askar tiklandi (Jami: {target_g:,}).")
 
         # Ajdarlar quvvatini to'g'irlash: Darajasini pasaytirmagan holda har bir ajdarning
         # quvvatini o'z darajasidagi ruxsat etilgan maksimal me'yorga keltirish (normalizatsiya)

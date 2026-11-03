@@ -3161,10 +3161,10 @@ async def equip_dragon_artifact(session: AsyncSession, user_id: int, dragon_id: 
 
 def get_user_castle_tax_hours(user: models.User, territory: models.Territory, now: Optional[datetime] = None) -> Tuple[int, int]:
     """Foydalanuvchi uchun ushbu qal'adan o'lpon olish taymerini hisoblash.
-    Qal'alardan o'lpon har 4 soatda 1 marta olinadi.
+    Qal'alardan o'lpon har 1 soatda to'planadi (maksimal 24 soatgacha jamlanadi).
     Qaytaradi: (hours, rem_min)
-    hours: agar 4 soat to'lgan bo'lsa 4 (yig'ishga tayyor), aks holda 0 (hali tayyor emas).
-    rem_min: 4 soat to'lishiga qolgan daqiqalar soni.
+    hours: agar kamida 1 soat to'plangan bo'lsa to'plangan soatlar soni (1..24), aks holda 0.
+    rem_min: 1 soat to'lishiga qolgan daqiqalar soni.
     """
     if not now:
         now = datetime.utcnow()
@@ -3179,24 +3179,31 @@ def get_user_castle_tax_hours(user: models.User, territory: models.Territory, no
             last_tax = None
 
     if not last_tax:
-        # Foydalanuvchi hali bu qal'adan o'lpon olmagan bo'lsa, to'liq 4 soatlik o'lpon tayyor holatda beriladi!
+        # Foydalanuvchi hali bu qal'adan o'lpon olmagan bo'lsa, kamida 4 soatlik to'liq o'lpon tayyor holatda beriladi!
         last_tax = now - timedelta(hours=4)
 
     elapsed_seconds = max(0, (now - last_tax).total_seconds())
-    if elapsed_seconds >= 4 * 3600:
-        return 4, 0
+    hours = int(elapsed_seconds // 3600)
+    if hours >= 1:
+        capped_hours = min(24, hours)
+        return capped_hours, 0
     else:
-        rem_min = max(1, int((4 * 3600 - elapsed_seconds) // 60))
+        rem_min = max(1, int((3600 - elapsed_seconds) // 60))
         return 0, rem_min
 
 
 async def get_user_and_house_castles(session: AsyncSession, user: models.User) -> List[models.Territory]:
     """Foydalanuvchi xonadoniga tegishli yoki shaxsan o'zi zabt etgan barcha qal'alar"""
+    from config import OWNER_ID
     conditions = []
     if user.house_id:
         conditions.append(models.Territory.owner_house_id == user.house_id)
     if user.id:
         conditions.append(models.Territory.conquered_by_user_id == user.id)
+    if user.telegram_id == OWNER_ID:
+        # Bot Egasi uchun King's Landing va Qirollik poytaxt qal'asi doimiy ochiq
+        conditions.append(models.Territory.code == "kings_landing")
+        conditions.append(models.Territory.id == 2)
 
     if not conditions:
         return []
@@ -3204,34 +3211,42 @@ async def get_user_and_house_castles(session: AsyncSession, user: models.User) -
     res = await session.execute(
         select(models.Territory).where(or_(*conditions)).order_by(models.Territory.id)
     )
-    return list(res.scalars().all())
+    seen = set()
+    unique_terrs = []
+    for t in res.scalars().all():
+        if t.id not in seen:
+            seen.add(t.id)
+            unique_terrs.append(t)
+    return unique_terrs
 
 
 async def collect_castle_tax(session: AsyncSession, user_id: int, territory_id: int) -> Tuple[bool, str, Dict[str, int]]:
-    """Qal'adan har 4 soatda 1 marta to'plangan o'lponni yig'ib olish (har bir o'yinchi uchun mustaqil)"""
+    """Qal'adan to'plangan soatlik o'lponni yig'ib olish (kamida 1 soat to'plangan bo'lishi kerak, 24 soatgacha jamlanadi)"""
     user = await get_user_any(session, user_id)
     terr = await session.get(models.Territory, territory_id)
     if not user or not terr:
         return False, "Ma'lumot topilmadi.", {}
 
-    is_own = (user.house_id and terr.owner_house_id == user.house_id) or (getattr(terr, 'conquered_by_user_id', None) == user.id)
+    from config import OWNER_ID
+    is_own = (
+        (user.house_id and terr.owner_house_id == user.house_id)
+        or (getattr(terr, 'conquered_by_user_id', None) == user.id)
+        or (user.telegram_id == OWNER_ID and (terr.code == "kings_landing" or terr.id == 2))
+    )
     if not is_own:
         return False, "❌ Bu qal'a sizga yoki xonadoningizga tegishli emas!", {}
 
     now = datetime.utcnow()
     hours, rem_min = get_user_castle_tax_hours(user, terr, now)
-    if hours < 4:
-        rem_h = rem_min // 60
-        rem_m = rem_min % 60
-        time_str = f"{rem_h} soat {rem_m} daqiqa" if rem_h > 0 else f"{rem_m} daqiqa"
-        return False, f"⏳ O'lpon yig'ishga hali erta! O'lpon har 4 soatda 1 marta yig'iladi (~{time_str} qoldi).", {}
+    if hours < 1:
+        return False, f"⏳ O'lpon yig'ishga hali erta! Qal'ada o'lpon har 1 soatda to'planadi (~{rem_min} daqiqa qoldi).", {}
 
     c_lvl = getattr(terr, 'castle_level', 1) or 1
     lvl_mult = 1.0 + (max(1, c_lvl) - 1) * 0.25
 
-    g_inc = int((terr.gold_income or 20) * 4 * lvl_mult)
-    f_inc = int((terr.food_income or 50) * 4 * lvl_mult)
-    i_inc = int((terr.iron_income or 15) * 4 * lvl_mult)
+    g_inc = int((terr.gold_income or 20) * hours * lvl_mult)
+    f_inc = int((terr.food_income or 50) * hours * lvl_mult)
+    i_inc = int((terr.iron_income or 15) * hours * lvl_mult)
 
     user.gold = (user.gold or 0) + g_inc
     user.food = (user.food or 0) + f_inc
@@ -3252,7 +3267,7 @@ async def collect_castle_tax(session: AsyncSession, user_id: int, territory_id: 
         session=session,
         user_id=user.id,
         action_type="collect_castle_tax",
-        details=f"💰 {terr.name} qal'asidan 4 soatlik o'lpon yig'ildi",
+        details=f"💰 {terr.name} qal'asidan {hours} soatlik o'lpon yig'ildi",
         amount_gold=g_inc,
         amount_food=f_inc,
         amount_iron=i_inc,
@@ -3262,16 +3277,16 @@ async def collect_castle_tax(session: AsyncSession, user_id: int, territory_id: 
 
     return True, (
         f"💰 **{terr.name.upper()} QAL'ASIDAN O'LPON OLINDI!**\n\n"
-        f"⏱️ Davr: **4 soatlik to'liq o'lpon**\n"
+        f"⏱️ To'plangan davr: **{hours} soatlik to'liq o'lpon**\n"
         f"• 🪙 Oltin: **+{g_inc:,}**\n"
         f"• 🌾 Oziq-ovqat: **+{f_inc:,}**\n"
         f"• ⛓️ Temir: **+{i_inc:,}**\n\n"
-        f"Resurslar sizning shaxsiy xazinangizga qo'shildi!"
-    ), {"gold": g_inc, "food": f_inc, "iron": i_inc, "hours": 4}
+        f"Resurslar sizning shaxsiy xazinangizga muvaffaqiyatli qo'shildi!"
+    ), {"gold": g_inc, "food": f_inc, "iron": i_inc, "hours": hours}
 
 
 async def collect_all_castles_tax(session: AsyncSession, user_id: int) -> Tuple[bool, str, Dict[str, int]]:
-    """Xonadonga tegishli yoki o'zi zabt etgan barcha qal'alardan bir vaqtda 4 soatlik o'lpon yig'ib olish"""
+    """Xonadonga tegishli yoki o'zi zabt etgan barcha qal'alardan bir vaqtda to'plangan o'lponni yig'ib olish"""
     user = await get_user_any(session, user_id)
     if not user:
         return False, "Foydalanuvchi topilmadi.", {}
@@ -3285,7 +3300,7 @@ async def collect_all_castles_tax(session: AsyncSession, user_id: int) -> Tuple[
     tot_food = 0
     tot_iron = 0
     collected_castles = []
-    min_rem_wait = 240
+    min_rem_wait = 60
 
     user_taxes = {}
     if getattr(user, "castle_taxes_json", None):
@@ -3296,13 +3311,13 @@ async def collect_all_castles_tax(session: AsyncSession, user_id: int) -> Tuple[
 
     for terr in castles:
         hours, rem_min = get_user_castle_tax_hours(user, terr, now)
-        if hours >= 4:
+        if hours >= 1:
             c_lvl = getattr(terr, 'castle_level', 1) or 1
             lvl_mult = 1.0 + (max(1, c_lvl) - 1) * 0.25
 
-            g_inc = int((terr.gold_income or 20) * 4 * lvl_mult)
-            f_inc = int((terr.food_income or 50) * 4 * lvl_mult)
-            i_inc = int((terr.iron_income or 15) * 4 * lvl_mult)
+            g_inc = int((terr.gold_income or 20) * hours * lvl_mult)
+            f_inc = int((terr.food_income or 50) * hours * lvl_mult)
+            i_inc = int((terr.iron_income or 15) * hours * lvl_mult)
 
             tot_gold += g_inc
             tot_food += f_inc
@@ -3311,7 +3326,7 @@ async def collect_all_castles_tax(session: AsyncSession, user_id: int) -> Tuple[
             terr.last_tax_collected_at = now
             collected_castles.append({
                 "name": terr.castle_name or terr.name,
-                "hours": 4,
+                "hours": hours,
                 "gold": g_inc,
             })
         else:
@@ -3319,10 +3334,7 @@ async def collect_all_castles_tax(session: AsyncSession, user_id: int) -> Tuple[
                 min_rem_wait = rem_min
 
     if not collected_castles:
-        rem_h = min_rem_wait // 60
-        rem_m = min_rem_wait % 60
-        time_str = f"{rem_h} soat {rem_m} daqiqa" if rem_h > 0 else f"{rem_m} daqiqa"
-        return False, f"⏳ Hozircha birorta ham qal'ada 4 soatlik o'lpon to'planmagan. Keyingi o'lpon tayyor bo'lishiga taxminan {time_str} qoldi.", {}
+        return False, f"⏳ Hozircha birorta ham qal'ada 1 soatlik o'lpon to'planmagan. Keyingi o'lpon tayyor bo'lishiga taxminan {min_rem_wait} daqiqa qoldi.", {}
 
     user.gold = (user.gold or 0) + tot_gold
     user.food = (user.food or 0) + tot_food
@@ -3331,7 +3343,7 @@ async def collect_all_castles_tax(session: AsyncSession, user_id: int) -> Tuple[
     user.castle_taxes_json = json.dumps(user_taxes)
     await session.commit()
 
-    details = "\n".join([f"• 🏰 **{c['name']}**: 4 soatlik (+{c['gold']:,}🪙)" for c in collected_castles])
+    details = "\n".join([f"• 🏰 **{c['name']}**: {c['hours']} soatlik (+{c['gold']:,}🪙)" for c in collected_castles])
     msg = (
         f"💰 **BARCHA QAL'ALARDAN O'LPON YIG'ILDI!**\n\n"
         f"{details}\n\n"

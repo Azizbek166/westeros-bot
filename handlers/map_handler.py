@@ -456,9 +456,10 @@ async def my_castles_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def show_my_castles(target, user_id: int, is_message: bool = False):
     """Xonadonga qarashli barcha qal'alar va daromadlar boshqaruvi"""
+    from config import OWNER_ID
     async with AsyncSessionLocal() as session:
         user = await crud.get_user_with_relations(session, user_id)
-        if not user or not user.house_id:
+        if not user or (not user.house_id and user.telegram_id != OWNER_ID):
             text = (
                 "🏰 **QAL'ALARIM VA G'AZNALAR**\n\n"
                 "Hurmatli jangchi, siz hali birorta ham Buyuk Xonadonga qo'shilmagansiz!\n\n"
@@ -518,7 +519,7 @@ async def show_my_castles(target, user_id: int, is_message: bool = False):
         ready_count = 0
         for c in castles:
             hours, rem_min = crud.get_user_castle_tax_hours(user, c, now)
-            if hours >= 4:
+            if hours >= 1:
                 ready_count += 1
             castles_data.append((c, hours, rem_min))
 
@@ -526,19 +527,14 @@ async def show_my_castles(target, user_id: int, is_message: bool = False):
         if ready_count > 0:
             buttons.append([InlineKeyboardButton(f"💰 Barcha Qal'alardan O'lpon Yig'ish ({ready_count} ta tayyor)", callback_data="collect_all_tax")])
         else:
-            min_rem = min((rem for _, h, rem in castles_data if h < 4 and rem > 0), default=240)
-            rem_h = min_rem // 60
-            rem_m = min_rem % 60
-            time_wait_str = f"{rem_h}s {rem_m}daq" if rem_h > 0 else f"{rem_m} daq"
-            buttons.append([InlineKeyboardButton(f"⏳ O'lpon to'planmoqda (~{time_wait_str})", callback_data="tax_all_wait_info")])
+            min_rem = min((rem for _, h, rem in castles_data if h < 1 and rem > 0), default=60)
+            buttons.append([InlineKeyboardButton(f"⏳ O'lpon to'planmoqda (~{min_rem} daq)", callback_data="tax_all_wait_info")])
 
         h_castles_len = len(castles)
         for c, hours, rem_min in castles_data:
             tot_gar = (c.garrison_infantry or 0) + (c.garrison_archers or 0) + (c.garrison_cavalry or 0) + (c.garrison_spearmen or 0)
-            rem_h = rem_min // 60
-            rem_m = rem_min % 60
-            time_c_str = f"{rem_h}s {rem_m}daq" if rem_h > 0 else f"{rem_m} daq"
-            tax_tag = "💰 4 soatlik o'lpon tayyor" if hours >= 4 else f"⏳ To'planmoqda (~{time_c_str})"
+            time_c_str = f"{rem_min} daq"
+            tax_tag = f"💰 {hours} soatlik o'lpon tayyor" if hours >= 1 else f"⏳ To'planmoqda (~{time_c_str})"
 
             is_lib = crud.is_castle_liberable(user, c, user_castles_count=h_castles_len)
             is_cap = crud.is_ancestral_capital_of_house(c, user.house_id) if user.house_id else c.is_capital
@@ -546,17 +542,21 @@ async def show_my_castles(target, user_id: int, is_message: bool = False):
 
             c_lvl = getattr(c, 'castle_level', 1) or 1
             lvl_mult = 1.0 + (max(1, c_lvl) - 1) * 0.25
-            c_g4 = int((c.gold_income or 20) * 4 * lvl_mult)
-            c_f4 = int((c.food_income or 50) * 4 * lvl_mult)
-            c_i4 = int((c.iron_income or 15) * 4 * lvl_mult)
+            c_gh = int((c.gold_income or 20) * lvl_mult)
+            c_fh = int((c.food_income or 50) * lvl_mult)
+            c_ih = int((c.iron_income or 15) * lvl_mult)
+
+            c_g_accum = c_gh * max(1, hours)
+            c_f_accum = c_fh * max(1, hours)
+            c_i_accum = c_ih * max(1, hours)
 
             text += (
                 f"• 🏰 **{c.castle_name}** ({c.name}) {role_tag}\n"
                 f"  └ 🛡️ Garnizon: **{tot_gar:,}** askar | Mudofaa: **{c.defense}**\n"
-                f"  └ 💰 Daromad: +{c_g4:,}🪙, +{c_f4:,}🌾, +{c_i4:,}⛓️ (har 4 soatda)\n"
-                f"  └ ✨ Holat: _{tax_tag}_\n\n"
+                f"  └ 💰 Daromad: +{c_gh:,}🪙, +{c_fh:,}🌾, +{c_ih:,}⛓️ (har 1 soatda)\n"
+                f"  └ ✨ Holat: _{tax_tag}_ (+{c_g_accum:,}🪙 to'plandi)\n\n"
             )
-            btn_tag = "💰 4s o'lpon" if hours >= 4 else f"~{time_c_str}"
+            btn_tag = f"💰 {hours}s o'lpon" if hours >= 1 else f"~{time_c_str}"
             row = [InlineKeyboardButton(f"🏰 {c.castle_name} ({btn_tag})", callback_data=f"my_c_detail:{c.id}")]
             if is_lib:
                 row.append(InlineKeyboardButton(f"🏳️ Ozod Qilish", callback_data=f"liberate_confirm:{c.id}"))
@@ -646,7 +646,7 @@ async def show_my_castle_detail(query, user_id: int, terr_id: int):
             rem_m = rem_min % 60
             time_left_str = f"{rem_h} soat {rem_m} daqiqa" if rem_h > 0 else f"{rem_m} daqiqa"
 
-            tax_status_msg = "✅ O'lponni yig'ib olishga tayyor! (4 soatlik to'liq o'lpon)" if hours >= 4 else f"⏳ Keyingi o'lpon tayyor bo'lishiga: {time_left_str} qoldi"
+            tax_status_msg = f"✅ O'lponni yig'ib olishga tayyor! ({hours} soatlik to'plangan o'lpon)" if hours >= 1 else f"⏳ Keyingi o'lpon tayyor bo'lishiga: {rem_min} daqiqa qoldi"
 
             is_own = bool(
                 (terr.owner_house_id and user.house_id and terr.owner_house_id == user.house_id)
@@ -692,10 +692,11 @@ async def show_my_castle_detail(query, user_id: int, terr_id: int):
             )
 
             buttons = []
-            if hours >= 4:
-                buttons.append([InlineKeyboardButton(f"💰 4 Soatlik O'lponni Olish (+{c_g4:,}🪙)", callback_data=f"collect_tax:{terr.id}")])
+            c_g_accum = int(gold_inc * max(1, hours) * lvl_mult)
+            if hours >= 1:
+                buttons.append([InlineKeyboardButton(f"💰 {hours} Soatlik O'lponni Olish (+{c_g_accum:,}🪙)", callback_data=f"collect_tax:{terr.id}")])
             else:
-                buttons.append([InlineKeyboardButton(f"⏳ O'lpon to'planmoqda (~{time_left_str})", callback_data=f"tax_wait_info:{rem_min}")])
+                buttons.append([InlineKeyboardButton(f"⏳ O'lpon to'planmoqda (~{rem_min} daqiqa)", callback_data=f"tax_wait_info:{rem_min}")])
 
             buttons.append([InlineKeyboardButton("🛡️ Garnizonga Askar Joylashtirish", callback_data=f"def_rf_menu:{terr.id}")])
             buttons.append([InlineKeyboardButton("↩️ Garnizondan Askarlarni Qaytarish", callback_data=f"def_withdraw_rf:{terr.id}")])
@@ -808,16 +809,13 @@ async def collect_all_tax_callback(update: Update, context: ContextTypes.DEFAULT
 async def tax_wait_info_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Qal'ada o'lpon to'planishi kutilayotgani haqida bildirishnoma"""
     query = update.callback_query
-    rem_min_raw = query.data.split(":")[1] if ":" in query.data else "240"
+    rem_min_raw = query.data.split(":")[1] if ":" in query.data else "60"
     try:
         rem_min = int(rem_min_raw)
     except Exception:
-        rem_min = 240
-    rem_h = rem_min // 60
-    rem_m = rem_min % 60
-    time_str = f"{rem_h} soat {rem_m} daqiqa" if rem_h > 0 else f"{rem_m} daqiqa"
+        rem_min = 60
     await query.answer(
-        f"⏳ Ushbu qal'ada o'lpon har 4 soatda 1 marta to'planadi.\nO'lpon tayyor bo'lishiga taxminan {time_str} qoldi!",
+        f"⏳ Ushbu qal'ada o'lpon har 1 soatda to'planadi (24 soatgacha jamlanadi).\nO'lpon tayyor bo'lishiga taxminan {rem_min} daqiqa qoldi!",
         show_alert=True
     )
 
@@ -826,15 +824,22 @@ async def tax_all_wait_info_callback(update: Update, context: ContextTypes.DEFAU
     """Barcha qal'alarda o'lpon to'planishi kutilayotgani haqida bildirishnoma"""
     query = update.callback_query
     await query.answer(
-        "⏳ Qal'alarda o'lpon har 4 soatda 1 marta to'planadi.\n"
-        "Hozircha birorta ham qal'ada 4 soat to'lmagan. Birozdan so'ng qayta tekshiring!",
-        show_alert=True
-    )
-    await query.answer(
-        "⏳ Qal'alarda o'lpon har 1 soatda to'planadi.\n"
+        "⏳ Qal'alarda o'lpon har 1 soatda to'planadi (24 soatgacha jamlanadi).\n"
         "Hozircha birorta ham qal'ada 1 soat to'lmagan. Birozdan so'ng qayta tekshiring!",
         show_alert=True
     )
+
+
+async def collect_all_tax_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/collect, /yigish, /collect_tax buyrug'i: bir zumda barcha tayyor qal'alardan o'lpon yig'ish"""
+    user_id = update.effective_user.id
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_with_relations(session, user_id)
+        if not user:
+            await update.message.reply_text("Iltimos, avval /start ni bosing.")
+            return
+        ok, msg, res = await crud.collect_all_castles_tax(session, user.id)
+    await update.message.reply_text(msg, parse_mode="Markdown")
 
 
 async def choose_house_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1268,7 +1273,8 @@ async def liberate_castle_do_callback(update: Update, context: ContextTypes.DEFA
 def register_map_handlers(app):
     app.add_handler(CommandHandler("map", map_command))
     app.add_handler(CommandHandler("territory", map_command))
-    app.add_handler(CommandHandler(["castles", "mycastles"], my_castles_command))
+    app.add_handler(CommandHandler(["castles", "mycastles", "qalalar", "qasrlar", "tax", "olpon", "soliq"], my_castles_command))
+    app.add_handler(CommandHandler(["collect", "yigish", "collect_tax", "olpon_yigish"], collect_all_tax_command))
     app.add_handler(CommandHandler(["liberate", "ozod"], liberate_castles_command))
     app.add_handler(CallbackQueryHandler(map_callback, pattern="^menu_map$"))
     app.add_handler(CallbackQueryHandler(map_tier_callback, pattern="^map_tier:"))
