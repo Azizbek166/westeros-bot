@@ -1286,6 +1286,10 @@ async def def_rf_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                     InlineKeyboardButton("🛡️ +500 Askar", callback_data=f"def_send_rf:{terr.id}:500"),
                 ],
                 [
+                    InlineKeyboardButton("🛡️ +10,000 Askar", callback_data=f"def_send_rf:{terr.id}:10000"),
+                    InlineKeyboardButton("🛡️ +50,000 Askar", callback_data=f"def_send_rf:{terr.id}:50000"),
+                ],
+                [
                     InlineKeyboardButton("🛡️ Barcha Askarlarni Joylashtirish", callback_data=f"def_send_rf:{terr.id}:all"),
                 ],
             ]

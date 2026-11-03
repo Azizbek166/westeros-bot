@@ -943,6 +943,10 @@ async def show_garrison_withdraw_menu(target, user_id: int, terr_id: int):
             ],
             [
                 InlineKeyboardButton("↩️ 1,000 ta Askar", callback_data=f"def_with_act:{terr.id}:1000"),
+                InlineKeyboardButton("↩️ 50,000 ta Askar", callback_data=f"def_with_act:{terr.id}:50000"),
+            ],
+            [
+                InlineKeyboardButton("↩️ 200,000 ta Askar", callback_data=f"def_with_act:{terr.id}:200000"),
                 InlineKeyboardButton("↩️ Barcha Garnizon (All)", callback_data=f"def_with_act:{terr.id}:all"),
             ],
             [

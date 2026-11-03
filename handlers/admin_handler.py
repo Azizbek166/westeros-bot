@@ -528,6 +528,12 @@ async def admin_user_army_menu_callback(update: Update, context: ContextTypes.DE
             [
                 InlineKeyboardButton("⚡ Hammasiga +500 tadan qo'shish", callback_data=f"adm_u_army_act:{user.id}:all:500"),
             ],
+            [
+                InlineKeyboardButton("🛡️ Hammasiga +50,000 tadan (+250k)", callback_data=f"adm_u_army_act:{user.id}:all:50000"),
+            ],
+            [
+                InlineKeyboardButton("👑 Hammasiga +200,000 tadan (+1M)", callback_data=f"adm_u_army_act:{user.id}:all:200000"),
+            ],
             [InlineKeyboardButton("🔙 Lord Kartasiga Qaytish", callback_data=f"admin_u_detail:{user.id}")],
         ]
 
@@ -2377,6 +2383,10 @@ async def show_admin_castle_detail(query, terr_id: int):
                 InlineKeyboardButton("🧱 Devorni 1,000 ga Tiklash", callback_data=f"adm_c_act:{terr.id}:repair_walls:1000"),
             ],
             [
+                InlineKeyboardButton("🛡️ +50,000 Har Biridan (+200k)", callback_data=f"adm_c_act:{terr.id}:add_garrison:50000"),
+                InlineKeyboardButton("👑 +250,000 Har Biridan (+1M)", callback_data=f"adm_c_act:{terr.id}:add_garrison:250000"),
+            ],
+            [
                 InlineKeyboardButton("🏰 Hukmron Xonadonni O'zgartirish", callback_data=f"adm_c_pick_h:{terr.id}:0"),
                 InlineKeyboardButton("🗑️ Garnizonni Tozalash (0)", callback_data=f"adm_c_act:{terr.id}:clear_garrison:0"),
             ],
@@ -2862,27 +2872,44 @@ async def set_house_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def give_army_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/givearmy <user_id|@username> <infantry|archers|cavalry|spearmen|special> <count>"""
+    """
+    /givearmy <user_id|@username> <count>  (Hammasiga mutanosib taqsimlash)
+    yoki:
+    /givearmy <user_id|@username> <all|infantry|archers|cavalry|spearmen|special> <count>
+    """
     user_id = update.effective_user.id
     if not is_admin(user_id):
         return
 
-    if len(context.args) < 3:
+    if len(context.args) < 2:
         await update.message.reply_text(
-            "ℹ️ Foydalanish: `/givearmy <telegram_id yoki @username> <infantry|archers|cavalry|spearmen|special> <miqdor>`",
+            "ℹ️ Foydalanish:\n"
+            "• `/givearmy <id yoki @username> <jami_son>` (masalan: `/givearmy 7689627859 1000000`)\n"
+            "• `/givearmy <id yoki @username> <tur> <son>` (turlar: all, infantry, archers, cavalry, spearmen, special)",
             parse_mode="Markdown"
         )
         return
 
     target_str = context.args[0].strip().lstrip("@")
-    unit_type = context.args[1].strip().lower()
-    try:
-        count = int(context.args[2].strip())
-    except ValueError:
-        await update.message.reply_text("❌ Miqdor butun son bo'lishi kerak!")
-        return
+
+    # 2 ta argument berilsa (masalan: /givearmy 7689627859 1000000)
+    if len(context.args) == 2:
+        try:
+            count = int(context.args[1].strip())
+            unit_type = "all"
+        except ValueError:
+            await update.message.reply_text("❌ Askar soni butun raqam bo'lishi kerak!")
+            return
+    else:
+        unit_type = context.args[1].strip().lower()
+        try:
+            count = int(context.args[2].strip())
+        except ValueError:
+            await update.message.reply_text("❌ Askar soni butun raqam bo'lishi kerak!")
+            return
 
     valid_types = {
+        "all": "all", "hamma": "all", "barchasi": "all",
         "infantry": "infantry", "piyoda": "infantry",
         "archers": "archers", "kamonchi": "archers",
         "cavalry": "cavalry", "otliq": "cavalry",
@@ -2891,7 +2918,7 @@ async def give_army_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
 
     if unit_type not in valid_types:
-        await update.message.reply_text(f"❌ Noto'g'ri qo'shin turi: {unit_type}. Turlar: infantry, archers, cavalry, spearmen, special")
+        await update.message.reply_text(f"❌ Noto'g'ri qo'shin turi: {unit_type}. Turlar: all, infantry, archers, cavalry, spearmen, special")
         return
 
     col_name = valid_types[unit_type]
@@ -2908,8 +2935,76 @@ async def give_army_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ O'yinchi topilmadi: {target_str}")
             return
 
-        ok, msg = await crud.admin_set_user_army(session, target_user.id, add_mode=True, **{col_name: count})
+        if col_name == "all":
+            add_inf = int(count * 0.35)
+            add_arc = int(count * 0.25)
+            add_cav = int(count * 0.20)
+            add_sp = count - (add_inf + add_arc + add_cav)
+            ok, msg = await crud.admin_set_user_army(
+                session, target_user.id, add_mode=True,
+                infantry=add_inf, archers=add_arc, cavalry=add_cav, spearmen=add_sp
+            )
+        else:
+            ok, msg = await crud.admin_set_user_army(session, target_user.id, add_mode=True, **{col_name: count})
         await update.message.reply_text(f"{'✅' if ok else '❌'} {msg}")
+
+
+async def give_garrison_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/givegarrison <territory_id yoki castle_name> <count>"""
+    user_id = update.effective_user.id
+    if not is_admin(user_id):
+        return
+
+    if len(context.args) < 2:
+        await update.message.reply_text(
+            "ℹ️ Foydalanish: `/givegarrison <qal'a_id yoki nomi> <miqdor>`\nMasalan: `/givegarrison 1 500000`",
+            parse_mode="Markdown"
+        )
+        return
+
+    target_str = context.args[0].strip().lower()
+    try:
+        count = int(context.args[1].strip())
+    except ValueError:
+        await update.message.reply_text("❌ Miqdor butun son bo'lishi kerak!")
+        return
+
+    async with AsyncSessionLocal() as session:
+        terr = None
+        if target_str.isdigit():
+            terr = await session.get(models.Territory, int(target_str))
+        else:
+            res = await session.execute(
+                select(models.Territory).where(
+                    or_(
+                        models.Territory.name.ilike(f"%{target_str}%"),
+                        models.Territory.castle_name.ilike(f"%{target_str}%"),
+                        models.Territory.code.ilike(f"%{target_str}%"),
+                    )
+                )
+            )
+            terr = res.scalars().first()
+
+        if not terr:
+            await update.message.reply_text(f"❌ Qal'a topilmadi: {target_str}")
+            return
+
+        add_inf = int(count * 0.35)
+        add_arc = int(count * 0.25)
+        add_cav = int(count * 0.20)
+        add_sp = count - (add_inf + add_arc + add_cav)
+
+        terr.garrison_infantry = (terr.garrison_infantry or 0) + add_inf
+        terr.garrison_archers = (terr.garrison_archers or 0) + add_arc
+        terr.garrison_cavalry = (terr.garrison_cavalry or 0) + add_cav
+        terr.garrison_spearmen = (terr.garrison_spearmen or 0) + add_sp
+
+        await session.commit()
+        tot_now = (terr.garrison_infantry or 0) + (terr.garrison_archers or 0) + (terr.garrison_cavalry or 0) + (terr.garrison_spearmen or 0)
+        await update.message.reply_text(
+            f"✅ **{terr.name} ({terr.castle_name})** garnizoniga +{count:,} askar qo'shildi!\n"
+            f"🏰 Hozirgi jami garnizon: **{tot_now:,}** askar."
+        )
 
 
 async def admin_season_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3935,7 +4030,8 @@ def register_admin_handlers(app):
     app.add_handler(CommandHandler("ban", ban_command))
     app.add_handler(CommandHandler("unban", unban_command))
     app.add_handler(CommandHandler("sethouse", set_house_command))
-    app.add_handler(CommandHandler("givearmy", give_army_command))
+    app.add_handler(CommandHandler(["givearmy", "addarmy"], give_army_command))
+    app.add_handler(CommandHandler(["givegarrison", "addgarrison"], give_garrison_command))
     app.add_handler(CommandHandler("addadmin", add_admin_command))
     app.add_handler(CommandHandler("deladmin", del_admin_command))
     app.add_handler(CommandHandler([

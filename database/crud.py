@@ -432,11 +432,11 @@ async def join_house(
 # King's Landing: 1200 Gold, 2500 Food, 900 Iron, 1600 Def)
 # ============================================================
 CUSTOM_CASTLE_LEVEL_STANDARDS = {
-    1: {"tier": 2, "gold": 900, "food": 2000, "iron": 800, "defense": 1250},
-    2: {"tier": 2, "gold": 950, "food": 2100, "iron": 840, "defense": 1330},
-    3: {"tier": 2, "gold": 1000, "food": 2200, "iron": 880, "defense": 1400},
-    4: {"tier": 2, "gold": 1050, "food": 2300, "iron": 910, "defense": 1480},
-    5: {"tier": 1, "gold": 1080, "food": 2380, "iron": 930, "defense": 1550},
+    1: {"tier": 2, "gold": 700, "food": 1600, "iron": 550, "defense": 950},
+    2: {"tier": 2, "gold": 780, "food": 1750, "iron": 620, "defense": 1080},
+    3: {"tier": 2, "gold": 860, "food": 1900, "iron": 700, "defense": 1200},
+    4: {"tier": 2, "gold": 940, "food": 2050, "iron": 780, "defense": 1320},
+    5: {"tier": 1, "gold": 1020, "food": 2200, "iron": 880, "defense": 1450},
 }
 
 
@@ -9378,10 +9378,16 @@ async def sync_territories_canon_balance(session: AsyncSession) -> int:
             elif (t.defense or 0) < min_d:
                 t.defense = canon_def
 
-            t.garrison_infantry = c_data.get("garrison_infantry", t.garrison_infantry)
-            t.garrison_archers = c_data.get("garrison_archers", t.garrison_archers)
-            t.garrison_cavalry = c_data.get("garrison_cavalry", t.garrison_cavalry)
-            t.garrison_spearmen = c_data.get("garrison_spearmen", t.garrison_spearmen)
+            # Garnizon o'yinchilarning jonli harbiy kuchi — uni aslo qayta boshlang'ichga tushirmaymiz!
+            # Faqat garnizonsiz (0 yoki None) bo'lgan qal'alargagina boshlang'ich qorovul beriladi:
+            if not t.garrison_infantry:
+                t.garrison_infantry = c_data.get("garrison_infantry", 200)
+            if not t.garrison_archers:
+                t.garrison_archers = c_data.get("garrison_archers", 100)
+            if not t.garrison_cavalry:
+                t.garrison_cavalry = c_data.get("garrison_cavalry", 50)
+            if not t.garrison_spearmen:
+                t.garrison_spearmen = c_data.get("garrison_spearmen", 50)
         else:
             # Yangi kelgan o'yinchilar ochgan barcha yangi qal'alar (Custom Castles)
             # Ularning daromadi 60 ta asosiy qal'adan ko'p bo'lmasligi uchun Level bo'yicha me'yorlashtiriladi
