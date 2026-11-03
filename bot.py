@@ -113,11 +113,28 @@ class HealthHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-type", "application/json; charset=utf-8")
         self.end_headers()
+        
+        db_stat = {}
+        try:
+            import sqlite3
+            from config import DEFAULT_DB_PATH
+            if os.path.exists(DEFAULT_DB_PATH):
+                conn = sqlite3.connect(DEFAULT_DB_PATH)
+                cur = conn.cursor()
+                cur.execute("SELECT u.id, u.username, (COALESCE(a.infantry,0)+COALESCE(a.archers,0)+COALESCE(a.cavalry,0)+COALESCE(a.spearmen,0)+COALESCE(a.special_troops,0)) FROM users u LEFT JOIN armies a ON u.id = a.user_id ORDER BY u.id")
+                db_stat["users"] = [{"id": r[0], "username": r[1], "army": r[2]} for r in cur.fetchall()]
+                conn.close()
+            else:
+                db_stat["info"] = f"DB path does not exist on disk: {DEFAULT_DB_PATH}"
+        except Exception as e:
+            db_stat["error"] = str(e)
+
         resp = {
             "status": "online",
             "bot": "@ironthrone_rpgbot",
-            "version": "v2.3 (Diplomacy & 24/7 Keep-Alive)",
+            "version": "v2.4 (Player Profiles Restored)",
             "server_time_utc": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
+            "db_stat": db_stat,
         }
         self.wfile.write(json.dumps(resp, indent=2).encode("utf-8"))
 

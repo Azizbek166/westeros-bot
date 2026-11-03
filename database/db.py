@@ -603,6 +603,88 @@ async def init_db():
                 is_active=True,
             ))
 
+        # 3. O'yinchilarning shaxsiy profillaridan bugun xato berilgan barcha ortiqcha askarlarni olib tashlash
+        mig_troops_res = await session.execute(
+            select(models.EventState).where(models.EventState.event_name == "revert_today_extra_profile_troops_v2")
+        )
+        if not mig_troops_res.scalars().first():
+            logger.info("🧹 O'yinchilarning shaxsiy profillaridan bugungi barcha ortiqcha askarlar olib tashlanmoqda...")
+            users_res = await session.execute(select(models.User))
+            all_db_users = users_res.scalars().all()
+            cleaned_count = 0
+
+            # 00:00 zaxirasi bo'yicha tarixiy aniq o'yinchi armiyalari
+            canonical_armies = {
+                1: (152, 75, 37, 50, 0),      # @azizbek
+                2: (100, 50, 25, 30, 0),      # @Bexruz
+                3: (100, 54, 27, 36, 0),      # @oligarh
+                4: (100, 50, 25, 26, 0),      # @shokh
+                5: (100, 50, 25, 26, 0),      # @gerald
+                6: (100, 50, 25, 28, 0),      # @niyozbek
+                7: (100, 50, 25, 25, 0),      # @muhammadali
+                8: (100, 50, 25, 28, 0),      # @tesla
+                9: (285, 53, 32, 25, 0),      # @LordCommander
+                18: (260, 300, 180, 200, 50), # Lord_Stark_Tester
+                19: (178, 400, 128, 250, 60), # Lord_Lannister_Tester
+            }
+
+            for u in all_db_users:
+                # Buranov va uning xonadoniga tegilmaydi (Buranov o'zgarishsiz qoladi)
+                if (u.username and "buranov" in u.username.lower()) or (u.full_name and "buranov" in u.full_name.lower()):
+                    logger.info(f"🛡️ Buranov ({u.username}) armiyasiga tegilmadi.")
+                    continue
+
+                u_army_res = await session.execute(select(models.Army).where(models.Army.user_id == u.id))
+                u_army = u_army_res.scalar_one_or_none()
+                if not u_army:
+                    continue
+
+                curr_tot = (u_army.infantry or 0) + (u_army.archers or 0) + (u_army.cavalry or 0) + (u_army.spearmen or 0) + (u_army.special_troops or 0)
+
+                # Donat tekshiruvi: Tasdiqlangan donat bo'lsa, uni saqlab qolamiz
+                don_total = 0
+                try:
+                    from sqlalchemy import func
+                    don_res = await session.execute(
+                        select(func.sum(models.DonationRequest.troop_count))
+                        .where(
+                            models.DonationRequest.telegram_id == u.telegram_id,
+                            models.DonationRequest.status == "approved"
+                        )
+                    )
+                    don_total = don_res.scalar() or 0
+                except Exception:
+                    pass
+
+                if don_total > 0:
+                    add_inf = int(don_total * 0.35)
+                    add_arc = int(don_total * 0.25)
+                    add_cav = int(don_total * 0.20)
+                    add_sp = don_total - (add_inf + add_arc + add_cav)
+                    u_army.infantry = add_inf
+                    u_army.archers = add_arc
+                    u_army.cavalry = add_cav
+                    u_army.spearmen = add_sp
+                    u_army.special_troops = 0
+                    logger.info(f"💎 User #{u.id} ({u.full_name}) armiyasi tasdiqlangan donat miqdoriga moslandi: {don_total:,}")
+                    cleaned_count += 1
+                elif curr_tot > 5000 or (u.id in canonical_armies and curr_tot > sum(canonical_armies[u.id])):
+                    canon = canonical_armies.get(u.id, (100, 50, 25, 25, 0))
+                    u_army.infantry = canon[0]
+                    u_army.archers = canon[1]
+                    u_army.cavalry = canon[2]
+                    u_army.spearmen = canon[3]
+                    u_army.special_troops = canon[4]
+                    logger.info(f"🧹 User #{u.id} ({u.full_name}) ortiqcha askarlari olib tashlandi: {curr_tot:,} -> {sum(canon):,}")
+                    cleaned_count += 1
+
+            session.add(models.EventState(
+                event_name="revert_today_extra_profile_troops_v2",
+                data_json=json.dumps({"applied_at": today_clean_str, "cleaned_count": cleaned_count}),
+                is_active=True,
+            ))
+            logger.info(f"✅ O'yinchilar profillaridan ortiqcha askarlarni olib tashlash yakunlandi: {cleaned_count} ta o'yinchi yangilandi.")
+
         # Fronterra va barcha maxsus xonadonlar maydonlarini tekshirib to'g'irlash (House panel crash bo'lmasligi uchun)
         all_houses_check = await session.execute(select(models.House))
         for h in all_houses_check.scalars().all():
