@@ -9356,66 +9356,9 @@ async def get_top10_dragon_duelists(session: AsyncSession) -> List[Dict[str, Any
 
 
 async def sync_territories_canon_balance(session: AsyncSession) -> int:
-    """Barcha 60 ta qal'aning daromad, toifa va bazaviy mudofaasini map_data dagi kanonik balansga moslashtirish"""
-    from data.map_data import TERRITORIES_DATA
-    res = await session.execute(select(models.Territory))
-    terrs = res.scalars().all()
-    updated_count = 0
-
-    tier_min_def = {1: 1350, 2: 880, 3: 580}
-
-    for t in terrs:
-        c_data = TERRITORIES_DATA.get(t.code)
-        if not c_data:
-            for k, val in TERRITORIES_DATA.items():
-                if val.get("id") == t.id:
-                    c_data = val
-                    break
-        if c_data:
-            # 60 ta kanonik Westeros qal'asi
-            t.castle_tier = c_data.get("castle_tier", t.castle_tier or 2)
-            t.gold_income = c_data.get("gold_income", t.gold_income)
-            t.food_income = c_data.get("food_income", t.food_income)
-            t.iron_income = c_data.get("iron_income", t.iron_income)
-
-            canon_def = c_data.get("defense", 500)
-            t_tier = t.castle_tier or 2
-            min_d = tier_min_def.get(t_tier, 500)
-
-            # Balans nomutanosibliklarini qat'iy to'g'rilash (Tier 1 > Tier 2 > Tier 3)
-            if t_tier == 3 and (t.defense or 0) > 750:
-                t.defense = canon_def
-            elif t_tier == 2 and (t.defense or 0) > 1100:
-                t.defense = canon_def
-            elif (t.defense or 0) < min_d:
-                t.defense = canon_def
-
-            # Garnizon o'yinchilarning jonli harbiy kuchi — uni aslo qayta boshlang'ichga tushirmaymiz!
-            # Faqat garnizonsiz (0 yoki None) bo'lgan qal'alargagina boshlang'ich qorovul beriladi:
-            if not t.garrison_infantry:
-                t.garrison_infantry = c_data.get("garrison_infantry", 200)
-            if not t.garrison_archers:
-                t.garrison_archers = c_data.get("garrison_archers", 100)
-            if not t.garrison_cavalry:
-                t.garrison_cavalry = c_data.get("garrison_cavalry", 50)
-            if not t.garrison_spearmen:
-                t.garrison_spearmen = c_data.get("garrison_spearmen", 50)
-        else:
-            # Yangi kelgan o'yinchilar ochgan barcha yangi qal'alar (Custom Castles)
-            # Ularning daromadi 60 ta asosiy qal'adan ko'p bo'lmasligi uchun Level bo'yicha me'yorlashtiriladi
-            c_lvl = min(5, max(1, getattr(t, "castle_level", 1) or 1))
-            c_std = CUSTOM_CASTLE_LEVEL_STANDARDS.get(c_lvl, CUSTOM_CASTLE_LEVEL_STANDARDS[1])
-            t.castle_tier = c_std["tier"]
-            t.gold_income = c_std["gold"]
-            t.food_income = c_std["food"]
-            t.iron_income = c_std["iron"]
-            t.defense = c_std["defense"]
-
-        updated_count += 1
-
-    await session.commit()
-    logger.info(f"✅ Qalalar balansi muvaffaqiyatli sinxronlashtirildi: {updated_count} ta qal'a yangilandi.")
-    return updated_count
+    """Qal'alar daromadi va garnizonini bazadagi holatda saqlash (zaxiradan tiklangan ma'lumotlar o'zgarmaydi)"""
+    logger.info("ℹ️ Qal'alar parametrlari va garnizonlari bazadagi asl zaxira holatida saqlanmoqda.")
+    return 0
 
 
 # ============================================================
