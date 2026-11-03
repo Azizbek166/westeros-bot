@@ -108,36 +108,20 @@ import json
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
+GLOBAL_SERVER_AUDIT = {}
+
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.send_header("Content-type", "application/json; charset=utf-8")
         self.end_headers()
         
-        db_stat = {}
-        try:
-            from database.db import AsyncSessionLocal, engine
-            from sqlalchemy import text
-            import asyncio
-
-            async def _get_stat():
-                async with AsyncSessionLocal() as session:
-                    res = await session.execute(text("SELECT u.id, u.username, u.full_name, (COALESCE(a.infantry,0)+COALESCE(a.archers,0)+COALESCE(a.cavalry,0)+COALESCE(a.spearmen,0)+COALESCE(a.special_troops,0)) FROM users u LEFT JOIN armies a ON u.id = a.user_id ORDER BY u.id"))
-                    rows = res.fetchall()
-                    return [{"id": r[0], "username": r[1], "name": r[2], "army": r[3]} for r in rows]
-
-            db_stat["real_users"] = asyncio.run(_get_stat())
-            db_stat["driver"] = str(engine.url.drivername)
-            db_stat["host"] = str(engine.url.host)
-        except Exception as e:
-            db_stat["error"] = str(e)
-
         resp = {
             "status": "online",
             "bot": "@ironthrone_rpgbot",
-            "version": "v2.4 (Player Profiles Restored)",
+            "version": "v2.5 (Live Audit)",
             "server_time_utc": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
-            "db_stat": db_stat,
+            "audit": GLOBAL_SERVER_AUDIT,
         }
         self.wfile.write(json.dumps(resp, indent=2).encode("utf-8"))
 
@@ -177,6 +161,28 @@ async def on_startup(app: Application):
         logger.info("📦 Ma'lumotlar bazasi initsializatsiya qilinmoqda...")
         await init_db()
         logger.info("✅ Baza tayyor.")
+        
+        try:
+            from database import models
+            from sqlalchemy import select
+            async with AsyncSessionLocal() as s_audit:
+                res = await s_audit.execute(
+                    select(models.User.id, models.User.username, models.User.full_name, models.User.house_id, models.Army.infantry, models.Army.archers, models.Army.cavalry, models.Army.spearmen, models.Army.special_troops)
+                    .join(models.Army, models.Army.user_id == models.User.id, isouter=True)
+                    .order_by(models.User.id)
+                )
+                rows = res.fetchall()
+                GLOBAL_SERVER_AUDIT["users"] = [
+                    {
+                        "id": r[0], "username": r[1], "name": r[2], "house_id": r[3],
+                        "total_army": (r[4] or 0) + (r[5] or 0) + (r[6] or 0) + (r[7] or 0) + (r[8] or 0),
+                        "troops": [r[4] or 0, r[5] or 0, r[6] or 0, r[7] or 0, r[8] or 0]
+                    }
+                    for r in rows
+                ]
+                GLOBAL_SERVER_AUDIT["loaded_at"] = datetime.utcnow().isoformat()
+        except Exception as e_aud:
+            GLOBAL_SERVER_AUDIT["error"] = str(e_aud)
 
         private_commands = [
             BotCommand("start", "👑 Asosiy Menyu / Boshlash"),
