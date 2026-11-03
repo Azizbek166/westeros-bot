@@ -200,6 +200,12 @@ async def on_startup(app: Application):
         f"👑 Barcha yangi qoidalar to'liq amalda!"
     )
 
+    try:
+        from core.notifier import send_armies_audit_report
+        await send_armies_audit_report(app, OWNER_ID)
+    except Exception as e_audit:
+        logger.warning(f"send_armies_audit_report startup xatosi: {e_audit}")
+
 
 
 async def ban_check_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):

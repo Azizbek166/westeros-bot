@@ -7,7 +7,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CommandHandler, CallbackQueryHandler, ContextTypes
 from database import AsyncSessionLocal, crud, models
 from config import ADMIN_IDS, OWNER_ID, escape_md
-from sqlalchemy import select, func, desc
+from sqlalchemy import select, func, desc, or_
 
 logger = logging.getLogger(__name__)
 
@@ -3007,6 +3007,150 @@ async def give_garrison_command(update: Update, context: ContextTypes.DEFAULT_TY
         )
 
 
+async def set_army_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /setarmy <user_id|@username> <count>
+    O'yinchi armiyasini belgilangan miqdorga to'g'ridan-to'g'ri o'rnatish
+    """
+    user_id = update.effective_user.id
+    if not is_admin(user_id):
+        return
+
+    if len(context.args) < 2:
+        await update.message.reply_text(
+            "ℹ️ Foydalanish: `/setarmy <id yoki @username> <son>`\nMasalan: `/setarmy 7689627859 2200000`",
+            parse_mode="Markdown"
+        )
+        return
+
+    target_str = context.args[0].strip().lstrip("@")
+    try:
+        count = max(0, int(context.args[1].strip()))
+    except ValueError:
+        await update.message.reply_text("❌ Miqdor butun son bo'lishi kerak!")
+        return
+
+    async with AsyncSessionLocal() as session:
+        target_user = None
+        if target_str.isdigit():
+            res = await session.execute(
+                select(models.User).where(
+                    or_(models.User.telegram_id == int(target_str), models.User.id == int(target_str))
+                )
+            )
+            target_user = res.scalars().first()
+        else:
+            res = await session.execute(
+                select(models.User).where(models.User.username.ilike(target_str))
+            )
+            target_user = res.scalars().first()
+
+        if not target_user:
+            await update.message.reply_text(f"❌ O'yinchi topilmadi: {target_str}")
+            return
+
+        army = await crud.get_user_army(session, target_user.id)
+
+        inf = int(count * 0.35)
+        arc = int(count * 0.25)
+        cav = int(count * 0.20)
+        sp = count - (inf + arc + cav)
+
+        army.infantry = inf
+        army.archers = arc
+        army.cavalry = cav
+        army.spearmen = sp
+        army.special_troops = 0
+
+        await session.commit()
+        await update.message.reply_text(
+            f"✅ **{target_user.full_name}** armiyasi to'g'ridan-to'g'ri **{count:,}** ga o'rnatildi!\n"
+            f"🛡️ Piyoda: {inf:,}\n🏹 Kamonchi: {arc:,}\n🐎 Otliq: {cav:,}\n🔱 Nayzador: {sp:,}"
+        )
+
+
+async def set_garrison_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /setgarrison <qal'a_id yoki nomi> <miqdor>
+    Qal'a garnizonini belgilangan miqdorga to'g'ridan-to'g'ri o'rnatish
+    """
+    user_id = update.effective_user.id
+    if not is_admin(user_id):
+        return
+
+    if len(context.args) < 2:
+        await update.message.reply_text(
+            "ℹ️ Foydalanish: `/setgarrison <qal'a_id yoki nomi> <miqdor>`\nMasalan: `/setgarrison 1 1000000`",
+            parse_mode="Markdown"
+        )
+        return
+
+    target_str = context.args[0].strip().lower()
+    try:
+        count = max(0, int(context.args[1].strip()))
+    except ValueError:
+        await update.message.reply_text("❌ Miqdor butun son bo'lishi kerak!")
+        return
+
+    async with AsyncSessionLocal() as session:
+        terr = None
+        if target_str.isdigit():
+            terr = await session.get(models.Territory, int(target_str))
+        else:
+            res = await session.execute(
+                select(models.Territory).where(
+                    or_(
+                        models.Territory.name.ilike(f"%{target_str}%"),
+                        models.Territory.castle_name.ilike(f"%{target_str}%"),
+                        models.Territory.code.ilike(f"%{target_str}%"),
+                    )
+                )
+            )
+            terr = res.scalars().first()
+
+        if not terr:
+            await update.message.reply_text(f"❌ Qal'a topilmadi: {target_str}")
+            return
+
+        inf = int(count * 0.35)
+        arc = int(count * 0.25)
+        cav = int(count * 0.20)
+        sp = count - (inf + arc + cav)
+
+        terr.garrison_infantry = inf
+        terr.garrison_archers = arc
+        terr.garrison_cavalry = cav
+        terr.garrison_spearmen = sp
+
+        await session.commit()
+        await update.message.reply_text(
+            f"✅ **{terr.name} ({terr.castle_name})** garnizoni to'g'ridan-to'g'ri **{count:,}** ga o'rnatildi!\n"
+            f"🛡️ Piyoda: {inf:,}\n🏹 Kamonchi: {arc:,}\n🐎 Otliq: {cav:,}\n🔱 Nayzador: {sp:,}"
+        )
+
+
+async def admin_audit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/audit va /audit_armies buyrug'i: barcha o'yinchilar va qal'alar harbiy holatini tekshirish"""
+    user_id = update.effective_user.id
+    if not is_admin(user_id):
+        return
+
+    status_msg = await update.message.reply_text("⏳ Vesteros harbiy kuchlari auditi shakllantirilmoqda...")
+    try:
+        from core.notifier import send_armies_audit_report
+        ok = await send_armies_audit_report(context.bot, update.effective_chat.id)
+        if ok:
+            try:
+                await status_msg.delete()
+            except Exception:
+                pass
+        else:
+            await status_msg.edit_text("❌ Audit hisobotini yuborishda xatolik yuz berdi.")
+    except Exception as e:
+        logger.error(f"admin_audit_command xatosi: {e}", exc_info=True)
+        await status_msg.edit_text(f"❌ Xatolik yuz berdi: {e}")
+
+
 async def admin_season_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin: Mavsumni boshqarish va yakunlash menyusi"""
     query = update.callback_query
@@ -4031,7 +4175,10 @@ def register_admin_handlers(app):
     app.add_handler(CommandHandler("unban", unban_command))
     app.add_handler(CommandHandler("sethouse", set_house_command))
     app.add_handler(CommandHandler(["givearmy", "addarmy"], give_army_command))
+    app.add_handler(CommandHandler(["setarmy"], set_army_command))
     app.add_handler(CommandHandler(["givegarrison", "addgarrison"], give_garrison_command))
+    app.add_handler(CommandHandler(["setgarrison"], set_garrison_command))
+    app.add_handler(CommandHandler(["audit", "audit_armies"], admin_audit_command))
     app.add_handler(CommandHandler("addadmin", add_admin_command))
     app.add_handler(CommandHandler("deladmin", del_admin_command))
     app.add_handler(CommandHandler([
