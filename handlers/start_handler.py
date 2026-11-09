@@ -875,12 +875,20 @@ async def main_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return
 
         hero_name = user.characters[0].name if user.characters else "Lord"
+        house_str = f"{user.house.emoji} {user.house.name}" if user.house else "Mustaqil Lord"
+        army_count = (
+            (user.army.infantry or 0)
+            + (user.army.archers or 0)
+            + (user.army.cavalry or 0)
+            + (user.army.spearmen or 0)
+            + (user.army.special_troops or 0)
+        ) if user.army else 0
         text = (
             f"👑 **THE IRON THRONE — ASOSIY DASHBOARD**\n\n"
             f"👤 Hukmdor: **{escape_md(hero_name)}**\n"
-            f"🏰 Xonadon: **{user.house.emoji} {user.house.name}**\n\n"
+            f"🏰 Xonadon: **{house_str}**\n\n"
             f"🪙 Oltin: **{user.gold:,}** | 🌾 Oziq-ovqat: **{user.food:,}** | ⛓️ Temir: **{user.iron:,}**\n"
-            f"🛡️ Armiya: **{(user.army.infantry + user.army.archers + user.army.cavalry + user.army.spearmen + user.army.special_troops):,}** askar\n\n"
+            f"🛡️ Armiya: **{army_count:,}** askar\n\n"
             f"Kerakli bo'limni tanlang:"
         )
         if query.message.photo:
@@ -907,12 +915,20 @@ async def bottom_menu_text_handler(update: Update, context: ContextTypes.DEFAULT
                 return
 
             hero_name = user.characters[0].name if user.characters else "Lord"
+            house_str = f"{user.house.emoji} {user.house.name}" if user.house else "Mustaqil Lord"
+            army_count = (
+                (user.army.infantry or 0)
+                + (user.army.archers or 0)
+                + (user.army.cavalry or 0)
+                + (user.army.spearmen or 0)
+                + (user.army.special_troops or 0)
+            ) if user.army else 0
             msg = (
                 f"👑 **THE IRON THRONE — ASOSIY DASHBOARD**\n\n"
                 f"👤 Hukmdor: **{escape_md(hero_name)}**\n"
-                f"🏰 Xonadon: **{user.house.emoji} {user.house.name}**\n\n"
+                f"🏰 Xonadon: **{house_str}**\n\n"
                 f"🪙 Oltin: **{user.gold:,}** | 🌾 Oziq-ovqat: **{user.food:,}** | ⛓️ Temir: **{user.iron:,}**\n"
-                f"🛡️ Armiya: **{(user.army.infantry + user.army.archers + user.army.cavalry + user.army.spearmen + user.army.special_troops):,}** askar\n\n"
+                f"🛡️ Armiya: **{army_count:,}** askar\n\n"
                 f"Kerakli bo'limni tanlang:"
             )
             await update.message.reply_text(
