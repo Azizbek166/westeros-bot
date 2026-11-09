@@ -78,17 +78,17 @@ async def get_guild_hub_data(session: AsyncSession, identifier: int) -> Optional
     else:
         # 2. Gildiyalar Portali
         has_cd, exp_at, rem_sec = await crud.check_guild_cooldown(session, user.id)
-        top_guilds = await crud.get_guild_rankings(session, offset=0, limit=5)
+        top_guilds, total_guilds_cnt = await crud.get_guild_rankings(session, limit=5, offset=0)
         rankings_preview = [
             {
-                "id": g.id,
-                "name": g.name,
-                "tag": g.tag,
-                "banner": g.banner,
-                "level": g.level,
-                "prestige": g.prestige,
-                "members_count": len(g.members or []),
-                "max_members": g.max_members,
+                "id": g.get("id"),
+                "name": g.get("name"),
+                "tag": g.get("tag"),
+                "banner": g.get("banner", "🛡️"),
+                "level": g.get("level", 1),
+                "prestige": g.get("prestige", 0),
+                "members_count": g.get("members_count", 0),
+                "max_members": g.get("max_members", 10),
             }
             for g in top_guilds
         ]
