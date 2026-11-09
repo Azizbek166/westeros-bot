@@ -133,35 +133,7 @@ class HealthHandler(BaseHTTPRequestHandler):
         pass  # Render loglarini to'ldirmaslik uchun
 
 def start_health_server():
-    """
-    Render.com / Cloud Web Service portida FastAPI & Mini App serverini ishga tushirish.
-    Uvicorn orqali FastAPI (api.main:app) ni ishga tushiradi:
-    - GET / -> static/index.html (Telegram Mini App)
-    - GET /api/health -> Health Check
-    - /api/... -> Barcha REST API endpointlari
-    Agar uvicorn mavjud bo'lmasa yoki xatolik yuz bersa, avtomatik zaxira HealthHandler ishga tushadi.
-    """
-    port = int(os.getenv("PORT", 0))
-    if port <= 0:
-        port = int(os.getenv("API_PORT", 0))
-
-    if port > 0:
-        def run_uvicorn():
-            try:
-                import uvicorn
-                logger.info(f"🌐 FastAPI & Telegram Mini App port {port} da ishga tushmoqda...")
-                uvicorn.run("api.main:app", host="0.0.0.0", port=port, log_level="warning")
-            except Exception as e:
-                logger.error(f"⚠️ Uvicorn ishga tushishida xatolik: {e}. Zaxira HTTP serverga o'tilmoqda.")
-                try:
-                    server = HTTPServer(("0.0.0.0", port), HealthHandler)
-                    server.serve_forever()
-                except Exception as se:
-                    logger.error(f"Zaxira HTTP server xatosi: {se}")
-
-        thread = threading.Thread(target=run_uvicorn, daemon=True, name="FastAPI-MiniApp-Server")
-        thread.start()
-        logger.info(f"🚀 Render Web Service (FastAPI + Mini App) port {port} da fon oqimida ishga tushdi.")
+    pass
 
 
 async def render_keepalive_job(context: ContextTypes.DEFAULT_TYPE):
@@ -361,15 +333,12 @@ async def global_error_handler(update: object, context: ContextTypes.DEFAULT_TYP
 # ASOSIY ISHGA TUSHIRISH (MAIN)
 # ============================================================
 
-def main():
+async def main_async():
     if not BOT_TOKEN:
         print("❌ XATOLIK: BOT_TOKEN topilmadi! config.py yoki .env faylini tekshiring.")
         return
 
-    # Render.com yoki bulutli port bo'lsa healthcheck serverni yoqish
-    start_health_server()
-
-    # 1. Telegram Bot Application (post_init da on_startup orqali init_db bir xil event loop'da ishga tushadi)
+    # 1. Telegram Bot Application
     app = (
         Application
         .builder()
@@ -384,61 +353,72 @@ def main():
     # Bloklangan (banned) foydalanuvchilarni barcha handlerlardan oldin to'xtatish
     app.add_handler(TypeHandler(Update, ban_check_callback), group=-2)
 
-    # Buyruqlar auditi (har qanday buyruq bosh egaga yuboriladi)
+    # Buyruqlar auditi
     app.add_handler(TypeHandler(Update, command_audit_callback), group=-1)
 
     # 3. Barcha modulli handlerlarni ulash
     register_all_handlers(app)
 
     # 4. Background Game Tick dvigatellarini ishga tushirish
-    # Har 10 soniyada yurishlarni tekshirish
     app.job_queue.run_repeating(
         march_resolution_job,
         interval=10,
         first=10,
     )
-
-    # Har 1 soatda (3600 soniya) iqtisodiy tick va saylov tekshiruvi
     app.job_queue.run_repeating(
         hourly_economy_job,
         interval=3600,
         first=60,
     )
-
-    # NPC xonadonlar va avtomatik bosqinlar foydalanuvchi talabi bilan butunlay to'xtatilgan
-    # app.job_queue.run_repeating(
-    #     npc_tick_job,
-    #     interval=900,
-    #     first=60,
-    # )
-
-    # Render.com bepul tarifida bot 15 daqiqada uxlab qolmasligi uchun har 5 daqiqada (300 soniya) keep-alive
     app.job_queue.run_repeating(
         render_keepalive_job,
         interval=300,
         first=60,
     )
-
-    # 5. Har kunlik 4 ta avtomatik Eventlar va Kunlik Ajdarlar Turniri (Asia/Tashkent UTC+5)
     register_daily_events_jobs(app)
 
-    # Kunlik urush va NPC hujumlari - ADMIN BOSHQARUVI:
-    # Foydalanuvchi talabi: Urush va NPC bosqinlari avtomatik boshlanmaydi, admin qo'lda boshlaydi (/dailywar yoki Admin Panel)
-    # va boshlangandan so'ng 1 soat davom etadi.
-    # uzbekistan_tz = timezone(timedelta(hours=5))
-    # app.job_queue.run_daily(
-    #     daily_war_and_npc_job,
-    #     time=dt_time(hour=21, minute=0, second=0, tzinfo=uzbekistan_tz),
-    #     name="daily_2100_war_job",
-    # )
+    # 5. Telegram Bot pollingni va Uvicorn serverni BITTA yagona asinxron event loop'da ishga tushirish
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling(drop_pending_updates=True)
 
     print("==================================================")
     print("👑 THE IRON THRONE — 500+ PLAYER MMORPG ISHGA TUSHDI")
     print("🏰 50 ta Xonadon | 60 ta Qal'a (10 ta NPC) | 21:00 Urush")
     print("==================================================")
 
-    # Polling rejimida ishga tushirish (drop_pending_updates bilan eski qotib qolgan Conflict xatolarining oldi olinadi)
-    app.run_polling(drop_pending_updates=True)
+    port = int(os.getenv("PORT", 0))
+    if port <= 0:
+        port = int(os.getenv("API_PORT", 0))
+
+    if port > 0:
+        import uvicorn
+        logger.info(f"🌐 FastAPI & Telegram Mini App bitta umumiy asinxron loop'da {port}-portda ishga tushmoqda...")
+        config = uvicorn.Config("api.main:app", host="0.0.0.0", port=port, log_level="warning")
+        server = uvicorn.Server(config)
+        try:
+            await server.serve()
+        except asyncio.CancelledError:
+            pass
+    else:
+        # Port belgilanmagan bo'lsa (lokal faqat bot rejimi), cheksiz kutish
+        try:
+            while True:
+                await asyncio.sleep(3600)
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            pass
+
+    # Xavfsiz to'xtatish
+    try:
+        await app.updater.stop()
+        await app.stop()
+        await app.shutdown()
+    except Exception as e:
+        logger.warning(f"Botni to'xtatishda xatolik: {e}")
+
+
+def main():
+    asyncio.run(main_async())
 
 
 if __name__ == "__main__":

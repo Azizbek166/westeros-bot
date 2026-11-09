@@ -9,13 +9,17 @@ logger = logging.getLogger(__name__)
 # Asinxron Engine va SQLite sozlamalari
 from sqlalchemy import event, select, text, update, delete, or_
 
+from sqlalchemy.pool import NullPool
+
 def create_custom_engine(db_url: str):
     is_sqlite = "sqlite" in db_url
     engine_kwargs = {
         "echo": False,
         "pool_pre_ping": True,
     }
-    if not is_sqlite:
+    if is_sqlite:
+        engine_kwargs["poolclass"] = NullPool
+    else:
         engine_kwargs.update({
             "pool_size": 20,
             "max_overflow": 30,

@@ -137,7 +137,8 @@
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || errorData.detail || `Server xatosi: ${response.status}`);
+        const errDetail = typeof errorData.detail === 'string' ? errorData.detail : (errorData.error || `Server xatosi: ${response.status}`);
+        throw new Error(errDetail);
       }
 
       const res = await response.json();

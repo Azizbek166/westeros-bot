@@ -58,6 +58,8 @@ async def request_logging_and_security_middleware(request: Request, call_next):
     try:
         response = await call_next(request)
     except Exception as exc:
+        import traceback
+        traceback.print_exc()
         process_time = (time.time() - start_time) * 1000
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
