@@ -205,6 +205,7 @@ async def process_due_marches(bot_app=None):
         marches = result.scalars().all()
 
         for march in marches:
+            troops_returned = False
             try:
                 # Hujumchi va Hudud ma'lumotlari
                 attacker = await session.get(models.User, march.attacker_user_id)
@@ -285,10 +286,13 @@ async def process_due_marches(bot_app=None):
                 def_lord_id = None
                 def_lord_user = None
                 def_house = None
+                def_house_name = "Mustaqil/Garnizon"
                 def_art_bonuses = {}
                 old_owner_house_id = territory.owner_house_id
                 if old_owner_house_id:
                     def_house = await session.get(models.House, old_owner_house_id)
+                    if def_house:
+                        def_house_name = def_house.name
                     if def_house and def_house.lord_user_id:
                         def_lord_id = def_house.lord_user_id
                         def_lord_user = await crud.get_user_by_telegram_id(session, def_house.lord_user_id)
@@ -381,6 +385,7 @@ async def process_due_marches(bot_app=None):
                     attacker_army_obj.siege_towers = (attacker_army_obj.siege_towers or 0) + survived_twrs
                     session.add(attacker_army_obj)
                     await session.flush()
+                    troops_returned = True
 
                 # Garnizonni yangilash
                 territory.garrison_infantry = battle_res["remaining_defender"]["infantry"]
@@ -750,7 +755,8 @@ async def process_due_marches(bot_app=None):
                     if march.status == "marching":
                         march.status = "failed"
                         session.add(march)
-                        if attacker:
+                        # FAQAT agar tirik qolgan qo'shinlar try blokida armiyaga qaytarilmagan bo'lsa failsafe refund beriladi!
+                        if attacker and not troops_returned:
                             army = await crud.get_user_army(session, attacker.id)
                             if army:
                                 army.infantry = (army.infantry or 0) + (march.infantry or 0)
@@ -762,6 +768,8 @@ async def process_due_marches(bot_app=None):
                                 army.siege_towers = (army.siege_towers or 0) + (getattr(march, "siege_towers", 0) or 0)
                                 session.add(army)
                                 logger.info(f"March {march.id} qo'shinlari o'yinchi {attacker.id} ga failsafe qaytarildi.")
+                        elif attacker and troops_returned:
+                            logger.info(f"March {march.id} da tirik qolgan askarlar allaqachon o'yinchiga qaytarilgan, takroriy failsafe qo'shilmadi.")
                         await session.flush()
                 except Exception as e_refund:
                     logger.error(f"March {march.id} qo'shinlarini failsafe qaytarishda xatolik: {e_refund}")
