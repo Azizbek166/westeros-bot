@@ -195,6 +195,7 @@ async def tourney_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
             buttons.append([InlineKeyboardButton("⚙️ Bellashuvlar Taktikasini Sozlash", callback_data="tourney_tactic_pick")])
 
         buttons.append([InlineKeyboardButton("📊 Turnir Setkasini Ko'rish (Juftliklar)", callback_data="tourney_bracket")])
+        buttons.append([InlineKeyboardButton("🛡️ Gildiyalar Natijalari (Reyting)", callback_data="tourney_guilds")])
         buttons.append([InlineKeyboardButton("🎰 Stavka tikish (1.8x)", callback_data="tourney_bet_pick")])
         buttons.append([InlineKeyboardButton("🏛️ Chempionlar Zali (Turnir Tarixi)", callback_data="tourney_history")])
         buttons.append([InlineKeyboardButton("📜 Qoidalar va Shartlar", callback_data="tourney_rules")])
@@ -870,6 +871,48 @@ async def admin_tourney_start_callback(update: Update, context: ContextTypes.DEF
         await _safe_edit_or_reply(query, update, res_msg, reply_markup=keyboard)
 
 
+async def tourney_guilds_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Turnirdagi gildiyalar reytingi va natijalarini ko'rsatish (Stage 5)"""
+    query = update.callback_query
+    if query:
+        try:
+            await query.answer()
+        except Exception:
+            pass
+
+    async with AsyncSessionLocal() as session:
+        standings = await crud.get_tournament_guild_standings(session)
+        tourney = await crud.get_active_tournament(session)
+        if not tourney:
+            stmt = select(models.Tournament).where(models.Tournament.status == "completed").order_by(desc(models.Tournament.id)).limit(1)
+            tourney = (await session.execute(stmt)).scalar_one_or_none()
+
+    t_name = tourney.name if tourney else "Qirollik Turniri"
+    if not standings:
+        text = (
+            f"🛡️🏆 **{escape_md(t_name)} — GILDIYALAR ISHTIROKI**\n\n"
+            f"🕊️ *Ushbu turnirda hali gildiyalar g'alabalari qayd etilmagan yoki turnir davom etmoqda.*\n\n"
+            f"Gildiyangiz a'zolari turnirda jang qilishi va g'alaba qozonishi orqali butun birodarlik uchun **Nufuz (Prestige)** va **XP** keltirishi mumkin!"
+        )
+    else:
+        text = (
+            f"🛡️🏆 **{escape_md(t_name)} — GILDIYALAR NATIJALARI**\n\n"
+            f"Turnirda eng yuqori natija ko'rsatgan birodarliklar:\n\n"
+        )
+        for idx, g in enumerate(standings, 1):
+            medal = "🥇" if idx == 1 else ("🥈" if idx == 2 else ("🥉" if idx == 3 else f"{idx}."))
+            text += (
+                f"{medal} {g.get('banner', '🛡️')} **{escape_md(g.get('name', 'Gildiya'))} {escape_md(g.get('tag', ''))}**\n"
+                f"   └ ⚔️ G'alabalar: **{g.get('wins', 0)}** ta | 🏆 Nufuz: **+{g.get('prestige_earned', 0)}** ball\n\n"
+            )
+
+    buttons = [
+        [InlineKeyboardButton("📊 Turnir Setkasi", callback_data="tourney_bracket")],
+        [InlineKeyboardButton("🔙 Turnir maydoni", callback_data="menu_tourney")]
+    ]
+    await _safe_edit_or_reply(query, update, text, reply_markup=InlineKeyboardMarkup(buttons))
+
+
 def register_tourney_handlers(app: Application):
     """Turnir handlerlarini ro'yxatdan o'tkazish"""
     app.add_handler(CommandHandler(["tourney", "tournament"], tourney_menu_callback))
@@ -892,5 +935,6 @@ def register_tourney_handlers(app: Application):
     app.add_handler(CallbackQueryHandler(tourney_bet_amount_callback, pattern="^tourney_bet_fighter:\\d+$"))
     app.add_handler(CallbackQueryHandler(tourney_bet_do_callback, pattern="^tourney_bet_do:\\d+:\\d+$"))
     app.add_handler(CallbackQueryHandler(tourney_rules_callback, pattern="^tourney_rules$"))
+    app.add_handler(CallbackQueryHandler(tourney_guilds_callback, pattern="^tourney_guilds$"))
     app.add_handler(CallbackQueryHandler(admin_tourney_resolve_callback, pattern="^admin_tourney_resolve$"))
     app.add_handler(CallbackQueryHandler(admin_tourney_start_callback, pattern="^admin_tourney_start$"))

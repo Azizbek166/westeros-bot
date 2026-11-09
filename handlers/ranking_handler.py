@@ -363,6 +363,27 @@ async def format_champion_text(session) -> str:
     return "\n".join(lines)
 
 
+async def format_guilds_text(session) -> str:
+    guilds, total_cnt = await crud.get_guild_rankings(session, limit=10, offset=0)
+    lines = [
+        "🛡️ **VESTEROSNING ENG KUCHLI VA FAOL 10 GILDIYASI (TOP REYTING)**",
+        "",
+        "_Gildiyalar reytingi faqat jamoaviy faollik, bajarilgan vazifalar va daraja asosida hisoblanadi._",
+        ""
+    ]
+    if not guilds:
+        lines.append("_Hozircha birorta ham faol gildiya mavjud emas._")
+    else:
+        for g in guilds:
+            med = MEDALS[g["rank"] - 1] if g["rank"] <= len(MEDALS) else f"{g['rank']}."
+            lines.append(
+                f"{med} **{g['banner']} {escape_md(g['name'])} {escape_md(g['tag'])}** — Level {g['level']} ({g['xp']:,} XP)\n"
+                f"     ⭐ Nufuz: **{g['prestige']:,}** | 👥 A'zolar: **{g['members_count']}/{g['max_members']}** | 👑 {escape_md(g['leader_name'])}"
+            )
+    lines.append("\n_Vazifalarni bajarib o'z birodarligingizni cho'qqiga olib chiqing!_")
+    return "\n".join(lines)
+
+
 def get_ranking_keyboard(category: str = "prestige", period: str = "all") -> InlineKeyboardMarkup:
     """Interaktiv reyting menyusi tugmalari"""
     buttons = [
@@ -388,6 +409,7 @@ def get_ranking_keyboard(category: str = "prestige", period: str = "all") -> Inl
         ],
         [
             InlineKeyboardButton(f"{'✅ ' if category == 'war_recap' else ''}⚔️ Urush Sarhisobi", callback_data="rank_cat:war_recap:all"),
+            InlineKeyboardButton(f"{'✅ ' if category == 'guilds' else ''}🛡️ Gildiyalar (Top 10)", callback_data="rank_cat:guilds:all"),
         ],
     ]
 
@@ -430,6 +452,8 @@ async def show_ranking_hub(target, user_id: int, category: str = "prestige", per
             text = await format_houses_text(session)
         elif category == "champion":
             text = await format_champion_text(session)
+        elif category == "guilds":
+            text = await format_guilds_text(session)
         else:
             text = await format_prestige_text(session, period="all")
 

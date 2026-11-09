@@ -847,6 +847,10 @@ async def recruit_troops(
     await check_and_reset_daily_limits(session, user)
     old_cnt = getattr(user, "daily_recruit_count", 0) or 0
     user.daily_recruit_count = old_cnt + amount
+    try:
+        await record_guild_quest_activity(session, user.id, "recruit", amount)
+    except Exception:
+        pass
     quest_completed = False
     if old_cnt < 100 <= user.daily_recruit_count:
         user.gold += 350
@@ -3834,6 +3838,10 @@ async def fight_ai_champion(
         return {"success": False, "error": f"❌ Bugungi {DAILY_DUEL_LIMIT} ta duel limitingiz tugagan! Ertaga yana maydonga tushishingiz mumkin."}
 
     user.daily_duel_count = duel_cnt + 1
+    try:
+        await record_guild_quest_activity(session, user.id, "duel", 1)
+    except Exception:
+        pass
 
     # Qahramon ko'rsatkichlari
     char_res = await session.execute(select(models.Character).where(models.Character.user_id == user.id))
@@ -6890,9 +6898,10 @@ async def get_active_tournament(session: AsyncSession) -> Optional[models.Tourna
             selectinload(models.Tournament.bets),
         )
         .order_by(desc(models.Tournament.id))
+        .limit(1)
         .execution_options(populate_existing=True)
     )
-    return res.scalar_one_or_none()
+    return res.scalars().first()
 
 
 async def get_or_create_active_tournament(session: AsyncSession) -> Optional[models.Tournament]:
@@ -7073,9 +7082,23 @@ async def enter_tournament(
         }
         t_label = tactic_labels.get(tactic, "🪨 Tosh")
 
+    # Gildiyani aniqlash (Stage 5)
+    mem_res = await session.execute(
+        select(models.GuildMember).where(models.GuildMember.user_id == user.id)
+    )
+    user_mem = mem_res.scalar_one_or_none()
+    user_guild_id = None
+    if user_mem:
+        user_guild = await session.get(models.Guild, user_mem.guild_id)
+        if user_guild and user_guild.is_active:
+            user_guild_id = user_guild.id
+            if user_guild.tag and not fighter_name.startswith(user_guild.tag):
+                fighter_name = f"{user_guild.tag} {fighter_name}"
+
     part = models.TournamentParticipant(
         tournament_id=tourney.id,
         user_id=user.id,
+        guild_id=user_guild_id,
         fighter_name=fighter_name,
         fighter_power=fighter_power,
         tactic=eff_tactic,
@@ -7261,6 +7284,12 @@ def format_tournament_bracket_view(bracket_data: dict, is_completed: bool = Fals
         if runner:
             lines.append(f"🥈 **2-O'RIN (Finalist):** {runner.get('name')}")
 
+    guild_standings = bracket_data.get("guild_standings", [])
+    if guild_standings:
+        lines.append("\n🛡️ ══════ **GILDIYALAR NATIJASI** ══════ 🛡️")
+        for g_idx, gs in enumerate(guild_standings[:5], 1):
+            lines.append(f"{g_idx}. {gs.get('banner', '🛡️')} **{gs.get('name')} {gs.get('tag')}**: {gs.get('wins', 0)} ta g'alaba (+{gs.get('prestige_earned', 0)} Nufuz)")
+
     return "\n".join(lines)
 
 
@@ -7416,6 +7445,7 @@ async def resolve_tournament(session: AsyncSession, bot_app=None) -> Tuple[bool,
         fighters.append({
             "id": p.id,
             "user_id": p.user_id,
+            "guild_id": getattr(p, "guild_id", None),
             "name": p.fighter_name,
             "power": p.fighter_power,
             "tactic": getattr(p, "tactic", "rock") or "rock",
@@ -7423,6 +7453,7 @@ async def resolve_tournament(session: AsyncSession, bot_app=None) -> Tuple[bool,
             "stage_tactics": t_info["stages"],
             "is_npc": (p.id in npc_ids),
         })
+    guild_wins = {}
 
     # Bosqichlar ketma-ketligi
     if k_size == 32:
@@ -7449,6 +7480,9 @@ async def resolve_tournament(session: AsyncSession, bot_app=None) -> Tuple[bool,
             winner = res["winner"]
             loser = res["loser"]
             next_fighters.append(winner)
+            if winner.get("guild_id") and not winner.get("is_npc"):
+                g_id = winner["guild_id"]
+                guild_wins[g_id] = guild_wins.get(g_id, 0) + 1
             if st_code == "sf":
                 sf_losers.append(loser)
 
@@ -7480,6 +7514,9 @@ async def resolve_tournament(session: AsyncSession, bot_app=None) -> Tuple[bool,
         bronze_res = resolve_tourney_duel(sf_losers[0], sf_losers[1], stage="sf")
         third_place = bronze_res["winner"]
         bronze_loser = bronze_res["loser"]
+        if third_place.get("guild_id") and not third_place.get("is_npc"):
+            g_id = third_place["guild_id"]
+            guild_wins[g_id] = guild_wins.get(g_id, 0) + 1
         bronze_match_dict = {
             "f1_id": sf_losers[0]["id"],
             "f1_name": sf_losers[0]["name"],
@@ -7508,6 +7545,9 @@ async def resolve_tournament(session: AsyncSession, bot_app=None) -> Tuple[bool,
     final_res = resolve_tourney_duel(f_final1, f_final2, stage="final")
     champion = final_res["winner"]
     runner_up = final_res["loser"]
+    if champion.get("guild_id") and not champion.get("is_npc"):
+        g_id = champion["guild_id"]
+        guild_wins[g_id] = guild_wins.get(g_id, 0) + 1
 
     final_match_dict = {
         "f1_id": f_final1["id"],
@@ -7539,6 +7579,65 @@ async def resolve_tournament(session: AsyncSession, bot_app=None) -> Tuple[bool,
         "runner_up": {"id": runner_up["id"], "user_id": runner_up["user_id"], "name": runner_up["name"], "is_npc": runner_up["is_npc"]},
         "third_place": {"id": third_place["id"], "user_id": third_place.get("user_id", 0), "name": third_place["name"], "is_npc": third_place.get("is_npc", True)},
     }
+
+    # STAGE 5: Gildiyalarni taqdirlash va Natijalar (Guild Standings)
+    guild_standings_data = []
+    champ_gid = champion.get("guild_id")
+    if champ_gid and not champion.get("is_npc"):
+        c_guild = await session.get(models.Guild, champ_gid)
+        if c_guild and c_guild.is_active:
+            c_guild.prestige = (c_guild.prestige or 0) + 50
+            c_guild.xp = (c_guild.xp or 0) + 150
+            g_log = models.GuildLog(
+                guild_id=c_guild.id,
+                user_id=champion["user_id"],
+                action="tourney_win",
+                details=f"🏆 QIROLLIK CHEMPIONI! {champion['name']} turnirda g'alaba qozonib, gildiyaga +50 Nufuz va +150 XP keltirdi!",
+                created_at=datetime.utcnow()
+            )
+            session.add(g_log)
+
+    runner_gid = runner_up.get("guild_id")
+    if runner_gid and not runner_up.get("is_npc") and runner_gid != champ_gid:
+        r_guild = await session.get(models.Guild, runner_gid)
+        if r_guild and r_guild.is_active:
+            r_guild.prestige = (r_guild.prestige or 0) + 25
+            r_guild.xp = (r_guild.xp or 0) + 75
+            g_log = models.GuildLog(
+                guild_id=r_guild.id,
+                user_id=runner_up["user_id"],
+                action="tourney_runner_up",
+                details=f"🥈 Turnir Finalisti! {runner_up['name']} 2-o'rinni egallab, gildiyaga +25 Nufuz va +75 XP keltirdi!",
+                created_at=datetime.utcnow()
+            )
+            session.add(g_log)
+
+    third_gid = third_place.get("guild_id") if third_place else None
+    if third_gid and not third_place.get("is_npc") and third_gid not in (champ_gid, runner_gid):
+        t_guild = await session.get(models.Guild, third_gid)
+        if t_guild and t_guild.is_active:
+            t_guild.prestige = (t_guild.prestige or 0) + 15
+            t_guild.xp = (t_guild.xp or 0) + 40
+
+    for gid, wins in guild_wins.items():
+        g_obj = await session.get(models.Guild, gid)
+        if g_obj and g_obj.is_active:
+            add_prestige = wins * 5
+            add_xp = wins * 15
+            g_obj.prestige = (g_obj.prestige or 0) + add_prestige
+            g_obj.xp = (g_obj.xp or 0) + add_xp
+            bonus_prest = 50 if gid == champ_gid else (25 if gid == runner_gid else (15 if gid == third_gid else 0))
+            guild_standings_data.append({
+                "guild_id": g_obj.id,
+                "name": g_obj.name,
+                "tag": g_obj.tag,
+                "banner": g_obj.banner or "🛡️",
+                "wins": wins,
+                "prestige_earned": add_prestige + bonus_prest,
+            })
+
+    guild_standings_data.sort(key=lambda x: (x["wins"], x["prestige_earned"]), reverse=True)
+    bracket_dict["guild_standings"] = guild_standings_data
     tourney.bracket_json = json.dumps(bracket_dict, ensure_ascii=False)
 
     # Mukofotlarni hisoblash (1-o'rin 60%, 2-o'rin 25%, 3-o'rin 15%)
@@ -7786,6 +7885,10 @@ async def dispatch_trade_caravan(
     army.cavalry -= escort_cav
     army.infantry -= escort_inf
     user.daily_caravan_send_count = getattr(user, "daily_caravan_send_count", 0) + 1
+    try:
+        await record_guild_quest_activity(session, user.id, "caravan", 1)
+    except Exception:
+        pass
 
     now = datetime.utcnow()
     # 30 daqiqa yo'l vaqti (1800 soniya)
@@ -9564,6 +9667,1127 @@ async def check_and_trigger_all_golden_company_raids(session: AsyncSession, bot_
     return raided_count
 
 
+# ============================================================
+# GUILD SYSTEM CRUD (STAGE 2)
+# ============================================================
+
+GUILD_CREATION_GOLD_COST = 25000
+GUILD_CREATION_MIN_LEVEL = 10
+GUILD_JOIN_MIN_LEVEL = 5
+GUILD_REJOIN_COOLDOWN_HOURS = 24
+
+ROLE_HIERARCHY = {
+    "master": 4,
+    "deputy": 3,
+    "officer": 2,
+    "member": 1,
+}
+
+ROLE_LABELS = {
+    "master": "👑 Yetakchi (Guild Master)",
+    "deputy": "⚔️ O'rinbosar (Deputy)",
+    "officer": "🎖️ Ofitser (Officer)",
+    "member": "🛡️ Birodar (Member)",
+}
+
+
+async def check_guild_cooldown(
+    session: AsyncSession,
+    user_internal_id: int
+) -> Tuple[bool, Optional[datetime], int]:
+    """O'yinchining gildiyaga qo'shilish cooldownini tekshirish"""
+    now = datetime.utcnow()
+    res = await session.execute(
+        select(models.GuildCooldown)
+        .where(
+            models.GuildCooldown.user_id == user_internal_id,
+            models.GuildCooldown.cooldown_type == "leave_rejoin",
+            models.GuildCooldown.expires_at > now,
+        )
+        .order_by(models.GuildCooldown.expires_at.desc())
+    )
+    cd = res.scalars().first()
+    if cd:
+        rem_sec = int((cd.expires_at - now).total_seconds())
+        return True, cd.expires_at, rem_sec
+    return False, None, 0
+
+
+async def get_user_guild_membership(
+    session: AsyncSession,
+    identifier: int
+) -> Tuple[Optional[models.Guild], Optional[models.GuildMember]]:
+    """Foydalanuvchining gildiyasi va a'zolik ma'lumotlarini olish (telegram_id yoki user.id qabul qiladi)"""
+    user = await get_user_any(session, identifier)
+    if not user:
+        return None, None
+
+    stmt = (
+        select(models.GuildMember)
+        .options(
+            selectinload(models.GuildMember.guild).selectinload(models.Guild.members).selectinload(models.GuildMember.user),
+            selectinload(models.GuildMember.guild).selectinload(models.Guild.leader),
+            selectinload(models.GuildMember.user)
+        )
+        .where(models.GuildMember.user_id == user.id)
+    )
+    res = await session.execute(stmt)
+    member = res.scalars().first()
+    if not member or not member.guild or not member.guild.is_active:
+        return None, None
+    return member.guild, member
+
+
+async def get_guild_by_id(
+    session: AsyncSession,
+    guild_id: int
+) -> Optional[models.Guild]:
+    """Gildiyani to'liq a'zolari va yetakchisi bilan olish"""
+    stmt = (
+        select(models.Guild)
+        .options(
+            selectinload(models.Guild.members).selectinload(models.GuildMember.user),
+            selectinload(models.Guild.leader),
+            selectinload(models.Guild.applications).selectinload(models.GuildApplication.user)
+        )
+        .where(models.Guild.id == guild_id, models.Guild.is_active == True)
+    )
+    res = await session.execute(stmt)
+    return res.scalars().first()
+
+
+async def get_active_guilds(
+    session: AsyncSession,
+    limit: int = 10,
+    offset: int = 0,
+    search: Optional[str] = None
+) -> Tuple[List[models.Guild], int]:
+    """Faol gildiyalar ro'yxatini va umumiy sonini olish"""
+    base_filter = [models.Guild.is_active == True]
+    if search:
+        s = f"%{search.strip()}%"
+        base_filter.append(or_(models.Guild.name.ilike(s), models.Guild.tag.ilike(s)))
+
+    # Jami soni
+    cnt_stmt = select(func.count(models.Guild.id)).where(*base_filter)
+    total_cnt = (await session.execute(cnt_stmt)).scalar() or 0
+
+    # Ro'yxat
+    stmt = (
+        select(models.Guild)
+        .options(
+            selectinload(models.Guild.members),
+            selectinload(models.Guild.leader)
+        )
+        .where(*base_filter)
+        .order_by(models.Guild.level.desc(), models.Guild.prestige.desc(), models.Guild.id.asc())
+        .limit(limit)
+        .offset(offset)
+    )
+    res = await session.execute(stmt)
+    guilds = list(res.scalars().all())
+    return guilds, total_cnt
+
+
+async def create_guild(
+    session: AsyncSession,
+    telegram_id: int,
+    name: str,
+    tag: str,
+    description: str = "",
+    banner: str = "🛡️",
+    recruiting_type: str = "open"
+) -> Tuple[bool, str, Optional[models.Guild]]:
+    """Yangi gildiya yaratish (Atomik tranzaksiya, balans va daraja tekshiruvi bilan)"""
+    user = await get_user_by_telegram_id(session, telegram_id)
+    if not user:
+        return False, "❌ Foydalanuvchi topilmadi.", None
+
+    # 1. Daraja tekshiruvi
+    if (user.level or 1) < GUILD_CREATION_MIN_LEVEL:
+        return False, f"❌ Gildiya yaratish uchun kamida {GUILD_CREATION_MIN_LEVEL}-daraja (Oliy Qo'mondon) bo'lishingiz kerak! Sizning darajangiz: {user.level or 1}", None
+
+    # 2. Oltin tekshiruvi
+    if (user.gold or 0) < GUILD_CREATION_GOLD_COST:
+        return False, f"❌ Gildiya yaratish uchun {GUILD_CREATION_GOLD_COST:,}🪙 oltin talab etiladi! Sizda: {user.gold:,}🪙", None
+
+    # 3. Cooldown tekshiruvi
+    has_cd, exp_at, rem_sec = await check_guild_cooldown(session, user.id)
+    if has_cd:
+        hrs = rem_sec // 3600
+        mins = (rem_sec % 3600) // 60
+        return False, f"⏳ Siz yaqinda gildiyani tark etgansiz! Yangi gildiya ochish uchun {hrs} soat {mins} daqiqa kuting.", None
+
+    # 4. Mavjud a'zolik tekshiruvi
+    curr_guild, _ = await get_user_guild_membership(session, user.id)
+    if curr_guild:
+        return False, f"❌ Siz allaqachon '{curr_guild.name}' {curr_guild.tag} gildiyasining a'zosisiz! Avval undan chiqishingiz kerak.", None
+
+    # 5. Nom va Tegni tozalash va tekshirish
+    clean_name = name.strip()
+    if len(clean_name) < 3 or len(clean_name) > 32:
+        return False, "❌ Gildiya nomi 3 tadan 32 tagacha belgidan iborat bo'lishi kerak!", None
+
+    raw_tag = tag.strip().replace("[", "").replace("]", "").upper()
+    if len(raw_tag) < 2 or len(raw_tag) > 6 or not raw_tag.isalnum():
+        return False, "❌ Gildiya tegi 2 tadan 6 tagacha harf yoki sondan iborat bo'lishi kerak (masalan: WOLF, TITAN)!", None
+    formatted_tag = f"[{raw_tag}]"
+
+    # 6. Unikallik tekshiruvi (case-insensitive)
+    existing_stmt = select(models.Guild).where(
+        or_(
+            func.lower(models.Guild.name) == clean_name.lower(),
+            func.lower(models.Guild.tag) == formatted_tag.lower()
+        ),
+        models.Guild.is_active == True
+    )
+    existing = (await session.execute(existing_stmt)).scalars().first()
+    if existing:
+        return False, f"❌ '{clean_name}' nomi yoki '{formatted_tag}' tegi bilan boshqa gildiya allaqachon mavjud!", None
+
+    # 7. Tranzaksiya: Oltinni yechish
+    user.gold -= GUILD_CREATION_GOLD_COST
+    tx = models.Transaction(
+        user_id=user.id,
+        action_type="guild_create",
+        amount_gold=-GUILD_CREATION_GOLD_COST,
+        details=f"Gildiya yaratildi: {clean_name} {formatted_tag}",
+        created_at=datetime.utcnow()
+    )
+    session.add(tx)
+
+    # 8. Gildiya va yetakchi yozuvini yaratish
+    clean_banner = banner.strip() if banner else "🛡️"
+    clean_desc = description.strip()[:250] if description else "Vesterosning shonli birodarligi."
+    clean_rec = recruiting_type if recruiting_type in ["open", "apply", "closed"] else "open"
+
+    guild = models.Guild(
+        name=clean_name,
+        tag=formatted_tag,
+        description=clean_desc,
+        banner=clean_banner,
+        leader_id=user.id,
+        level=1,
+        xp=0,
+        prestige=10,
+        max_members=15,
+        recruiting_type=clean_rec,
+        is_active=True,
+        created_at=datetime.utcnow()
+    )
+    session.add(guild)
+    await session.flush()
+
+    member = models.GuildMember(
+        guild_id=guild.id,
+        user_id=user.id,
+        role="master",
+        joined_at=datetime.utcnow()
+    )
+    session.add(member)
+
+    log = models.GuildLog(
+        guild_id=guild.id,
+        user_id=user.id,
+        action="create",
+        details=f"Gildiya tashkil etildi. Asoschi va Yetakchi: {user.full_name}",
+        created_at=datetime.utcnow()
+    )
+    session.add(log)
+
+    await session.commit()
+    logger.info(f"🏰 Yangi gildiya yaratildi: {guild.name} {guild.tag} (Leader ID {user.id})")
+    return True, f"🎉 Tabriklaymiz! '{guild.name}' {guild.tag} gildiyasi muvaffaqiyatli tashkil etildi!", guild
+
+
+async def join_or_apply_guild(
+    session: AsyncSession,
+    telegram_id: int,
+    guild_id: int
+) -> Tuple[bool, str]:
+    """Gildiyaga qo'shilish yoki ariza yuborish (Rejoin cooldown va daraja tekshiruvi bilan)"""
+    user = await get_user_by_telegram_id(session, telegram_id)
+    if not user:
+        return False, "❌ Foydalanuvchi topilmadi."
+
+    # 1. Daraja tekshiruvi
+    if (user.level or 1) < GUILD_JOIN_MIN_LEVEL:
+        return False, f"❌ Gildiyaga a'zo bo'lish uchun kamida {GUILD_JOIN_MIN_LEVEL}-daraja bo'lishingiz kerak!"
+
+    # 2. Cooldown tekshiruvi
+    has_cd, exp_at, rem_sec = await check_guild_cooldown(session, user.id)
+    if has_cd:
+        hrs = rem_sec // 3600
+        mins = (rem_sec % 3600) // 60
+        return False, f"⏳ Siz yaqinda gildiyani tark etgansiz! Yangi gildiyaga kirish uchun {hrs} soat {mins} daqiqa kuting."
+
+    # 3. Hozirda gildiyada emasligini tekshirish
+    curr_guild, _ = await get_user_guild_membership(session, user.id)
+    if curr_guild:
+        return False, f"❌ Siz allaqachon '{curr_guild.name}' gildiyasi a'zosisiz!"
+
+    # 4. Gildiyani olish
+    guild = await get_guild_by_id(session, guild_id)
+    if not guild or not guild.is_active:
+        return False, "❌ Ushbu gildiya topilmadi yoki faoliyati to'xtatilgan."
+
+    # 5. Sig'im tekshiruvi
+    active_members_cnt = len(guild.members or [])
+    if active_members_cnt >= guild.max_members:
+        return False, f"❌ Ushbu gildiya to'lgan ({active_members_cnt}/{guild.max_members} a'zo)!"
+
+    # 6. Qabul qilish rejimiga qarab harakat
+    if guild.recruiting_type == "closed":
+        return False, "❌ Ushbu gildiyaga a'zolar qabuli yopilgan."
+
+    if guild.recruiting_type == "apply":
+        # Ariza mavjudligini tekshirish
+        app_stmt = select(models.GuildApplication).where(
+            models.GuildApplication.guild_id == guild.id,
+            models.GuildApplication.user_id == user.id,
+            models.GuildApplication.status == "pending"
+        )
+        existing_app = (await session.execute(app_stmt)).scalars().first()
+        if existing_app:
+            return False, "⚠️ Siz allaqachon ushbu gildiyaga ariza yuborgansiz. Yetakchilar javobini kuting."
+
+        new_app = models.GuildApplication(
+            guild_id=guild.id,
+            user_id=user.id,
+            status="pending",
+            created_at=datetime.utcnow()
+        )
+        session.add(new_app)
+        log = models.GuildLog(
+            guild_id=guild.id,
+            user_id=user.id,
+            action="apply",
+            details=f"{user.full_name} a'zolikka ariza yubordi.",
+            created_at=datetime.utcnow()
+        )
+        session.add(log)
+        await session.commit()
+        return True, f"📨 Arizangiz '{guild.name}' {guild.tag} yetakchilariga yuborildi! Arizangiz ma'qullangach, sizga xabar beriladi."
+
+    # recruiting_type == "open" -> Darhol qo'shilish
+    new_member = models.GuildMember(
+        guild_id=guild.id,
+        user_id=user.id,
+        role="member",
+        joined_at=datetime.utcnow()
+    )
+    session.add(new_member)
+    log = models.GuildLog(
+        guild_id=guild.id,
+        user_id=user.id,
+        action="join",
+        details=f"{user.full_name} birodarlikka qo'shildi.",
+        created_at=datetime.utcnow()
+    )
+    session.add(log)
+    await session.commit()
+    return True, f"🎉 Tabriklaymiz! Siz '{guild.name}' {guild.tag} gildiyasining mard a'zosi bo'ldingiz!"
+
+
+async def leave_guild(
+    session: AsyncSession,
+    telegram_id: int
+) -> Tuple[bool, str]:
+    """Gildiyani tark etish (Yetakchi uchun cheklov va 24 soatlik cooldown)"""
+    user = await get_user_by_telegram_id(session, telegram_id)
+    if not user:
+        return False, "❌ Foydalanuvchi topilmadi."
+
+    curr_guild, member = await get_user_guild_membership(session, user.id)
+    if not curr_guild or not member:
+        return False, "❌ Siz hech qaysi gildiya a'zosi emassiz."
+
+    if member.role == "master":
+        return False, "❌ Siz Gildiya Yetakchisisiz! Gildiyadan chiqish uchun avval yetakchilikni boshqa a'zoga topshiring yoki gildiyani tarqatib yuboring."
+
+    guild_id = curr_guild.id
+    guild_name = curr_guild.name
+
+    # A'zolikni o'chirish
+    await session.delete(member)
+
+    # 24 soatlik cooldown o'rnatish
+    cooldown = models.GuildCooldown(
+        user_id=user.id,
+        cooldown_type="leave_rejoin",
+        expires_at=datetime.utcnow() + timedelta(hours=GUILD_REJOIN_COOLDOWN_HOURS),
+        created_at=datetime.utcnow()
+    )
+    session.add(cooldown)
+
+    log = models.GuildLog(
+        guild_id=guild_id,
+        user_id=user.id,
+        action="leave",
+        details=f"{user.full_name} birodarlikni tark etdi.",
+        created_at=datetime.utcnow()
+    )
+    session.add(log)
+
+    await session.commit()
+    return True, f"🚪 Siz '{guild_name}' gildiyasini tark etdingiz. Anti-hopping qoidasiga ko'ra 24 soat davomida yangi gildiyaga kira olmaysiz."
+
+
+async def kick_guild_member(
+    session: AsyncSession,
+    actor_tg_id: int,
+    target_member_id: int
+) -> Tuple[bool, str]:
+    """Gildiya a'zosini haydash (Ierarxiya tekshiruvi va 24 soat cooldown bilan)"""
+    actor = await get_user_by_telegram_id(session, actor_tg_id)
+    if not actor:
+        return False, "❌ Foydalanuvchi topilmadi."
+
+    actor_guild, actor_mem = await get_user_guild_membership(session, actor.id)
+    if not actor_guild or not actor_mem:
+        return False, "❌ Siz hech qaysi gildiyada emassiz."
+
+    target_mem = await session.get(models.GuildMember, target_member_id)
+    if not target_mem or target_mem.guild_id != actor_guild.id:
+        return False, "❌ Ushbu a'zo sizning gildiyangizda topilmadi."
+
+    target_user = await session.get(models.User, target_mem.user_id)
+    target_name = target_user.full_name if target_user else "A'zo"
+
+    # Ierarxiya tekshiruvi: Actor roli target roliga nisbatan yuqori bo'lishi shart!
+    actor_level = ROLE_HIERARCHY.get(actor_mem.role, 0)
+    target_level = ROLE_HIERARCHY.get(target_mem.role, 0)
+
+    if actor_level <= 1:
+        return False, "❌ Sizda a'zolarni haydash huquqi yo'q!"
+
+    if actor_level <= target_level:
+        return False, f"❌ Siz o'zingiz bilan teng yoki yuqori lavozimdagi a'zoni ({target_mem.role}) hayday olmaysiz!"
+
+    # Haydash
+    await session.delete(target_mem)
+
+    # Nishonga 24 soatlik cooldown
+    cd = models.GuildCooldown(
+        user_id=target_mem.user_id,
+        cooldown_type="leave_rejoin",
+        expires_at=datetime.utcnow() + timedelta(hours=GUILD_REJOIN_COOLDOWN_HOURS),
+        created_at=datetime.utcnow()
+    )
+    session.add(cd)
+
+    log = models.GuildLog(
+        guild_id=actor_guild.id,
+        user_id=actor.id,
+        action="kick",
+        details=f"{actor.full_name} ({actor_mem.role}) tomonidan {target_name} haydaldi.",
+        created_at=datetime.utcnow()
+    )
+    session.add(log)
+
+    await session.commit()
+    return True, f"👢 {target_name} gildiyadan muvaffaqiyatli chetlashtirildi."
+
+
+async def set_guild_member_role(
+    session: AsyncSession,
+    actor_tg_id: int,
+    target_member_id: int,
+    new_role: str
+) -> Tuple[bool, str]:
+    """A'zo lavozimini o'zgartirish (Master va Deputy ruxsatlari)"""
+    actor = await get_user_by_telegram_id(session, actor_tg_id)
+    if not actor:
+        return False, "❌ Foydalanuvchi topilmadi."
+
+    actor_guild, actor_mem = await get_user_guild_membership(session, actor.id)
+    if not actor_guild or not actor_mem:
+        return False, "❌ Siz hech qaysi gildiyada emassiz."
+
+    if new_role not in ["deputy", "officer", "member"]:
+        return False, "❌ Noto'g'ri lavozim tanlandi."
+
+    target_mem = await session.get(models.GuildMember, target_member_id)
+    if not target_mem or target_mem.guild_id != actor_guild.id:
+        return False, "❌ Ushbu a'zo topilmadi."
+
+    target_user = await session.get(models.User, target_mem.user_id)
+    target_name = target_user.full_name if target_user else "A'zo"
+
+    # Faqat Yetakchi lavozimlarni erkin o'zgartira oladi
+    # O'rinbosar faqat oddiy a'zoni Ofitser qila oladi
+    if actor_mem.role != "master":
+        if not (actor_mem.role == "deputy" and new_role == "officer" and target_mem.role == "member"):
+            return False, "❌ Bu lavozimni tayinlash huquqi faqat Yetakchiga berilgan!"
+
+    if target_mem.role == "master":
+        return False, "❌ Yetakchi lavozimini bu yerdan o'zgartirib bo'lmaydi. 'Yetakchilikni topshirish' menyusidan foydalaning."
+
+    old_role_label = ROLE_LABELS.get(target_mem.role, target_mem.role)
+    new_role_label = ROLE_LABELS.get(new_role, new_role)
+    target_mem.role = new_role
+
+    log = models.GuildLog(
+        guild_id=actor_guild.id,
+        user_id=actor.id,
+        action="promote" if ROLE_HIERARCHY[new_role] > ROLE_HIERARCHY.get(target_mem.role, 1) else "demote",
+        details=f"{actor.full_name} tomonidan {target_name} lavozimi o'zgartirildi: {old_role_label} -> {new_role_label}",
+        created_at=datetime.utcnow()
+    )
+    session.add(log)
+
+    await session.commit()
+    return True, f"🎖️ {target_name} lavozimi muvaffaqiyatli '{new_role_label}'ga o'zgartirildi!"
+
+
+async def transfer_guild_leadership(
+    session: AsyncSession,
+    master_tg_id: int,
+    new_leader_member_id: int
+) -> Tuple[bool, str]:
+    """Gildiya yetakchiligini topshirish (Faqat Yetakchi uchun)"""
+    actor = await get_user_by_telegram_id(session, master_tg_id)
+    if not actor:
+        return False, "❌ Foydalanuvchi topilmadi."
+
+    actor_guild, actor_mem = await get_user_guild_membership(session, actor.id)
+    if not actor_guild or not actor_mem or actor_mem.role != "master":
+        return False, "❌ Faqat Gildiya Yetakchisi yetakchilikni boshqa shaxsga topshira oladi!"
+
+    target_mem = await session.get(models.GuildMember, new_leader_member_id)
+    if not target_mem or target_mem.guild_id != actor_guild.id:
+        return False, "❌ Belgilangan a'zo ushbu gildiyada topilmadi."
+
+    if target_mem.id == actor_mem.id:
+        return False, "❌ Siz allaqachon yetakchisiz."
+
+    target_user = await session.get(models.User, target_mem.user_id)
+    target_name = target_user.full_name if target_user else "Yangi Yetakchi"
+
+    # Rollarni almashtirish
+    target_mem.role = "master"
+    actor_mem.role = "deputy"
+    actor_guild.leader_id = target_mem.user_id
+
+    log = models.GuildLog(
+        guild_id=actor_guild.id,
+        user_id=actor.id,
+        action="transfer_master",
+        details=f"Yetakchilik {actor.full_name} tomonidan {target_name}ga topshirildi.",
+        created_at=datetime.utcnow()
+    )
+    session.add(log)
+
+    await session.commit()
+    return True, f"👑 Gildiya boshqaruv jilovi {target_name}ga tantanali ravishda topshirildi! Siz O'rinbosar lavozimiga o'tdingiz."
+
+
+async def disband_guild(
+    session: AsyncSession,
+    master_tg_id: int,
+    guild_id: int
+) -> Tuple[bool, str]:
+    """Gildiyani tarqatib yuborish (Faqat Yetakchi uchun)"""
+    actor = await get_user_by_telegram_id(session, master_tg_id)
+    if not actor:
+        return False, "❌ Foydalanuvchi topilmadi."
+
+    actor_guild, actor_mem = await get_user_guild_membership(session, actor.id)
+    if not actor_guild or not actor_mem or actor_mem.role != "master" or actor_guild.id != guild_id:
+        return False, "❌ Faqat ushbu gildiyaning Yetakchisi uni tarqatib yubora oladi!"
+
+    guild_name = actor_guild.name
+
+    # Barcha arizalarni bekor qilish
+    apps_stmt = select(models.GuildApplication).where(models.GuildApplication.guild_id == guild_id)
+    apps = (await session.execute(apps_stmt)).scalars().all()
+    for a in apps:
+        await session.delete(a)
+
+    # Barcha a'zolarni tozalash
+    mems_stmt = select(models.GuildMember).where(models.GuildMember.guild_id == guild_id)
+    mems = (await session.execute(mems_stmt)).scalars().all()
+    for m in mems:
+        await session.delete(m)
+
+    # Gildiyani nofaol qilish
+    actor_guild.is_active = False
+
+    log = models.GuildLog(
+        guild_id=guild_id,
+        user_id=actor.id,
+        action="disband",
+        details=f"Gildiya Yetakchi {actor.full_name} tomonidan tarqatib yuborildi.",
+        created_at=datetime.utcnow()
+    )
+    session.add(log)
+
+    await session.commit()
+    logger.info(f"💥 Gildiya tarqatildi: {guild_name} (ID {guild_id})")
+    return True, f"💥 '{guild_name}' gildiyasi butunlay tarqatib yuborildi."
+
+
+async def handle_guild_application(
+    session: AsyncSession,
+    actor_tg_id: int,
+    app_id: int,
+    action: str
+) -> Tuple[bool, str]:
+    """Gildiya arizasini ko'rib chiqish: 'accept' yoki 'reject' (Officer, Deputy, Master uchun)"""
+    actor = await get_user_by_telegram_id(session, actor_tg_id)
+    if not actor:
+        return False, "❌ Foydalanuvchi topilmadi."
+
+    actor_guild, actor_mem = await get_user_guild_membership(session, actor.id)
+    if not actor_guild or not actor_mem or actor_mem.role not in ["master", "deputy", "officer"]:
+        return False, "❌ Sizda arizalarni ko'rib chiqish huquqi yo'q!"
+
+    app = await session.get(models.GuildApplication, app_id)
+    if not app or app.guild_id != actor_guild.id:
+        return False, "❌ Ushbu ariza topilmadi."
+
+    if app.status != "pending":
+        return False, f"⚠️ Ushbu ariza allaqachon ko'rib chiqilgan ({app.status})."
+
+    applicant = await session.get(models.User, app.user_id)
+    app_name = applicant.full_name if applicant else "Nomzod"
+
+    if action == "reject":
+        app.status = "rejected"
+        log = models.GuildLog(
+            guild_id=actor_guild.id,
+            user_id=actor.id,
+            action="reject_app",
+            details=f"{app_name} arizasi {actor.full_name} tomonidan rad etildi.",
+            created_at=datetime.utcnow()
+        )
+        session.add(log)
+        await session.commit()
+        return True, f"🚫 {app_name} arizasi rad etildi."
+
+    if action == "accept":
+        # 1. Nomzod boshqa gildiyaga kirib ulgurmaganligini tekshirish
+        other_guild, _ = await get_user_guild_membership(session, app.user_id)
+        if other_guild:
+            app.status = "cancelled"
+            await session.commit()
+            return False, f"⚠️ {app_name} allaqachon boshqa '{other_guild.name}' gildiyasiga a'zo bo'lib ulgurgan."
+
+        # 2. Sig'imni tekshirish
+        cur_mems_cnt = len(actor_guild.members or [])
+        if cur_mems_cnt >= actor_guild.max_members:
+            return False, f"❌ Gildiya a'zolari soni maksimal sig'imga yetgan ({cur_mems_cnt}/{actor_guild.max_members})!"
+
+        # 3. Qabul qilish
+        new_mem = models.GuildMember(
+            guild_id=actor_guild.id,
+            user_id=app.user_id,
+            role="member",
+            joined_at=datetime.utcnow()
+        )
+        session.add(new_mem)
+        app.status = "accepted"
+
+        log = models.GuildLog(
+            guild_id=actor_guild.id,
+            user_id=actor.id,
+            action="accept_app",
+            details=f"{app_name} arizasi {actor.full_name} tomonidan qabul qilindi.",
+            created_at=datetime.utcnow()
+        )
+        session.add(log)
+        await session.commit()
+        return True, f"🎉 {app_name} arizasi muvaffaqiyatli qabul qilindi va gildiyaga a'zo bo'ldi!"
+
+    return False, "❌ Noma'lum amal."
+
+
+async def update_guild_settings(
+    session: AsyncSession,
+    actor_tg_id: int,
+    guild_id: int,
+    description: Optional[str] = None,
+    banner: Optional[str] = None,
+    recruiting_type: Optional[str] = None
+) -> Tuple[bool, str]:
+    """Gildiya sozlamalarini yangilash (Master va Deputy uchun)"""
+    actor = await get_user_by_telegram_id(session, actor_tg_id)
+    if not actor:
+        return False, "❌ Foydalanuvchi topilmadi."
+
+    actor_guild, actor_mem = await get_user_guild_membership(session, actor.id)
+    if not actor_guild or not actor_mem or actor_mem.role not in ["master", "deputy"] or actor_guild.id != guild_id:
+        return False, "❌ Sozlamalarni faqat Yetakchi va O'rinbosar o'zgartira oladi!"
+
+    if description is not None:
+        actor_guild.description = description.strip()[:250]
+    if banner is not None:
+        actor_guild.banner = banner.strip()
+    if recruiting_type is not None and recruiting_type in ["open", "apply", "closed"]:
+        actor_guild.recruiting_type = recruiting_type
+
+    log = models.GuildLog(
+        guild_id=actor_guild.id,
+        user_id=actor.id,
+        action="settings_update",
+        details=f"{actor.full_name} sozlamalarni yangiladi.",
+        created_at=datetime.utcnow()
+    )
+    session.add(log)
+
+    await session.commit()
+    return True, "⚙️ Gildiya sozlamalari muvaffaqiyatli saqlandi!"
+
+
+async def get_user_pending_applications(
+    session: AsyncSession,
+    telegram_id: int
+) -> List[models.GuildApplication]:
+    """Foydalanuvchining ko'rib chiqilayotgan barcha arizalarini olish"""
+    user = await get_user_by_telegram_id(session, telegram_id)
+    if not user:
+        return []
+
+    stmt = (
+        select(models.GuildApplication)
+        .options(selectinload(models.GuildApplication.guild))
+        .where(
+            models.GuildApplication.user_id == user.id,
+            models.GuildApplication.status == "pending"
+        )
+        .order_by(models.GuildApplication.created_at.desc())
+    )
+    res = await session.execute(stmt)
+    return list(res.scalars().all())
+
+
+async def cancel_guild_application(
+    session: AsyncSession,
+    telegram_id: int,
+    app_id: int
+) -> Tuple[bool, str]:
+    """Foydalanuvchi tomonidan yuborilgan arizani bekor qilish"""
+    user = await get_user_by_telegram_id(session, telegram_id)
+    if not user:
+        return False, "❌ Foydalanuvchi topilmadi."
+
+    app = await session.get(models.GuildApplication, app_id)
+    if not app or app.user_id != user.id:
+        return False, "❌ Ariza topilmadi."
+
+    if app.status != "pending":
+        return False, "❌ Faqat kutilayotgan arizani bekor qilish mumkin."
+
+    app.status = "cancelled"
+    await session.commit()
+    return True, "🗑️ Arizangiz bekor qilindi."
+
+
+# ============================================================
+# GUILD QUESTS & RANKINGS CRUD (STAGE 3)
+# ============================================================
+
+GUILD_QUESTS_CONFIG = {
+    "quiz": {
+        "code": "quiz",
+        "title": "📚 Maester Saboqlari (Viktorina)",
+        "desc": "Gildiya a'zolari Tsitadel viktorinasi yoki Kengash savollariga javob berishi kerak.",
+        "target_count": 12,
+        "individual_cap": 4,
+        "reward_guild_xp": 350,
+        "reward_guild_prestige": 15,
+        "reward_gold": 250,
+        "reward_iron": 50,
+        "reward_food": 0,
+        "reward_user_xp": 60,
+        "reward_user_prestige": 5,
+    },
+    "duel": {
+        "code": "duel",
+        "title": "⚔️ Arena Qahramonlari (Duellar)",
+        "desc": "Gildiya a'zolari gladiatorlar maydonida 1v1 duellarda ishtirok etishi kerak.",
+        "target_count": 8,
+        "individual_cap": 3,
+        "reward_guild_xp": 400,
+        "reward_guild_prestige": 20,
+        "reward_gold": 300,
+        "reward_iron": 0,
+        "reward_food": 100,
+        "reward_user_xp": 75,
+        "reward_user_prestige": 8,
+    },
+    "recruit": {
+        "code": "recruit",
+        "title": "🛡️ Temir Intizom (Askar Yollash)",
+        "desc": "Gildiya a'zolari garnizon va armiyalarga yangi askarlar safarbar qilishi kerak.",
+        "target_count": 50,
+        "individual_cap": 20,
+        "reward_guild_xp": 450,
+        "reward_guild_prestige": 25,
+        "reward_gold": 350,
+        "reward_iron": 80,
+        "reward_food": 0,
+        "reward_user_xp": 90,
+        "reward_user_prestige": 10,
+    },
+    "caravan": {
+        "code": "caravan",
+        "title": "🐪 Erkin Shaharlar Savdosi (Karvonlar)",
+        "desc": "Gildiya a'zolari savdo karvonlarini manziliga xavfsiz jo'natishi kerak.",
+        "target_count": 4,
+        "individual_cap": 2,
+        "reward_guild_xp": 300,
+        "reward_guild_prestige": 15,
+        "reward_gold": 250,
+        "reward_iron": 40,
+        "reward_food": 120,
+        "reward_user_xp": 60,
+        "reward_user_prestige": 5,
+    },
+}
+
+GUILD_LEVEL_THRESHOLDS = {
+    1: {"xp": 0, "max_members": 15, "title": "🌱 Yangi Birodarlik"},
+    2: {"xp": 1500, "max_members": 18, "title": "⚔️ Qasamyodli Ritsarlar"},
+    3: {"xp": 4000, "max_members": 21, "title": "🛡️ Po'lat Qalqonlar"},
+    4: {"xp": 8000, "max_members": 25, "title": "🎖️ Buyuk Orden"},
+    5: {"xp": 15000, "max_members": 30, "title": "👑 Afsonaviy Birodarlik (MAX)"},
+}
+
+
+async def get_or_create_daily_guild_quests(
+    session: AsyncSession,
+    guild_id: int,
+    date_str: Optional[str] = None
+) -> List[models.GuildQuest]:
+    """Gildiyaning bugungi kunlik vazifalarini olish yoki yaratish"""
+    if date_str is None:
+        date_str = get_game_today_str()
+
+    stmt = (
+        select(models.GuildQuest)
+        .options(selectinload(models.GuildQuest.progress))
+        .where(
+            models.GuildQuest.guild_id == guild_id,
+            models.GuildQuest.reset_date == date_str
+        )
+        .order_by(models.GuildQuest.id.asc())
+    )
+    existing_quests = list((await session.execute(stmt)).scalars().all())
+
+    existing_codes = {q.quest_code: q for q in existing_quests}
+    created_any = False
+
+    for q_code, q_info in GUILD_QUESTS_CONFIG.items():
+        if q_code not in existing_codes:
+            new_q = models.GuildQuest(
+                guild_id=guild_id,
+                quest_code=q_code,
+                title=q_info["title"],
+                target_count=q_info["target_count"],
+                current_count=0,
+                reward_xp=q_info["reward_guild_xp"],
+                reward_prestige=q_info["reward_guild_prestige"],
+                is_completed=False,
+                reset_date=date_str,
+                created_at=datetime.utcnow()
+            )
+            session.add(new_q)
+            existing_quests.append(new_q)
+            created_any = True
+
+    if created_any:
+        await session.commit()
+        # Qayta yuklash
+        res = await session.execute(stmt)
+        existing_quests = list(res.scalars().all())
+
+    return existing_quests
+
+
+async def record_guild_quest_activity(
+    session: AsyncSession,
+    user_internal_id: int,
+    activity_type: str,
+    count: int = 1
+) -> Tuple[bool, str]:
+    """O'yinchi faolligini gildiya kunlik kvestiga qo'shish (Individual cap va server-side verification bilan)"""
+    if count <= 0:
+        return False, "Noto'g'ri son."
+
+    # 1. Foydalanuvchining gildiyasi borligini tekshirish
+    guild, member = await get_user_guild_membership(session, user_internal_id)
+    if not guild or not member:
+        return False, "Foydalanuvchi gildiyada emas."
+
+    # 2. Bugungi sanani olish
+    today_str = get_game_today_str()
+    quests = await get_or_create_daily_guild_quests(session, guild.id, today_str)
+
+    target_quest = None
+    for q in quests:
+        if q.quest_code == activity_type:
+            target_quest = q
+            break
+
+    if not target_quest:
+        return False, f"Vazifa kodi topilmadi: {activity_type}"
+
+    q_cfg = GUILD_QUESTS_CONFIG.get(activity_type)
+    if not q_cfg:
+        return False, "Vazifa konfiguratsiyasi topilmadi."
+
+    # 3. Individual progressni olish yoki yaratish
+    prog_stmt = select(models.GuildQuestProgress).where(
+        models.GuildQuestProgress.quest_id == target_quest.id,
+        models.GuildQuestProgress.user_id == user_internal_id
+    )
+    prog = (await session.execute(prog_stmt)).scalars().first()
+    if not prog:
+        prog = models.GuildQuestProgress(
+            quest_id=target_quest.id,
+            user_id=user_internal_id,
+            progress_count=0,
+            reward_claimed=False,
+            updated_at=datetime.utcnow()
+        )
+        session.add(prog)
+        await session.flush()
+
+    # 4. Individual cap tekshiruvi (kunlik bitta o'yinchi limiti)
+    cap = q_cfg["individual_cap"]
+    available_to_add = cap - prog.progress_count
+    if available_to_add <= 0:
+        return False, f"Ushbu vazifada bugungi shaxsiy hissa limitingizga yetgansiz ({prog.progress_count}/{cap})."
+
+    actual_add = min(count, available_to_add)
+    prog.progress_count += actual_add
+    prog.updated_at = datetime.utcnow()
+
+    # 5. Gildiya umumiy kvestini oshirish
+    if not target_quest.is_completed:
+        target_quest.current_count = min(target_quest.target_count, target_quest.current_count + actual_add)
+        if target_quest.current_count >= target_quest.target_count:
+            target_quest.is_completed = True
+            guild.xp += target_quest.reward_xp
+            guild.prestige += target_quest.reward_prestige
+
+            # 6. Gildiya darajasi (Level Up) tekshiruvi
+            for lvl in sorted(GUILD_LEVEL_THRESHOLDS.keys(), reverse=True):
+                lvl_info = GUILD_LEVEL_THRESHOLDS[lvl]
+                if guild.xp >= lvl_info["xp"] and guild.level < lvl:
+                    guild.level = lvl
+                    guild.max_members = lvl_info["max_members"]
+                    log = models.GuildLog(
+                        guild_id=guild.id,
+                        user_id=user_internal_id,
+                        action="level_up",
+                        details=f"🎉 Gildiya Level {lvl} ({lvl_info['title']}) darajasiga ko'tarildi! Yangi a'zolar sig'imi: {guild.max_members} ta.",
+                        created_at=datetime.utcnow()
+                    )
+                    session.add(log)
+                    break
+
+    # 7. A'zoning shaxsiy statistikasiga yozish
+    member.daily_xp_contributed = (member.daily_xp_contributed or 0) + (actual_add * 10)
+    member.total_xp_contributed = (member.total_xp_contributed or 0) + (actual_add * 10)
+
+    await session.commit()
+    return True, f"✅ Gildiya vazifasiga hissa qo'shildi: +{actual_add}"
+
+
+async def claim_guild_quest_reward(
+    session: AsyncSession,
+    telegram_id: int,
+    quest_id: int
+) -> Tuple[bool, str]:
+    """Gildiya vazifasi mukofotini olish (faqat hissa qo'shgan a'zolar uchun, takroriy olib bo'lmaydi)"""
+    user = await get_user_by_telegram_id(session, telegram_id)
+    if not user:
+        return False, "❌ Foydalanuvchi topilmadi."
+
+    guild, member = await get_user_guild_membership(session, user.id)
+    if not guild or not member:
+        return False, "❌ Siz hech qaysi gildiya a'zosi emassiz."
+
+    quest = await session.get(models.GuildQuest, quest_id)
+    if not quest or quest.guild_id != guild.id:
+        return False, "❌ Ushbu vazifa sizning gildiyangizga tegishli emas."
+
+    if not quest.is_completed:
+        return False, f"⏳ Ushbu vazifa hali to'liq bajarilmagan ({quest.current_count}/{quest.target_count})!"
+
+    prog_stmt = select(models.GuildQuestProgress).where(
+        models.GuildQuestProgress.quest_id == quest.id,
+        models.GuildQuestProgress.user_id == user.id
+    )
+    prog = (await session.execute(prog_stmt)).scalars().first()
+
+    if not prog or prog.progress_count <= 0:
+        return False, "❌ Siz ushbu vazifaga hissa qo'shmagansiz! Mukofot faqat ishtirok etgan a'zolarga beriladi."
+
+    if prog.reward_claimed:
+        return False, "⚠️ Siz ushbu vazifa mukofotini allaqachon olgansiz!"
+
+    # Mukofotni berish
+    q_cfg = GUILD_QUESTS_CONFIG.get(quest.quest_code, {})
+    r_gold = q_cfg.get("reward_gold", 250)
+    r_iron = q_cfg.get("reward_iron", 50)
+    r_food = q_cfg.get("reward_food", 0)
+    r_xp = q_cfg.get("reward_user_xp", 60)
+    r_prestige = q_cfg.get("reward_user_prestige", 5)
+
+    # Faol gildiya buffini tekshirish
+    now = datetime.utcnow()
+    buff_note = ""
+    if guild.active_buff_type == "bounty_boost" and guild.active_buff_expires_at and guild.active_buff_expires_at > now:
+        r_xp = int(r_xp * 1.5)
+        buff_note = " (+50% Kvest Bonusi)"
+    elif guild.active_buff_type == "feast" and guild.active_buff_expires_at and guild.active_buff_expires_at > now:
+        r_xp = int(r_xp * 1.1)
+        buff_note = " (+10% Ziyofat Bonusi)"
+
+    user.gold += r_gold
+    user.iron += r_iron
+    user.food += r_food
+    user.xp += r_xp
+    user.prestige += r_prestige
+
+    prog.reward_claimed = True
+
+    tx = models.Transaction(
+        user_id=user.id,
+        action_type="guild_quest_reward",
+        amount_gold=r_gold,
+        amount_iron=r_iron,
+        amount_food=r_food,
+        details=f"Gildiya vazifasi mukofoti: {quest.title}",
+        created_at=datetime.utcnow()
+    )
+    session.add(tx)
+
+    await session.commit()
+    res_parts = [f"+{r_gold:,}🪙 Oltin"]
+    if r_iron > 0:
+        res_parts.append(f"+{r_iron:,}⛓️ Temir")
+    if r_food > 0:
+        res_parts.append(f"+{r_food:,}🌾 G'alla")
+    res_parts.append(f"+{r_xp} XP{buff_note}")
+    res_parts.append(f"+{r_prestige} Prestige")
+
+    return True, f"🎉 Tabriklaymiz! Vazifa mukofoti berildi: {', '.join(res_parts)}!"
+
+
+async def get_guild_quests_data(
+    session: AsyncSession,
+    guild_id: int,
+    user_internal_id: int
+) -> dict:
+    """Gildiyaning barcha kvestlari va foydalanuvchining hissasini olish"""
+    guild = await session.get(models.Guild, guild_id)
+    today_str = get_game_today_str()
+    quests = await get_or_create_daily_guild_quests(session, guild_id, today_str)
+
+    res_quests = []
+    for q in quests:
+        q_cfg = GUILD_QUESTS_CONFIG.get(q.quest_code, {})
+        cap = q_cfg.get("individual_cap", 5)
+
+        # Foydalanuvchi hissasi
+        prog_stmt = select(models.GuildQuestProgress).where(
+            models.GuildQuestProgress.quest_id == q.id,
+            models.GuildQuestProgress.user_id == user_internal_id
+        )
+        prog = (await session.execute(prog_stmt)).scalars().first()
+
+        user_cnt = prog.progress_count if prog else 0
+        is_claimed = prog.reward_claimed if prog else False
+        can_claim = bool(q.is_completed and user_cnt > 0 and not is_claimed)
+
+        res_quests.append({
+            "id": q.id,
+            "code": q.quest_code,
+            "title": q.title,
+            "desc": q_cfg.get("desc", ""),
+            "target": q.target_count,
+            "current": q.current_count,
+            "is_completed": q.is_completed,
+            "user_progress": user_cnt,
+            "individual_cap": cap,
+            "reward_claimed": is_claimed,
+            "can_claim": can_claim,
+            "rewards": {
+                "gold": q_cfg.get("reward_gold", 250),
+                "iron": q_cfg.get("reward_iron", 50),
+                "food": q_cfg.get("reward_food", 0),
+                "xp": q_cfg.get("reward_user_xp", 60),
+                "prestige": q_cfg.get("reward_user_prestige", 5),
+            }
+        })
+
+    # Gildiya darajasi ma'lumotlari
+    cur_lvl = guild.level or 1
+    cur_xp = guild.xp or 0
+    next_lvl = min(5, cur_lvl + 1)
+    next_xp = GUILD_LEVEL_THRESHOLDS[next_lvl]["xp"] if next_lvl > cur_lvl else cur_xp
+    lvl_title = GUILD_LEVEL_THRESHOLDS.get(cur_lvl, {}).get("title", "Birodarlik")
+
+    return {
+        "guild": guild,
+        "today_str": today_str,
+        "quests": res_quests,
+        "level": cur_lvl,
+        "xp": cur_xp,
+        "next_level_xp": next_xp,
+        "title": lvl_title,
+    }
+
+
+async def get_guild_rankings(
+    session: AsyncSession,
+    limit: int = 10,
+    offset: int = 0
+) -> Tuple[List[dict], int]:
+    """Mustaqil Gildiyalar Reytingi (Faollik, Nufuz va Daraja asosida, donorlik yoki shaxsiy boyliksiz)"""
+    cnt_stmt = select(func.count(models.Guild.id)).where(models.Guild.is_active == True)
+    total_cnt = (await session.execute(cnt_stmt)).scalar() or 0
+
+    stmt = (
+        select(models.Guild)
+        .options(
+            selectinload(models.Guild.members),
+            selectinload(models.Guild.leader)
+        )
+        .where(models.Guild.is_active == True)
+        .order_by(
+            models.Guild.level.desc(),
+            models.Guild.prestige.desc(),
+            models.Guild.xp.desc(),
+            models.Guild.created_at.asc()
+        )
+        .limit(limit)
+        .offset(offset)
+    )
+    guilds = list((await session.execute(stmt)).scalars().all())
+
+    items = []
+    for idx, g in enumerate(guilds, start=offset + 1):
+        leader_name = g.leader.full_name if g.leader else "Noma'lum"
+        items.append({
+            "rank": idx,
+            "id": g.id,
+            "banner": g.banner or "🛡️",
+            "name": g.name,
+            "tag": g.tag,
+            "level": g.level,
+            "xp": g.xp,
+            "prestige": g.prestige,
+            "members_count": len(g.members or []),
+            "max_members": g.max_members,
+            "leader_name": leader_name,
+        })
+
+    return items, total_cnt
 
 
 
@@ -9577,3 +10801,378 @@ async def check_and_trigger_all_golden_company_raids(session: AsyncSession, bot_
 
 
 
+
+
+
+
+# ============================================================
+# STAGE 4 — GUILD TREASURY (GILDIYA XAZINASI VA BUFFLAR)
+# ============================================================
+
+TREASURY_DAILY_GOLD_LIMIT = 5000
+TREASURY_DAILY_IRON_LIMIT = 1000
+
+GUILD_BUFFS_CONFIG = {
+    "feast": {
+        "code": "feast",
+        "name": "🍗 Gildiya Ziyofati",
+        "desc": "24 soat davomida barcha a'zolarga +10% XP bonusi",
+        "gold_cost": 5000,
+        "iron_cost": 0,
+        "duration_hours": 24,
+    },
+    "armament": {
+        "code": "armament",
+        "name": "⚔️ Birodarlik Qurollanishi",
+        "desc": "Gildiyaga darhol +50 Nufuz (Prestige) va +100 XP qo'shadi",
+        "gold_cost": 8000,
+        "iron_cost": 2000,
+        "duration_hours": 0,  # Doimiy (XP va Nufuz)
+    },
+    "bounty_boost": {
+        "code": "bounty_boost",
+        "name": "📜 Kvest Mukofotlarini Kuchaytirish",
+        "desc": "24 soat davomida gildiya kvestlaridan olinadigan shaxsiy XP +50%",
+        "gold_cost": 4000,
+        "iron_cost": 0,
+        "duration_hours": 24,
+    },
+}
+
+
+async def deposit_to_guild_treasury(
+    session: AsyncSession,
+    telegram_id: int,
+    gold_amount: int = 0,
+    iron_amount: int = 0
+) -> Tuple[bool, str]:
+    """
+    Gildiya xazinasiga oltin yoki temir topshirish.
+    - Kunlik limitlar: max 5,000 oltin, max 1,000 temir.
+    - Shaxsiy balansdan xavfsiz va atomik ravishda yechiladi.
+    - Manfiy qiymatlar va noqonuniy so'rovlar qat'iyan rad etiladi.
+    """
+    try:
+        gold_amount = int(gold_amount)
+        iron_amount = int(iron_amount)
+    except (ValueError, TypeError):
+        return False, "❌ Noto'g'ri miqdor kiritildi!"
+
+    if gold_amount < 0 or iron_amount < 0:
+        return False, "❌ Miqdor manfiy bo'lishi mumkin emas!"
+
+    if gold_amount == 0 and iron_amount == 0:
+        return False, "❌ Hech bo'lmaganda 1 ta resurs miqdorini kiritishingiz kerak!"
+
+    # 1. Foydalanuvchini bloklash (row-level lock)
+    user_stmt = select(models.User).where(models.User.telegram_id == telegram_id).with_for_update()
+    user = (await session.execute(user_stmt)).scalar_one_or_none()
+    if not user:
+        return False, "❌ Foydalanuvchi topilmadi!"
+
+    # 2. A'zolikni tekshirish
+    mem_stmt = select(models.GuildMember).where(models.GuildMember.user_id == user.id)
+    member = (await session.execute(mem_stmt)).scalar_one_or_none()
+    if not member:
+        return False, "❌ Siz biron bir gildiyaga a'zo emassiz!"
+
+    # 3. Gildiyani bloklash
+    guild_stmt = select(models.Guild).where(models.Guild.id == member.guild_id, models.Guild.is_active == True).with_for_update()
+    guild = (await session.execute(guild_stmt)).scalar_one_or_none()
+    if not guild:
+        return False, "❌ Gildiya topilmadi yoki faol emas!"
+
+    # 4. Kunlik depozit limitini tekshirish va yangilash
+    today_str = datetime.utcnow().strftime("%Y-%m-%d")
+    if member.last_deposit_date != today_str:
+        member.daily_deposited_gold = 0
+        member.daily_deposited_iron = 0
+        member.last_deposit_date = today_str
+
+    if gold_amount > 0:
+        if (member.daily_deposited_gold + gold_amount) > TREASURY_DAILY_GOLD_LIMIT:
+            remaining_gold = max(0, TREASURY_DAILY_GOLD_LIMIT - member.daily_deposited_gold)
+            return False, f"❌ Kunlik oltin limiti oshib ketdi! Bugun yana eng ko'pi bilan {remaining_gold:,}🪙 kiritishingiz mumkin."
+
+    if iron_amount > 0:
+        if (member.daily_deposited_iron + iron_amount) > TREASURY_DAILY_IRON_LIMIT:
+            remaining_iron = max(0, TREASURY_DAILY_IRON_LIMIT - member.daily_deposited_iron)
+            return False, f"❌ Kunlik temir limiti oshib ketdi! Bugun yana eng ko'pi bilan {remaining_iron:,}⛓️ kiritishingiz mumkin."
+
+    # 5. Foydalanuvchi shaxsiy balansini tekshirish
+    if (user.gold or 0) < gold_amount:
+        return False, f"❌ Sizda yetarli oltin yo'q! (Sizda: {user.gold:,}🪙, Kerak: {gold_amount:,}🪙)"
+    if (user.iron or 0) < iron_amount:
+        return False, f"❌ Sizda yetarli temir yo'q! (Sizda: {user.iron:,}⛓️, Kerak: {iron_amount:,}⛓️)"
+
+    # 6. Atomik balans o'zgarishlari
+    user.gold = (user.gold or 0) - gold_amount
+    user.iron = (user.iron or 0) - iron_amount
+
+    guild.treasury_gold = (guild.treasury_gold or 0) + gold_amount
+    guild.treasury_iron = (guild.treasury_iron or 0) + iron_amount
+
+    member.daily_deposited_gold = (member.daily_deposited_gold or 0) + gold_amount
+    member.daily_deposited_iron = (member.daily_deposited_iron or 0) + iron_amount
+    member.total_deposited_gold = (member.total_deposited_gold or 0) + gold_amount
+    member.total_deposited_iron = (member.total_deposited_iron or 0) + iron_amount
+
+    # 7. Tranzaksiyalarni qayd etish
+    tx = models.GuildTreasuryTransaction(
+        guild_id=guild.id,
+        user_id=user.id,
+        tx_type="deposit",
+        amount_gold=gold_amount,
+        amount_iron=iron_amount,
+        details=f"Depozit: {gold_amount}🪙 oltin, {iron_amount}⛓️ temir",
+        created_at=datetime.utcnow()
+    )
+    session.add(tx)
+
+    glog = models.GuildLog(
+        guild_id=guild.id,
+        user_id=user.id,
+        action="treasury_deposit",
+        details=f"{user.full_name} xazinaga {gold_amount:,}🪙 oltin va {iron_amount:,}⛓️ temir topshirdi.",
+        created_at=datetime.utcnow()
+    )
+    session.add(glog)
+
+    await session.commit()
+    res_str = []
+    if gold_amount > 0:
+        res_str.append(f"{gold_amount:,}🪙 oltin")
+    if iron_amount > 0:
+        res_str.append(f"{iron_amount:,}⛓️ temir")
+
+    return True, f"✅ Xazinaga muvaffaqiyatli topshirildi: {', '.join(res_str)}!"
+
+
+async def spend_guild_treasury_buff(
+    session: AsyncSession,
+    telegram_id: int,
+    buff_code: str
+) -> Tuple[bool, str]:
+    """
+    Gildiya xazinasi mablag'laridan birodarlik buffini sotib olish.
+    - Faqat Gildiya Yetakchisi (Master) yoki O'rinbosar (Deputy) bajara oladi.
+    - Mablag' yetarli bo'lishi shart, manfiy balansga yo'l qo'yilmaydi.
+    - Vaqtinchalik bufflar bir vaqtning o'zida bitta bo'ladi (ustma-ust tushmaydi).
+    """
+    if buff_code not in GUILD_BUFFS_CONFIG:
+        return False, "❌ Noto'g'ri buff tanlandi!"
+
+    buff = GUILD_BUFFS_CONFIG[buff_code]
+
+    # 1. Foydalanuvchini olish
+    user_stmt = select(models.User).where(models.User.telegram_id == telegram_id)
+    user = (await session.execute(user_stmt)).scalar_one_or_none()
+    if not user:
+        return False, "❌ Foydalanuvchi topilmadi!"
+
+    # 2. A'zolik va rolni tekshirish
+    mem_stmt = select(models.GuildMember).where(models.GuildMember.user_id == user.id)
+    member = (await session.execute(mem_stmt)).scalar_one_or_none()
+    if not member:
+        return False, "❌ Siz biron bir gildiyaga a'zo emassiz!"
+
+    if member.role not in ("master", "deputy"):
+        return False, "❌ Xazina mablag'larini faqat Gildiya Yetakchisi (Master) yoki O'rinbosar (Deputy) sarflay oladi!"
+
+    # 3. Gildiyani bloklash
+    guild_stmt = select(models.Guild).where(models.Guild.id == member.guild_id, models.Guild.is_active == True).with_for_update()
+    guild = (await session.execute(guild_stmt)).scalar_one_or_none()
+    if not guild:
+        return False, "❌ Gildiya topilmadi yoki faol emas!"
+
+    # 4. Hozirda faol vaqtinchalik buff borligini tekshirish
+    now = datetime.utcnow()
+    if buff["duration_hours"] > 0:
+        if guild.active_buff_type and guild.active_buff_expires_at and guild.active_buff_expires_at > now:
+            exp_str = guild.active_buff_expires_at.strftime("%H:%M %d.%m.%Y")
+            cur_b = GUILD_BUFFS_CONFIG.get(guild.active_buff_type, {}).get("name", guild.active_buff_type)
+            return False, f"❌ Hozirda allaqachon faol buff mavjud: {cur_b} ({exp_str} gacha). Yangi buff yoqish uchun avvalgisi tugashini kuting!"
+
+    # 5. Xazina mablag'larini tekshirish
+    gold_cost = buff["gold_cost"]
+    iron_cost = buff["iron_cost"]
+
+    if (guild.treasury_gold or 0) < gold_cost:
+        return False, f"❌ Gildiya xazinasida yetarli oltin yo'q! (Xazinada: {guild.treasury_gold:,}🪙, Kerak: {gold_cost:,}🪙)"
+    if (guild.treasury_iron or 0) < iron_cost:
+        return False, f"❌ Gildiya xazinasida yetarli temir yo'q! (Xazinada: {guild.treasury_iron:,}⛓️, Kerak: {iron_cost:,}⛓️)"
+
+    # 6. Xazinadan mablag'ni yechish
+    guild.treasury_gold = (guild.treasury_gold or 0) - gold_cost
+    guild.treasury_iron = (guild.treasury_iron or 0) - iron_cost
+
+    # 7. Buff ta'sirini qo'llash
+    if buff_code == "armament":
+        guild.prestige = (guild.prestige or 0) + 50
+        guild.xp = (guild.xp or 0) + 100
+        # Level up tekshiruvi
+        for lvl in sorted(GUILD_LEVEL_THRESHOLDS.keys(), reverse=True):
+            lvl_info = GUILD_LEVEL_THRESHOLDS[lvl]
+            if guild.xp >= lvl_info["xp"] and guild.level < lvl:
+                guild.level = lvl
+                guild.max_members = lvl_info["max_members"]
+                lvl_log = models.GuildLog(
+                    guild_id=guild.id,
+                    user_id=user.id,
+                    action="level_up",
+                    details=f"🎉 Gildiya Level {lvl} ({lvl_info['title']}) darajasiga ko'tarildi! Yangi a'zolar sig'imi: {guild.max_members} ta.",
+                    created_at=datetime.utcnow()
+                )
+                session.add(lvl_log)
+                break
+    else:
+        guild.active_buff_type = buff_code
+        guild.active_buff_expires_at = now + timedelta(hours=buff["duration_hours"])
+
+    # 8. Tranzaksiya va log yozish
+    tx = models.GuildTreasuryTransaction(
+        guild_id=guild.id,
+        user_id=user.id,
+        tx_type="spend_buff",
+        amount_gold=-gold_cost,
+        amount_iron=-iron_cost,
+        details=f"Buff faollashtirildi: {buff['name']}",
+        created_at=datetime.utcnow()
+    )
+    session.add(tx)
+
+    glog = models.GuildLog(
+        guild_id=guild.id,
+        user_id=user.id,
+        action="treasury_spend",
+        details=f"{user.full_name} ({member.role}) xazinadan {buff['name']} ni faollashtirdi (-{gold_cost:,}🪙, -{iron_cost:,}⛓️).",
+        created_at=datetime.utcnow()
+    )
+    session.add(glog)
+
+    await session.commit()
+    return True, f"✅ {buff['name']} muvaffaqiyatli faollashtirildi!"
+
+
+async def get_guild_treasury_data(
+    session: AsyncSession,
+    telegram_id: int
+) -> Optional[dict]:
+    """Gildiya xazinasi ma'lumotlari, faol buff va a'zoning kunlik limitlari holati"""
+    user = await get_user_by_telegram_id(session, telegram_id)
+    if not user:
+        return None
+
+    membership = await get_user_guild_membership(session, user.id)
+    if not membership:
+        return None
+
+    guild, member = membership
+
+    today_str = datetime.utcnow().strftime("%Y-%m-%d")
+    daily_gold = member.daily_deposited_gold if member.last_deposit_date == today_str else 0
+    daily_iron = member.daily_deposited_iron if member.last_deposit_date == today_str else 0
+
+    rem_gold = max(0, TREASURY_DAILY_GOLD_LIMIT - daily_gold)
+    rem_iron = max(0, TREASURY_DAILY_IRON_LIMIT - daily_iron)
+
+    # Faol buff tekshiruvi
+    active_buff = None
+    now = datetime.utcnow()
+    if guild.active_buff_type and guild.active_buff_expires_at:
+        if guild.active_buff_expires_at > now:
+            time_left = guild.active_buff_expires_at - now
+            hours = int(time_left.total_seconds() // 3600)
+            minutes = int((time_left.total_seconds() % 3600) // 60)
+            b_cfg = GUILD_BUFFS_CONFIG.get(guild.active_buff_type, {})
+            active_buff = {
+                "type": guild.active_buff_type,
+                "name": b_cfg.get("name", guild.active_buff_type),
+                "expires_at": guild.active_buff_expires_at,
+                "remaining_str": f"{hours} soat {minutes} daqiqa",
+            }
+        else:
+            # Muddati tugagan buffni tozalash
+            guild.active_buff_type = None
+            guild.active_buff_expires_at = None
+            await session.commit()
+
+    return {
+        "guild_id": guild.id,
+        "guild_name": guild.name,
+        "guild_tag": guild.tag,
+        "banner": guild.banner,
+        "treasury_gold": guild.treasury_gold or 0,
+        "treasury_iron": guild.treasury_iron or 0,
+        "user_role": member.role,
+        "user_gold": user.gold or 0,
+        "user_iron": user.iron or 0,
+        "daily_deposited_gold": daily_gold,
+        "daily_deposited_iron": daily_iron,
+        "remaining_daily_gold": rem_gold,
+        "remaining_daily_iron": rem_iron,
+        "total_deposited_gold": member.total_deposited_gold or 0,
+        "total_deposited_iron": member.total_deposited_iron or 0,
+        "active_buff": active_buff,
+    }
+
+
+async def get_guild_treasury_history(
+    session: AsyncSession,
+    guild_id: int,
+    limit: int = 10,
+    offset: int = 0
+) -> Tuple[List[dict], int]:
+    """Gildiya xazinasi amallari tarixi"""
+    cnt_stmt = select(func.count(models.GuildTreasuryTransaction.id)).where(
+        models.GuildTreasuryTransaction.guild_id == guild_id
+    )
+    total_cnt = (await session.execute(cnt_stmt)).scalar() or 0
+
+    stmt = (
+        select(models.GuildTreasuryTransaction, models.User.full_name)
+        .outerjoin(models.User, models.GuildTreasuryTransaction.user_id == models.User.id)
+        .where(models.GuildTreasuryTransaction.guild_id == guild_id)
+        .order_by(models.GuildTreasuryTransaction.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    rows = (await session.execute(stmt)).all()
+
+    history = []
+    for tx, user_name in rows:
+        history.append({
+            "id": tx.id,
+            "user_id": tx.user_id,
+            "user_name": user_name or "Noma'lum",
+            "tx_type": tx.tx_type,
+            "amount_gold": tx.amount_gold,
+            "amount_iron": tx.amount_iron,
+            "details": tx.details,
+            "created_at": tx.created_at,
+        })
+
+    return history, total_cnt
+
+
+async def get_tournament_guild_standings(
+    session: AsyncSession,
+    tourney_id: Optional[int] = None
+) -> List[dict]:
+    """Turnirdagi gildiyalar natijalari va jamlagan ochkolari (Stage 5)"""
+    if tourney_id:
+        tourney = await session.get(models.Tournament, tourney_id)
+    else:
+        tourney = await get_active_tournament(session)
+        if not tourney:
+            stmt = select(models.Tournament).where(models.Tournament.status == "completed").order_by(models.Tournament.id.desc()).limit(1)
+            tourney = (await session.execute(stmt)).scalar_one_or_none()
+
+    if not tourney or not tourney.bracket_json:
+        return []
+
+    try:
+        bdata = json.loads(tourney.bracket_json)
+        return bdata.get("guild_standings", [])
+    except Exception:
+        return []

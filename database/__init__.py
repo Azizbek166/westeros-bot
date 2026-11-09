@@ -15,6 +15,14 @@ from database.models import (
     BattleReport,
     EventState,
     Transaction,
+    Guild,
+    GuildMember,
+    GuildApplication,
+    GuildCooldown,
+    GuildLog,
+    GuildQuest,
+    GuildQuestProgress,
+    GuildTreasuryTransaction,
 )
 
 __all__ = [
@@ -36,4 +44,12 @@ __all__ = [
     "BattleReport",
     "EventState",
     "Transaction",
+    "Guild",
+    "GuildMember",
+    "GuildApplication",
+    "GuildCooldown",
+    "GuildLog",
+    "GuildQuest",
+    "GuildQuestProgress",
+    "GuildTreasuryTransaction",
 ]

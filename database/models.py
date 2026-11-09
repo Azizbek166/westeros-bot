@@ -103,6 +103,7 @@ class User(Base):
     dragons = relationship("Dragon", back_populates="user", cascade="all, delete-orphan")
     artifacts = relationship("Artifact", back_populates="user", cascade="all, delete-orphan")
     quest_progress = relationship("QuestProgress", back_populates="user", cascade="all, delete-orphan")
+    guild_membership = relationship("GuildMember", back_populates="user", uselist=False, cascade="all, delete-orphan")
 
 
 # ============================================================
@@ -628,6 +629,7 @@ class TournamentParticipant(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     tournament_id = Column(Integer, ForeignKey("tournaments.id"), nullable=False, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    guild_id = Column(Integer, ForeignKey("guilds.id"), nullable=True, index=True)
     fighter_name = Column(String(100), nullable=False)
     fighter_power = Column(Integer, default=100)
     tactic = Column(String(30), default="rock")  # rock (tosh), scissors (qaychi), paper (qog'oz), random
@@ -638,6 +640,7 @@ class TournamentParticipant(Base):
 
     tournament = relationship("Tournament", back_populates="participants")
     user = relationship("User")
+    guild = relationship("Guild")
 
 
 class TournamentBet(Base):
@@ -816,6 +819,151 @@ class DailyEventParticipant(Base):
 
     event = relationship("DailyScheduledEvent", back_populates="participants")
     user = relationship("User")
+
+
+# ============================================================
+# 32. GUILDS (GILDIYALAR / BIRODARLIKLAR)
+# ============================================================
+class Guild(Base):
+    __tablename__ = "guilds"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(64), unique=True, nullable=False, index=True)
+    tag = Column(String(10), unique=True, nullable=False, index=True)  # masalan: [TITAN], [WOLF]
+    description = Column(String(255), default="")
+    banner = Column(String(30), default="🛡️")
+    leader_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    level = Column(Integer, default=1)
+    xp = Column(Integer, default=0)
+    prestige = Column(Integer, default=0)
+    max_members = Column(Integer, default=15)
+    recruiting_type = Column(String(20), default="open")  # 'open', 'apply', 'closed'
+    is_active = Column(Boolean, default=True, index=True)
+    treasury_gold = Column(BigInteger, default=0)
+    treasury_iron = Column(BigInteger, default=0)
+    active_buff_type = Column(String(50), nullable=True)  # feast, armament, quest_boost
+    active_buff_expires_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Aloqalar
+    leader = relationship("User", foreign_keys=[leader_id])
+    members = relationship("GuildMember", back_populates="guild", cascade="all, delete-orphan")
+    applications = relationship("GuildApplication", back_populates="guild", cascade="all, delete-orphan")
+    logs = relationship("GuildLog", back_populates="guild", cascade="all, delete-orphan")
+    quests = relationship("GuildQuest", back_populates="guild", cascade="all, delete-orphan")
+
+
+class GuildMember(Base):
+    __tablename__ = "guild_members"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    guild_id = Column(Integer, ForeignKey("guilds.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False, index=True)
+    role = Column(String(20), default="member", nullable=False, index=True)  # master, deputy, officer, member
+    daily_xp_contributed = Column(Integer, default=0)
+    total_xp_contributed = Column(Integer, default=0)
+    daily_deposited_gold = Column(BigInteger, default=0)
+    daily_deposited_iron = Column(BigInteger, default=0)
+    last_deposit_date = Column(String(10), default="")
+    total_deposited_gold = Column(BigInteger, default=0)
+    total_deposited_iron = Column(BigInteger, default=0)
+    joined_at = Column(DateTime, default=datetime.utcnow)
+
+    guild = relationship("Guild", back_populates="members")
+    user = relationship("User", back_populates="guild_membership")
+
+
+class GuildApplication(Base):
+    __tablename__ = "guild_applications"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    guild_id = Column(Integer, ForeignKey("guilds.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    status = Column(String(20), default="pending", nullable=False, index=True)  # pending, accepted, rejected, cancelled
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    guild = relationship("Guild", back_populates="applications")
+    user = relationship("User")
+
+
+class GuildCooldown(Base):
+    __tablename__ = "guild_cooldowns"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    cooldown_type = Column(String(30), default="leave_rejoin", nullable=False, index=True)
+    expires_at = Column(DateTime, nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User")
+
+
+class GuildLog(Base):
+    __tablename__ = "guild_logs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    guild_id = Column(Integer, ForeignKey("guilds.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    action = Column(String(50), nullable=False)  # create, join, leave, kick, promote, demote, transfer_master, disband, settings
+    details = Column(String(255), default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    guild = relationship("Guild", back_populates="logs")
+    user = relationship("User")
+
+
+class GuildQuest(Base):
+    __tablename__ = "guild_quests"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    guild_id = Column(Integer, ForeignKey("guilds.id"), nullable=False, index=True)
+    quest_code = Column(String(50), nullable=False)
+    title = Column(String(100), default="")
+    target_count = Column(Integer, default=10)
+    current_count = Column(Integer, default=0)
+    reward_xp = Column(Integer, default=500)
+    reward_prestige = Column(Integer, default=20)
+    is_completed = Column(Boolean, default=False)
+    reset_date = Column(String(10), nullable=False)  # YYYY-MM-DD
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    guild = relationship("Guild", back_populates="quests")
+    progress = relationship("GuildQuestProgress", back_populates="quest", cascade="all, delete-orphan")
+
+
+class GuildQuestProgress(Base):
+    __tablename__ = "guild_quest_progress"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    quest_id = Column(Integer, ForeignKey("guild_quests.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    progress_count = Column(Integer, default=0)
+    reward_claimed = Column(Boolean, default=False)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("quest_id", "user_id", name="uq_guild_quest_user"),
+    )
+
+    quest = relationship("GuildQuest", back_populates="progress")
+    user = relationship("User")
+
+
+class GuildTreasuryTransaction(Base):
+    __tablename__ = "guild_treasury_transactions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    guild_id = Column(Integer, ForeignKey("guilds.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    tx_type = Column(String(50), nullable=False, index=True)  # deposit_gold, deposit_iron, spend_feast, spend_armament, spend_bounty
+    amount_gold = Column(BigInteger, default=0)
+    amount_iron = Column(BigInteger, default=0)
+    details = Column(String(255), default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    guild = relationship("Guild")
+    user = relationship("User")
+
 
 
 

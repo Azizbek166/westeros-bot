@@ -217,6 +217,7 @@ async def on_startup(app: Application):
             GLOBAL_SERVER_AUDIT["error"] = str(e_aud)
 
         private_commands = [
+            BotCommand("guild", "🛡️ Gildiya (Birodarlik)"),
             BotCommand("start", "👑 Asosiy Menyu / Boshlash"),
             BotCommand("profile", "👤 Lord Profili & Armiya"),
             BotCommand("castles", "🏰 Qal'alarim & O'lpon"),

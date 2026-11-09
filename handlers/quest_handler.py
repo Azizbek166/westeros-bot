@@ -277,6 +277,10 @@ async def citadel_answer_callback(update: Update, context: ContextTypes.DEFAULT_
             return
 
         user.daily_quiz_count += 1
+        try:
+            await crud.record_guild_quest_activity(session, user.id, "quiz", 1)
+        except Exception:
+            pass
         if user_ans == correct_idx:
             user.gold += 60
             user.iron += 35

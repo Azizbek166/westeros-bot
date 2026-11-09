@@ -26,10 +26,12 @@ from handlers.daily_events_handler import register_daily_events_handlers
 from handlers.donate_handler import register_donate_handlers
 from handlers.community_handler import register_community_handlers
 from handlers.support_handler import register_support_handlers
+from handlers.guild_handler import register_guild_handlers
 
 def register_all_handlers(app):
     """Barcha bot handlerlarini Application ga ro'yxatdan o'tkazish"""
     register_start_handlers(app)
+    register_guild_handlers(app)
     register_daily_handlers(app)
     register_daily_events_handlers(app)
     register_donate_handlers(app)

@@ -139,6 +139,7 @@ async def init_db():
                 "ALTER TABLE tournaments ADD COLUMN bracket_json TEXT DEFAULT '{}'",
                 "ALTER TABLE tournament_participants ADD COLUMN tactic VARCHAR(30) DEFAULT 'rock'",
                 "ALTER TABLE tournament_participants ADD COLUMN tactics_seq VARCHAR(100) DEFAULT 'rock,scissors,paper'",
+                "ALTER TABLE tournament_participants ADD COLUMN guild_id INTEGER",
                 "ALTER TABLE users ADD COLUMN vip_tier VARCHAR(50)",
                 "ALTER TABLE users ADD COLUMN vip_until DATETIME",
                 "ALTER TABLE users ADD COLUMN custom_photo_file_id VARCHAR(255)",
@@ -157,6 +158,17 @@ async def init_db():
                 "ALTER TABLE donation_requests ADD COLUMN troop_type VARCHAR(50)",
                 "ALTER TABLE donation_requests ADD COLUMN troop_count INTEGER DEFAULT 0",
                 "ALTER TABLE iron_bank ADD COLUMN last_golden_company_raid_at DATETIME",
+                "ALTER TABLE guilds ADD COLUMN treasury_gold INTEGER DEFAULT 0",
+                "ALTER TABLE guilds ADD COLUMN treasury_iron INTEGER DEFAULT 0",
+                "ALTER TABLE guilds ADD COLUMN active_buff_type VARCHAR(50)",
+                "ALTER TABLE guilds ADD COLUMN active_buff_expires_at DATETIME",
+                "ALTER TABLE guild_members ADD COLUMN daily_xp_contributed INTEGER DEFAULT 0",
+                "ALTER TABLE guild_members ADD COLUMN total_xp_contributed INTEGER DEFAULT 0",
+                "ALTER TABLE guild_members ADD COLUMN daily_deposited_gold INTEGER DEFAULT 0",
+                "ALTER TABLE guild_members ADD COLUMN daily_deposited_iron INTEGER DEFAULT 0",
+                "ALTER TABLE guild_members ADD COLUMN last_deposit_date VARCHAR(10) DEFAULT ''",
+                "ALTER TABLE guild_members ADD COLUMN total_deposited_gold INTEGER DEFAULT 0",
+                "ALTER TABLE guild_members ADD COLUMN total_deposited_iron INTEGER DEFAULT 0",
             ]:
                 try:
                     await conn.execute(text(alter_stmt))
@@ -184,6 +196,7 @@ async def init_db():
                 "ALTER TABLE tournaments ADD COLUMN IF NOT EXISTS bracket_json TEXT DEFAULT '{}'",
                 "ALTER TABLE tournament_participants ADD COLUMN IF NOT EXISTS tactic VARCHAR(30) DEFAULT 'rock'",
                 "ALTER TABLE tournament_participants ADD COLUMN IF NOT EXISTS tactics_seq VARCHAR(100) DEFAULT 'rock,scissors,paper'",
+                "ALTER TABLE tournament_participants ADD COLUMN IF NOT EXISTS guild_id INTEGER REFERENCES guilds(id)",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS iron_mine_level INTEGER DEFAULT 1",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS grain_mill_level INTEGER DEFAULT 1",
                 "ALTER TABLE territories ADD COLUMN IF NOT EXISTS castle_level INTEGER DEFAULT 1",
@@ -221,6 +234,17 @@ async def init_db():
                 "ALTER TABLE donation_requests ADD COLUMN IF NOT EXISTS troop_type VARCHAR(50)",
                 "ALTER TABLE donation_requests ADD COLUMN IF NOT EXISTS troop_count INTEGER DEFAULT 0",
                 "ALTER TABLE iron_bank ADD COLUMN IF NOT EXISTS last_golden_company_raid_at TIMESTAMP",
+                "ALTER TABLE guilds ADD COLUMN IF NOT EXISTS treasury_gold INTEGER DEFAULT 0",
+                "ALTER TABLE guilds ADD COLUMN IF NOT EXISTS treasury_iron INTEGER DEFAULT 0",
+                "ALTER TABLE guilds ADD COLUMN IF NOT EXISTS active_buff_type VARCHAR(50)",
+                "ALTER TABLE guilds ADD COLUMN IF NOT EXISTS active_buff_expires_at TIMESTAMP",
+                "ALTER TABLE guild_members ADD COLUMN IF NOT EXISTS daily_xp_contributed INTEGER DEFAULT 0",
+                "ALTER TABLE guild_members ADD COLUMN IF NOT EXISTS total_xp_contributed INTEGER DEFAULT 0",
+                "ALTER TABLE guild_members ADD COLUMN IF NOT EXISTS daily_deposited_gold INTEGER DEFAULT 0",
+                "ALTER TABLE guild_members ADD COLUMN IF NOT EXISTS daily_deposited_iron INTEGER DEFAULT 0",
+                "ALTER TABLE guild_members ADD COLUMN IF NOT EXISTS last_deposit_date VARCHAR(10) DEFAULT ''",
+                "ALTER TABLE guild_members ADD COLUMN IF NOT EXISTS total_deposited_gold INTEGER DEFAULT 0",
+                "ALTER TABLE guild_members ADD COLUMN IF NOT EXISTS total_deposited_iron INTEGER DEFAULT 0",
             ]:
                 try:
                     await conn.execute(text(pg_alter))
@@ -429,7 +453,7 @@ async def init_db():
 
         # Haftalik Ritsarlar Turnirini tekshirish/boshlash
         tourney_res = await session.execute(select(models.Tournament).where(models.Tournament.status == "active"))
-        active_tourney = tourney_res.scalar_one_or_none()
+        active_tourney = tourney_res.scalars().first()
         if not active_tourney:
             new_tourney = models.Tournament(
                 name="Qirol Qo'li Turniri #1",

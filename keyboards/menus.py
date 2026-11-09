@@ -27,7 +27,8 @@ def main_menu_keyboard(user_id: int = None) -> InlineKeyboardMarkup:
             InlineKeyboardButton("🗺️ Xarita", callback_data="menu_map"),
         ],
         [
-            InlineKeyboardButton("💰 Qal'alarim & O'lpon Yig'ish", callback_data="menu_castles"),
+            InlineKeyboardButton("🛡️ Gildiya", callback_data="menu_guild"),
+            InlineKeyboardButton("💰 Qal'alarim & O'lpon", callback_data="menu_castles"),
         ],
         [
             InlineKeyboardButton("🛡️ Harbiy Yurish", callback_data="menu_battle"),
