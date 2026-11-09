@@ -1,8 +1,8 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import CommandHandler, CallbackQueryHandler, ContextTypes
 from database import AsyncSessionLocal, crud, models
 from keyboards.menus import back_to_main_keyboard
-from config import escape_md, DAILY_DUEL_LIMIT
+from config import escape_md, DAILY_DUEL_LIMIT, get_miniapp_url
 from sqlalchemy import select
 import html
 
@@ -376,7 +376,8 @@ async def pvp_send_challenge_callback(update: Update, context: ContextTypes.DEFA
                 f"Qilichingizni sug'urib, jangga kirasizmi?"
             )
             buttons = [
-                [InlineKeyboardButton("✅ Qabul Qilish & Taktika Tanlash", callback_data=f"pvp_accept:{duel.id}")],
+                [InlineKeyboardButton("⚔️ Mini App'da Qabul Qilish 🏆", web_app=WebAppInfo(url=get_miniapp_url("duel")))],
+                [InlineKeyboardButton("✅ Botda Qabul Qilish", callback_data=f"pvp_accept:{duel.id}")],
                 [InlineKeyboardButton("❌ Rad Etish", callback_data=f"pvp_reject:{duel.id}")],
             ]
             await context.bot.send_message(chat_id=opp_tg_id, text=alert_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
@@ -447,7 +448,8 @@ async def pvp_cmd_send_callback(update: Update, context: ContextTypes.DEFAULT_TY
                 f"Qabul qilasizmi?"
             )
             buttons = [
-                [InlineKeyboardButton("✅ Qabul Qilish & Taktika Tanlash", callback_data=f"pvp_accept:{duel.id}")],
+                [InlineKeyboardButton("⚔️ Mini App'da Qabul Qilish 🏆", web_app=WebAppInfo(url=get_miniapp_url("duel")))],
+                [InlineKeyboardButton("✅ Botda Qabul Qilish", callback_data=f"pvp_accept:{duel.id}")],
                 [InlineKeyboardButton("❌ Rad Etish", callback_data=f"pvp_reject:{duel.id}")],
             ]
             await context.bot.send_message(chat_id=opp_tg_id, text=alert_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))

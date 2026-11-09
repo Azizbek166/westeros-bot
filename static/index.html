@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>The Iron Throne RPG — Mini App</title>
+  
+  <!-- Telegram WebApp SDK -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+  <!-- Google Fonts: Cinzel Decorative / Medieval serif & Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div id="app" class="app-container">
+    
+    <!-- TOP BAR / RESOURCES HUD (STICKY) -->
+    <header class="top-bar">
+      <div class="brand-row">
+        <div class="brand-title">
+          <span class="brand-crown">👑</span>
+          <span class="brand-text">THE IRON THRONE</span>
+        </div>
+        <div class="hud-actions">
+          <button id="btn-refresh" class="btn-icon" title="Yangilash">🔄</button>
+        </div>
+      </div>
+
+      <div class="resources-row">
+        <div class="res-item" title="Oltin">
+          <span class="res-icon">🪙</span>
+          <span class="res-val" id="res-gold">0</span>
+        </div>
+        <div class="res-item" title="Oziq-ovqat">
+          <span class="res-icon">🌾</span>
+          <span class="res-val" id="res-food">0</span>
+        </div>
+        <div class="res-item" title="Temir">
+          <span class="res-icon">⛓️</span>
+          <span class="res-val" id="res-iron">0</span>
+        </div>
+        <div class="res-item" title="Nufuz / Shon-sharaf">
+          <span class="res-icon">👑</span>
+          <span class="res-val" id="res-prestige">0</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- CONTENT VIEWS WRAPPER -->
+    <main class="content-wrapper">
+      
+      <!-- LOADING SKELETON (SHOWN ON STARTUP) -->
+      <div id="loading-skeleton" class="skeleton-view">
+        <div class="skeleton-card"></div>
+        <div class="skeleton-card"></div>
+        <div class="skeleton-card"></div>
+      </div>
+
+      <!-- ERROR PANEL (FALLBACK) -->
+      <div id="error-panel" class="error-panel" style="display: none;">
+        <span class="error-icon">⚠️</span>
+        <h3 id="error-title">Xatolik yuz berdi</h3>
+        <p id="error-desc">Server bilan aloqa uzildi. Iltimos qayta urinib ko'ring.</p>
+        <button id="btn-retry" class="btn btn-primary mt-3">Qayta urinish</button>
+      </div>
+
+      <!-- TAB 1: PROFILE & OVERVIEW -->
+      <section id="tab-profile" class="view-panel active">
+        <!-- Hero Profile Banner Card -->
+        <div class="card profile-hero-card">
+          <div class="profile-avatar-box">
+            <span class="profile-avatar" id="prof-avatar">🦁</span>
+            <span class="profile-lvl-badge" id="prof-level">1-Daraja</span>
+          </div>
+          <div class="profile-info-box">
+            <h2 class="profile-name" id="prof-name">Lord</h2>
+            <div class="profile-house" id="prof-house">Lannister Xonadoni</div>
+            <div class="profile-rank" id="prof-rank">Ritsarlar Safida</div>
+          </div>
+        </div>
+
+        <!-- Experience Progress Bar -->
+        <div class="xp-bar-box card">
+          <div class="xp-labels">
+            <span>Tajriba (XP)</span>
+            <span id="prof-xp-val">0 / 100 XP</span>
+          </div>
+          <div class="xp-track">
+            <div class="xp-fill" id="prof-xp-bar" style="width: 0%;"></div>
+          </div>
+        </div>
+
+        <!-- Daily Streak Calendar Card (Feature 1) -->
+        <div class="card daily-card" id="daily-streak-section">
+          <div class="daily-header">
+            <div>
+              <h3 class="daily-title">🎁 Kunlik Sovg'alar</h3>
+              <h4 class="daily-subtitle" id="daily-streak-subtitle">7 Kunlik Uzluksiz Bonus</h4>
+            </div>
+            <button class="btn btn-claim" id="btn-claim-streak">Olish</button>
+          </div>
+          <div class="streak-days-row" id="streak-days-container">
+            <!-- 7 days chips populated by JS -->
+          </div>
+        </div>
+
+        <!-- Daily Activity Quests Section -->
+        <div class="card quests-card" id="daily-quests-section">
+          <div class="daily-header">
+            <h3 class="card-title" style="margin-bottom:0; border:none; padding:0;">🎯 Kunlik Faollik Vazifalari</h3>
+            <span class="quests-count-badge" id="quests-progress-badge">0 / 4</span>
+          </div>
+          <div class="quests-list mt-2" id="daily-quests-container">
+            <!-- Quests with individual claim buttons populated by JS -->
+          </div>
+          <div class="quests-actions-row mt-3">
+            <button class="btn btn-action-card flex-1" id="btn-open-citadel-quiz">📚 Maester</button>
+            <button class="btn btn-action-card flex-1" id="btn-open-council">👑 Kengash</button>
+            <button class="btn btn-action-card flex-1" id="btn-open-duel-arena">⚔️ Duellar</button>
+          </div>
+        </div>
+
+        <!-- Lord Attributes Card -->
+        <div class="card stats-card">
+          <h3 class="card-title">⚔️ Harbiy Xarakteristika</h3>
+          <div class="stats-grid">
+            <div class="stat-box">
+              <span class="stat-lbl">Hujum Quvvati</span>
+              <span class="stat-val text-red" id="prof-atk">0</span>
+            </div>
+            <div class="stat-box">
+              <span class="stat-lbl">Mudofaa</span>
+              <span class="stat-val text-blue" id="prof-def">0</span>
+            </div>
+            <div class="stat-box">
+              <span class="stat-lbl">Umumiy Qo'shin</span>
+              <span class="stat-val text-gold" id="prof-army-total">0</span>
+            </div>
+            <div class="stat-box">
+              <span class="stat-lbl">Qal'alar Soni</span>
+              <span class="stat-val text-green" id="prof-castles-count">0</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Household & Status Card -->
+        <div class="card info-card">
+          <h3 class="card-title">🏰 Sulola & Faxriy Ma'lumotlar</h3>
+          <div class="info-row">
+            <span class="info-lbl">Sharafli Unvon:</span>
+            <span class="info-val" id="prof-title">—</span>
+          </div>
+          <div class="info-row">
+            <span class="info-lbl">Shaxsiy Status:</span>
+            <span class="info-val italic" id="prof-status">—</span>
+          </div>
+          <div class="info-row">
+            <span class="info-lbl">Tinchlik Qalqoni:</span>
+            <span class="info-val text-green" id="prof-shield">Faol emas</span>
+          </div>
+          <div class="info-row" style="cursor:pointer;" id="row-open-guild">
+            <span class="info-lbl">Birodarlik (Gildiya):</span>
+            <span class="info-val text-gold" id="prof-guild">Gildiyada emas ➔</span>
+          </div>
+          <div class="info-row">
+            <span class="info-lbl">Soatlik Daromad:</span>
+            <span class="info-val text-gold" id="prof-hourly-income">+0🪙 / soat</span>
+          </div>
+        </div>
+
+        <!-- Iron Bank Banner Card (Feature 6) -->
+        <div class="card bank-banner-card mt-3" style="cursor:pointer;" id="banner-open-bank">
+          <div class="bank-banner-left">
+            <span style="font-size: 26px;">🏦</span>
+            <div>
+              <div style="font-weight:700; color:var(--gold-light); font-family:var(--font-serif);">Braavos Temir Banki</div>
+              <div style="font-size:11px; color:var(--text-secondary);">Omonat (soatlik 1%), foiz daromadi va kreditlar</div>
+            </div>
+          </div>
+          <strong class="text-gold">Xazinaga Kirish ➔</strong>
+        </div>
+      </section>
+
+      <!-- TAB 2: ARMY & MILITARY -->
+      <section id="tab-army" class="view-panel">
+        <div class="card-summary">
+          <div class="summary-left">
+            <span class="summary-lbl">Jami Jangovar Quvvat</span>
+            <h2 class="summary-val" id="army-total-sum">0 Askar</h2>
+          </div>
+          <div class="summary-icon">⚔️</div>
+        </div>
+
+        <div class="card my-rank-card mb-3" style="cursor:pointer;" id="banner-open-duel">
+          <span>⚔️ Qirollik Duellar Arenasi</span>
+          <strong class="text-gold">Maydonga Kirish ➔</strong>
+        </div>
+
+        <h3 class="section-heading">🛡️ Muntazam Qo'shinlar</h3>
+        <div class="unit-list" id="army-units-container">
+          <!-- Dynamically populated -->
+        </div>
+
+        <h3 class="section-heading mt-4">🏹 Qamal Qurollari & Maxsus</h3>
+        <div class="unit-list" id="army-siege-container">
+          <!-- Dynamically populated -->
+        </div>
+      </section>
+
+      <!-- TAB 3: CASTLES & TERRITORIES -->
+      <section id="tab-castles" class="view-panel">
+        <div class="card-summary">
+          <div class="summary-left">
+            <span class="summary-lbl">Boshqaruvdagi Qal'alar</span>
+            <h2 class="summary-val" id="castles-total-sum">0 ta Qal'a</h2>
+          </div>
+          <div class="summary-right text-right">
+            <span class="summary-lbl">To'plangan O'lpon</span>
+            <h3 class="summary-val text-gold" id="castles-accum-sum">0🪙</h3>
+          </div>
+        </div>
+
+        <!-- Collect All Taxes Button (Feature 3) -->
+        <button class="btn btn-primary w-100 btn-collect-all mb-3" id="btn-collect-all-tax" disabled>
+          💰 Barcha Qal'alardan O'lpon Yig'ish
+        </button>
+
+        <div class="castles-list mt-3" id="castles-container">
+          <!-- Dynamically populated -->
+        </div>
+      </section>
+
+      <!-- TAB 4: RANKINGS / LEADERBOARD -->
+      <section id="tab-rankings" class="view-panel">
+        <div class="rankings-filter">
+          <button class="filter-chip active" data-category="wealth">🪙 Boylik</button>
+          <button class="filter-chip" data-category="prestige">👑 Nufuz</button>
+          <button class="filter-chip" data-category="army">⚔️ Armiya</button>
+          <button class="filter-chip" data-category="castles">🏰 Qal'alar</button>
+        </div>
+
+        <div class="card my-rank-card" id="my-rank-banner">
+          <span>Sizning o'rningiz:</span>
+          <strong class="text-gold" id="my-rank-val">Top 10 da emas</strong>
+        </div>
+
+        <div class="rankings-table-card card">
+          <div class="rank-list" id="rankings-container">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 5: WORLD & EVENTS -->
+      <section id="tab-world" class="view-panel">
+        <!-- Weather Card -->
+        <div class="card weather-card">
+          <div class="weather-header">
+            <span class="weather-icon" id="w-emoji">🌤️</span>
+            <div>
+              <h3 class="weather-title" id="w-name">Vesteros Ob-havosi</h3>
+              <p class="weather-desc" id="w-desc">Mo'tadil kuz havosi hukm surmoqda.</p>
+            </div>
+          </div>
+          <div class="weather-effects">
+            <div class="effect-item">
+              <span class="eff-lbl">Harbiy Ta'sir:</span>
+              <span class="eff-val" id="w-eff-army">Normal</span>
+            </div>
+            <div class="effect-item">
+              <span class="eff-lbl">Iqtisodiy Ta'sir:</span>
+              <span class="eff-val" id="w-eff-eco">Normal</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Active Events Schedule -->
+        <h3 class="section-heading mt-3">📅 Kunlik Tadbirlar Jadvali</h3>
+        <div class="events-list" id="events-container">
+          <!-- Dynamically populated -->
+        </div>
+      </section>
+
+    </main>
+
+    <!-- BOTTOM FIXED NAVIGATION BAR -->
+    <nav class="bottom-nav">
+      <button class="nav-item active" data-tab="tab-profile">
+        <span class="nav-icon">👤</span>
+        <span class="nav-lbl">Profil</span>
+      </button>
+      <button class="nav-item" data-tab="tab-army">
+        <span class="nav-icon">⚔️</span>
+        <span class="nav-lbl">Armiya</span>
+      </button>
+      <button class="nav-item" data-tab="tab-castles">
+        <span class="nav-icon">🏰</span>
+        <span class="nav-lbl">Qal'alar</span>
+      </button>
+      <button class="nav-item" data-tab="tab-rankings">
+        <span class="nav-icon">🏆</span>
+        <span class="nav-lbl">Reyting</span>
+      </button>
+      <button class="nav-item" data-tab="tab-world">
+        <span class="nav-icon">🌍</span>
+        <span class="nav-lbl">Dunyo</span>
+      </button>
+    </nav>
+
+    <!-- RECRUIT MODAL (FEATURE 2) -->
+    <div id="recruit-modal" class="modal-overlay" style="display:none;">
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <h3 class="modal-title">⚔️ Askar Yollash</h3>
+          <button class="modal-close" id="modal-recruit-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="recruit-unit-brief">
+            <span class="recruit-unit-icon" id="modal-unit-icon">🛡️</span>
+            <div>
+              <h4 class="recruit-unit-name" id="modal-unit-name">Piyodalar</h4>
+              <p class="recruit-unit-stats" id="modal-unit-stats">Atk: 2 | Def: 3 | 🌾 -0.5/s</p>
+            </div>
+          </div>
+          
+          <div class="price-tag-row">
+            <span>Birlik narxi:</span>
+            <span id="modal-unit-price" class="text-gold">2🪙 Oltin, 1⛓️ Temir</span>
+          </div>
+
+          <div class="amount-selector mt-3">
+            <label class="input-lbl">Soni:</label>
+            <div class="amount-input-row">
+              <button class="btn-step" id="btn-amount-minus">-</button>
+              <input type="number" id="recruit-amount-input" class="amount-input" value="10" min="1" max="100000">
+              <button class="btn-step" id="btn-amount-plus">+</button>
+            </div>
+            <div class="quick-pills-row mt-2">
+              <button class="pill-btn" data-amt="10">+10</button>
+              <button class="pill-btn" data-amt="25">+25</button>
+              <button class="pill-btn" data-amt="50">+50</button>
+              <button class="pill-btn" data-amt="100">+100</button>
+              <button class="pill-btn text-gold" id="btn-amt-max">Maksimal</button>
+            </div>
+          </div>
+
+          <div class="total-cost-box mt-3">
+            <span>Jami xarajat:</span>
+            <div class="total-cost-vals">
+              <span id="modal-cost-gold" class="text-gold">20🪙</span>
+              <span id="modal-cost-iron" class="text-secondary">10⛓️</span>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-primary w-100" id="btn-confirm-recruit">⚔️ Safga Yollash</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- CITADEL QUIZ MODAL (FEATURE 4) -->
+    <div id="quiz-modal" class="modal-overlay" style="display:none;">
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <h3 class="modal-title">📚 Sitadel Saboqlari</h3>
+          <button class="modal-close" id="modal-quiz-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="quiz-status-row">
+            <span class="quiz-attempts-badge" id="quiz-attempts-badge">Urinishlar: 5 / 5</span>
+            <span class="quiz-reward-hint text-gold">+60🪙 | +35⛓️ | +40 XP</span>
+          </div>
+
+          <div class="quiz-question-box mt-3" id="quiz-question-box">
+            <p class="quiz-question-text" id="quiz-question-text">Savol yuklanmoqda...</p>
+          </div>
+
+          <div class="quiz-options-list mt-3" id="quiz-options-container">
+            <!-- 4 Option buttons rendered by JS -->
+          </div>
+
+          <!-- Outcome banner (hidden until answered) -->
+          <div class="quiz-outcome-card mt-3" id="quiz-outcome-card" style="display:none;">
+            <h4 class="outcome-title" id="quiz-outcome-title">Natija</h4>
+            <p class="outcome-desc" id="quiz-outcome-desc"></p>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-primary w-100" id="btn-quiz-next" style="display:none;">Keyingi Savol ➔</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ROYAL COUNCIL MODAL (FEATURE 4) -->
+    <div id="council-modal" class="modal-overlay" style="display:none;">
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <h3 class="modal-title">👑 Qirollik Kengashi</h3>
+          <button class="modal-close" id="modal-council-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="quiz-status-row">
+            <span class="quiz-attempts-badge" id="council-attempts-badge">Masalalar: 2 / 2</span>
+            <span class="quiz-reward-hint text-gold" id="council-reward-hint">Oltin & Nufuz</span>
+          </div>
+
+          <div class="quiz-question-box mt-3" id="council-situation-box">
+            <p class="quiz-question-text" id="council-situation-text">Kengash masalasi yuklanmoqda...</p>
+          </div>
+
+          <div class="quiz-options-list mt-3" id="council-options-container">
+            <!-- Choice buttons rendered by JS -->
+          </div>
+
+          <!-- Outcome banner (hidden until chosen) -->
+          <div class="quiz-outcome-card mt-3" id="council-outcome-card" style="display:none;">
+            <h4 class="outcome-title" id="council-outcome-title">Kengash Qarori</h4>
+            <p class="outcome-desc" id="council-outcome-desc"></p>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-primary w-100" id="btn-council-next" style="display:none;">Keyingi Masala ➔</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- DUELS & CHAMPIONS ARENA MODAL (FEATURE 5) -->
+    <div id="duel-modal" class="modal-overlay" style="display:none;">
+      <div class="modal-dialog modal-dialog-lg">
+        <div class="modal-header">
+          <h3 class="modal-title">⚔️ 1v1 Duellar Arenasi</h3>
+          <button class="modal-close" id="modal-duel-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <!-- Hero Brief & Daily Limit -->
+          <div class="duel-hero-bar">
+            <div>
+              <span class="duel-hero-name" id="duel-hero-name">Lord Qahramoni</span>
+              <div class="duel-hero-stats" id="duel-hero-stats">⚔️ Atk: 50 | 🛡️ Def: 50</div>
+            </div>
+            <div class="text-right">
+              <span class="quiz-attempts-badge" id="duel-attempts-badge">Limit: 5 / 5</span>
+            </div>
+          </div>
+
+          <!-- Champion Selection -->
+          <label class="input-lbl mt-3">Raqib Chempionni Tanlang:</label>
+          <div class="champions-scroll-row" id="duel-champions-container">
+            <!-- Champion cards rendered by JS -->
+          </div>
+
+          <!-- Bet Selection -->
+          <label class="input-lbl mt-3">Garov Oltini:</label>
+          <div class="quick-pills-row" id="duel-bets-container">
+            <button class="pill-btn active" data-bet="0">0🪙 (Mashq)</button>
+            <button class="pill-btn" data-bet="100">100🪙</button>
+            <button class="pill-btn" data-bet="250">250🪙</button>
+            <button class="pill-btn" data-bet="500">500🪙</button>
+          </div>
+
+          <!-- Tactics Selection -->
+          <label class="input-lbl mt-3">Jang Taktikasi:</label>
+          <div class="tactics-grid" id="duel-tactics-container">
+            <button class="tactic-btn active" data-tactic="heavy">
+              <span class="tactic-icon">🗡️</span>
+              <span class="tactic-name">Og'ir Zarba</span>
+              <span class="tactic-beats">Epchilni yengadi</span>
+            </button>
+            <button class="tactic-btn" data-tactic="parry">
+              <span class="tactic-icon">🛡️</span>
+              <span class="tactic-name">Qalqon</span>
+              <span class="tactic-beats">Og'irni qaytaradi</span>
+            </button>
+            <button class="tactic-btn" data-tactic="agile">
+              <span class="tactic-icon">⚡</span>
+              <span class="tactic-name">Epchil Hamla</span>
+              <span class="tactic-beats">Qalqonni aylanadi</span>
+            </button>
+          </div>
+
+          <!-- Combat Outcome Banner -->
+          <div class="quiz-outcome-card mt-3" id="duel-outcome-card" style="display:none;">
+            <h4 class="outcome-title" id="duel-outcome-title">Jang Natijasi</h4>
+            <p class="outcome-desc" id="duel-outcome-desc"></p>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-primary w-100" id="btn-start-duel">⚔️ Maydonga Tushish (Jang)</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- IRON BANK MODAL (FEATURE 6) -->
+    <div id="bank-modal" class="modal-overlay" style="display:none;">
+      <div class="modal-dialog modal-dialog-lg">
+        <div class="modal-header">
+          <h3 class="modal-title">🏦 Braavos Temir Banki</h3>
+          <button class="modal-close" id="modal-bank-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="rankings-filter mb-3">
+            <button class="filter-chip active" id="bank-tab-btn-deposit">💰 Omonat & Foiz</button>
+            <button class="filter-chip" id="bank-tab-btn-loan">📜 Kredit & Qarz</button>
+          </div>
+
+          <!-- SUB-VIEW 1: DEPOSIT & INTEREST -->
+          <div id="bank-view-deposit">
+            <div class="card-summary mb-3">
+              <div class="summary-left">
+                <span class="summary-lbl">Bankdagi Omonat</span>
+                <h3 class="summary-val text-gold" id="bank-deposit-val">0🪙 / 50,000🪙</h3>
+              </div>
+              <div class="summary-right text-right">
+                <span class="summary-lbl">Soatlik Foiz (1%)</span>
+                <h4 class="summary-val text-green" id="bank-hourly-yield">+0🪙 / s</h4>
+              </div>
+            </div>
+
+            <!-- Accumulated Interest Claim Box -->
+            <div class="bank-interest-box mb-3">
+              <div>
+                <span class="text-secondary" style="font-size:11px;">To'plangan foiz daromadi:</span>
+                <div style="font-size:16px; font-weight:700; color:var(--gold-light);" id="bank-accumulated-interest">0🪙</div>
+              </div>
+              <button class="btn btn-claim ready" id="btn-claim-bank-interest" disabled>Yechib Olish</button>
+            </div>
+
+            <!-- Deposit Section -->
+            <div class="bank-action-box">
+              <label class="input-lbl">Omonatga qo'yish (Hamyondan bankka):</label>
+              <div class="amount-input-row mt-1">
+                <input type="number" id="bank-deposit-input" class="amount-input" value="1000" min="1" max="50000">
+                <button class="btn btn-primary" id="btn-submit-bank-deposit">Qo'yish</button>
+              </div>
+              <div class="quick-pills-row mt-2" id="bank-deposit-pills">
+                <button class="pill-btn" data-amt="500">+500</button>
+                <button class="pill-btn" data-amt="1000">+1,000</button>
+                <button class="pill-btn" data-amt="5000">+5,000</button>
+                <button class="pill-btn text-gold" id="btn-bank-deposit-max">Maksimal</button>
+              </div>
+            </div>
+
+            <!-- Withdraw Section -->
+            <div class="bank-action-box mt-3">
+              <label class="input-lbl">Omonatdan yechish (Bankdan hamyonga):</label>
+              <div class="amount-input-row mt-1">
+                <input type="number" id="bank-withdraw-input" class="amount-input" value="1000" min="1" max="50000">
+                <button class="btn btn-secondary" id="btn-submit-bank-withdraw">Yechish</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- SUB-VIEW 2: LOAN & REPAYMENT -->
+          <div id="bank-view-loan" style="display:none;">
+            <div class="card-summary mb-3">
+              <div class="summary-left">
+                <span class="summary-lbl">Qarz Asosiy Miqdori</span>
+                <h3 class="summary-val text-red" id="bank-loan-principal">0🪙</h3>
+              </div>
+              <div class="summary-right text-right">
+                <span class="summary-lbl">Qaytariladigan (+10%)</span>
+                <h4 class="summary-val text-gold" id="bank-loan-total-due">0🪙</h4>
+              </div>
+            </div>
+
+            <div class="info-row mb-3">
+              <span class="info-lbl">Qarz Holati:</span>
+              <span class="info-val" id="bank-loan-status">Qarz yo'q</span>
+            </div>
+
+            <!-- Repay Button -->
+            <button class="btn btn-primary w-100 mb-3" id="btn-repay-bank-loan" style="display:none;">
+              💰 Qarzni To'liq Qaytarish
+            </button>
+
+            <!-- Take Loan Box -->
+            <div class="bank-action-box" id="bank-take-loan-box">
+              <label class="input-lbl">Temir Bankdan kredit olish:</label>
+              <div class="amount-input-row mt-1">
+                <input type="number" id="bank-loan-input" class="amount-input" value="1000" min="1" max="10000">
+                <button class="btn btn-primary" id="btn-submit-bank-loan">Kredit Olish</button>
+              </div>
+              <p class="text-secondary mt-2" style="font-size:11px; line-height:1.3;">
+                ⚠️ <em>Diqqat: Temir Bank o'z qarzini doim undirib oladi! Muddati o'tsa Oltin Kompaniya yollanma lashkarlari reyd uyushtiradi.</em>
+              </p>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- GUILD MODAL (FEATURE 7) -->
+    <div id="guild-modal" class="modal-overlay" style="display:none;">
+      <div class="modal-dialog modal-dialog-lg">
+        <div class="modal-header">
+          <h3 class="modal-title">🛡️ Birodarlik (Gildiya)</h3>
+          <button class="modal-close" id="modal-guild-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <!-- View when IN a guild -->
+          <div id="guild-in-view" style="display:none;">
+            <div class="guild-header-banner">
+              <span class="guild-banner-icon" id="guild-banner-icon">🛡️</span>
+              <div>
+                <h3 class="guild-title-name" id="guild-title-name">Birodarlik</h3>
+                <p class="guild-tag-level text-gold" id="guild-tag-level">[TAG] • 1-Daraja</p>
+              </div>
+            </div>
+
+            <!-- Treasury summary -->
+            <div class="card-summary mt-3 mb-3">
+              <div class="summary-left">
+                <span class="summary-lbl">Gildiya Xazinasi</span>
+                <h4 class="summary-val text-gold" id="guild-treasury-gold">0🪙 Oltin</h4>
+              </div>
+              <div class="summary-right text-right">
+                <span class="summary-lbl">Zaxira Temir</span>
+                <h4 class="summary-val text-secondary" id="guild-treasury-iron">0⛓️ Temir</h4>
+              </div>
+            </div>
+
+            <!-- Active Buff Notice -->
+            <div class="bank-interest-box mb-3" id="guild-buff-active-box" style="display:none;">
+              <div>
+                <span class="text-secondary" style="font-size:11px;">Faol Gildiya Bafi:</span>
+                <div style="font-size:14px; font-weight:700; color:#2a9d8f;" id="guild-buff-name">Harbiy Qudrat</div>
+                <div style="font-size:11px; color:var(--text-muted);" id="guild-buff-time">12 soat qoldi</div>
+              </div>
+              <span style="font-size:24px;">⚡</span>
+            </div>
+
+            <!-- Treasury Deposit Box -->
+            <div class="bank-action-box">
+              <label class="input-lbl">Gildiya Xazinasiga Hissa Qo'shish:</label>
+              <div class="quick-pills-row mt-1 mb-2">
+                <button class="pill-btn active" id="btn-guild-res-gold" data-res="gold">🪙 Oltin</button>
+                <button class="pill-btn" id="btn-guild-res-iron" data-res="iron">⛓️ Temir</button>
+              </div>
+              <div class="amount-input-row">
+                <input type="number" id="guild-deposit-input" class="amount-input" value="100" min="1" max="100000">
+                <button class="btn btn-primary" id="btn-submit-guild-deposit">Topshirish</button>
+              </div>
+              <div class="quick-pills-row mt-2" id="guild-deposit-pills">
+                <button class="pill-btn" data-amt="50">+50</button>
+                <button class="pill-btn" data-amt="100">+100</button>
+                <button class="pill-btn" data-amt="500">+500</button>
+                <button class="pill-btn" data-amt="1000">+1,000</button>
+              </div>
+            </div>
+
+            <!-- Leader Buff Activation Box -->
+            <div class="bank-action-box mt-3" id="guild-buffs-box">
+              <label class="input-lbl">24 Soatlik Gildiya Bafini Yoqish (Xazinadan):</label>
+              <div class="tactics-grid mt-2">
+                <button class="tactic-btn" id="btn-buff-exp" data-buff="exp_boost">
+                  <span class="tactic-icon">⭐</span>
+                  <span class="tactic-name">Tajriba Bafi</span>
+                  <span class="tactic-beats">+20% XP</span>
+                </button>
+                <button class="tactic-btn" id="btn-buff-combat" data-buff="combat_boost">
+                  <span class="tactic-icon">⚔️</span>
+                  <span class="tactic-name">Harbiy Baf</span>
+                  <span class="tactic-beats">+10% Hujum</span>
+                </button>
+                <button class="tactic-btn" id="btn-buff-gather" data-buff="gather_boost">
+                  <span class="tactic-icon">🌾</span>
+                  <span class="tactic-name">Iqtisod Bafi</span>
+                  <span class="tactic-beats">+15% Soliq</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- View when NOT in a guild -->
+          <div id="guild-out-view">
+            <div class="text-center py-3">
+              <span style="font-size: 40px;">🏰</span>
+              <h3 class="mt-2" style="font-family:var(--font-serif); color:var(--gold-light);">Gildiyalar Portali</h3>
+              <p class="text-secondary mt-1" style="font-size:12px; line-height:1.4;">
+                Siz hozirda hech qaysi birodarlikka a'zo emassiz.<br>
+                Bot orqali yangi ittifoqqa qo'shiling yoki o'z shaxsiy xonadoningizni tashkil qiling!
+              </p>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- TOAST NOTIFICATIONS -->
+    <div id="toast-container" class="toast-container"></div>
+
+  </div>
+
+  <script src="js/app.js"></script>
+</body>
+</html>

@@ -4,13 +4,13 @@ import asyncio
 import html
 from datetime import datetime
 from typing import Optional, Dict, Any
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 from database import AsyncSessionLocal, crud, models
 from sqlalchemy import select, desc
 from core.anti_cheat import can_attack_target
 from keyboards.menus import back_to_main_keyboard
-from config import BASE_MARCH_MINUTES, escape_md
+from config import BASE_MARCH_MINUTES, escape_md, get_miniapp_url
 
 
 async def battle_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -946,6 +946,7 @@ async def send_custom_march_callback(update: Update, context: ContextTypes.DEFAU
 
                 dragon_text = " 🔥 va BAHAYBAT AJDAR 🐉" if has_dragon else ""
                 def_buttons = [
+                    [InlineKeyboardButton("🏰 Mini App'da Qal'ani Mudofaa Qilish 🛡️", web_app=WebAppInfo(url=get_miniapp_url("castles")))],
                     [InlineKeyboardButton("⚔️ Harbiy Markaz (Himoyalanish)", callback_data="menu_battle")],
                     [InlineKeyboardButton("🛡️ Qal'aga Shoshilinch Askar Qo'shish", callback_data=f"def_rf_menu:{terr.id}")],
                     [InlineKeyboardButton("🐉 Ajdarni Mudofaaga Joylashtirish", callback_data=f"def_station_dragon:{terr.id}")],
@@ -1157,6 +1158,7 @@ async def send_march_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
                 dragon_text = " 🔥 va BAHAYBAT AJDAR 🐉" if has_dragon else ""
                 def_buttons = [
+                    [InlineKeyboardButton("🏰 Mini App'da Qal'ani Mudofaa Qilish 🛡️", web_app=WebAppInfo(url=get_miniapp_url("castles")))],
                     [InlineKeyboardButton("⚔️ Harbiy Markaz (Himoyalanish)", callback_data="menu_battle")],
                     [InlineKeyboardButton("🛡️ Qal'aga Shoshilinch Askar Qo'shish", callback_data=f"def_rf_menu:{terr.id}")],
                     [InlineKeyboardButton("🐉 Ajdarni Mudofaaga Joylashtirish", callback_data=f"def_station_dragon:{terr.id}")],

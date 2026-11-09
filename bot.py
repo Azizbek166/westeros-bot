@@ -133,12 +133,35 @@ class HealthHandler(BaseHTTPRequestHandler):
         pass  # Render loglarini to'ldirmaslik uchun
 
 def start_health_server():
+    """
+    Render.com / Cloud Web Service portida FastAPI & Mini App serverini ishga tushirish.
+    Uvicorn orqali FastAPI (api.main:app) ni ishga tushiradi:
+    - GET / -> static/index.html (Telegram Mini App)
+    - GET /api/health -> Health Check
+    - /api/... -> Barcha REST API endpointlari
+    Agar uvicorn mavjud bo'lmasa yoki xatolik yuz bersa, avtomatik zaxira HealthHandler ishga tushadi.
+    """
     port = int(os.getenv("PORT", 0))
+    if port <= 0:
+        port = int(os.getenv("API_PORT", 0))
+
     if port > 0:
-        server = HTTPServer(("0.0.0.0", port), HealthHandler)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        def run_uvicorn():
+            try:
+                import uvicorn
+                logger.info(f"🌐 FastAPI & Telegram Mini App port {port} da ishga tushmoqda...")
+                uvicorn.run("api.main:app", host="0.0.0.0", port=port, log_level="warning")
+            except Exception as e:
+                logger.error(f"⚠️ Uvicorn ishga tushishida xatolik: {e}. Zaxira HTTP serverga o'tilmoqda.")
+                try:
+                    server = HTTPServer(("0.0.0.0", port), HealthHandler)
+                    server.serve_forever()
+                except Exception as se:
+                    logger.error(f"Zaxira HTTP server xatosi: {se}")
+
+        thread = threading.Thread(target=run_uvicorn, daemon=True, name="FastAPI-MiniApp-Server")
         thread.start()
-        logger.info(f"🌐 Render Web Service port {port} da ishga tushdi.")
+        logger.info(f"🚀 Render Web Service (FastAPI + Mini App) port {port} da fon oqimida ishga tushdi.")
 
 
 async def render_keepalive_job(context: ContextTypes.DEFAULT_TYPE):

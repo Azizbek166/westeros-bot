@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from typing import Optional
 from dotenv import load_dotenv
 
 # .env faylini yuklash
@@ -43,6 +44,24 @@ OWNER_ID = 7689627859
 
 # Admin Telegram ID lari (Admin panelga kirish huquqi)
 ADMIN_IDS = [7689627859]
+
+# ============================================================
+# TELEGRAM MINI APP & API SOZLAMALARI
+# ============================================================
+MINI_APP_URL = os.getenv("MINI_APP_URL", os.getenv("RENDER_EXTERNAL_URL", "https://westeros-bot.onrender.com"))
+API_HOST = os.getenv("API_HOST", "0.0.0.0")
+API_PORT = int(os.getenv("PORT", os.getenv("API_PORT", "8000")))
+# Mini App asosiy interfeys holati (True bo'lsa /start to'g'ridan-to'g'ri Mini App taklif qiladi, bot menyusi esa fallback bo'ladi)
+MINIAPP_PRIMARY_INTERFACE = os.getenv("MINIAPP_PRIMARY_INTERFACE", "true").lower() in ("true", "1", "yes")
+
+
+def get_miniapp_url(startapp: Optional[str] = None) -> str:
+    """Telegram Mini App havolasi va parametrli deep-link generatori"""
+    base = (MINI_APP_URL or "https://westeros-bot.onrender.com").rstrip("/")
+    if startapp:
+        return f"{base}?startapp={startapp}"
+    return base
+
 
 
 def save_admin_id(telegram_id: int):

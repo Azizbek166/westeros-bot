@@ -1,5 +1,5 @@
 from typing import Optional, Dict, List, Any
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, WebAppInfo
 from data.houses_data import HOUSES_DATA
 from data.map_data import REGIONS_DATA, TERRITORIES_DATA
 
@@ -10,10 +10,15 @@ def persistent_reply_keyboard() -> ReplyKeyboardRemove:
 
 
 
-def main_menu_keyboard(user_id: int = None) -> InlineKeyboardMarkup:
-    """Bosh menyu klaviaturasi (Admin tugmasi faqat ruxsat berilgan adminlar uchun chiqadi)"""
-    from config import ADMIN_IDS
-    buttons = [
+def legacy_main_menu_keyboard(user_id: int = None) -> InlineKeyboardMarkup:
+    """Klassik / To'liq bot menyusi klaviaturasi (barcha 20+ bo'limlar)"""
+    from config import ADMIN_IDS, MINI_APP_URL, get_miniapp_url
+    buttons = []
+    if MINI_APP_URL:
+        buttons.append([
+            InlineKeyboardButton("📱 Mini App'da O'ynash ⚔️", web_app=WebAppInfo(url=get_miniapp_url()))
+        ])
+    buttons.extend([
         [
             InlineKeyboardButton("💎 VIP & Donate", callback_data="menu_donate"),
             InlineKeyboardButton("📢 Rasmiy Kanal & Guruh", callback_data="menu_community"),
@@ -70,7 +75,7 @@ def main_menu_keyboard(user_id: int = None) -> InlineKeyboardMarkup:
             InlineKeyboardButton("🌤️ Ob-havo", callback_data="menu_weather"),
             InlineKeyboardButton("🎁 Kunlik Tuhfalar", callback_data="menu_daily"),
         ],
-    ]
+    ])
 
     # Faqat bot egasi va ruxsat berilgan adminlar ko'ra oladi
     if user_id and user_id in ADMIN_IDS:
@@ -81,11 +86,81 @@ def main_menu_keyboard(user_id: int = None) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(buttons)
 
 
+def start_primary_keyboard(user_id: int = None) -> InlineKeyboardMarkup:
+    """
+    Stage 7: Telegram Mini App asosiy boshqaruv klaviaturasi.
+    Mini App birinchi darajali interfeys qilib o'rnatilgan, bot esa yordamchi va zaxira (fallback) vazifasini bajaradi.
+    """
+    from config import ADMIN_IDS, get_miniapp_url
+    buttons = [
+        [
+            InlineKeyboardButton("📱 TAXTGA CHIQISH (MINI APP) ⚔️", web_app=WebAppInfo(url=get_miniapp_url()))
+        ],
+        [
+            InlineKeyboardButton("🕹️ Bot Menyusi (Fallback)", callback_data="menu_bot_fallback"),
+            InlineKeyboardButton("🔄 Yangilash", callback_data="menu_refresh_primary"),
+        ],
+        [
+            InlineKeyboardButton("💎 VIP & Donate", callback_data="menu_donate"),
+            InlineKeyboardButton("📢 Rasmiy Guruh & Kanal", callback_data="menu_community"),
+        ],
+        [
+            InlineKeyboardButton("✍️ Qo'llab-quvvatlash", callback_data="menu_support"),
+        ]
+    ]
+
+    if user_id and user_id in ADMIN_IDS:
+        buttons.append([
+            InlineKeyboardButton("⚙️ Admin Paneli", callback_data="admin_panel"),
+        ])
+
+    return InlineKeyboardMarkup(buttons)
+
+
+def bot_fallback_keyboard(user_id: int = None) -> InlineKeyboardMarkup:
+    """
+    Stage 7: Bot zaxira (fallback) klaviaturasi.
+    Tepasida '« 🔙 Mini App'ga Qaytish' tugmasi bilan barcha klassik inline tugmalarni taqdim etadi.
+    """
+    from config import get_miniapp_url
+    buttons = [
+        [
+            InlineKeyboardButton("« 🔙 Mini App'ga Qaytish 📱", callback_data="menu_miniapp_primary"),
+            InlineKeyboardButton("⚔️ Mini Appni Ochish", web_app=WebAppInfo(url=get_miniapp_url())),
+        ]
+    ]
+    legacy_kb = legacy_main_menu_keyboard(user_id)
+    for row in legacy_kb.inline_keyboard:
+        if len(row) == 1 and row[0].web_app:
+            continue
+        buttons.append(row)
+
+    return InlineKeyboardMarkup(buttons)
+
+
+def main_menu_keyboard(user_id: int = None) -> InlineKeyboardMarkup:
+    """
+    Asosiy menyu klaviaturasi.
+    MINIAPP_PRIMARY_INTERFACE=True bo'lsa Mini App'ni asosiy qilib ko'rsatadi,
+    aks holda klassik bot menyusiga fallback qiladi.
+    """
+    from config import MINIAPP_PRIMARY_INTERFACE
+    if MINIAPP_PRIMARY_INTERFACE:
+        return start_primary_keyboard(user_id)
+    return legacy_main_menu_keyboard(user_id)
+
 
 def back_to_main_keyboard() -> InlineKeyboardMarkup:
     """Asosiy menyuga qaytish tugmasi"""
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")]
+    ])
+
+
+def back_to_fallback_menu_keyboard() -> InlineKeyboardMarkup:
+    """Fallback bot menyusiga qaytish tugmasi"""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔙 Bot Menyusi", callback_data="menu_bot_fallback")]
     ])
 
 

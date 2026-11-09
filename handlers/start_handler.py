@@ -9,6 +9,9 @@ from data.map_data import REGIONS_DATA
 from data.characters_data import HOUSE_CHARACTERS
 from keyboards.menus import (
     main_menu_keyboard,
+    start_primary_keyboard,
+    bot_fallback_keyboard,
+    legacy_main_menu_keyboard,
     back_to_main_keyboard,
     persistent_reply_keyboard,
     custom_house_regions_keyboard,
@@ -20,6 +23,8 @@ from config import (
     COMMUNITY_GROUP_URL,
     COMMUNITY_CHANNEL_ID,
     COMMUNITY_GROUP_ID,
+    MINIAPP_PRIMARY_INTERFACE,
+    get_miniapp_url,
 )
 
 logger = logging.getLogger(__name__)
@@ -215,15 +220,27 @@ async def proceed_start(update: Update, context: ContextTypes.DEFAULT_TYPE, user
                     (army.special_troops or 0)
                 )
 
-            text = (
-                f"👑 **THE IRON THRONE — MMORPG**\n\n"
-                f"Xush kelibsiz, **{escape_md(hero_name)}** ({escape_md(full_name)})!\n\n"
-                f"🏰 Xonadon: **{h_emoji} {h_name}**\n"
-                f"🎖️ Lavozim: **{user.rank.title()}** | Daraja: **{user.level}**\n\n"
-                f"🪙 Oltin: **{user.gold:,}** | 🌾 Oziq-ovqat: **{user.food:,}** | ⛓️ Temir: **{user.iron:,}**\n"
-                f"🛡️ Armiya: **{total_troops:,}** askar\n\n"
-                f"Westerosda yangi kun boshlandi. Buyruqni tanlang:"
-            )
+            if MINIAPP_PRIMARY_INTERFACE:
+                text = (
+                    f"👑 **THE IRON THRONE — TELEGRAM MINI APP**\n\n"
+                    f"Xush kelibsiz, **{escape_md(hero_name)}** ({escape_md(full_name)})!\n\n"
+                    f"🏰 Xonadon: **{h_emoji} {h_name}**\n"
+                    f"🎖️ Lavozim: **{user.rank.title()}** | Daraja: **{user.level}**\n\n"
+                    f"🪙 Oltin: **{user.gold:,}** | 🌾 Oziq-ovqat: **{user.food:,}** | ⛓️ Temir: **{user.iron:,}**\n"
+                    f"🛡️ Armiya: **{total_troops:,}** askar\n\n"
+                    f"📱 **Vesteros taxti uchun kurash endi to'liq Telegram Mini App'da!**\n"
+                    f"Interaktiv xarita, 1v1 duellar, qal'alar boshqaruvi va armiya safarbarligi uchun pastdagi tugmani bosing:"
+                )
+            else:
+                text = (
+                    f"👑 **THE IRON THRONE — MMORPG**\n\n"
+                    f"Xush kelibsiz, **{escape_md(hero_name)}** ({escape_md(full_name)})!\n\n"
+                    f"🏰 Xonadon: **{h_emoji} {h_name}**\n"
+                    f"🎖️ Lavozim: **{user.rank.title()}** | Daraja: **{user.level}**\n\n"
+                    f"🪙 Oltin: **{user.gold:,}** | 🌾 Oziq-ovqat: **{user.food:,}** | ⛓️ Temir: **{user.iron:,}**\n"
+                    f"🛡️ Armiya: **{total_troops:,}** askar\n\n"
+                    f"Westerosda yangi kun boshlandi. Buyruqni tanlang:"
+                )
             # Doimiy pastki menyu (emoji bar yonida)
             try:
                 await context.bot.send_message(
@@ -883,19 +900,98 @@ async def main_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             + (user.army.spearmen or 0)
             + (user.army.special_troops or 0)
         ) if user.army else 0
-        text = (
-            f"👑 **THE IRON THRONE — ASOSIY DASHBOARD**\n\n"
-            f"👤 Hukmdor: **{escape_md(hero_name)}**\n"
-            f"🏰 Xonadon: **{house_str}**\n\n"
-            f"🪙 Oltin: **{user.gold:,}** | 🌾 Oziq-ovqat: **{user.food:,}** | ⛓️ Temir: **{user.iron:,}**\n"
-            f"🛡️ Armiya: **{army_count:,}** askar\n\n"
-            f"Kerakli bo'limni tanlang:"
-        )
+        if MINIAPP_PRIMARY_INTERFACE:
+            text = (
+                f"👑 **THE IRON THRONE — TELEGRAM MINI APP**\n\n"
+                f"👤 Hukmdor: **{escape_md(hero_name)}**\n"
+                f"🏰 Xonadon: **{house_str}**\n\n"
+                f"🪙 Oltin: **{user.gold:,}** | 🌾 Oziq-ovqat: **{user.food:,}** | ⛓️ Temir: **{user.iron:,}**\n"
+                f"🛡️ Armiya: **{army_count:,}** askar\n\n"
+                f"📱 **Mini App asosiy interfeys:** Vesteros boshqaruvi to'liq Mini App'da! Pastdagi tugmani bosing yoki bot menyusini oching:"
+            )
+        else:
+            text = (
+                f"👑 **THE IRON THRONE — ASOSIY DASHBOARD**\n\n"
+                f"👤 Hukmdor: **{escape_md(hero_name)}**\n"
+                f"🏰 Xonadon: **{house_str}**\n\n"
+                f"🪙 Oltin: **{user.gold:,}** | 🌾 Oziq-ovqat: **{user.food:,}** | ⛓️ Temir: **{user.iron:,}**\n"
+                f"🛡️ Armiya: **{army_count:,}** askar\n\n"
+                f"Kerakli bo'limni tanlang:"
+            )
         if query.message.photo:
             await query.message.delete()
             await query.message.chat.send_message(text, parse_mode="Markdown", reply_markup=main_menu_keyboard(user_id))
         else:
             await query.edit_message_text(text, parse_mode="Markdown", reply_markup=main_menu_keyboard(user_id))
+
+
+async def bot_fallback_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Foydalanuvchi Bot Menyusi (Fallback) tugmasini bosganda to'liq 20+ klassik inline menyuni ochish"""
+    query = update.callback_query
+    await query.answer()
+
+    user_id = query.from_user.id
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_with_relations(session, user_id)
+        hero_name = user.characters[0].name if (user and user.characters) else "Lord"
+        house_str = f"{user.house.emoji} {user.house.name}" if (user and user.house) else "Mustaqil Lord"
+
+    text = (
+        f"🕹️ **BOT MENYUSI (ZAXIRA / FALLBACK REJIM)**\n\n"
+        f"👤 Hukmdor: **{escape_md(hero_name)}** | 🏰 **{house_str}**\n\n"
+        f"Matnli klassik bot menyusi to'liq xizmatingizda. Har bir bo'lim va buyruq to'liq ishlaydi.\n"
+        f"Xohlagan paytingizda yuqoridagi **« 🔙 Mini App'ga Qaytish»** tugmasi orqali qaytishingiz mumkin:"
+    )
+    if query.message.photo:
+        await query.message.delete()
+        await query.message.chat.send_message(text, parse_mode="Markdown", reply_markup=bot_fallback_keyboard(user_id))
+    else:
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=bot_fallback_keyboard(user_id))
+
+
+async def miniapp_primary_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Foydalanuvchi Bot Menyusidan 'Mini App'ga Qaytish' tugmasini bosganda"""
+    query = update.callback_query
+    await query.answer()
+
+    user_id = query.from_user.id
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_with_relations(session, user_id)
+        if not user:
+            await query.edit_message_text("Iltimos, avval /start ni bosing.")
+            return
+
+        hero_name = user.characters[0].name if user.characters else "Lord"
+        house_str = f"{user.house.emoji} {user.house.name}" if user.house else "Mustaqil Lord"
+        army_count = (
+            (user.army.infantry or 0)
+            + (user.army.archers or 0)
+            + (user.army.cavalry or 0)
+            + (user.army.spearmen or 0)
+            + (user.army.special_troops or 0)
+        ) if user.army else 0
+
+        text = (
+            f"👑 **THE IRON THRONE — TELEGRAM MINI APP**\n\n"
+            f"👤 Hukmdor: **{escape_md(hero_name)}**\n"
+            f"🏰 Xonadon: **{house_str}**\n\n"
+            f"🪙 Oltin: **{user.gold:,}** | 🌾 Oziq-ovqat: **{user.food:,}** | ⛓️ Temir: **{user.iron:,}**\n"
+            f"🛡️ Armiya: **{army_count:,}** askar\n\n"
+            f"📱 Vesteros taxti uchun kurash endi to'liq Telegram Mini App'da!\n"
+            f"Grafik boshqaruv, animatsiyalar va real-vaqt harakatlari uchun quyidagi tugmani bosing:"
+        )
+        if query.message.photo:
+            await query.message.delete()
+            await query.message.chat.send_message(text, parse_mode="Markdown", reply_markup=start_primary_keyboard(user_id))
+        else:
+            await query.edit_message_text(text, parse_mode="Markdown", reply_markup=start_primary_keyboard(user_id))
+
+
+async def refresh_primary_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Mini App boshqaruv kartasidagi hisob va resurslarni yangilash"""
+    query = update.callback_query
+    await query.answer("🔄 Ma'lumotlar yangilandi!", show_alert=False)
+    await miniapp_primary_callback(update, context)
 
 
 async def bottom_menu_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -958,6 +1054,9 @@ def register_start_handlers(app):
     app.add_handler(CallbackQueryHandler(hero_selected_callback, pattern="^sel_hero:"))
     app.add_handler(CallbackQueryHandler(hero_taken_callback, pattern="^hero_taken$"))
     app.add_handler(CallbackQueryHandler(main_menu_callback, pattern="^menu_main$"))
+    app.add_handler(CallbackQueryHandler(bot_fallback_menu_callback, pattern="^menu_bot_fallback$"))
+    app.add_handler(CallbackQueryHandler(miniapp_primary_callback, pattern="^menu_miniapp_primary$"))
+    app.add_handler(CallbackQueryHandler(refresh_primary_callback, pattern="^menu_refresh_primary$"))
     app.add_handler(CallbackQueryHandler(random_house_pick_callback, pattern="^back_to_regions$"))
     app.add_handler(CallbackQueryHandler(custom_house_region_callback, pattern="^reg_house_reg:"))
     app.add_handler(CallbackQueryHandler(custom_house_emoji_page_callback, pattern="^reg_emoji_page:"))
