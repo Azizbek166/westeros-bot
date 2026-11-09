@@ -158,7 +158,7 @@
 
   // 4. Render All Views
   function renderAll(data) {
-    renderHeaderAndProfile(data.profile);
+    renderHeaderAndProfile(data.profile, data);
     renderDaily(data.daily);
     renderArmy(data.army);
     renderCastles(data.castles);
@@ -167,7 +167,7 @@
   }
 
   // Render Header & Profile Tab
-  function renderHeaderAndProfile(prof) {
+  function renderHeaderAndProfile(prof, fullData) {
     if (!prof) return;
 
     // Header Brief
@@ -199,10 +199,15 @@
     document.getElementById('prof-xp-text').textContent = `${formatNum(prof.xp)} / ${formatNum(prof.xp_next_req)} (${xpPct}%)`;
 
     // Combat Stats
-    document.getElementById('prof-atk').textContent = formatNum(prof.hero_attack || 10);
-    document.getElementById('prof-def').textContent = formatNum(prof.hero_defense || 10);
-    const armyTotal = prof.army?.total || 0;
+    document.getElementById('prof-atk').textContent = formatNum(prof.hero_attack || 50);
+    document.getElementById('prof-def').textContent = formatNum(prof.hero_defense || 50);
+    const armyTotal = prof.army?.total_troops || prof.army?.total || fullData?.army?.troops?.total || 0;
     document.getElementById('prof-army-total').textContent = formatNum(armyTotal);
+
+    // Castles Count in Profile Card
+    const castlesCount = fullData?.castles?.total_castles ?? (fullData?.castles?.castles ? fullData.castles.castles.length : 0);
+    const castlesEl = document.getElementById('prof-castles-count');
+    if (castlesEl) castlesEl.textContent = formatNum(castlesCount);
 
     // Household Info
     document.getElementById('prof-title').textContent = prof.title || 'Faxriy unvon berilmagan';
@@ -210,8 +215,10 @@
     
     // Shield
     const shieldEl = document.getElementById('prof-shield');
-    if (prof.peace_shield?.active) {
-      shieldEl.textContent = `Faol (${prof.peace_shield.remaining_seconds || 0}s)`;
+    const isShieldActive = prof.peace_shield?.is_active || prof.peace_shield?.active || false;
+    const hoursLeft = prof.peace_shield?.hours_left ?? Math.ceil((prof.peace_shield?.remaining_seconds || 0) / 3600);
+    if (isShieldActive) {
+      shieldEl.textContent = `Faol (${hoursLeft} soat)`;
       shieldEl.className = 'info-val text-green';
     } else {
       shieldEl.textContent = 'Faol emas';
@@ -220,14 +227,16 @@
 
     // Guild
     const guildEl = document.getElementById('prof-guild');
-    if (prof.guild?.in_guild) {
-      guildEl.textContent = `${prof.guild.tag || ''} ${prof.guild.name || 'Gildiya'}`;
+    const g = prof.guild;
+    if (g && (g.name || g.tag || g.in_guild)) {
+      guildEl.textContent = `${g.tag ? g.tag + ' ' : ''}${g.name || 'Gildiya'}`;
     } else {
       guildEl.textContent = 'Gildiyada emas';
     }
 
     // Income
-    document.getElementById('prof-hourly-income').textContent = `+${formatNum(prof.income_hourly?.total_gold_per_hour || 0)}🪙 / soat`;
+    const hourlyGold = prof.income_hourly?.gold ?? prof.income_hourly?.total_gold_per_hour ?? 0;
+    document.getElementById('prof-hourly-income').textContent = `+${formatNum(hourlyGold)}🪙 / soat`;
   }
 
   // Render Daily Streak & Quests (Feature 1)
@@ -509,7 +518,7 @@
 
     const troops = army.troops || {};
     const configs = army.units_config || {};
-    const totalArmy = troops.total || 0;
+    const totalArmy = troops.total || troops.total_troops || 0;
     document.getElementById('army-total-sum').textContent = `${formatNum(totalArmy)} Askar`;
 
     const unitsContainer = document.getElementById('army-units-container');
@@ -1050,6 +1059,11 @@
   }
 
   async function loadDuelHubData() {
+    const champsContainer = document.getElementById('duel-champions-container');
+    if (champsContainer && champsContainer.children.length === 0) {
+      champsContainer.innerHTML = '<div style="padding:10px; color:var(--text-muted); font-size:11px;">⚔️ Chempionlar chaqirilmoqda...</div>';
+    }
+
     const headers = { 'Content-Type': 'application/json' };
     if (currentInitData) {
       headers['Authorization'] = `tma ${currentInitData}`;
@@ -1074,11 +1088,10 @@
       document.getElementById('duel-attempts-badge').textContent = `Limit: ${limits.remaining || 0} / ${limits.max_daily || 5}`;
 
       // Render Champions
-      const champsContainer = document.getElementById('duel-champions-container');
       champsContainer.innerHTML = '';
       const champs = currentDuelHubData.available_champions || [];
 
-      if (!selectedChampion && champs.length > 0) {
+      if (champs.length > 0 && (!selectedChampion || !champs.some(c => c.id === selectedChampion))) {
         selectedChampion = champs[0].id;
       }
 
@@ -1128,6 +1141,9 @@
 
     } catch (err) {
       console.error('Load duel hub error:', err);
+      if (champsContainer) {
+        champsContainer.innerHTML = `<div style="padding:10px; color:var(--color-red); font-size:11px;">Yuklashda xatolik: ${escapeHtml(err.message)}</div>`;
+      }
       showToast(err.message, 'error');
     }
   }
@@ -1681,6 +1697,33 @@
   // Render World & Events Tab
   function renderWorld(worldData) {
     if (!worldData) return;
+
+    // Westeros Season Card & Hall of Fame
+    const season = worldData.season || {};
+    const seasonNumBadge = document.getElementById('season-num-badge');
+    if (seasonNumBadge) seasonNumBadge.textContent = `👑 ${season.season_number || 2}-Mavsum`;
+    const seasonNameEl = document.getElementById('season-name');
+    if (seasonNameEl) seasonNameEl.textContent = season.name || '2-Mavsum: Temir Taxt Qadami';
+    const seasonDaysEl = document.getElementById('season-days-left');
+    if (seasonDaysEl) seasonDaysEl.textContent = `${season.days_left ?? 14} kun`;
+    const seasonStatusBadge = document.getElementById('season-status-badge');
+    if (seasonStatusBadge) seasonStatusBadge.textContent = season.status || 'Faol';
+
+    const fameContainer = document.getElementById('season-hall-of-fame-list');
+    if (fameContainer) {
+      const entries = season.hall_of_fame || [];
+      if (entries.length === 0) {
+        fameContainer.innerHTML = '<div style="padding:4px 0; color:var(--text-secondary); font-size:11px;">1-Mavsum yakunlangan. Chempion: Liar (@NiclausMikaelson) — House Targaryen</div>';
+      } else {
+        fameContainer.innerHTML = entries.map(e => `
+          <div class="fame-item">
+            <div class="fame-season">🏆 ${e.season_number}-Mavsum</div>
+            <div class="fame-winner">👑 ${escapeHtml(e.king_name)} <span class="fame-house">(${escapeHtml(e.winner_house)})</span></div>
+            <div class="fame-date">${e.date || ''}</div>
+          </div>
+        `).join('');
+      }
+    }
 
     const w = worldData.weather || {};
     document.getElementById('w-emoji').textContent = w.emoji || '🌤️';

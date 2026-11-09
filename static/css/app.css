@@ -559,6 +559,113 @@ body {
 }
 
 /* ============================================================
+   SEASON CARD & HALL OF FAME
+   ============================================================ */
+.season-card {
+  background: linear-gradient(135deg, rgba(212, 175, 55, 0.08) 0%, rgba(20, 20, 26, 0.95) 100%);
+  border: 1px solid rgba(212, 175, 55, 0.35);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+
+.season-badge-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.badge-gold {
+  background: rgba(212, 175, 55, 0.2);
+  color: var(--gold-light);
+  border: 1px solid var(--gold-primary);
+  font-weight: 700;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+
+.badge-active {
+  background: rgba(42, 157, 143, 0.2);
+  color: var(--color-green);
+  border: 1px solid var(--color-green);
+  font-weight: 700;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+
+.season-title {
+  font-family: var(--font-serif);
+  font-size: 17px;
+  color: var(--gold-primary);
+  font-weight: 700;
+  margin: 6px 0 2px 0;
+}
+
+.season-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.season-stats-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.season-fame-section {
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 10px;
+}
+
+.fame-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--gold-light);
+  font-family: var(--font-serif);
+}
+
+.fame-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.fame-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(0, 0, 0, 0.3);
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.fame-season {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--gold-primary);
+}
+
+.fame-winner {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.fame-house {
+  color: var(--text-muted);
+  font-weight: 400;
+  font-size: 11px;
+}
+
+.fame-date {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* ============================================================
    BOTTOM NAVIGATION BAR
    ============================================================ */
 

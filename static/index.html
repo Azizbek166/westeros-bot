@@ -13,7 +13,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-  <link rel="stylesheet" href="css/app.css">
+  <link rel="stylesheet" href="css/app.css?v=3.1">
 </head>
 <body>
   <div id="app" class="app-container">
@@ -257,6 +257,37 @@
 
       <!-- TAB 5: WORLD & EVENTS -->
       <section id="tab-world" class="view-panel">
+        <!-- Westeros Season Card -->
+        <div class="card season-card mb-3">
+          <div class="season-header">
+            <div class="season-badge-row">
+              <span class="badge badge-gold" id="season-num-badge">👑 2-Mavsum</span>
+              <span class="badge badge-active" id="season-status-badge">Faol</span>
+            </div>
+            <h3 class="season-title mt-2" id="season-name">2-Mavsum: Temir Taxt Qadami</h3>
+            <p class="season-desc">1-Mavsum muvaffaqiyatli yakunlangan. G'oliblar Shon-sharaf Zaliga abadiy muhrlangan!</p>
+          </div>
+          <div class="season-stats-row mt-2">
+            <div class="stat-box">
+              <span class="stat-lbl">Mavsum Tugashiga</span>
+              <span class="stat-val text-gold" id="season-days-left">14 kun</span>
+            </div>
+            <div class="stat-box">
+              <span class="stat-lbl">Temir Taxt Qal'asi</span>
+              <span class="stat-val text-green">King's Landing</span>
+            </div>
+          </div>
+          <!-- Past Seasons / Hall of Fame -->
+          <div class="season-fame-section mt-3">
+            <div class="fame-header">
+              <span class="fame-title">🏛️ O'tgan Mavsum Chempionlari (Shon-sharaf Zali)</span>
+            </div>
+            <div class="fame-list" id="season-hall-of-fame-list">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+        </div>
+
         <!-- Weather Card -->
         <div class="card weather-card">
           <div class="weather-header">
@@ -697,6 +728,6 @@
 
   </div>
 
-  <script src="js/app.js"></script>
+  <script src="js/app.js?v=3.1"></script>
 </body>
 </html>

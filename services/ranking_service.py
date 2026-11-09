@@ -69,13 +69,20 @@ async def get_rankings_overview(
     detailed_castles = await crud.get_top10_castles(session)
     castle_list = []
     for rank, item in enumerate(detailed_castles[:10], start=1):
+        u = item.get("user")
+        h = u.house if u else None
+        h_name = h.name if h else "Mustaqil"
+        h_emoji = h.emoji if h else "🛡️"
+        c_count = item.get("castles_count", 0)
+        c_score = item.get("score", 0)
+        user_name = u.full_name or u.username or "Lord" if u else "Lord"
         castle_list.append({
             "rank": rank,
-            "user_id": item.get("user_id"),
-            "name": item.get("user_name", "Lord"),
-            "house": item.get("house_name", ""),
-            "value": item.get("castle_count", 0),
-            "score": item.get("castle_score", 0),
+            "user_id": u.id if u else 0,
+            "name": user_name,
+            "house": f"{h_emoji} {h_name}",
+            "value": c_count,
+            "score": c_score,
         })
 
     # 5. Top 10 Houses
