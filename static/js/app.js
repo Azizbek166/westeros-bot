@@ -32,10 +32,42 @@
       // BackButton handler
       tg.BackButton?.onClick(() => {
         haptic('light');
-        switchTab('tab-profile');
+        if (activeModal) {
+          hideModal(activeModal);
+        } else {
+          switchTab('tab-profile');
+        }
       });
     } catch (e) {
       console.warn('Telegram WebApp setup error:', e);
+    }
+  }
+
+  let activeModal = null;
+
+  function showModal(modalId) {
+    const modal = document.getElementById(modalId);
+    if (!modal) return;
+    modal.style.display = 'flex';
+    activeModal = modalId;
+    haptic('medium');
+    if (tg?.BackButton) {
+      tg.BackButton.show();
+    }
+  }
+
+  function hideModal(modalId) {
+    const modal = document.getElementById(modalId);
+    if (modal) modal.style.display = 'none';
+    if (activeModal === modalId) {
+      activeModal = null;
+      if (tg?.BackButton) {
+        if (activeTab === 'tab-profile') {
+          tg.BackButton.hide();
+        } else {
+          tg.BackButton.show();
+        }
+      }
     }
   }
 
@@ -142,8 +174,30 @@
       }
 
       const res = await response.json();
-      if (!res.success || !res.data) {
+      if (!res.success) {
         throw new Error('Serverdan noto‘g‘ri ma‘lumot qaytdi.');
+      }
+
+      if (res.is_registered === false) {
+        showLoading(false);
+        renderOnboarding(res.available_houses || []);
+        return;
+      }
+
+      if (!res.data) {
+        throw new Error('Serverdan noto‘g‘ri ma‘lumot qaytdi.');
+      }
+
+      // Hide onboarding and restore bottom navigation
+      const onbView = document.getElementById('view-onboarding');
+      if (onbView) onbView.style.display = 'none';
+      const bNav = document.querySelector('.bottom-nav');
+      if (bNav) bNav.style.display = 'flex';
+
+      // Admin button check
+      const adminBtn = document.getElementById('btn-open-admin');
+      if (adminBtn) {
+        adminBtn.style.display = res.is_admin ? 'flex' : 'none';
       }
 
       cachedDashboardData = res.data;
@@ -1758,6 +1812,1236 @@
     });
   }
 
+  // ============================================================
+  // FEATURE EXTENSIONS: ONBOARDING, MAP, MARCH, SPY
+  // ============================================================
+
+  let selectedOnboardingHouse = null;
+
+  function renderOnboarding(houses) {
+    const onbView = document.getElementById('view-onboarding');
+    if (!onbView) return;
+    onbView.style.display = 'block';
+
+    document.querySelectorAll('.view-panel').forEach(p => {
+      if (p.id !== 'view-onboarding') p.style.display = 'none';
+    });
+    const bNav = document.querySelector('.bottom-nav');
+    if (bNav) bNav.style.display = 'none';
+
+    const container = document.getElementById('onboarding-houses-container');
+    if (!container) return;
+
+    container.innerHTML = houses.map(h => `
+      <div class="house-card" data-code="${h.code}">
+        <span class="house-sigil-icon">${h.emoji || '🛡️'}</span>
+        <div class="house-card-title">${escapeHtml(h.name)}</div>
+        <div class="house-card-motto">"${escapeHtml(h.motto || '')}"</div>
+        <div class="house-card-perk">⚡ ${escapeHtml(h.bonus_desc || '')}</div>
+      </div>
+    `).join('');
+
+    container.querySelectorAll('.house-card').forEach(card => {
+      card.addEventListener('click', () => {
+        haptic('light');
+        container.querySelectorAll('.house-card').forEach(c => c.classList.remove('selected'));
+        card.classList.add('selected');
+        selectedOnboardingHouse = card.getAttribute('data-code');
+      });
+    });
+  }
+
+  async function handleRegisterPlayer() {
+    if (isActionPending) return;
+    const heroName = (document.getElementById('onboarding-hero-name')?.value || '').trim();
+    if (heroName.length < 2) {
+      showToast('Iltimos, kamida 2 harfdan iborat Lord ismini kiriting.', 'error');
+      return;
+    }
+
+    const payload = {
+      hero_name: heroName,
+      house_code: selectedOnboardingHouse || null,
+      custom_house_name: (document.getElementById('onboarding-custom-name')?.value || '').trim() || null,
+      custom_house_region: (document.getElementById('onboarding-custom-region')?.value || '').trim() || null,
+      custom_house_emoji: (document.getElementById('onboarding-custom-emoji')?.value || '').trim() || null,
+      custom_castle_name: (document.getElementById('onboarding-custom-castle')?.value || '').trim() || null,
+    };
+
+    if (!payload.house_code && !payload.custom_house_name) {
+      showToast('Iltimos, Buyuk Xonadonlardan birini tanlang yoki maxsus xonadon yarating.', 'error');
+      return;
+    }
+
+    const submitBtn = document.getElementById('btn-submit-onboarding');
+    if (submitBtn) submitBtn.disabled = true;
+    isActionPending = true;
+    haptic('medium');
+
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+
+      const resp = await fetch('/api/player/register', {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify(payload),
+      });
+
+      const res = await resp.json();
+      if (!resp.ok || !res.success) {
+        throw new Error(res.detail || res.error || 'Ro‘yxatdan o‘tishda xatolik yuz berdi.');
+      }
+
+      showToast('👑 Qasamyodingiz qabul qilindi! Vesteros sizni qutlaydi!', 'success');
+      haptic('heavy');
+      await fetchDashboard();
+    } catch (err) {
+      console.error('Registration error:', err);
+      showToast(err.message, 'error');
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
+      isActionPending = false;
+    }
+  }
+
+  // --- MAP & SCOUT ---
+  let cachedTerritories = [];
+
+  async function openMapModal() {
+    showModal('map-modal');
+    await loadMapData();
+  }
+
+  function closeMapModal() {
+    hideModal('map-modal');
+  }
+
+  async function loadMapData() {
+    const container = document.getElementById('map-territories-container');
+    if (!container) return;
+    container.innerHTML = '<div class="text-center py-3 text-secondary">Vesteros xaritasi yuklanmoqda...</div>';
+
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+
+      const resp = await fetch('/api/actions/map/overview', { method: 'GET', headers: headers });
+      const res = await resp.json();
+      if (!resp.ok || !res.success) throw new Error(res.detail || 'Xarita ma‘lumotlarini yuklab bo‘lmadi.');
+
+      cachedTerritories = res.territories || [];
+      renderMap(cachedTerritories);
+    } catch (err) {
+      console.error('Map error:', err);
+      container.innerHTML = `<div class="text-center py-3 text-red">Xatolik: ${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  function renderMap(territories, regionFilter = 'all') {
+    const container = document.getElementById('map-territories-container');
+    if (!container) return;
+
+    const filtered = (regionFilter === 'all')
+      ? territories
+      : territories.filter(t => t.region === regionFilter);
+
+    if (!filtered.length) {
+      container.innerHTML = '<div class="text-center py-3 text-secondary">Ushbu hududda qal‘alar topilmadi.</div>';
+      return;
+    }
+
+    container.innerHTML = filtered.map(t => {
+      const isMine = t.is_my_castle;
+      return `
+        <div class="territory-card ${isMine ? 'own-territory' : ''}" data-id="${t.id}">
+          <div class="territory-header">
+            <div>
+              <span class="territory-title">${escapeHtml(t.name)}</span>
+              <div class="territory-meta">${escapeHtml(t.region)} • ${escapeHtml(t.tier_label || 'Qal‘a')} • ${t.owner_house ? escapeHtml(t.owner_house.name) : 'Noma‘lum'}</div>
+            </div>
+            <span class="badge ${isMine ? 'badge-active' : 'badge-gold'}">${isMine ? 'Sizning Qal‘angiz' : `${formatNum(t.defense)} Mudofaa`}</span>
+          </div>
+          <div class="territory-incomes">
+            <span>🪙 +${formatNum(t.gold_income)}/s</span>
+            <span>🌾 +${formatNum(t.food_income)}/s</span>
+            <span>⛓️ +${formatNum(t.iron_income)}/s</span>
+          </div>
+          <div class="territory-actions">
+            <button class="territory-btn btn-scout-terr" data-id="${t.id}">👁️ Razvedka</button>
+            <button class="territory-btn btn-march-terr" data-id="${t.id}">⚔️ Harbiy Yurish</button>
+            <button class="territory-btn btn-spy-terr" data-id="${t.id}">🕵️ Josus</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    container.querySelectorAll('.btn-scout-terr').forEach(btn => {
+      btn.addEventListener('click', () => openScoutModal(parseInt(btn.getAttribute('data-id'))));
+    });
+    container.querySelectorAll('.btn-march-terr').forEach(btn => {
+      btn.addEventListener('click', () => {
+        closeMapModal();
+        openMarchModal(parseInt(btn.getAttribute('data-id')));
+      });
+    });
+    container.querySelectorAll('.btn-spy-terr').forEach(btn => {
+      btn.addEventListener('click', () => {
+        closeMapModal();
+        openEspionageModal(parseInt(btn.getAttribute('data-id')));
+      });
+    });
+  }
+
+  async function openScoutModal(territoryId) {
+    showModal('scout-modal');
+    const body = document.getElementById('scout-body');
+    if (!body) return;
+    body.innerHTML = '<div class="text-center py-3 text-secondary">Razvedka qarg‘alari uchirilmoqda...</div>';
+
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+
+      const resp = await fetch(`/api/actions/map/scout/${territoryId}`, { method: 'GET', headers: headers });
+      const res = await resp.json();
+      if (!resp.ok || !res.success) throw new Error(res.detail || 'Razvedka ma‘lumotini olib bo‘lmadi.');
+
+      const s = res.scout_report;
+      body.innerHTML = `
+        <div class="card p-3 mb-2">
+          <h4 class="font-serif text-gold">${escapeHtml(s.territory_name)}</h4>
+          <p class="text-secondary" style="font-size:11px;">Mintaqa: ${escapeHtml(s.region)} | Egasi: ${escapeHtml(s.owner_house_name || 'Noma‘lum')}</p>
+          <div class="d-flex justify-between mt-2" style="font-size:12px;">
+            <span>Qal‘a Darajasi: <strong>${s.castle_level}</strong></span>
+            <span>Umumiy Mudofaa: <strong class="text-blue">${formatNum(s.effective_defense)}</strong></span>
+          </div>
+        </div>
+        <div class="card p-3 mb-2">
+          <h5 class="text-gold font-serif mb-1">🛡️ Garnizon Qurolli Kuchlari</h5>
+          <div class="d-flex justify-between" style="font-size:11px;">
+            <span>Piyoda: ${formatNum(s.garrison_infantry)}</span>
+            <span>Kamonchi: ${formatNum(s.garrison_archers)}</span>
+            <span>Otliq: ${formatNum(s.garrison_cavalry)}</span>
+            <span>Nayzador: ${formatNum(s.garrison_spearmen)}</span>
+          </div>
+          <div class="mt-2 text-secondary" style="font-size:11px;">
+            Yovvoyi Olov (Wildfire): ${s.wildfire_traps ? '<strong class="text-red">Mavjud!</strong>' : 'Yo‘q'}
+          </div>
+          <div class="text-secondary" style="font-size:11px;">
+            Darvoza Holati: ${s.gates_compromised ? '<strong class="text-green">Buzilgan (Zaif)</strong>' : 'Butun'}
+          </div>
+        </div>
+        <button class="btn btn-primary w-100 mt-2" id="btn-scout-to-march">
+          ⚔️ Ushbu Qal‘aga Hujum Uyushtirish
+        </button>
+      `;
+
+      document.getElementById('btn-scout-to-march')?.addEventListener('click', () => {
+        closeScoutModal();
+        openMarchModal(s.territory_id);
+      });
+    } catch (err) {
+      console.error('Scout error:', err);
+      body.innerHTML = `<div class="text-center py-3 text-red">Xatolik: ${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  function closeScoutModal() {
+    hideModal('scout-modal');
+  }
+
+  // --- MARCH (ATTACK) ---
+  async function openMarchModal(preferredTerritoryId = null) {
+    showModal('march-modal');
+    populateMarchAvailableTroops();
+    await loadMarchTargets(preferredTerritoryId);
+    await loadActiveMarches();
+  }
+
+  function closeMarchModal() {
+    hideModal('march-modal');
+  }
+
+  function populateMarchAvailableTroops() {
+    const army = cachedDashboardData?.army || {};
+    const units = army.units || {};
+    const siege = army.siege || {};
+
+    document.getElementById('avail-infantry').textContent = formatNum(units.infantry?.count || 0);
+    document.getElementById('avail-archers').textContent = formatNum(units.archers?.count || 0);
+    document.getElementById('avail-cavalry').textContent = formatNum(units.cavalry?.count || 0);
+    document.getElementById('avail-spearmen').textContent = formatNum(units.spearmen?.count || 0);
+    document.getElementById('avail-catapults').textContent = formatNum(siege.catapults?.count || 0);
+    document.getElementById('avail-towers').textContent = formatNum(siege.siege_towers?.count || 0);
+
+    document.getElementById('march-infantry').value = 0;
+    document.getElementById('march-archers').value = 0;
+    document.getElementById('march-cavalry').value = 0;
+    document.getElementById('march-spearmen').value = 0;
+    document.getElementById('march-catapults').value = 0;
+    document.getElementById('march-towers').value = 0;
+  }
+
+  function applyMarchPercentage(pct) {
+    const army = cachedDashboardData?.army || {};
+    const units = army.units || {};
+    const siege = army.siege || {};
+
+    const factor = pct / 100.0;
+    document.getElementById('march-infantry').value = Math.floor((units.infantry?.count || 0) * factor);
+    document.getElementById('march-archers').value = Math.floor((units.archers?.count || 0) * factor);
+    document.getElementById('march-cavalry').value = Math.floor((units.cavalry?.count || 0) * factor);
+    document.getElementById('march-spearmen').value = Math.floor((units.spearmen?.count || 0) * factor);
+    document.getElementById('march-catapults').value = Math.floor((siege.catapults?.count || 0) * factor);
+    document.getElementById('march-towers').value = Math.floor((siege.siege_towers?.count || 0) * factor);
+    haptic('light');
+  }
+
+  async function loadMarchTargets(preferredTerritoryId) {
+    const select = document.getElementById('march-target-select');
+    if (!select) return;
+
+    if (!cachedTerritories.length) {
+      try {
+        const headers = { 'Content-Type': 'application/json' };
+        if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+        const resp = await fetch('/api/actions/map/overview', { method: 'GET', headers: headers });
+        const res = await resp.json();
+        cachedTerritories = res.territories || [];
+      } catch (e) {}
+    }
+
+    const enemies = cachedTerritories.filter(t => !t.is_my_castle);
+    select.innerHTML = enemies.map(t => `
+      <option value="${t.id}" ${preferredTerritoryId === t.id ? 'selected' : ''}>
+        ${escapeHtml(t.name)} (${escapeHtml(t.region)}) — Mudofaa: ${formatNum(t.defense)}
+      </option>
+    `).join('');
+
+    updateMarchTargetDetails();
+  }
+
+  function updateMarchTargetDetails() {
+    const select = document.getElementById('march-target-select');
+    const terrId = parseInt(select?.value);
+    const target = cachedTerritories.find(t => t.id === terrId);
+    if (!target) return;
+
+    document.getElementById('march-target-def').textContent = formatNum(target.defense);
+    document.getElementById('march-target-dist').textContent = `${target.distance_km || 150} km`;
+    document.getElementById('march-target-time').textContent = `${target.travel_seconds || 180} soniya`;
+  }
+
+  async function handleDispatchMarch() {
+    if (isActionPending) return;
+    const select = document.getElementById('march-target-select');
+    const targetId = parseInt(select?.value);
+    if (!targetId) {
+      showToast('Iltimos, nishon qal‘ani tanlang.', 'error');
+      return;
+    }
+
+    const infantry = parseInt(document.getElementById('march-infantry')?.value) || 0;
+    const archers = parseInt(document.getElementById('march-archers')?.value) || 0;
+    const cavalry = parseInt(document.getElementById('march-cavalry')?.value) || 0;
+    const spearmen = parseInt(document.getElementById('march-spearmen')?.value) || 0;
+    const catapults = parseInt(document.getElementById('march-catapults')?.value) || 0;
+    const siegeTowers = parseInt(document.getElementById('march-towers')?.value) || 0;
+
+    const totalTroops = infantry + archers + cavalry + spearmen;
+    if (totalTroops <= 0) {
+      showToast('Kamida 1 nafar askar tanlanishi shart!', 'error');
+      return;
+    }
+
+    const hasDragon = document.getElementById('march-dragon-toggle')?.checked || false;
+    const dragonTactic = document.getElementById('march-dragon-tactic')?.value || 'none';
+
+    const btn = document.getElementById('btn-submit-march');
+    if (btn) btn.disabled = true;
+    isActionPending = true;
+    haptic('medium');
+
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+
+      const resp = await fetch('/api/actions/battle/march', {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({
+          target_territory_id: targetId,
+          infantry: infantry,
+          archers: archers,
+          cavalry: cavalry,
+          spearmen: spearmen,
+          catapults: catapults,
+          siege_towers: siegeTowers,
+          has_dragon: hasDragon,
+          dragon_tactic: dragonTactic,
+        }),
+      });
+
+      const res = await resp.json();
+      if (!resp.ok || !res.success) {
+        throw new Error(res.detail || res.error || 'Harbiy yurishni boshlashda xatolik yuz berdi.');
+      }
+
+      showToast(`🚩 Harbiy yurish boshlandi! Yetib borish vaqti: ${res.march.travel_seconds}s`, 'success');
+      haptic('heavy');
+      await fetchDashboard();
+      populateMarchAvailableTroops();
+      await loadActiveMarches();
+    } catch (err) {
+      console.error('March dispatch error:', err);
+      showToast(err.message, 'error');
+    } finally {
+      if (btn) btn.disabled = false;
+      isActionPending = false;
+    }
+  }
+
+  async function loadActiveMarches() {
+    const list = document.getElementById('active-marches-list');
+    if (!list) return;
+
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+
+      const resp = await fetch('/api/actions/battle/hub', { method: 'GET', headers: headers });
+      const res = await resp.json();
+      const marches = res.active_marches || [];
+
+      if (!marches.length) {
+        list.innerHTML = '<div class="text-secondary" style="font-size:11px;">Hozirda harakatdagi harbiy yurishlar yo‘q.</div>';
+        return;
+      }
+
+      list.innerHTML = marches.map(m => `
+        <div class="card p-2 mb-2" style="font-size:11px;">
+          <div class="d-flex justify-between">
+            <strong class="text-gold">🚩 Nishon: ${escapeHtml(m.target_territory_name || 'Qal‘a')}</strong>
+            <span class="text-red">${m.seconds_remaining}s qoldi</span>
+          </div>
+          <div class="text-secondary mt-1">
+            Qo‘shin: ${m.infantry} piyoda, ${m.archers} kamonchi, ${m.cavalry} otliq, ${m.spearmen} nayzador
+          </div>
+        </div>
+      `).join('');
+    } catch (e) {
+      list.innerHTML = '<div class="text-secondary" style="font-size:11px;">Faol yurishlarni yuklab bo‘lmadi.</div>';
+    }
+  }
+
+  // --- ESPIONAGE ---
+  async function openEspionageModal(territoryId = null) {
+    showModal('espionage-modal');
+    const select = document.getElementById('espionage-target-select');
+    if (select) {
+      if (!cachedTerritories.length) {
+        try {
+          const headers = { 'Content-Type': 'application/json' };
+          if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+          const resp = await fetch('/api/actions/map/overview', { method: 'GET', headers: headers });
+          const res = await resp.json();
+          cachedTerritories = res.territories || [];
+        } catch (e) {}
+      }
+      const enemies = cachedTerritories.filter(t => !t.is_my_castle);
+      select.innerHTML = enemies.map(t => `
+        <option value="${t.id}" ${territoryId === t.id ? 'selected' : ''}>
+          ${escapeHtml(t.name)} (${escapeHtml(t.region)})
+        </option>
+      `).join('');
+    }
+    const resBox = document.getElementById('espionage-result-box');
+    if (resBox) resBox.style.display = 'none';
+  }
+
+  function closeEspionageModal() {
+    hideModal('espionage-modal');
+  }
+
+  async function handleExecuteSpyMission(missionType) {
+    if (isActionPending) return;
+    const select = document.getElementById('espionage-target-select');
+    const targetId = parseInt(select?.value);
+    if (!targetId) {
+      showToast('Iltimos, nishon qal‘ani tanlang.', 'error');
+      return;
+    }
+
+    isActionPending = true;
+    haptic('medium');
+    const resBox = document.getElementById('espionage-result-box');
+    if (resBox) {
+      resBox.style.display = 'block';
+      resBox.innerHTML = '<div class="text-secondary">Josus yuborilmoqda...</div>';
+    }
+
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+
+      const resp = await fetch('/api/actions/espionage/execute', {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({
+          target_territory_id: targetId,
+          mission_type: missionType,
+        }),
+      });
+
+      const res = await resp.json();
+      if (!resp.ok || !res.success) {
+        throw new Error(res.detail || res.error || 'Josuslik amali bajarilmadi.');
+      }
+
+      if (res.mission_success) {
+        showToast('🕵️ Josuslik operatsiyasi muvaffaqiyatli yakunlandi!', 'success');
+        haptic('heavy');
+      } else {
+        showToast('⚠️ Josus dushman soqchilari tomonidan fosh qilindi!', 'error');
+        haptic('error');
+      }
+
+      if (resBox) {
+        resBox.innerHTML = `
+          <h4 class="${res.mission_success ? 'text-green' : 'text-red'} font-serif">${res.mission_success ? 'Muvaffaqiyat!' : 'Fosh bo‘ldi!'}</h4>
+          <p class="mt-1" style="font-size:12px;">${escapeHtml(res.report)}</p>
+        `;
+      }
+      await fetchDashboard();
+    } catch (err) {
+      console.error('Espionage error:', err);
+      showToast(err.message, 'error');
+      if (resBox) resBox.innerHTML = `<div class="text-red">Xatolik: ${escapeHtml(err.message)}</div>`;
+    } finally {
+      isActionPending = false;
+    }
+  }
+
+  // --- DRAGON NEST ---
+  async function openDragonModal() {
+    showModal('dragon-modal');
+    await loadDragonData();
+  }
+
+  function closeDragonModal() {
+    hideModal('dragon-modal');
+  }
+
+  async function loadDragonData() {
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+
+      const resp = await fetch('/api/actions/dragon/status', { method: 'GET', headers: headers });
+      const res = await resp.json();
+      if (!resp.ok || !res.success) throw new Error(res.detail || 'Ajdaho ma‘lumotini yuklab bo‘lmadi.');
+
+      const d = res.dragon;
+      const vUnclaimed = document.getElementById('dragon-view-unclaimed');
+      const vEgg = document.getElementById('dragon-view-egg');
+      const vActive = document.getElementById('dragon-view-active');
+
+      if (!d) {
+        vUnclaimed.style.display = 'block';
+        vEgg.style.display = 'none';
+        vActive.style.display = 'none';
+      } else if (d.is_egg) {
+        vUnclaimed.style.display = 'none';
+        vEgg.style.display = 'block';
+        vActive.style.display = 'none';
+        document.getElementById('dragon-egg-name').textContent = d.name || 'Valyriya Tuxumi';
+      } else {
+        vUnclaimed.style.display = 'none';
+        vEgg.style.display = 'none';
+        vActive.style.display = 'block';
+        document.getElementById('dragon-name').textContent = d.name || 'Ajdaho';
+        document.getElementById('dragon-stage-lbl').textContent = `${d.stage_label || 'Ajdaho'} • ${d.age_days || 1} Kunlik`;
+        document.getElementById('dragon-power-val').textContent = formatNum(d.power || 0);
+        document.getElementById('dragon-power-bar').style.width = `${Math.min(100, Math.floor((d.power || 0) / 50))}%`;
+        const hungerPct = Math.min(100, Math.max(0, 100 - (d.hunger || 0)));
+        document.getElementById('dragon-hunger-val').textContent = `To‘qlik: ${hungerPct}%`;
+        document.getElementById('dragon-hunger-bar').style.width = `${hungerPct}%`;
+      }
+    } catch (err) {
+      console.error('Dragon error:', err);
+    }
+  }
+
+  async function handleClaimDragonEgg() {
+    if (isActionPending) return;
+    isActionPending = true;
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+      const resp = await fetch('/api/actions/dragon/claim-egg', { method: 'POST', headers: headers });
+      const res = await resp.json();
+      if (!resp.ok || !res.success) throw new Error(res.detail || 'Tuxumni olib bo‘lmadi.');
+      showToast('🥚 Valyriya ajdaho tuxumi sandiqingizga qo‘yildi!', 'success');
+      haptic('heavy');
+      await loadDragonData();
+    } catch (e) {
+      showToast(e.message, 'error');
+    } finally {
+      isActionPending = false;
+    }
+  }
+
+  async function handleHatchDragon() {
+    if (isActionPending) return;
+    isActionPending = true;
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+      const resp = await fetch('/api/actions/dragon/hatch', { method: 'POST', headers: headers });
+      const res = await resp.json();
+      if (!resp.ok || !res.success) throw new Error(res.detail || 'Ajdahoni ochirib bo‘lmadi.');
+      showToast('🔥 Ajdaho tuxumdan chiqdi! U Vesteros osmonini zabt etadi!', 'success');
+      haptic('heavy');
+      await loadDragonData();
+    } catch (e) {
+      showToast(e.message, 'error');
+    } finally {
+      isActionPending = false;
+    }
+  }
+
+  async function handleFeedDragon() {
+    if (isActionPending) return;
+    isActionPending = true;
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+      const resp = await fetch('/api/actions/dragon/feed', {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({ food_amount: 50 }),
+      });
+      const res = await resp.json();
+      if (!resp.ok || !res.success) throw new Error(res.detail || 'Boqishda xatolik.');
+      showToast('🥩 Ajdaho to‘yib oziqlandi! Qudrati ortmoqda.', 'success');
+      haptic('medium');
+      await fetchDashboard();
+      await loadDragonData();
+    } catch (e) {
+      showToast(e.message, 'error');
+    } finally {
+      isActionPending = false;
+    }
+  }
+
+  async function handleTrainDragon() {
+    if (isActionPending) return;
+    isActionPending = true;
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+      const resp = await fetch('/api/actions/dragon/train', { method: 'POST', headers: headers });
+      const res = await resp.json();
+      if (!resp.ok || !res.success) throw new Error(res.detail || 'Mashg‘ulotda xatolik.');
+      showToast('🔥 Ajdaho olov bilan jangga tayyorlandi!', 'success');
+      haptic('heavy');
+      await fetchDashboard();
+      await loadDragonData();
+    } catch (e) {
+      showToast(e.message, 'error');
+    } finally {
+      isActionPending = false;
+    }
+  }
+
+  // --- GREAT HOUSE HUB ---
+  let selectedHouseDepositResource = 'gold';
+
+  async function openHouseModal() {
+    showModal('house-modal');
+    await loadHouseData();
+  }
+
+  function closeHouseModal() {
+    hideModal('house-modal');
+  }
+
+  async function loadHouseData() {
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+
+      const resp = await fetch('/api/actions/house/hub', { method: 'GET', headers: headers });
+      const res = await resp.json();
+      if (!resp.ok || !res.success) throw new Error(res.detail || 'Xonadon ma‘lumotini yuklab bo‘lmadi.');
+
+      const h = res.house || {};
+      document.getElementById('house-sigil').textContent = h.emoji || '🦁';
+      document.getElementById('house-title-name').textContent = h.name || 'Buyuk Xonadon';
+      document.getElementById('house-motto').textContent = h.motto ? `"${h.motto}"` : '';
+      document.getElementById('house-lord-name').textContent = res.lord?.full_name || 'Hali saylanmagan';
+      document.getElementById('house-treasury-gold').textContent = `${formatNum(h.treasury_gold || 0)}🪙 Oltin`;
+      document.getElementById('house-treasury-iron').textContent = `${formatNum(h.treasury_iron || 0)}⛓️ Temir`;
+
+      const list = document.getElementById('house-members-list');
+      const members = res.members || [];
+      if (!members.length) {
+        list.innerHTML = '<div class="text-secondary" style="font-size:11px;">A‘zolar topilmadi.</div>';
+      } else {
+        list.innerHTML = members.map(m => `
+          <div class="card p-2 mb-2 d-flex justify-between align-center" style="font-size:11px;">
+            <div>
+              <strong class="text-gold">${escapeHtml(m.full_name)}</strong>
+              <div class="text-secondary">${escapeHtml(m.rank_label || 'Ritsar')}</div>
+            </div>
+            <div class="text-right">
+              <div>${formatNum(m.contribution_gold)}🪙</div>
+              <div class="text-secondary">${m.prestige} nufuz</div>
+            </div>
+          </div>
+        `).join('');
+      }
+    } catch (err) {
+      console.error('House error:', err);
+    }
+  }
+
+  async function handleHouseDeposit() {
+    if (isActionPending) return;
+    const amount = parseInt(document.getElementById('house-deposit-input')?.value) || 0;
+    if (amount <= 0) {
+      showToast('Iltimos, to‘g‘ri miqdor kiriting.', 'error');
+      return;
+    }
+
+    isActionPending = true;
+    haptic('medium');
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+
+      const resp = await fetch('/api/actions/house/deposit', {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({
+          resource_type: selectedHouseDepositResource,
+          amount: amount,
+        }),
+      });
+
+      const res = await resp.json();
+      if (!resp.ok || !res.success) throw new Error(res.detail || 'Xazinaga hissa topshirib bo‘lmadi.');
+
+      showToast('🏛️ Xonadon xazinasiga boylik muvaffaqiyatli topshirildi!', 'success');
+      haptic('heavy');
+      await fetchDashboard();
+      await loadHouseData();
+    } catch (e) {
+      showToast(e.message, 'error');
+    } finally {
+      isActionPending = false;
+    }
+  }
+
+  // --- FREE MARKET & CARAVANS ---
+  async function openMarketModal() {
+    showModal('market-modal');
+    switchMarketTab('lots');
+    await loadMarketData();
+  }
+
+  function closeMarketModal() {
+    hideModal('market-modal');
+  }
+
+  function switchMarketTab(tab) {
+    const vLots = document.getElementById('market-view-lots');
+    const vCreate = document.getElementById('market-view-create');
+    const vCaravans = document.getElementById('market-view-caravans');
+
+    document.getElementById('tab-market-lots-btn')?.classList.toggle('active', tab === 'lots');
+    document.getElementById('tab-market-create-btn')?.classList.toggle('active', tab === 'create');
+    document.getElementById('tab-market-caravans-btn')?.classList.toggle('active', tab === 'caravans');
+
+    if (vLots) vLots.style.display = (tab === 'lots') ? 'block' : 'none';
+    if (vCreate) vCreate.style.display = (tab === 'create') ? 'block' : 'none';
+    if (vCaravans) vCaravans.style.display = (tab === 'caravans') ? 'block' : 'none';
+    haptic('light');
+  }
+
+  async function loadMarketData() {
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+
+      const resp = await fetch('/api/actions/trade/hub', { method: 'GET', headers: headers });
+      const res = await resp.json();
+      if (!resp.ok || !res.success) throw new Error(res.detail || 'Bozor ma‘lumotini yuklab bo‘lmadi.');
+
+      const lotsCont = document.getElementById('market-lots-container');
+      const lots = res.lots || [];
+      if (!lots.length) {
+        lotsCont.innerHTML = '<div class="text-center py-3 text-secondary">Hozirda sotuvda takliflar yo‘q. Birinchi bo‘lib e‘lon joylashtiring!</div>';
+      } else {
+        lotsCont.innerHTML = lots.map(l => `
+          <div class="trade-lot-card">
+            <div class="d-flex justify-between align-center">
+              <div>
+                <strong>${formatNum(l.offer_amount)} ${escapeHtml(l.offer_resource.toUpperCase())}</strong>
+                <span class="text-secondary">evaziga</span>
+                <strong class="text-gold">${formatNum(l.request_amount)} ${escapeHtml(l.request_resource.toUpperCase())}</strong>
+              </div>
+              ${l.is_my_lot
+                ? `<button class="btn btn-secondary py-1 px-2 btn-cancel-lot" data-id="${l.id}">Bekor qilish</button>`
+                : `<button class="btn btn-primary py-1 px-3 btn-buy-lot" data-id="${l.id}">Sotib olish</button>`
+              }
+            </div>
+          </div>
+        `).join('');
+
+        lotsCont.querySelectorAll('.btn-buy-lot').forEach(btn => {
+          btn.addEventListener('click', () => handleBuyTradeLot(parseInt(btn.getAttribute('data-id'))));
+        });
+        lotsCont.querySelectorAll('.btn-cancel-lot').forEach(btn => {
+          btn.addEventListener('click', () => handleCancelTradeLot(parseInt(btn.getAttribute('data-id'))));
+        });
+      }
+
+      const carCont = document.getElementById('market-caravans-container');
+      const caravans = res.active_caravans || [];
+      if (!caravans.length) {
+        carCont.innerHTML = '<div class="text-center py-3 text-secondary">Faol savdo karvonlari yo‘q.</div>';
+      } else {
+        carCont.innerHTML = caravans.map(c => `
+          <div class="card p-2 mb-2" style="font-size:11px;">
+            <div class="d-flex justify-between">
+              <strong class="text-gold">🐫 Karvon #${c.id}</strong>
+              <span class="text-secondary">${c.seconds_remaining}s qoldi</span>
+            </div>
+            <div class="mt-1">Yuk: ${formatNum(c.resource_amount)} ${c.resource_type} | Kutilayotgan foyda: +${formatNum(c.expected_profit)}🪙</div>
+          </div>
+        `).join('');
+      }
+    } catch (err) {
+      console.error('Market error:', err);
+    }
+  }
+
+  async function handleCreateTradeLot() {
+    if (isActionPending) return;
+    const offRes = document.getElementById('market-offer-res')?.value || 'gold';
+    const offAmt = parseInt(document.getElementById('market-offer-amt')?.value) || 0;
+    const reqRes = document.getElementById('market-req-res')?.value || 'food';
+    const reqAmt = parseInt(document.getElementById('market-req-amt')?.value) || 0;
+
+    if (offAmt <= 0 || reqAmt <= 0) {
+      showToast('Iltimos, to‘g‘ri resurs miqdorlarini kiriting.', 'error');
+      return;
+    }
+
+    isActionPending = true;
+    haptic('medium');
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+
+      const resp = await fetch('/api/actions/trade/create-lot', {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({
+          offer_resource: offRes,
+          offer_amount: offAmt,
+          request_resource: reqRes,
+          request_amount: reqAmt,
+        }),
+      });
+
+      const res = await resp.json();
+      if (!resp.ok || !res.success) throw new Error(res.detail || 'E‘lonni joylashtirib bo‘lmadi.');
+
+      showToast('⚖️ E‘loningiz bozor peshtaxtasiga joylashtirildi!', 'success');
+      haptic('heavy');
+      await fetchDashboard();
+      switchMarketTab('lots');
+      await loadMarketData();
+    } catch (e) {
+      showToast(e.message, 'error');
+    } finally {
+      isActionPending = false;
+    }
+  }
+
+  async function handleBuyTradeLot(lotId) {
+    if (isActionPending) return;
+    isActionPending = true;
+    haptic('medium');
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+
+      const resp = await fetch('/api/actions/trade/buy', {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({ trade_id: lotId }),
+      });
+
+      const res = await resp.json();
+      if (!resp.ok || !res.success) throw new Error(res.detail || 'Taklifni sotib olib bo‘lmadi.');
+
+      showToast('⚖️ Savdo muvaffaqiyatli amalga oshirildi!', 'success');
+      haptic('heavy');
+      await fetchDashboard();
+      await loadMarketData();
+    } catch (e) {
+      showToast(e.message, 'error');
+    } finally {
+      isActionPending = false;
+    }
+  }
+
+  async function handleCancelTradeLot(lotId) {
+    if (isActionPending) return;
+    isActionPending = true;
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+
+      const resp = await fetch('/api/actions/trade/cancel-lot', {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({ trade_id: lotId }),
+      });
+
+      const res = await resp.json();
+      if (!resp.ok || !res.success) throw new Error(res.detail || 'E‘lonni bekor qilib bo‘lmadi.');
+
+      showToast('E‘lon bekor qilindi, resurslar qaytarildi.', 'info');
+      await fetchDashboard();
+      await loadMarketData();
+    } catch (e) {
+      showToast(e.message, 'error');
+    } finally {
+      isActionPending = false;
+    }
+  }
+
+  // --- RAVEN MESSENGER ---
+  async function openRavenModal() {
+    showModal('raven-modal');
+    switchRavenTab('inbox');
+    await loadRavenData();
+  }
+
+  function closeRavenModal() {
+    hideModal('raven-modal');
+  }
+
+  function switchRavenTab(tab) {
+    const vInbox = document.getElementById('raven-view-inbox');
+    const vSend = document.getElementById('raven-view-send');
+
+    document.getElementById('tab-raven-inbox-btn')?.classList.toggle('active', tab === 'inbox');
+    document.getElementById('tab-raven-send-btn')?.classList.toggle('active', tab === 'send');
+
+    if (vInbox) vInbox.style.display = (tab === 'inbox') ? 'block' : 'none';
+    if (vSend) vSend.style.display = (tab === 'send') ? 'block' : 'none';
+    haptic('light');
+  }
+
+  async function loadRavenData() {
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+
+      const resp = await fetch('/api/actions/raven/hub', { method: 'GET', headers: headers });
+      const res = await resp.json();
+      if (!resp.ok || !res.success) throw new Error(res.detail || 'Pochta ma‘lumotini olib bo‘lmadi.');
+
+      const cont = document.getElementById('raven-inbox-container');
+      const messages = res.inbox || [];
+      if (!messages.length) {
+        cont.innerHTML = '<div class="text-center py-3 text-secondary">Qarg‘alar xat olib kelgani yo‘q. Sandiq bo‘sh.</div>';
+      } else {
+        cont.innerHTML = messages.map(m => `
+          <div class="raven-scroll-card">
+            <div class="d-flex justify-between" style="font-size:11px;">
+              <strong class="text-gold">📜 ${escapeHtml(m.sender_name)}</strong>
+              <span class="text-secondary">${m.date || ''}</span>
+            </div>
+            <p class="mt-1" style="font-size:12px; line-height:1.4;">${escapeHtml(m.message)}</p>
+            ${m.attached_gold ? `<div class="mt-1 text-gold" style="font-size:11px;">🎁 Ilova: +${formatNum(m.attached_gold)}🪙</div>` : ''}
+          </div>
+        `).join('');
+      }
+    } catch (err) {
+      console.error('Raven error:', err);
+    }
+  }
+
+  async function handleSendRaven() {
+    if (isActionPending) return;
+    const receiverId = parseInt(document.getElementById('raven-receiver-id')?.value);
+    const body = (document.getElementById('raven-message-body')?.value || '').trim();
+    const gold = parseInt(document.getElementById('raven-attached-gold')?.value) || 0;
+
+    if (!receiverId || body.length < 2) {
+      showToast('Iltimos, qabul qiluvchi ID va xabar matnini kiriting.', 'error');
+      return;
+    }
+
+    isActionPending = true;
+    haptic('medium');
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+
+      const resp = await fetch('/api/actions/raven/send', {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({
+          receiver_telegram_id: receiverId,
+          message_text: body,
+          attached_gold: gold,
+        }),
+      });
+
+      const res = await resp.json();
+      if (!resp.ok || !res.success) throw new Error(res.detail || 'Qarg‘ani uchirib bo‘lmadi.');
+
+      showToast('🦅 Qarg‘a qora qanotlari bilan xabarni olib uchdi!', 'success');
+      haptic('heavy');
+      document.getElementById('raven-message-body').value = '';
+      await fetchDashboard();
+      switchRavenTab('inbox');
+    } catch (e) {
+      showToast(e.message, 'error');
+    } finally {
+      isActionPending = false;
+    }
+  }
+
+  // --- HERO & ARTIFACTS ---
+  async function openHeroModal() {
+    showModal('hero-modal');
+    await loadHeroData();
+  }
+
+  function closeHeroModal() {
+    hideModal('hero-modal');
+  }
+
+  async function loadHeroData() {
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+
+      const resp = await fetch('/api/actions/hero/hub', { method: 'GET', headers: headers });
+      const res = await resp.json();
+      if (!resp.ok || !res.success) throw new Error(res.detail || 'Qahramon ma‘lumotini olib bo‘lmadi.');
+
+      const h = res.hero || {};
+      document.getElementById('hero-name-val').textContent = h.name || 'Lord Chempioni';
+      document.getElementById('hero-atk-val').textContent = formatNum(h.attack || 50);
+      document.getElementById('hero-def-val').textContent = formatNum(h.defense || 50);
+
+      const eqArt = res.equipped_artifact;
+      const eqName = document.getElementById('equipped-artifact-name');
+      const unequipBtn = document.getElementById('btn-unequip-artifact');
+
+      if (eqArt) {
+        eqName.innerHTML = `<span class="text-gold">⚔️ ${escapeHtml(eqArt.name)}</span> <small class="text-secondary">(+${eqArt.attack_bonus} Atk, +${eqArt.defense_bonus} Def)</small>`;
+        if (unequipBtn) unequipBtn.style.display = 'block';
+      } else {
+        eqName.textContent = 'Hech narsa taqilmagan';
+        if (unequipBtn) unequipBtn.style.display = 'none';
+      }
+
+      const listCont = document.getElementById('hero-artifacts-container');
+      const artifacts = res.artifacts || [];
+      if (!artifacts.length) {
+        listCont.innerHTML = '<div class="text-center py-2 text-secondary" style="font-size:11px;">Hozirda sandiqda artefaktlar yo‘q.</div>';
+      } else {
+        listCont.innerHTML = artifacts.map(a => `
+          <div class="artifact-card ${a.is_equipped ? 'equipped' : ''}">
+            <div>
+              <strong class="text-gold">${escapeHtml(a.name)}</strong>
+              <div class="text-secondary" style="font-size:11px;">+${a.attack_bonus} Atk | +${a.defense_bonus} Def</div>
+            </div>
+            ${a.is_equipped
+              ? `<span class="badge badge-active">Taqilgan</span>`
+              : `<button class="btn btn-secondary py-1 px-3 btn-equip-art" data-id="${a.id}">Kiyish</button>`
+            }
+          </div>
+        `).join('');
+
+        listCont.querySelectorAll('.btn-equip-art').forEach(btn => {
+          btn.addEventListener('click', () => handleEquipArtifact(parseInt(btn.getAttribute('data-id'))));
+        });
+      }
+    } catch (err) {
+      console.error('Hero error:', err);
+    }
+  }
+
+  async function handleEquipArtifact(artifactId) {
+    if (isActionPending) return;
+    isActionPending = true;
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+
+      const resp = await fetch('/api/actions/hero/equip', {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({ artifact_id: artifactId }),
+      });
+
+      const res = await resp.json();
+      if (!resp.ok || !res.success) throw new Error(res.detail || 'Artefaktni kiyib bo‘lmadi.');
+
+      showToast('🗡️ Artefakt jangovar qurollaringizga qo‘shildi!', 'success');
+      haptic('heavy');
+      await fetchDashboard();
+      await loadHeroData();
+    } catch (e) {
+      showToast(e.message, 'error');
+    } finally {
+      isActionPending = false;
+    }
+  }
+
+  async function handleUnequipArtifact() {
+    if (isActionPending) return;
+    isActionPending = true;
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+
+      const resp = await fetch('/api/actions/hero/unequip', { method: 'POST', headers: headers });
+      const res = await resp.json();
+      if (!resp.ok || !res.success) throw new Error(res.detail || 'Artefaktni yechib bo‘lmadi.');
+
+      showToast('Artefakt yechib olindi.', 'info');
+      await fetchDashboard();
+      await loadHeroData();
+    } catch (e) {
+      showToast(e.message, 'error');
+    } finally {
+      isActionPending = false;
+    }
+  }
+
+  // --- VIP & DONATE ---
+  function openDonateModal() {
+    showModal('donate-modal');
+  }
+
+  function closeDonateModal() {
+    hideModal('donate-modal');
+  }
+
+  // --- ADMIN CONSOLE ---
+  async function openAdminModal() {
+    showModal('admin-modal');
+    await loadAdminData();
+  }
+
+  function closeAdminModal() {
+    hideModal('admin-modal');
+  }
+
+  async function loadAdminData() {
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+
+      const resp = await fetch('/api/actions/admin/dashboard', { method: 'GET', headers: headers });
+      const res = await resp.json();
+      if (!resp.ok || !res.success) throw new Error(res.detail || 'Admin panelni yuklab bo‘lmadi.');
+
+      document.getElementById('admin-stat-users').textContent = `${formatNum(res.total_users || 0)} / ${res.online_today || 0}`;
+      document.getElementById('admin-stat-houses').textContent = `${res.total_houses || 0} / ${res.total_castles || 22}`;
+    } catch (err) {
+      console.error('Admin error:', err);
+      showToast(err.message, 'error');
+    }
+  }
+
+  async function handleAdminBan() {
+    if (isActionPending) return;
+    const tgId = parseInt(document.getElementById('admin-ban-tgid')?.value);
+    const isBanned = (document.getElementById('admin-ban-status')?.value === 'true');
+
+    if (!tgId) {
+      showToast('Iltimos, Telegram ID kiriting.', 'error');
+      return;
+    }
+
+    isActionPending = true;
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+
+      const resp = await fetch('/api/actions/admin/ban-player', {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({
+          target_telegram_id: tgId,
+          is_banned: isBanned,
+        }),
+      });
+
+      const res = await resp.json();
+      if (!resp.ok || !res.success) throw new Error(res.detail || 'Holatni o‘zgartirib bo‘lmadi.');
+
+      showToast(`O‘yinchi holati yangilandi: ${isBanned ? 'Bloklandi' : 'Blokdan chiqarildi'}.`, 'success');
+      haptic('heavy');
+    } catch (e) {
+      showToast(e.message, 'error');
+    } finally {
+      isActionPending = false;
+    }
+  }
+
+  async function handleAdminAdjustResources() {
+    if (isActionPending) return;
+    const tgId = parseInt(document.getElementById('admin-res-tgid')?.value);
+    const resType = document.getElementById('admin-res-type')?.value;
+    const delta = parseInt(document.getElementById('admin-res-delta')?.value) || 0;
+
+    if (!tgId || delta === 0) {
+      showToast('Iltimos, ID va to‘g‘ri miqdor kiriting.', 'error');
+      return;
+    }
+
+    isActionPending = true;
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+
+      const resp = await fetch('/api/actions/admin/adjust-resources', {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({
+          target_telegram_id: tgId,
+          resource_type: resType,
+          delta_amount: delta,
+        }),
+      });
+
+      const res = await resp.json();
+      if (!resp.ok || !res.success) throw new Error(res.detail || 'Resursni o‘tkazib bo‘lmadi.');
+
+      showToast(`Resurs muvaffaqiyatli moslashtirildi: ${delta > 0 ? '+' : ''}${delta} ${resType}!`, 'success');
+      haptic('heavy');
+    } catch (e) {
+      showToast(e.message, 'error');
+    } finally {
+      isActionPending = false;
+    }
+  }
+
   // 5. Loading & Error Handlers
   function showLoading(show) {
     const skeleton = document.getElementById('loading-skeleton');
@@ -1958,6 +3242,124 @@
       haptic('light');
       fetchDashboard();
     });
+
+    // --- ONBOARDING LISTENERS ---
+    document.getElementById('btn-submit-onboarding')?.addEventListener('click', handleRegisterPlayer);
+    document.getElementById('btn-toggle-custom-house')?.addEventListener('click', () => {
+      haptic('light');
+      const f = document.getElementById('custom-house-fields');
+      if (f) f.style.display = (f.style.display === 'none') ? 'block' : 'none';
+    });
+
+    // --- QUICK ACTION PORTALS LISTENERS ---
+    document.getElementById('btn-open-map')?.addEventListener('click', openMapModal);
+    document.getElementById('btn-castles-open-map')?.addEventListener('click', openMapModal);
+    document.getElementById('banner-open-march')?.addEventListener('click', () => openMarchModal());
+    document.getElementById('btn-open-dragon')?.addEventListener('click', openDragonModal);
+    document.getElementById('btn-open-house')?.addEventListener('click', openHouseModal);
+    document.getElementById('btn-open-market')?.addEventListener('click', openMarketModal);
+    document.getElementById('btn-open-raven')?.addEventListener('click', openRavenModal);
+    document.getElementById('btn-open-hero')?.addEventListener('click', openHeroModal);
+    document.getElementById('btn-open-donate')?.addEventListener('click', openDonateModal);
+    document.getElementById('btn-open-admin')?.addEventListener('click', openAdminModal);
+
+    // --- MODAL CLOSE BUTTONS & OVERLAY CLICKS ---
+    const closeBindings = [
+      { closeId: 'modal-map-close', overlayId: 'map-modal', closeFn: closeMapModal },
+      { closeId: 'modal-march-close', overlayId: 'march-modal', closeFn: closeMarchModal },
+      { closeId: 'modal-scout-close', overlayId: 'scout-modal', closeFn: closeScoutModal },
+      { closeId: 'modal-espionage-close', overlayId: 'espionage-modal', closeFn: closeEspionageModal },
+      { closeId: 'modal-dragon-close', overlayId: 'dragon-modal', closeFn: closeDragonModal },
+      { closeId: 'modal-house-close', overlayId: 'house-modal', closeFn: closeHouseModal },
+      { closeId: 'modal-market-close', overlayId: 'market-modal', closeFn: closeMarketModal },
+      { closeId: 'modal-raven-close', overlayId: 'raven-modal', closeFn: closeRavenModal },
+      { closeId: 'modal-hero-close', overlayId: 'hero-modal', closeFn: closeHeroModal },
+      { closeId: 'modal-donate-close', overlayId: 'donate-modal', closeFn: closeDonateModal },
+      { closeId: 'modal-admin-close', overlayId: 'admin-modal', closeFn: closeAdminModal },
+    ];
+
+    closeBindings.forEach(b => {
+      document.getElementById(b.closeId)?.addEventListener('click', b.closeFn);
+      document.getElementById(b.overlayId)?.addEventListener('click', (e) => {
+        if (e.target.id === b.overlayId) b.closeFn();
+      });
+    });
+
+    // Map Region Filters
+    document.querySelectorAll('#map-region-filters .pill-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        haptic('light');
+        document.querySelectorAll('#map-region-filters .pill-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        renderMap(cachedTerritories, btn.getAttribute('data-region'));
+      });
+    });
+
+    // March Percentage Buttons & Target Details
+    document.querySelectorAll('#march-pct-pills .pill-btn').forEach(pill => {
+      pill.addEventListener('click', () => {
+        const pct = parseInt(pill.getAttribute('data-pct')) || 25;
+        applyMarchPercentage(pct);
+      });
+    });
+
+    document.getElementById('march-target-select')?.addEventListener('change', updateMarchTargetDetails);
+    document.getElementById('march-dragon-toggle')?.addEventListener('change', (e) => {
+      const row = document.getElementById('march-dragon-tactic-row');
+      if (row) row.style.display = e.target.checked ? 'block' : 'none';
+    });
+
+    document.getElementById('btn-submit-march')?.addEventListener('click', handleDispatchMarch);
+
+    // Espionage Mission Buttons
+    document.querySelectorAll('.espionage-mission-card .btn-run-spy').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const m = btn.getAttribute('data-mission');
+        handleExecuteSpyMission(m);
+      });
+    });
+
+    // Dragon Nest Actions
+    document.getElementById('btn-claim-dragon-egg')?.addEventListener('click', handleClaimDragonEgg);
+    document.getElementById('btn-hatch-dragon')?.addEventListener('click', handleHatchDragon);
+    document.getElementById('btn-feed-dragon')?.addEventListener('click', handleFeedDragon);
+    document.getElementById('btn-train-dragon')?.addEventListener('click', handleTrainDragon);
+
+    // House Deposit Resource Switcher
+    const hGoldBtn = document.getElementById('btn-house-res-gold');
+    const hIronBtn = document.getElementById('btn-house-res-iron');
+    hGoldBtn?.addEventListener('click', () => {
+      haptic('light');
+      selectedHouseDepositResource = 'gold';
+      hGoldBtn.classList.add('active');
+      hIronBtn?.classList.remove('active');
+    });
+    hIronBtn?.addEventListener('click', () => {
+      haptic('light');
+      selectedHouseDepositResource = 'iron';
+      hIronBtn.classList.add('active');
+      hGoldBtn?.classList.remove('active');
+    });
+    document.getElementById('btn-submit-house-deposit')?.addEventListener('click', handleHouseDeposit);
+
+    // Market Tabs & Submit
+    document.getElementById('tab-market-lots-btn')?.addEventListener('click', () => switchMarketTab('lots'));
+    document.getElementById('tab-market-create-btn')?.addEventListener('click', () => switchMarketTab('create'));
+    document.getElementById('tab-market-caravans-btn')?.addEventListener('click', () => switchMarketTab('caravans'));
+    document.getElementById('btn-submit-market-lot')?.addEventListener('click', handleCreateTradeLot);
+
+    // Raven Tabs & Send
+    document.getElementById('tab-raven-inbox-btn')?.addEventListener('click', () => switchRavenTab('inbox'));
+    document.getElementById('tab-raven-send-btn')?.addEventListener('click', () => switchRavenTab('send'));
+    document.getElementById('btn-submit-raven')?.addEventListener('click', handleSendRaven);
+
+    // Hero Unequip
+    document.getElementById('btn-unequip-artifact')?.addEventListener('click', handleUnequipArtifact);
+
+    // Admin Console Actions
+    document.getElementById('btn-submit-admin-ban')?.addEventListener('click', handleAdminBan);
+    document.getElementById('btn-submit-admin-res')?.addEventListener('click', handleAdminAdjustResources);
   }
 
   // ============================================================
@@ -1990,6 +3392,46 @@
       case 'events':
       case 'tab-world':
         switchTab('tab-world');
+        break;
+      case 'map':
+        switchTab('tab-profile');
+        setTimeout(() => openMapModal(), 300);
+        break;
+      case 'march':
+        switchTab('tab-army');
+        setTimeout(() => openMarchModal(), 300);
+        break;
+      case 'dragon':
+        switchTab('tab-profile');
+        setTimeout(() => openDragonModal(), 300);
+        break;
+      case 'house':
+        switchTab('tab-profile');
+        setTimeout(() => openHouseModal(), 300);
+        break;
+      case 'market':
+      case 'trade':
+        switchTab('tab-profile');
+        setTimeout(() => openMarketModal(), 300);
+        break;
+      case 'raven':
+      case 'mail':
+        switchTab('tab-profile');
+        setTimeout(() => openRavenModal(), 300);
+        break;
+      case 'hero':
+      case 'inventory':
+        switchTab('tab-profile');
+        setTimeout(() => openHeroModal(), 300);
+        break;
+      case 'donate':
+      case 'vip':
+        switchTab('tab-profile');
+        setTimeout(() => openDonateModal(), 300);
+        break;
+      case 'admin':
+        switchTab('tab-profile');
+        setTimeout(() => openAdminModal(), 300);
         break;
       case 'quiz':
       case 'citadel':

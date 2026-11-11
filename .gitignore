@@ -6,4 +6,8 @@ __pycache__/
 *.db
 *.db-wal
 *.db-shm
+*.xlsx
+*.csv
+*reports*.py
+list_all_tables.py
 scratch/

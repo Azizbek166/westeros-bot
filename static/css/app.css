@@ -1588,6 +1588,280 @@ body {
   font-weight: 600;
 }
 
+/* ============================================================
+   ONBOARDING & HOUSE PICKER STYLES
+   ============================================================ */
+.onboarding-hero-card {
+  padding: 24px 16px;
+  background: linear-gradient(180deg, rgba(212, 175, 55, 0.12) 0%, rgba(11, 14, 20, 0.6) 100%);
+  border: 1px solid var(--gold-primary);
+}
+
+.house-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.house-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 12px 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.house-card:hover, .house-card.selected {
+  border-color: var(--gold-primary);
+  background: rgba(212, 175, 55, 0.12);
+  box-shadow: 0 0 12px rgba(212, 175, 55, 0.25);
+  transform: translateY(-2px);
+}
+
+.house-sigil-icon {
+  font-size: 32px;
+  margin-bottom: 4px;
+}
+
+.house-card-title {
+  font-family: var(--font-serif);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--gold-light);
+}
+
+.house-card-motto {
+  font-size: 10px;
+  color: var(--text-secondary);
+  font-style: italic;
+  margin: 3px 0;
+}
+
+.house-card-perk {
+  font-size: 10px;
+  color: var(--gold-primary);
+  font-weight: 600;
+  margin-top: 4px;
+}
+
+/* ============================================================
+   WESTEROS QUICK ACTION PORTALS GRID (PROFILE)
+   ============================================================ */
+.action-portal-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.portal-card-btn {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 12px 10px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  transition: all 0.2s ease;
+  color: inherit;
+  text-align: left;
+}
+
+.portal-card-btn:hover {
+  background: rgba(212, 175, 55, 0.08);
+  border-color: var(--gold-primary);
+  transform: translateY(-2px);
+}
+
+.portal-card-btn:active {
+  transform: scale(0.98);
+}
+
+.portal-icon {
+  font-size: 24px;
+  margin-bottom: 6px;
+}
+
+.portal-title {
+  font-family: var(--font-serif);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--gold-light);
+  line-height: 1.2;
+}
+
+.portal-desc {
+  font-size: 10px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.portal-card-admin {
+  border-color: #e63946 !important;
+  background: rgba(230, 57, 70, 0.08) !important;
+}
+
+/* ============================================================
+   MAP & TERRITORIES
+   ============================================================ */
+.map-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.territory-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 12px;
+  transition: border-color 0.2s;
+}
+
+.territory-card.own-territory {
+  border-color: rgba(42, 157, 143, 0.6);
+  background: rgba(42, 157, 143, 0.05);
+}
+
+.territory-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.territory-title {
+  font-family: var(--font-serif);
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.territory-meta {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 3px;
+}
+
+.territory-incomes {
+  display: flex;
+  gap: 10px;
+  font-size: 11px;
+  margin-top: 6px;
+}
+
+.territory-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.territory-btn {
+  flex: 1;
+  padding: 6px 4px;
+  font-size: 11px;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+  background: rgba(255, 255, 255, 0.05);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.territory-btn:hover {
+  background: rgba(212, 175, 55, 0.2);
+  border-color: var(--gold-primary);
+}
+
+/* ============================================================
+   MARCH & ESPIONAGE
+   ============================================================ */
+.march-units-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.march-unit-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 8px;
+  font-size: 11px;
+}
+
+.espionage-mission-card {
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.espionage-mission-card:hover {
+  border-color: var(--gold-primary);
+  background: rgba(212, 175, 55, 0.06);
+}
+
+/* ============================================================
+   DRAGON NEST & HERO ARTIFACTS
+   ============================================================ */
+.dragon-actions-grid {
+  display: flex;
+  gap: 10px;
+}
+
+.artifact-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 10px;
+  margin-bottom: 8px;
+}
+
+.artifact-card.equipped {
+  border-color: var(--gold-primary);
+  background: rgba(212, 175, 55, 0.08);
+}
+
+/* ============================================================
+   VIP PERKS & RAVEN INBOX
+   ============================================================ */
+.vip-perks-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.raven-scroll-card {
+  background: #171c26;
+  border-left: 3px solid var(--gold-primary);
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+}
+
+.trade-lot-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 10px;
+  margin-bottom: 8px;
+}
+
 
 
 

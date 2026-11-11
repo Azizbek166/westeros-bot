@@ -13,7 +13,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-  <link rel="stylesheet" href="css/app.css?v=3.1">
+  <link rel="stylesheet" href="css/app.css?v=4.0">
 </head>
 <body>
   <div id="app" class="app-container">
@@ -67,6 +67,45 @@
         <p id="error-desc">Server bilan aloqa uzildi. Iltimos qayta urinib ko'ring.</p>
         <button id="btn-retry" class="btn btn-primary mt-3">Qayta urinish</button>
       </div>
+
+      <!-- ONBOARDING SECTION (SHOWN IF UNREGISTERED) -->
+      <section id="view-onboarding" class="view-panel" style="display: none;">
+        <div class="card onboarding-hero-card text-center">
+          <span class="brand-crown" style="font-size: 48px;">👑</span>
+          <h2 class="mt-2" style="font-family: var(--font-serif); color: var(--gold-light);">Vesterosga Xush Kelibsiz!</h2>
+          <p class="text-secondary mt-1" style="font-size: 13px; line-height: 1.5;">
+            Temir Taxt uchun kurash maydoniga qadam qo'ydingiz. O'z qahramon ismingizni tanlang va shonli Buyuk Xonadonlardan biriga qasamyod qiling!
+          </p>
+        </div>
+
+        <div class="card mt-3">
+          <label class="input-lbl" for="onboarding-hero-name">Lord / Ledi Ismingiz:</label>
+          <input type="text" id="onboarding-hero-name" class="amount-input w-100 mt-1" placeholder="Masalan: Lord Eddard" maxlength="32">
+        </div>
+
+        <div class="card mt-3">
+          <h3 class="card-title">🛡️ Buyuk Xonadonni Tanlang:</h3>
+          <div class="house-picker-grid" id="onboarding-houses-container">
+            <!-- Dynamically populated from /api/player/dashboard catalog -->
+          </div>
+
+          <div class="custom-house-toggle mt-3">
+            <button type="button" class="btn btn-secondary w-100" id="btn-toggle-custom-house">
+              ✨ Shaxsiy Maxsus Xonadon Yaratish
+            </button>
+            <div id="custom-house-fields" class="mt-2" style="display:none;">
+              <input type="text" id="onboarding-custom-name" class="amount-input w-100 mb-2" placeholder="Xonadon nomi (masalan: Qora Bo'rilar)">
+              <input type="text" id="onboarding-custom-region" class="amount-input w-100 mb-2" placeholder="Mintaqa (masalan: Shimoliy Tog'lar)">
+              <input type="text" id="onboarding-custom-emoji" class="amount-input w-100 mb-2" placeholder="Gerb Emojisi (masalan: 🦅)">
+              <input type="text" id="onboarding-custom-castle" class="amount-input w-100" placeholder="Bosh Qal'a nomi (masalan: Qora Qoya)">
+            </div>
+          </div>
+        </div>
+
+        <button class="btn btn-primary w-100 mt-3 py-3" id="btn-submit-onboarding" style="font-size: 16px;">
+          👑 Qasamyod Qilish va Taxtlar O'yiniga Kirish
+        </button>
+      </section>
 
       <!-- TAB 1: PROFILE & OVERVIEW -->
       <section id="tab-profile" class="view-panel active">
@@ -172,6 +211,53 @@
           </div>
         </div>
 
+        <!-- Westeros Quick Access Actions Grid -->
+        <div class="card mt-3">
+          <h3 class="card-title">⚔️ Vesteros Xizmatlari & Portallar</h3>
+          <div class="action-portal-grid">
+            <button class="portal-card-btn" id="btn-open-map">
+              <span class="portal-icon">🗺️</span>
+              <span class="portal-title">Vesteros Xaritasi</span>
+              <span class="portal-desc">22 Qal'a & Yurishlar</span>
+            </button>
+            <button class="portal-card-btn" id="btn-open-dragon">
+              <span class="portal-icon">🐉</span>
+              <span class="portal-title">Ajdaho Uyasi</span>
+              <span class="portal-desc">Tuxum & Boqish</span>
+            </button>
+            <button class="portal-card-btn" id="btn-open-house">
+              <span class="portal-icon">🏛️</span>
+              <span class="portal-title">Xonadon Saroyi</span>
+              <span class="portal-desc">Xazina & Lordlar</span>
+            </button>
+            <button class="portal-card-btn" id="btn-open-market">
+              <span class="portal-icon">⚖️</span>
+              <span class="portal-title">Erkin Bozor</span>
+              <span class="portal-desc">Savdo & Karvonlar</span>
+            </button>
+            <button class="portal-card-btn" id="btn-open-raven">
+              <span class="portal-icon">🦅</span>
+              <span class="portal-title">Qarg'alar Pochtasi</span>
+              <span class="portal-desc">Maktublar & Oltin</span>
+            </button>
+            <button class="portal-card-btn" id="btn-open-hero">
+              <span class="portal-icon">🗡️</span>
+              <span class="portal-title">Inventar & Qurollar</span>
+              <span class="portal-desc">Valyriya Cheligi</span>
+            </button>
+            <button class="portal-card-btn" id="btn-open-donate">
+              <span class="portal-icon">💎</span>
+              <span class="portal-title">VIP & Xayriya</span>
+              <span class="portal-desc">Rutbalar & Imtiyoz</span>
+            </button>
+            <button class="portal-card-btn portal-card-admin" id="btn-open-admin" style="display:none;">
+              <span class="portal-icon">⚙️</span>
+              <span class="portal-title">Admin Boshqaruv</span>
+              <span class="portal-desc">Vesteros Konsoli</span>
+            </button>
+          </div>
+        </div>
+
         <!-- Iron Bank Banner Card (Feature 6) -->
         <div class="card bank-banner-card mt-3" style="cursor:pointer;" id="banner-open-bank">
           <div class="bank-banner-left">
@@ -193,6 +279,11 @@
             <h2 class="summary-val" id="army-total-sum">0 Askar</h2>
           </div>
           <div class="summary-icon">⚔️</div>
+        </div>
+
+        <div class="card my-rank-card mb-3" style="cursor:pointer;" id="banner-open-march">
+          <span>⚔️ Qal'alarga Harbiy Yurish (Hujum)</span>
+          <strong class="text-gold">Yurish Boshlash ➔</strong>
         </div>
 
         <div class="card my-rank-card mb-3" style="cursor:pointer;" id="banner-open-duel">
@@ -223,6 +314,10 @@
             <h3 class="summary-val text-gold" id="castles-accum-sum">0🪙</h3>
           </div>
         </div>
+
+        <button class="btn btn-secondary w-100 mb-2" id="btn-castles-open-map">
+          🗺️ Vesteros Xaritasi & Barcha 22 Qal'a
+        </button>
 
         <!-- Collect All Taxes Button (Feature 3) -->
         <button class="btn btn-primary w-100 btn-collect-all mb-3" id="btn-collect-all-tax" disabled>
@@ -723,11 +818,556 @@
       </div>
     </div>
 
+    <!-- 1. WESTEROS MAP MODAL -->
+    <div id="map-modal" class="modal-overlay" style="display:none;">
+      <div class="modal-dialog modal-dialog-lg">
+        <div class="modal-header">
+          <h3 class="modal-title">🗺️ Vesteros Xaritasi & Qal'alar</h3>
+          <button class="modal-close" id="modal-map-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="quick-pills-row mb-3" id="map-region-filters">
+            <button class="pill-btn active" data-region="all">Barchasi</button>
+            <button class="pill-btn" data-region="The North">Shimol</button>
+            <button class="pill-btn" data-region="The Westerlands">Vesterlend</button>
+            <button class="pill-btn" data-region="The Crownlands">Qirollik</button>
+            <button class="pill-btn" data-region="The Riverlands">Daryo yerlari</button>
+            <button class="pill-btn" data-region="The Vale">Vodiy</button>
+            <button class="pill-btn" data-region="The Reach">Tirqish</button>
+            <button class="pill-btn" data-region="Dorne">Dorn</button>
+            <button class="pill-btn" data-region="Iron Islands">Temir Orollar</button>
+          </div>
+          <div id="map-territories-container" class="map-grid">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. MILITARY MARCH (ATTACK) MODAL -->
+    <div id="march-modal" class="modal-overlay" style="display:none;">
+      <div class="modal-dialog modal-dialog-lg">
+        <div class="modal-header">
+          <h3 class="modal-title">⚔️ Harbiy Yurish (Qal'aga Hujum)</h3>
+          <button class="modal-close" id="modal-march-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <!-- Target selector / display -->
+          <div class="card p-2 mb-3">
+            <label class="input-lbl">Nishon Qal'ani Tanlang:</label>
+            <select id="march-target-select" class="amount-input w-100 mt-1">
+              <!-- Dynamically populated with all valid enemy territories -->
+            </select>
+            <div id="march-target-detail" class="mt-2 text-secondary" style="font-size:11px;">
+              Mudofaa: <span id="march-target-def" class="text-blue">0</span> | Masofa: <span id="march-target-dist" class="text-gold">0 km</span> | Vaqt: <span id="march-target-time">0 soniya</span>
+            </div>
+          </div>
+
+          <!-- Unit percentage quick buttons -->
+          <div class="d-flex justify-between align-center mb-1">
+            <span class="input-lbl">Qo'shinlarni Tanlash:</span>
+            <div class="quick-pills-row" id="march-pct-pills">
+              <button class="pill-btn" data-pct="25">25%</button>
+              <button class="pill-btn" data-pct="50">50%</button>
+              <button class="pill-btn" data-pct="75">75%</button>
+              <button class="pill-btn" data-pct="100">100%</button>
+            </div>
+          </div>
+
+          <div class="march-units-grid">
+            <div class="march-unit-row">
+              <span>🗡️ Piyoda (<span id="avail-infantry">0</span>):</span>
+              <input type="number" id="march-infantry" class="amount-input" value="0" min="0">
+            </div>
+            <div class="march-unit-row">
+              <span>🏹 Kamonchi (<span id="avail-archers">0</span>):</span>
+              <input type="number" id="march-archers" class="amount-input" value="0" min="0">
+            </div>
+            <div class="march-unit-row">
+              <span>🐎 Otliq (<span id="avail-cavalry">0</span>):</span>
+              <input type="number" id="march-cavalry" class="amount-input" value="0" min="0">
+            </div>
+            <div class="march-unit-row">
+              <span>🛡️ Nayzador (<span id="avail-spearmen">0</span>):</span>
+              <input type="number" id="march-spearmen" class="amount-input" value="0" min="0">
+            </div>
+            <div class="march-unit-row">
+              <span>☄️ Manjaniq (<span id="avail-catapults">0</span>):</span>
+              <input type="number" id="march-catapults" class="amount-input" value="0" min="0">
+            </div>
+            <div class="march-unit-row">
+              <span>🏰 Minora (<span id="avail-towers">0</span>):</span>
+              <input type="number" id="march-towers" class="amount-input" value="0" min="0">
+            </div>
+          </div>
+
+          <!-- Dragon tactic -->
+          <div class="card p-2 mt-3" id="march-dragon-box">
+            <div class="d-flex justify-between align-center">
+              <label class="input-lbl">🐉 Ajdaho Qo'shish:</label>
+              <input type="checkbox" id="march-dragon-toggle" style="width:18px; height:18px; cursor:pointer;">
+            </div>
+            <div id="march-dragon-tactic-row" class="mt-2" style="display:none;">
+              <select id="march-dragon-tactic" class="amount-input w-100">
+                <option value="none">Taktikasiz</option>
+                <option value="firestorm">🔥 Olovli Bo'ron (+20% Devor talafoti)</option>
+                <option value="winged_valor">🦅 Qanotli Dovyuraklik (+15% Qo'shin ruhi)</option>
+                <option value="night_strike">🌑 Tungi Hujum (Kutilmagan zarba)</option>
+              </select>
+            </div>
+          </div>
+
+          <button class="btn btn-primary w-100 mt-3 py-3" id="btn-submit-march">
+            ⚔️ Harbiy Yurishni Boshlash
+          </button>
+
+          <!-- Active Outgoing Marches -->
+          <div class="mt-3">
+            <h4 class="section-heading">🚩 Harakatdagi Harbiy Yurishlar</h4>
+            <div id="active-marches-list" class="mt-2">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. SCOUT INTELLIGENCE MODAL -->
+    <div id="scout-modal" class="modal-overlay" style="display:none;">
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <h3 class="modal-title" id="scout-title">👁️ Harbiy Razvedka</h3>
+          <button class="modal-close" id="modal-scout-close">✕</button>
+        </div>
+        <div class="modal-body" id="scout-body">
+          <!-- Dynamically populated intelligence report -->
+        </div>
+      </div>
+    </div>
+
+    <!-- 4. ESPIONAGE MODAL -->
+    <div id="espionage-modal" class="modal-overlay" style="display:none;">
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <h3 class="modal-title">🕵️ Vesteros Josuslik Tarmog'i</h3>
+          <button class="modal-close" id="modal-espionage-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="card p-2 mb-3">
+            <label class="input-lbl">Nishon Qal'ani Tanlang:</label>
+            <select id="espionage-target-select" class="amount-input w-100 mt-1">
+              <!-- Dynamically populated -->
+            </select>
+          </div>
+
+          <div class="espionage-missions-list">
+            <div class="card p-3 mb-2 espionage-mission-card" data-mission="scout">
+              <div class="d-flex justify-between align-center">
+                <strong>👁️ Chuqur Razvedka</strong>
+                <span class="text-gold">100🪙</span>
+              </div>
+              <p class="text-secondary mt-1" style="font-size:11px;">Garnizon tarkibi, mudofaa va resurs zaxiralarini aniqlash.</p>
+              <button class="btn btn-secondary w-100 mt-2 btn-run-spy" data-mission="scout">Josusni Jo'natish</button>
+            </div>
+
+            <div class="card p-3 mb-2 espionage-mission-card" data-mission="sabotage">
+              <div class="d-flex justify-between align-center">
+                <strong>🔥 Oziq-ovqat Diversiyasi</strong>
+                <span class="text-gold">250🪙</span>
+              </div>
+              <p class="text-secondary mt-1" style="font-size:11px;">Dushman omborlariga o't qo'yib, oziq-ovqat va mudofaani qisqartirish.</p>
+              <button class="btn btn-secondary w-100 mt-2 btn-run-spy" data-mission="sabotage">Diversiya Uyushtirish</button>
+            </div>
+
+            <div class="card p-3 espionage-mission-card" data-mission="open_gates">
+              <div class="d-flex justify-between align-center">
+                <strong>🗝️ Qal'a Darvozasini Ochish</strong>
+                <span class="text-gold">500🪙</span>
+              </div>
+              <p class="text-secondary mt-1" style="font-size:11px;">24 soatga mudofaani 50% ga pasaytirib, navbatdagi hujumni osonlashtirish.</p>
+              <button class="btn btn-secondary w-100 mt-2 btn-run-spy" data-mission="open_gates">Darvozani Buzish</button>
+            </div>
+          </div>
+
+          <div id="espionage-result-box" class="card mt-3 p-3" style="display:none;">
+            <!-- Result message -->
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 5. DRAGON NEST MODAL -->
+    <div id="dragon-modal" class="modal-overlay" style="display:none;">
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <h3 class="modal-title">🐉 Ajdarlar Uyasi (Valyriya)</h3>
+          <button class="modal-close" id="modal-dragon-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <div id="dragon-view-unclaimed" style="display:none;" class="text-center py-3">
+            <span style="font-size:50px;">🥚</span>
+            <h3 class="mt-2 text-gold font-serif">Valyriya Ajdaho Tuxumi</h3>
+            <p class="text-secondary mt-1" style="font-size:12px;">Qadimgi Valyriya qoniga ega bo'lgan Lordlar o'z shaxsiy ajdarlarini voyaga yetkazishlari mumkin.</p>
+            <button class="btn btn-primary mt-3 w-100 py-2" id="btn-claim-dragon-egg">
+              🥚 Ajdaho Tuxumini Olish
+            </button>
+          </div>
+
+          <div id="dragon-view-egg" style="display:none;" class="text-center py-3">
+            <span style="font-size:50px;">🔥🥚</span>
+            <h3 class="mt-2 text-gold font-serif" id="dragon-egg-name">Ajdaho Tuxumi</h3>
+            <p class="text-secondary mt-1" style="font-size:12px;">Tuxum olovli haroratda inkubatsiyaga tayyor. Qadimiy marosimni boshlang!</p>
+            <button class="btn btn-primary mt-3 w-100 py-2" id="btn-hatch-dragon">
+              🔥 Tuxumni Ochirish (Inkubatsiya)
+            </button>
+          </div>
+
+          <div id="dragon-view-active" style="display:none;">
+            <div class="dragon-profile-card card text-center p-3">
+              <span id="dragon-avatar" style="font-size:54px;">🐉</span>
+              <h3 class="mt-2 text-gold font-serif" id="dragon-name">Drogon</h3>
+              <p class="text-secondary" style="font-size:11px;" id="dragon-stage-lbl">Yosh Ajdaho • 14 Kunlik</p>
+              
+              <div class="mt-3">
+                <div class="d-flex justify-between" style="font-size:11px;">
+                  <span>Jangovar Qudrat</span>
+                  <span id="dragon-power-val" class="text-gold">1,500</span>
+                </div>
+                <div class="xp-track mt-1">
+                  <div class="xp-fill" id="dragon-power-bar" style="width: 50%; background: #e63946;"></div>
+                </div>
+              </div>
+
+              <div class="mt-2">
+                <div class="d-flex justify-between" style="font-size:11px;">
+                  <span>To'qlik Holati</span>
+                  <span id="dragon-hunger-val" class="text-green">To'q (85%)</span>
+                </div>
+                <div class="xp-track mt-1">
+                  <div class="xp-fill" id="dragon-hunger-bar" style="width: 85%; background: #2a9d8f;"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="dragon-actions-grid mt-3">
+              <button class="btn btn-secondary py-2 flex-1" id="btn-feed-dragon">
+                🥩 Boqish<br><small class="text-secondary">50 Bug'doy</small>
+              </button>
+              <button class="btn btn-secondary py-2 flex-1" id="btn-train-dragon">
+                🔥 Mashq<br><small class="text-secondary">30 Oltin + 20 Temir</small>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 6. GREAT HOUSE HUB MODAL -->
+    <div id="house-modal" class="modal-overlay" style="display:none;">
+      <div class="modal-dialog modal-dialog-lg">
+        <div class="modal-header">
+          <h3 class="modal-title" id="house-modal-title">🏛️ Xonadon Saroyi</h3>
+          <button class="modal-close" id="modal-house-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="card text-center p-3 mb-3">
+            <span id="house-sigil" style="font-size:42px;">🦁</span>
+            <h3 class="mt-1 font-serif text-gold" id="house-title-name">Lannister Xonadoni</h3>
+            <p class="italic text-secondary mt-1" style="font-size:12px;" id="house-motto">"Mening Na'ramni Tingla!"</p>
+            <div class="mt-2" style="font-size:11px;">Bosh Lord: <strong id="house-lord-name" class="text-gold">Lord Tywin</strong></div>
+          </div>
+
+          <div class="card-summary mb-3">
+            <div class="summary-left">
+              <span class="summary-lbl">Xonadon Xazinasi</span>
+              <h4 class="summary-val text-gold" id="house-treasury-gold">0🪙 Oltin</h4>
+            </div>
+            <div class="summary-right text-right">
+              <span class="summary-lbl">Temir Zaxirasi</span>
+              <h4 class="summary-val text-secondary" id="house-treasury-iron">0⛓️ Temir</h4>
+            </div>
+          </div>
+
+          <!-- Deposit Box -->
+          <div class="bank-action-box mb-3">
+            <label class="input-lbl">Xonadon Xazinasiga Hissa Qo'shish:</label>
+            <div class="quick-pills-row mt-1 mb-2">
+              <button class="pill-btn active" id="btn-house-res-gold">🪙 Oltin</button>
+              <button class="pill-btn" id="btn-house-res-iron">⛓️ Temir</button>
+            </div>
+            <div class="amount-input-row">
+              <input type="number" id="house-deposit-input" class="amount-input" value="100" min="10">
+              <button class="btn btn-primary" id="btn-submit-house-deposit">Topshirish</button>
+            </div>
+          </div>
+
+          <!-- Member Roster -->
+          <h4 class="section-heading">👑 Xonadon Lordlari & Ritsarlari</h4>
+          <div id="house-members-list" class="mt-2">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 7. FREE MARKET & CARAVANS MODAL -->
+    <div id="market-modal" class="modal-overlay" style="display:none;">
+      <div class="modal-dialog modal-dialog-lg">
+        <div class="modal-header">
+          <h3 class="modal-title">⚖️ Erkin Vesteros Bozori</h3>
+          <button class="modal-close" id="modal-market-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="rankings-filter mb-3">
+            <button class="filter-chip active" id="tab-market-lots-btn">🛍️ E'lonlar</button>
+            <button class="filter-chip" id="tab-market-create-btn">➕ E'lon Berish</button>
+            <button class="filter-chip" id="tab-market-caravans-btn">🐫 Karvonlar</button>
+          </div>
+
+          <!-- Lots View -->
+          <div id="market-view-lots">
+            <div id="market-lots-container">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+
+          <!-- Create Lot View -->
+          <div id="market-view-create" style="display:none;">
+            <div class="card p-3">
+              <h4 class="font-serif text-gold mb-2">Yangi Savdo Taklifini Joylashtirish</h4>
+              <label class="input-lbl">Siz Taqdim Etasiz:</label>
+              <div class="d-flex gap-2 mt-1 mb-2">
+                <select id="market-offer-res" class="amount-input flex-1">
+                  <option value="gold">🪙 Oltin</option>
+                  <option value="food">🌾 Bug'doy</option>
+                  <option value="iron">⛓️ Temir</option>
+                </select>
+                <input type="number" id="market-offer-amt" class="amount-input flex-1" placeholder="Miqdor" value="100" min="1">
+              </div>
+
+              <label class="input-lbl">Evaziga Talab Qilasiz:</label>
+              <div class="d-flex gap-2 mt-1 mb-2">
+                <select id="market-req-res" class="amount-input flex-1">
+                  <option value="food">🌾 Bug'doy</option>
+                  <option value="iron">⛓️ Temir</option>
+                  <option value="gold">🪙 Oltin</option>
+                </select>
+                <input type="number" id="market-req-amt" class="amount-input flex-1" placeholder="Miqdor" value="100" min="1">
+              </div>
+
+              <p class="text-secondary mt-1" style="font-size:11px;">Bozor vositachilik solig'i: 5% oltin.</p>
+              <button class="btn btn-primary w-100 mt-2 py-2" id="btn-submit-market-lot">
+                Joylashtirish
+              </button>
+            </div>
+          </div>
+
+          <!-- Caravans View -->
+          <div id="market-view-caravans" style="display:none;">
+            <div id="market-caravans-container">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 8. RAVEN MESSENGER MODAL -->
+    <div id="raven-modal" class="modal-overlay" style="display:none;">
+      <div class="modal-dialog modal-dialog-lg">
+        <div class="modal-header">
+          <h3 class="modal-title">🦅 Qarg'alar Pochtasi</h3>
+          <button class="modal-close" id="modal-raven-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="rankings-filter mb-3">
+            <button class="filter-chip active" id="tab-raven-inbox-btn">📬 Kiruvchi Xatlar</button>
+            <button class="filter-chip" id="tab-raven-send-btn">✍️ Yangi Maktub</button>
+          </div>
+
+          <div id="raven-view-inbox">
+            <div id="raven-inbox-container">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+
+          <div id="raven-view-send" style="display:none;">
+            <div class="card p-3">
+              <label class="input-lbl">Qabul Qiluvchi Telegram ID:</label>
+              <input type="number" id="raven-receiver-id" class="amount-input w-100 mt-1 mb-2" placeholder="Masalan: 7689627859">
+
+              <label class="input-lbl">Maktub Matni:</label>
+              <textarea id="raven-message-body" class="amount-input w-100 mt-1 mb-2" rows="3" placeholder="Lord, xabarni shu yerga yozing..." maxlength="500"></textarea>
+
+              <label class="input-lbl">Ilova Qilinuvchi Oltin (ixtiyoriy sovg'a):</label>
+              <input type="number" id="raven-attached-gold" class="amount-input w-100 mt-1 mb-3" value="0" min="0">
+
+              <button class="btn btn-primary w-100 py-2" id="btn-submit-raven">
+                🦅 Qarg'ani Uchirish
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 9. HERO INVENTORY & ARTIFACTS MODAL -->
+    <div id="hero-modal" class="modal-overlay" style="display:none;">
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <h3 class="modal-title">🗡️ Qahramon & Valyriya Qurollari</h3>
+          <button class="modal-close" id="modal-hero-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="card p-3 text-center mb-3">
+            <span style="font-size:36px;">⚔️</span>
+            <h4 class="font-serif text-gold mt-1" id="hero-name-val">Lord Chempioni</h4>
+            <div class="d-flex justify-between mt-2" style="font-size:12px;">
+              <span>Hujum Quvvati: <strong id="hero-atk-val" class="text-red">50</strong></span>
+              <span>Mudofaa Quvvati: <strong id="hero-def-val" class="text-blue">50</strong></span>
+            </div>
+          </div>
+
+          <!-- Equipped Slot -->
+          <div class="card p-3 mb-3" style="border: 1px dashed var(--gold-primary);">
+            <div class="d-flex justify-between align-center">
+              <div>
+                <span class="text-secondary" style="font-size:11px;">Jangovar Artefakt:</span>
+                <div class="font-serif text-gold" style="font-size:14px;" id="equipped-artifact-name">Hech narsa taqilmagan</div>
+              </div>
+              <button class="btn btn-secondary py-1 px-2" id="btn-unequip-artifact" style="display:none;">Yechish</button>
+            </div>
+          </div>
+
+          <!-- Artifacts List -->
+          <h4 class="section-heading">🛡️ Sandiqdagi Qadimiy Artefaktlar</h4>
+          <div id="hero-artifacts-container" class="mt-2">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 10. VIP & DONATE MODAL -->
+    <div id="donate-modal" class="modal-overlay" style="display:none;">
+      <div class="modal-dialog modal-dialog-lg">
+        <div class="modal-header">
+          <h3 class="modal-title">💎 Qirollik Xazinasi & VIP Rutbalar</h3>
+          <button class="modal-close" id="modal-donate-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="text-center mb-3">
+            <span style="font-size:36px;">👑</span>
+            <h3 class="font-serif text-gold mt-1">Vesteros Qirollik Imtiyozlari</h3>
+            <p class="text-secondary mt-1" style="font-size:12px;">VIP rutbalar egasiga beqiyos imkoniyatlar va harbiy qudrat taqdim etadi.</p>
+          </div>
+
+          <div class="vip-tiers-grid">
+            <div class="card p-3 mb-2 vip-tier-card" style="border-left: 3px solid #cd7f32;">
+              <div class="d-flex justify-between align-center">
+                <h4 class="font-serif text-gold">🥉 Ritsar (Knight)</h4>
+                <strong class="text-gold">100 ⭐ / oy</strong>
+              </div>
+              <ul class="vip-perks-list mt-2">
+                <li>⚔️ +10% Barcha qo'shinlar hujumi</li>
+                <li>🎯 Kunlik vazifalar soni +2 ta</li>
+                <li>🛡️ 1 marta bepul tinchlik qalqoni</li>
+              </ul>
+            </div>
+
+            <div class="card p-3 mb-2 vip-tier-card" style="border-left: 3px solid #c0c0c0;">
+              <div class="d-flex justify-between align-center">
+                <h4 class="font-serif text-gold">🥈 Buyuk Lord (Lord)</h4>
+                <strong class="text-gold">250 ⭐ / oy</strong>
+              </div>
+              <ul class="vip-perks-list mt-2">
+                <li>⚔️ +20% Qo'shinlar qudrati</li>
+                <li>🪙 +15% Barcha qal'alardan soliq tushumi</li>
+                <li>🐉 Ajdahoga bepul ozuqa va tezlashtirish</li>
+                <li>👑 Chat va Mini Appda Oltin ramka</li>
+              </ul>
+            </div>
+
+            <div class="card p-3 mb-2 vip-tier-card" style="border-left: 3px solid #ffd700;">
+              <div class="d-flex justify-between align-center">
+                <h4 class="font-serif text-gold">👑 Hukmdor (Sovereign)</h4>
+                <strong class="text-gold">500 ⭐ / oy</strong>
+              </div>
+              <ul class="vip-perks-list mt-2">
+                <li>⚔️ +35% Mutlaq harbiy va qamal kuchi</li>
+                <li>🌾 Cheksiz oziq-ovqat va ocharchilikdan himoya</li>
+                <li>⚡ Harbiy yurishlar vaqti 50% ga kamayadi</li>
+                <li>🏛️ Shaxsiy unvon va admin yordamchisi</li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="card p-3 mt-3 text-center">
+            <p class="text-secondary" style="font-size:12px;">Faollashtirish uchun Telegram boti orqali Stars to'lang yoki bosh admin bilan bog'laning:</p>
+            <a href="https://t.me/ironthrone_rpgbot" target="_blank" class="btn btn-primary w-100 mt-2 py-2">
+              ⭐ Botda Stars orqali Faollashtirish
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 11. ADMIN MANAGEMENT CONSOLE MODAL -->
+    <div id="admin-modal" class="modal-overlay" style="display:none;">
+      <div class="modal-dialog modal-dialog-lg">
+        <div class="modal-header">
+          <h3 class="modal-title">⚙️ Vesteros Admin Boshqaruv Konsoli</h3>
+          <button class="modal-close" id="modal-admin-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="card-summary mb-3">
+            <div class="summary-left">
+              <span class="summary-lbl">O'yinchilar / Faol</span>
+              <h4 class="summary-val text-gold" id="admin-stat-users">0</h4>
+            </div>
+            <div class="summary-right text-right">
+              <span class="summary-lbl">Xonadonlar / Qal'alar</span>
+              <h4 class="summary-val text-secondary" id="admin-stat-houses">0</h4>
+            </div>
+          </div>
+
+          <!-- Player Ban / Unban -->
+          <div class="card p-3 mb-3">
+            <h4 class="font-serif text-gold mb-2">🚫 O'yinchini Bloklash / Blokdan Chiqarish</h4>
+            <div class="d-flex gap-2 mb-2">
+              <input type="number" id="admin-ban-tgid" class="amount-input flex-1" placeholder="Telegram ID">
+              <select id="admin-ban-status" class="amount-input" style="width:110px;">
+                <option value="true">Bloklash</option>
+                <option value="false">Ochish</option>
+              </select>
+            </div>
+            <button class="btn btn-primary w-100 py-2" id="btn-submit-admin-ban">Holatni O'zgartirish</button>
+          </div>
+
+          <!-- Adjust Resources -->
+          <div class="card p-3">
+            <h4 class="font-serif text-gold mb-2">🎁 Resurslarni Moslashtirish</h4>
+            <input type="number" id="admin-res-tgid" class="amount-input w-100 mb-2" placeholder="O'yinchi Telegram ID">
+            <div class="d-flex gap-2 mb-2">
+              <select id="admin-res-type" class="amount-input flex-1">
+                <option value="gold">🪙 Oltin</option>
+                <option value="food">🌾 Bug'doy</option>
+                <option value="iron">⛓️ Temir</option>
+                <option value="prestige">👑 Nufuz</option>
+              </select>
+              <input type="number" id="admin-res-delta" class="amount-input flex-1" placeholder="+/- Miqdor" value="1000">
+            </div>
+            <button class="btn btn-primary w-100 py-2" id="btn-submit-admin-res">Resursni O'tkazish</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- TOAST NOTIFICATIONS -->
     <div id="toast-container" class="toast-container"></div>
 
   </div>
 
-  <script src="js/app.js?v=3.1"></script>
+  <script src="js/app.js?v=4.0"></script>
 </body>
 </html>

@@ -223,3 +223,47 @@ async def get_current_player(
         )
 
     return user, validated
+
+
+async def get_current_player_or_none(
+    raw_init_data: str = Depends(extract_init_data_from_request),
+    session: AsyncSession = Depends(get_db_session),
+) -> Tuple[Optional[models.User], Dict[str, Any]]:
+    """
+    FastAPI Dependency:
+    HMAC initData ni tekshiradi.
+    Foydalanuvchi DB da bo'lsa (user, validated), bo'lmasa (None, validated) qaytaradi.
+    Bu yangi o'yinchilar Mini Appda to'g'ridan-to'g'ri ro'yxatdan o'tishi uchun imkon beradi.
+    """
+    validated = validate_telegram_init_data(raw_init_data)
+    user_info = validated["user"]
+    telegram_id = int(user_info["id"])
+
+    # Enforce per-player rate limiting
+    player_rate_limiter.check(f"player_{telegram_id}")
+
+    # Fetch user from DB
+    user = await crud.get_user_by_telegram_id(session, telegram_id)
+    if user and getattr(user, "is_banned", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Sizning hisobingiz bloklangan."
+        )
+
+    return user, validated
+
+
+async def require_admin_player(
+    auth: Tuple[models.User, Dict[str, Any]] = Depends(get_current_player),
+) -> Tuple[models.User, Dict[str, Any]]:
+    """
+    Faqat ADMIN_IDS ro'yxatidagi bosh adminlar uchun ruxsat beruvchi dependency.
+    """
+    user, validated = auth
+    from config import ADMIN_IDS
+    if user.telegram_id not in ADMIN_IDS:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Ushbu amal faqat Vesteros Bosh Administratorlari uchun ruxsat etilgan."
+        )
+    return user, validated

@@ -43,6 +43,31 @@ from services.battle_service import (
 )
 from services.ranking_service import get_rankings_overview
 from services.world_service import get_world_events_overview
+from services.auth_service import get_registration_houses_catalog, register_player_service
+from services.house_service import get_house_hub_data, deposit_to_house_treasury_service
+from services.hero_service import get_hero_hub_data, equip_artifact_service, unequip_artifact_service
+from services.map_service import get_westeros_map_data, get_territory_scout_detail
+from services.espionage_service import get_espionage_hub_data, execute_spy_mission_service
+from services.dragon_service import (
+    get_dragon_hub_data,
+    claim_starter_dragon_egg_service,
+    hatch_dragon_service,
+    feed_dragon_service,
+    train_dragon_service,
+)
+from services.trade_service import (
+    get_market_hub_data,
+    create_trade_lot_service,
+    buy_trade_lot_service,
+    cancel_trade_lot_service,
+)
+from services.raven_service import get_raven_hub_data, send_raven_service
+from services.donate_service import get_donate_hub_data
+from services.admin_service import (
+    get_admin_dashboard_data,
+    admin_set_ban_status_service,
+    admin_adjust_resources_service,
+)
 
 __all__ = [
     "get_player_profile",
@@ -78,4 +103,30 @@ __all__ = [
     "dispatch_march_service",
     "get_rankings_overview",
     "get_world_events_overview",
+    "get_registration_houses_catalog",
+    "register_player_service",
+    "get_house_hub_data",
+    "deposit_to_house_treasury_service",
+    "get_hero_hub_data",
+    "equip_artifact_service",
+    "unequip_artifact_service",
+    "get_westeros_map_data",
+    "get_territory_scout_detail",
+    "get_espionage_hub_data",
+    "execute_spy_mission_service",
+    "get_dragon_hub_data",
+    "claim_starter_dragon_egg_service",
+    "hatch_dragon_service",
+    "feed_dragon_service",
+    "train_dragon_service",
+    "get_market_hub_data",
+    "create_trade_lot_service",
+    "buy_trade_lot_service",
+    "cancel_trade_lot_service",
+    "get_raven_hub_data",
+    "send_raven_service",
+    "get_donate_hub_data",
+    "get_admin_dashboard_data",
+    "admin_set_ban_status_service",
+    "admin_adjust_resources_service",
 ]
