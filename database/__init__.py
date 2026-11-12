@@ -23,6 +23,7 @@ from database.models import (
     GuildQuest,
     GuildQuestProgress,
     GuildTreasuryTransaction,
+    SystemErrorLog,
 )
 
 __all__ = [
@@ -52,4 +53,5 @@ __all__ = [
     "GuildQuest",
     "GuildQuestProgress",
     "GuildTreasuryTransaction",
+    "SystemErrorLog",
 ]

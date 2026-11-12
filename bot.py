@@ -261,6 +261,12 @@ async def on_startup(app: Application):
     except Exception as e_audit:
         logger.warning(f"send_armies_audit_report startup xatosi: {e_audit}")
 
+    try:
+        from core.error_reporter import set_error_reporter_bot_app
+        set_error_reporter_bot_app(app)
+    except Exception as e_err:
+        logger.warning(f"set_error_reporter_bot_app xatosi: {e_err}")
+
 
 
 async def ban_check_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -325,8 +331,52 @@ async def command_audit_callback(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def global_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Barcha kutilmagan bot xatolarini to'liq traceback bilan logger ga yozish"""
+    """Barcha kutilmagan bot xatolarini to'liq traceback bilan logger ga yozish va ERROR_CHAT_ID ga yuborish"""
     logger.error("⚠️ Telegram botda xatolik yuz berdi:", exc_info=context.error)
+
+    try:
+        from core.error_reporter import report_system_error
+        import traceback
+
+        err = context.error
+        err_type = type(err).__name__ if err else "UnknownBotError"
+        err_msg = str(err) if err else "Noma'lum xatolik"
+
+        tb_list = traceback.format_exception(None, err, err.__traceback__) if err and err.__traceback__ else []
+        tb_str = "".join(tb_list)
+
+        user_id = None
+        handler_name = "bot_update"
+
+        if isinstance(update, Update):
+            if update.effective_user:
+                user_id = update.effective_user.id
+            if update.callback_query and update.callback_query.data:
+                handler_name = f"callback:{update.callback_query.data[:40]}"
+            elif update.effective_message and update.effective_message.text:
+                cmd = update.effective_message.text.split()[0][:30]
+                handler_name = f"cmd:{cmd}"
+
+        # Oxirgi traceback qatoridan fayl va funksiya nomini topish
+        if err and err.__traceback__:
+            tb_last = err.__traceback__
+            while tb_last.tb_next:
+                tb_last = tb_last.tb_next
+            func_name = tb_last.tb_frame.f_code.co_name
+            raw_fn = tb_last.tb_frame.f_code.co_filename
+            file_name = raw_fn.replace("\\", "/").split("/")[-1]
+            handler_name = f"{handler_name} -> {file_name}:{func_name}"
+
+        await report_system_error(
+            source="bot",
+            error_type=err_type,
+            error_message=err_msg,
+            handler_name=handler_name,
+            user_telegram_id=user_id,
+            stack_trace=tb_str,
+        )
+    except Exception as ge:
+        logger.error(f"global_error_handler reporting error: {ge}")
 
 
 # ============================================================

@@ -119,6 +119,19 @@ async def player_text_message_handler(update: Update, context: ContextTypes.DEFA
 
     await notify_admins(context.application, admin_text, reply_markup=admin_kb)
 
+    # 1b. ERROR_CHAT_ID guruhiga #BAG_XABARI / #MUROJAAT tegi bilan uzatish
+    try:
+        from core.error_reporter import send_support_ticket_to_error_chat
+        is_bug = any(w in text.lower() for w in ["bag", "xato", "ishlamayapti", "muammo", "nosozlik", "error", "bug"])
+        await send_support_ticket_to_error_chat(
+            user_telegram_id=user_id,
+            message_text=text,
+            ticket_category="bug" if is_bug else "feedback",
+            username=user.username,
+        )
+    except Exception as se:
+        logger.warning(f"send_support_ticket_to_error_chat xatosi: {se}")
+
     # 2. O'yinchiga xabar yetkazilgani haqida tasdiq
     reply_text = (
         "📬 **SIZNING SO'ROVINGIZ QABUL QILINDI!**\n\n"

@@ -108,6 +108,7 @@ async def show_admin_dashboard(target, is_message: bool):
         buttons = [
             [InlineKeyboardButton(f"💳 Donat So'rovlari{donations_badge}", callback_data="admin_donations_list:0:pending")],
             [InlineKeyboardButton("📜 O'yinchilar Harakatlari Jurnali (Logs)", callback_data="admin_activity_logs:0")],
+            [InlineKeyboardButton("🚨 Tizim Xatoliklari (System Errors)", callback_data="admin_error_logs:0")],
             [InlineKeyboardButton("👥 O'yinchilarni Boshqarish (User Manager)", callback_data="admin_users_list:0")],
             [InlineKeyboardButton("👑 Xonadon Lordlarini Tayinlash", callback_data="admin_lords_menu")],
 
@@ -4162,7 +4163,172 @@ async def admin_activity_logs_callback(update: Update, context: ContextTypes.DEF
             await query.edit_message_text(text, parse_mode=None, reply_markup=InlineKeyboardMarkup(buttons))
 
 
+async def admin_error_logs_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Tizim xatoliklari va baglar jurnali (SystemErrorLog)"""
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    if not is_admin(user_id):
+        await query.answer("❌ Administrator huquqi talab etiladi!", show_alert=True)
+        return
+
+    data = query.data or "admin_error_logs:0"
+    parts = data.split(":")
+    page = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+    limit = 8
+    offset = page * limit
+
+    async with AsyncSessionLocal() as session:
+        cnt_res = await session.execute(select(func.count(models.SystemErrorLog.id)))
+        total_cnt = cnt_res.scalar() or 0
+
+        res = await session.execute(
+            select(models.SystemErrorLog)
+            .order_by(models.SystemErrorLog.is_resolved.asc(), desc(models.SystemErrorLog.last_seen_at))
+            .limit(limit)
+            .offset(offset)
+        )
+        records = res.scalars().all()
+
+        total_pages = max(1, (total_cnt + limit - 1) // limit)
+        lines = [
+            "🚨 **TIZIM XATOLIKLARI VA BAGLAR JURNALI**\n",
+            f"📊 Jami xatolar: **{total_cnt}** ta | Sahifa: **{page + 1}/{total_pages}**\n",
+        ]
+
+        buttons = []
+        if not records:
+            lines.append("✅ Hozircha qayd etilgan tizim xatoliklari mavjud emas.")
+        else:
+            for err in records:
+                status_icon = "✅ Hal qilingan" if err.is_resolved else "🔴 Ochiq"
+                source_icon = "📱 MiniApp" if err.source == "miniapp" else ("⚡ API" if err.source == "api" else "🤖 Bot")
+                time_str = err.last_seen_at.strftime("%d.%m %H:%M") if err.last_seen_at else "—"
+                count_str = f" ({err.occurrence_count}x)" if err.occurrence_count > 1 else ""
+
+                msg_preview = (err.error_message or "").replace("\n", " ")
+                if len(msg_preview) > 60:
+                    msg_preview = msg_preview[:57] + "..."
+
+                lines.append(
+                    f"• `#{err.id}` [{source_icon}{count_str}] **{escape_md(err.error_type or 'Xato')}**\n"
+                    f"  {escape_md(msg_preview)}\n"
+                    f"  🕒 `{time_str}` | {status_icon}\n"
+                )
+                buttons.append([
+                    InlineKeyboardButton(
+                        f"🔍 #{err.id} - {err.error_type[:20]} ({status_icon})",
+                        callback_data=f"adm_err_view:{err.id}:{page}"
+                    )
+                ])
+
+        nav_row = []
+        if page > 0:
+            nav_row.append(InlineKeyboardButton("⬅️ Oldingi", callback_data=f"admin_error_logs:{page - 1}"))
+        nav_row.append(InlineKeyboardButton(f"🔄 Yangilash ({page + 1})", callback_data=f"admin_error_logs:{page}"))
+        if (offset + limit) < total_cnt:
+            nav_row.append(InlineKeyboardButton("Keyingi ➡️", callback_data=f"admin_error_logs:{page + 1}"))
+        if nav_row:
+            buttons.append(nav_row)
+
+        buttons.append([InlineKeyboardButton("🔙 Admin Panelga Qaytish", callback_data="admin_panel")])
+
+        text = "\n".join(lines)
+        try:
+            await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        except Exception:
+            await query.edit_message_text(text, parse_mode=None, reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def admin_error_detail_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Tanlangan xatolikning to'liq tafsiloti va hal qilish tugmasi"""
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    if not is_admin(user_id):
+        await query.answer("❌ Administrator huquqi talab etiladi!", show_alert=True)
+        return
+
+    data = query.data or "adm_err_view:0:0"
+    parts = data.split(":")
+    err_id = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+    page = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
+
+    async with AsyncSessionLocal() as session:
+        res = await session.execute(
+            select(models.SystemErrorLog).where(models.SystemErrorLog.id == err_id)
+        )
+        err = res.scalar_one_or_none()
+        if not err:
+            await query.answer("❌ Xatolik yozuvi topilmadi!", show_alert=True)
+            return
+
+        source_label = "📱 MiniApp" if err.source == "miniapp" else ("⚡ API" if err.source == "api" else "🤖 Bot")
+        status_label = f"✅ Hal qilingan (Admin: `{err.resolved_by}`)" if err.is_resolved else "🔴 Ochiq (Hal qilinmagan)"
+
+        lines = [
+            f"🚨 **XATOLIK TAFSILOTI #{err.id}**\n",
+            f"• Manba: **{source_label}**",
+            f"• Holat: **{status_label}**",
+            f"• Xato turi: `{escape_md(err.error_type or 'Exception')}`",
+            f"• Joylashuv / Handler: `{escape_md(err.handler_name or 'noma‘lum')}`",
+            f"• Foydalanuvchi TG ID: `{err.user_telegram_id or 'anonim'}`",
+            f"• Takrorlanish soni: **{err.occurrence_count}** marta",
+            f"• Birinchi qayd: `{err.first_seen_at.strftime('%Y-%m-%d %H:%M:%S') if err.first_seen_at else '—'}`",
+            f"• So'nggi qayd: `{err.last_seen_at.strftime('%Y-%m-%d %H:%M:%S') if err.last_seen_at else '—'}`",
+            f"\n📝 **Xato matni:**\n`{escape_md((err.error_message or '')[:500])}`\n",
+        ]
+
+        if err.stack_trace:
+            short_trace = err.stack_trace[-800:] if len(err.stack_trace) > 800 else err.stack_trace
+            lines.append(f"🔍 **Stack Trace:**\n```\n{short_trace}\n```")
+
+        buttons = []
+        if not err.is_resolved:
+            buttons.append([
+                InlineKeyboardButton("✅ Hal Qilindi Deb Belgilash", callback_data=f"adm_err_resolve:{err.id}:{page}")
+            ])
+
+        buttons.append([
+            InlineKeyboardButton("🔙 Xatoliklar Ro'yxatiga", callback_data=f"admin_error_logs:{page}")
+        ])
+
+        text = "\n".join(lines)
+        try:
+            await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        except Exception:
+            await query.edit_message_text(text, parse_mode=None, reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def admin_resolve_error_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Xatolikni hal qilindi deb belgilash callbacki"""
+    query = update.callback_query
+    user_id = query.from_user.id
+    if not is_admin(user_id):
+        await query.answer("❌ Administrator huquqi talab etiladi!", show_alert=True)
+        return
+
+    data = query.data or "adm_err_resolve:0:0"
+    parts = data.split(":")
+    err_id = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+    page = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
+
+    from core.error_reporter import resolve_system_error
+    ok, msg = await resolve_system_error(err_id, admin_telegram_id=user_id)
+    if ok:
+        await query.answer("✅ Xatolik hal qilingan deb belgilandi!", show_alert=True)
+    else:
+        await query.answer(f"❌ {msg}", show_alert=True)
+
+    # Re-display detail
+    query.data = f"adm_err_view:{err_id}:{page}"
+    await admin_error_detail_callback(update, context)
+
+
 def register_admin_handlers(app):
+    app.add_handler(CallbackQueryHandler(admin_error_logs_callback, pattern="^admin_error_logs(:[0-9]+)?$"))
+    app.add_handler(CallbackQueryHandler(admin_error_detail_callback, pattern="^adm_err_view:[0-9]+:[0-9]+$"))
+    app.add_handler(CallbackQueryHandler(admin_resolve_error_callback, pattern="^adm_err_resolve:[0-9]+:[0-9]+$"))
     app.add_handler(CallbackQueryHandler(admin_activity_logs_callback, pattern="^admin_activity_logs(:[0-9]+)?$"))
     app.add_handler(CallbackQueryHandler(admin_bcast_weekly_rankings_callback, pattern="^admin_bcast_weekly_rankings$"))
     app.add_handler(CallbackQueryHandler(admin_donations_list_callback, pattern="^admin_donations_list(:.*)?$"))

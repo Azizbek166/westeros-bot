@@ -45,6 +45,15 @@ OWNER_ID = 7689627859
 # Admin Telegram ID lari (Admin panelga kirish huquqi)
 ADMIN_IDS = [7689627859]
 
+# Xatolar, baglar va tizim signallari yuboriladigan yopiq guruh chat ID si
+ERROR_CHAT_ID: Optional[int] = None
+_raw_error_chat = os.getenv("ERROR_CHAT_ID", "").strip()
+if _raw_error_chat:
+    try:
+        ERROR_CHAT_ID = int(_raw_error_chat)
+    except ValueError:
+        pass
+
 # ============================================================
 # TELEGRAM MINI APP & API SOZLAMALARI
 # ============================================================

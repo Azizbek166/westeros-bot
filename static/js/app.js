@@ -2962,6 +2962,8 @@
 
       document.getElementById('admin-stat-users').textContent = `${formatNum(res.total_users || 0)} / ${res.online_today || 0}`;
       document.getElementById('admin-stat-houses').textContent = `${res.total_houses || 0} / ${res.total_castles || 22}`;
+
+      await loadAdminErrorLogs();
     } catch (err) {
       console.error('Admin error:', err);
       showToast(err.message, 'error');
@@ -3042,6 +3044,164 @@
     }
   }
 
+  // --- ADMIN SYSTEM ERROR LOGS ---
+  async function loadAdminErrorLogs() {
+    const container = document.getElementById('admin-errors-list-container');
+    if (!container) return;
+
+    container.innerHTML = '<div class="text-muted text-center py-2" style="font-size:12px;">⏳ Xatoliklar jurnali yuklanmoqda...</div>';
+
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+
+      const resp = await fetch('/api/errors/admin/list?limit=25', { method: 'GET', headers: headers });
+      const res = await resp.json();
+      if (!resp.ok || !res.success) throw new Error(res.detail || 'Xatolarni yuklab bo‘lmadi.');
+
+      const errors = res.errors || [];
+      if (errors.length === 0) {
+        container.innerHTML = '<div class="text-success text-center py-2" style="font-size:12px;">✅ Qayd etilgan tizim xatoliklari mavjud emas!</div>';
+        return;
+      }
+
+      let html = '';
+      errors.forEach(err => {
+        const sourceBadge = err.source === 'miniapp' ? '<span class="badge bg-info text-dark" style="font-size:10px;">📱 MiniApp</span>'
+          : err.source === 'api' ? '<span class="badge bg-warning text-dark" style="font-size:10px;">⚡ API</span>'
+          : '<span class="badge bg-primary" style="font-size:10px;">🤖 Bot</span>';
+
+        const statusBadge = err.is_resolved
+          ? '<span class="badge bg-success" style="font-size:10px;">✅ Hal qilindi</span>'
+          : `<button class="btn btn-sm btn-outline-warning py-0 px-2 btn-resolve-err" data-err-id="${err.id}" style="font-size:10px;">🛠️ Hal qilish</button>`;
+
+        const countBadge = (err.occurrence_count && err.occurrence_count > 1)
+          ? `<span class="badge bg-danger ms-1" style="font-size:10px;">${err.occurrence_count}x</span>`
+          : '';
+
+        const timeStr = err.last_seen_at ? err.last_seen_at.replace('T', ' ').slice(0, 19) : '';
+
+        html += `
+          <div class="card p-2 mb-2" style="background: rgba(20, 25, 35, 0.85); border: 1px solid ${err.is_resolved ? 'rgba(74, 222, 128, 0.2)' : 'rgba(239, 68, 68, 0.4)'}; border-radius: 6px;">
+            <div class="d-flex justify-content-between align-items-center mb-1">
+              <div>
+                ${sourceBadge} ${countBadge}
+                <strong style="font-size:12px; color: #f87171;" class="ms-1">${escapeHtml(err.error_type || 'Xato')}</strong>
+              </div>
+              <div style="font-size:10px; color: #94a3b8;">${timeStr}</div>
+            </div>
+            <div style="font-size:11px; color: #e2e8f0; word-break: break-word;" class="mb-1">
+              ${escapeHtml(err.error_message || '')}
+            </div>
+            <div class="d-flex justify-content-between align-items-center" style="font-size:10px; color: #64748b;">
+              <span>Joy: <code>${escapeHtml(err.handler_name || 'Noma\'lum')}</code>${err.user_telegram_id ? ` | TG: <code>${err.user_telegram_id}</code>` : ''}</span>
+              <div>${statusBadge}</div>
+            </div>
+          </div>
+        `;
+      });
+
+      container.innerHTML = html;
+
+      // Attach resolve button event listeners
+      container.querySelectorAll('.btn-resolve-err').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const errId = parseInt(btn.getAttribute('data-err-id'));
+          if (errId) await handleResolveAdminError(errId);
+        });
+      });
+    } catch (e) {
+      console.error('Error loading admin error logs:', e);
+      container.innerHTML = `<div class="text-danger text-center py-2" style="font-size:12px;">❌ Xatolarni yuklashda xatolik: ${escapeHtml(e.message)}</div>`;
+    }
+  }
+
+  async function handleResolveAdminError(errorId) {
+    if (isActionPending) return;
+    isActionPending = true;
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+
+      const resp = await fetch('/api/errors/admin/resolve', {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({ error_id: errorId })
+      });
+      const res = await resp.json();
+      if (!resp.ok || !res.success) throw new Error(res.detail || 'Xatoni hal qilib bo‘lmadi.');
+
+      showToast('Xatolik hal qilingan deb belgilandi.', 'success');
+      haptic('medium');
+      await loadAdminErrorLogs();
+    } catch (e) {
+      showToast(e.message, 'error');
+    } finally {
+      isActionPending = false;
+    }
+  }
+
+  // --- FRONTEND ERROR REPORTING (AUTOMATIC TELEGRAM ERROR LOGGING) ---
+  const _reportedErrorsMap = new Map();
+
+  async function reportFrontendError(errData) {
+    if (!errData || !errData.error_message) return;
+
+    // Client-side debounce to prevent loop spam (max 1 of same error per 60 seconds)
+    const errKey = `${errData.error_type || 'Error'}:${errData.error_message}`;
+    const now = Date.now();
+    const lastSent = _reportedErrorsMap.get(errKey) || 0;
+    if (now - lastSent < 60000) {
+      return; // Suppressed client-side
+    }
+    _reportedErrorsMap.set(errKey, now);
+
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+
+      await fetch('/api/errors/report', {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({
+          error_type: (errData.error_type || 'ClientError').slice(0, 100),
+          error_message: String(errData.error_message).slice(0, 1500),
+          stack_trace: errData.stack_trace ? String(errData.stack_trace).slice(0, 4000) : null,
+          location: (errData.location || (window.location ? window.location.pathname : 'app')).slice(0, 255),
+          browser_info: navigator ? navigator.userAgent.slice(0, 255) : null,
+          component: (errData.component || 'webapp').slice(0, 100)
+        })
+      });
+    } catch (ignore) {
+      // Do not throw from the error reporter
+    }
+  }
+
+  // Global browser error listeners
+  window.onerror = function(message, source, lineno, colno, error) {
+    reportFrontendError({
+      error_type: error ? (error.name || 'WindowError') : 'WindowError',
+      error_message: String(message || 'Noma\'lum xatolik'),
+      stack_trace: error ? error.stack : `${source}:${lineno}:${colno}`,
+      location: window.location ? window.location.href : '',
+      component: 'window.onerror'
+    });
+    return false;
+  };
+
+  window.addEventListener('unhandledrejection', function(event) {
+    const reason = event.reason;
+    const msg = (reason && reason.message) ? reason.message : String(reason || 'Unhandled Promise Rejection');
+    reportFrontendError({
+      error_type: (reason && reason.name) ? reason.name : 'UnhandledRejection',
+      error_message: msg,
+      stack_trace: (reason && reason.stack) ? reason.stack : null,
+      location: window.location ? window.location.href : '',
+      component: 'unhandledrejection'
+    });
+  });
+
   // 5. Loading & Error Handlers
   function showLoading(show) {
     const skeleton = document.getElementById('loading-skeleton');
@@ -3057,6 +3217,13 @@
     document.getElementById('error-title').textContent = title;
     document.getElementById('error-desc').textContent = desc;
     panel.style.display = 'block';
+
+    reportFrontendError({
+      error_type: 'UIErrorDisplay',
+      error_message: `${title}: ${desc}`,
+      location: activeTab || (window.location ? window.location.pathname : ''),
+      component: 'showError'
+    });
   }
 
   function hideError() {
@@ -3360,6 +3527,7 @@
     // Admin Console Actions
     document.getElementById('btn-submit-admin-ban')?.addEventListener('click', handleAdminBan);
     document.getElementById('btn-submit-admin-res')?.addEventListener('click', handleAdminAdjustResources);
+    document.getElementById('btn-refresh-admin-errors')?.addEventListener('click', loadAdminErrorLogs);
   }
 
   // ============================================================

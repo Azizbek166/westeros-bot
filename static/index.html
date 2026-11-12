@@ -1359,6 +1359,17 @@
             </div>
             <button class="btn btn-primary w-100 py-2" id="btn-submit-admin-res">Resursni O'tkazish</button>
           </div>
+
+          <!-- System Error Logs & Audit -->
+          <div class="card p-3 mt-3">
+            <div class="d-flex justify-between align-center mb-2">
+              <h4 class="font-serif text-gold" style="margin:0;">🚨 Tizim Xatoliklari (Logs)</h4>
+              <button class="btn btn-secondary py-1 px-2" id="btn-refresh-admin-errors" style="font-size:11px;">🔄 Yangilash</button>
+            </div>
+            <div id="admin-errors-list-container" class="mt-2" style="max-height: 280px; overflow-y: auto;">
+              <!-- Dynamically populated error items -->
+            </div>
+          </div>
         </div>
       </div>
     </div>

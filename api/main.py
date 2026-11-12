@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from typing import Dict, Any
 
 from pathlib import Path
-from fastapi import FastAPI, Request, status
+from fastapi import FastAPI, Request, status, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -19,6 +19,7 @@ from database import init_db
 from api.rate_limiter import rate_limit_dependency
 from api.routers.player import router as player_router
 from api.routers.actions import router as actions_router
+from api.routers.errors import router as errors_router
 
 
 @asynccontextmanager
@@ -57,10 +58,49 @@ async def request_logging_and_security_middleware(request: Request, call_next):
     start_time = time.time()
     try:
         response = await call_next(request)
+    except (StarletteHTTPException, HTTPException) as http_exc:
+        process_time = (time.time() - start_time) * 1000
+        return JSONResponse(
+            status_code=http_exc.status_code,
+            content={
+                "success": False,
+                "error": http_exc.detail,
+                "status_code": http_exc.status_code,
+                "duration_ms": round(process_time, 2),
+            },
+            headers=getattr(http_exc, "headers", None)
+        )
+    except RequestValidationError as val_exc:
+        process_time = (time.time() - start_time) * 1000
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={
+                "success": False,
+                "error": "Ma'lumotlar validatsiyasida xatolik.",
+                "detail": val_exc.errors(),
+                "status_code": 422,
+                "duration_ms": round(process_time, 2),
+            }
+        )
     except Exception as exc:
         import traceback
-        traceback.print_exc()
+        tb_str = traceback.format_exc()
         process_time = (time.time() - start_time) * 1000
+
+        # Tizim xatolarini avtomatik ERROR_CHAT_ID guruhiga yuborish
+        try:
+            from core.error_reporter import report_system_error
+            await report_system_error(
+                source="api",
+                error_type=type(exc).__name__,
+                error_message=str(exc),
+                handler_name=f"{request.method} {request.url.path}",
+                user_telegram_id=None,
+                stack_trace=tb_str,
+            )
+        except Exception:
+            pass
+
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
@@ -133,6 +173,7 @@ async def health_check() -> Dict[str, Any]:
 # Routerni ulash
 app.include_router(player_router)
 app.include_router(actions_router)
+app.include_router(errors_router)
 
 # Frontend statik fayllarini ulash (Single Page Application)
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"

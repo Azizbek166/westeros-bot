@@ -965,6 +965,32 @@ class GuildTreasuryTransaction(Base):
     user = relationship("User")
 
 
+# ============================================================
+# 36. SYSTEM ERROR LOGS & AUDIT (XATOLIKLAR VA BAGLAR JURNALI)
+# ============================================================
+class SystemErrorLog(Base):
+    __tablename__ = "system_error_logs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    fingerprint = Column(String(64), index=True, nullable=False)
+    source = Column(String(20), default="bot", index=True)  # bot, miniapp, api, support
+    error_type = Column(String(100), default="UnknownError", index=True)
+    error_message = Column(Text, default="")
+    handler_name = Column(String(100), default="unknown")
+    user_telegram_id = Column(BigInteger, nullable=True, index=True)  # Strictly user ID only, never name
+    stack_trace = Column(Text, default="")
+    occurrence_count = Column(Integer, default=1)
+
+    first_seen_at = Column(DateTime, default=datetime.utcnow)
+    last_seen_at = Column(DateTime, default=datetime.utcnow, index=True)
+    last_notified_at = Column(DateTime, nullable=True)
+
+    is_resolved = Column(Boolean, default=False, index=True)
+    resolved_at = Column(DateTime, nullable=True)
+    resolved_by = Column(BigInteger, nullable=True)
+
+
+
 
 
 
