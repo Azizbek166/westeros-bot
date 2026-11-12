@@ -62,7 +62,14 @@ from services.trade_service import (
     cancel_trade_lot_service,
 )
 from services.raven_service import get_raven_hub_data, send_raven_service
-from services.donate_service import get_donate_hub_data
+from services.donate_service import (
+    get_donate_hub_data,
+    equip_user_cosmetic_service,
+    buy_cosmetic_service,
+    gift_cosmetic_service,
+    get_payment_transactions_history,
+    refund_payment_transaction,
+)
 from services.admin_service import (
     get_admin_dashboard_data,
     admin_set_ban_status_service,
@@ -126,6 +133,11 @@ __all__ = [
     "get_raven_hub_data",
     "send_raven_service",
     "get_donate_hub_data",
+    "equip_user_cosmetic_service",
+    "buy_cosmetic_service",
+    "gift_cosmetic_service",
+    "get_payment_transactions_history",
+    "refund_payment_transaction",
     "get_admin_dashboard_data",
     "admin_set_ban_status_service",
     "admin_adjust_resources_service",

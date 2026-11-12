@@ -1,13 +1,14 @@
 from datetime import datetime
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo, LabeledPrice, PreCheckoutQuery
 from telegram.ext import (
     CommandHandler,
     CallbackQueryHandler,
     MessageHandler,
+    PreCheckoutQueryHandler,
     filters,
     ContextTypes,
 )
-from database import AsyncSessionLocal, crud
+from database import AsyncSessionLocal, crud, models
 from config import (
     DONATE_CARD_NUMBER,
     DONATE_CARD_HOLDER,
@@ -15,7 +16,9 @@ from config import (
     OWNER_ID,
     ADMIN_IDS,
     escape_md,
+    get_miniapp_url,
 )
+from core.cosmetics import COSMETICS_CATALOG, get_cosmetic_item, record_payment_transaction, grant_cosmetic_item
 from keyboards.menus import back_to_main_keyboard
 
 
@@ -43,82 +46,43 @@ def calc_troops(troop_type: str, amount_uzs: int) -> int:
 
 
 def donate_menu_keyboard() -> InlineKeyboardMarkup:
-    """VIP to'plamlar va Qo'shin sotib olish paneli klaviaturasi"""
+    """VIP to'plamlar va Kosmetika do'koni klaviaturasi"""
     buttons = [
         [
-            InlineKeyboardButton("⚔️ Qo'shin sotib olish (Panel)", callback_data="donate_troops_menu")
-        ]
-    ]
-    for tier_id, tier in DONATE_TIERS.items():
-        buttons.append([
             InlineKeyboardButton(
-                f"{tier['name']} — {tier['price_label']}",
-                callback_data=f"donate_pick:{tier_id}"
+                "📱 Telegram Mini App Kosmetika Do'koni 💎",
+                web_app=WebAppInfo(url=get_miniapp_url("donate"))
             )
-        ])
-    buttons.append([
-        InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")
-    ])
-    return InlineKeyboardMarkup(buttons)
-
-
-def donate_troops_types_keyboard() -> InlineKeyboardMarkup:
-    """Qo'shin turlari tanlash klaviaturasi"""
-    buttons = [
-        [InlineKeyboardButton("🗡️ Oddiy askar (1 so'm = 1 ta)", callback_data="donate_troop_type:infantry")],
-        [InlineKeyboardButton("🏹 Kamonchi (2 so'm = 1 ta)", callback_data="donate_troop_type:archers")],
-        [InlineKeyboardButton("🐎 Otliq (2 so'm = 1 ta)", callback_data="donate_troop_type:cavalry")],
-        [InlineKeyboardButton("🛡️ Nayzachi (2 so'm = 1 ta)", callback_data="donate_troop_type:spearmen")],
-        [InlineKeyboardButton("🔙 VIP To'plamlar", callback_data="menu_donate")],
-        [InlineKeyboardButton("🏠 Asosiy Menyu", callback_data="menu_main")]
-    ]
-    return InlineKeyboardMarkup(buttons)
-
-
-def donate_troop_amount_keyboard(troop_type: str) -> InlineKeyboardMarkup:
-    """Qo'shin summasini tanlash klaviaturasi (presetlar va erkin summa)"""
-    presets = [10000, 25000, 50000, 100000, 200000, 500000]
-    t_info = TROOP_RATES.get(troop_type, {"name": "Askar", "rate": 1})
-    rate = t_info.get("rate", 1)
-
-    buttons = []
-    row = []
-    for amt in presets:
-        count = amt // rate
-        row.append(InlineKeyboardButton(f"{amt:,} so'm ({count:,} ta)", callback_data=f"donate_troop_amt:{troop_type}:{amt}"))
-        if len(row) == 2:
-            buttons.append(row)
-            row = []
-    if row:
-        buttons.append(row)
-
-    buttons.append([InlineKeyboardButton("✍️ Boshqa summa kiritish", callback_data=f"donate_troop_custom:{troop_type}")])
-    buttons.append([InlineKeyboardButton("🔙 Orqaga", callback_data="donate_troops_menu")])
-    return InlineKeyboardMarkup(buttons)
-
-
-def donate_tier_keyboard(tier_id: str) -> InlineKeyboardMarkup:
-    """Tanlangan to'plam tafsilotlari klaviaturasi"""
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("📸 To'lov chekini yuborish", callback_data=f"donate_submit:{tier_id}")
         ],
         [
-            InlineKeyboardButton("🔙 Barcha To'plamlar", callback_data="menu_donate"),
-            InlineKeyboardButton("🏠 Asosiy Menyu", callback_data="menu_main"),
+            InlineKeyboardButton("👑 Noble VIP (30 kun) — 15,000 so'm / 75 ⭐", callback_data="donate_pick:vip_noble"),
+        ],
+        [
+            InlineKeyboardButton("🎁 Starter Pack (Boshlang'ich) — 5,000 so'm / 25 ⭐", callback_data="donate_pick:starter_pack"),
+        ],
+        [
+            InlineKeyboardButton("⚖️ Halol O'yin: Qo'shin Sotib Olish Haqida", callback_data="donate_troops_menu"),
+        ],
+        [
+            InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")
         ]
-    ])
+    ]
+    return InlineKeyboardMarkup(buttons)
 
 
 async def donate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/donate, /vip buyrug'i"""
+    """/donate, /vip, /shop buyrug'i"""
     text = (
-        "💎 **WESTEROS AFSONAVIY VIP & DONATE TIZIMI**\n\n"
-        "Vesteros olamining eng qudratli lordlari va hukmdorlari uchun maxsus to'plamlar!\n"
-        "Har bir to'plam sizga daxlsizlik qalqoni, ulkan xazina, yangi askarlar va hatto jangovar ajdaho taqdim etadi.\n\n"
-        f"💳 **To'lov usuli:** O'zbekiston bank kartalari (Humo / Uzcard)\n"
-        f"🛡️ **Xavfsizlik:** To'lov cheki yuborilgach, mukofotlar to'g'ridan-to'g'ri profilingizga biriktiriladi.\n\n"
-        "👇 *Kerakli to'plamni tanlang:*"
+        "💎 **VESTEROS KOSMETIKA & QULAYLIKLAR DO'KONI**\n\n"
+        "Hurmatli Lord! O'yinimizda **100% Halol Balans** amal qiladi: pullik buyumlar jangda hech qanday kuch, armiya yoki resurs ustunligi bermaydi!\n\n"
+        "🛍️ **Do'konda mavjud:**\n"
+        "• 👑 **Noble VIP:** 1-bosishda soliq yig'ish, profilga jonli video qo'yish, zarhal nishon.\n"
+        "• 🎁 **Starter Pack:** Eksklyuziv po'lat ramka + unvon + 7 kunlik VIP.\n"
+        "• 🏰 **Qal'a Skinlari:** Muz Qasri, Valiriya Qora Bazalti, Oltin Saroy.\n"
+        "• 🐉 **Ajdarlar:** Qora Soyalar, Qonli Qizil, Zumrad va Oltin ajdar.\n"
+        "• ⛓️ **Profil Ramkalari & Unvonlar:** Yetti Qirollikda ajralib turing!\n\n"
+        "⭐️ **To'lov usullari:** Telegram Stars (rasmiy) yoki O'zbekiston bank kartalari.\n\n"
+        "👇 *Quyidagi tugmalar orqali tanlang yoki Mini Appni oching:*"
     )
     if update.message:
         await update.message.reply_text(
@@ -134,12 +98,16 @@ async def donate_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     await query.answer()
 
     text = (
-        "💎 **WESTEROS AFSONAVIY VIP & DONATE TIZIMI**\n\n"
-        "Vesteros olamining eng qudratli lordlari va hukmdorlari uchun maxsus to'plamlar!\n"
-        "Har bir to'plam sizga daxlsizlik qalqoni, ulkan xazina, yangi askarlar va hatto jangovar ajdaho taqdim etadi.\n\n"
-        f"💳 **To'lov usuli:** O'zbekiston bank kartalari (Humo / Uzcard)\n"
-        f"🛡️ **Xavfsizlik:** To'lov cheki yuborilgach, mukofotlar to'g'ridan-to'g'ri profilingizga biriktiriladi.\n\n"
-        "👇 *Kerakli to'plamni tanlang:*"
+        "💎 **VESTEROS KOSMETIKA & QULAYLIKLAR DO'KONI**\n\n"
+        "Hurmatli Lord! O'yinimizda **100% Halol Balans** amal qiladi: pullik buyumlar jangda hech qanday kuch, armiya yoki resurs ustunligi bermaydi!\n\n"
+        "🛍️ **Do'konda mavjud:**\n"
+        "• 👑 **Noble VIP:** 1-bosishda soliq yig'ish, profilga jonli video qo'yish, zarhal nishon.\n"
+        "• 🎁 **Starter Pack:** Eksklyuziv po'lat ramka + unvon + 7 kunlik VIP.\n"
+        "• 🏰 **Qal'a Skinlari:** Muz Qasri, Valiriya Qora Bazalti, Oltin Saroy.\n"
+        "• 🐉 **Ajdarlar:** Qora Soyalar, Qonli Qizil, Zumrad va Oltin ajdar.\n"
+        "• ⛓️ **Profil Ramkalari & Unvonlar:** Yetti Qirollikda ajralib turing!\n\n"
+        "⭐️ **To'lov usullari:** Telegram Stars (rasmiy) yoki O'zbekiston bank kartalari.\n\n"
+        "👇 *Quyidagi tugmalar orqali tanlang yoki Mini Appni oching:*"
     )
     try:
         await query.edit_message_text(
@@ -203,31 +171,44 @@ async def donate_pick_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def donate_troops_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Qo'shin sotib olish asosiy menyusi"""
+    """Qo'shin sotib olish — Pay-to-win to'xtatilgani haqida tushuntirish"""
     query = update.callback_query
     await query.answer()
 
     text = (
-        "⚔️ **QO'SHIN SOTIB OLISH PANELI**\n\n"
-        "Hurmatli Lord! O'z saltanatingizni mustahkamlash va dushmanlaringiz ustidan g'alaba qozonish uchun real mablag' evaziga qo'shin xarid qilishingiz mumkin.\n\n"
-        "💰 **Qo'shin narxlari:**\n"
-        "• 🗡️ Oddiy askar — **1 so'm = 1 ta**\n"
-        "• 🏹 Kamonchi — **2 so'm = 1 ta**\n"
-        "• 🐎 Otliq — **2 so'm = 1 ta**\n"
-        "• 🛡️ Nayzachi — **2 so'm = 1 ta**\n\n"
-        "👇 *Sotib olmoqchi bo'lgan qo'shin turini tanlang:*"
+        "⚖️ **HALOL VA ADOLATLI BALANS: PAY-TO-WIN YO'Q!**\n\n"
+        "Hurmatli Lord! O'yinda raqobatbardoshlik, sharaf va tenglikni ta'minlash maqsadida "
+        "real pul evaziga askarlar, jang quvvati yoki resurslarni to'g'ridan-to'g'ri sotib olish "
+        "butunlay bekor qilindi.\n\n"
+        "🛡️ **Nima uchun?**\n"
+        "• Har bir g'alaba o'yinchining shaxsiy aql-zakovati va taktikasiga bog'liq bo'lishi kerak.\n"
+        "• Yangi va eski o'yinchilar o'rtasida sun'iy moddiy tafovut bo'lmasligi kafolatlanadi.\n\n"
+        "🎁 **Do'konda nima bor?**\n"
+        "Faqat go'zal qal'a va ajdar ko'rinishlari, faxriy unvonlar, ramkalar va "
+        "o'yin qulayliklari (Noble VIP) mavjud!\n\n"
+        "Barcha askarlarni Qal'angizdagi mashg'ulot maydonida sharaf bilan tayyorlang!"
     )
+    buttons = [
+        [
+            InlineKeyboardButton(
+                "📱 Mini App Do'konini Ochish 💎",
+                web_app=WebAppInfo(url=get_miniapp_url("donate"))
+            )
+        ],
+        [InlineKeyboardButton("👑 Noble VIP & To'plamlar", callback_data="menu_donate")],
+        [InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")],
+    ]
     try:
         await query.edit_message_text(
             text,
             parse_mode="Markdown",
-            reply_markup=donate_troops_types_keyboard()
+            reply_markup=InlineKeyboardMarkup(buttons)
         )
     except Exception:
         await query.message.reply_text(
             text,
             parse_mode="Markdown",
-            reply_markup=donate_troops_types_keyboard()
+            reply_markup=InlineKeyboardMarkup(buttons)
         )
 
 
@@ -950,9 +931,58 @@ async def admin_donate_reject_callback(update: Update, context: ContextTypes.DEF
 
 
 
+async def precheckout_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Telegram Stars precheckout tekshiruvi"""
+    query = update.pre_checkout_query
+    if not query:
+        return
+    await query.answer(ok=True)
+
+
+async def successful_payment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Telegram Stars to'lovi muvaffaqiyatli qabul qilinganda"""
+    msg = update.effective_message
+    if not msg or not msg.successful_payment:
+        return
+
+    payment = msg.successful_payment
+    tg_user = update.effective_user
+    payload = payment.invoice_payload or ""  # e.g. "cosmetic:castle_valyrian" or "vip_noble"
+
+    item_id = payload.split(":")[-1] if ":" in payload else payload
+    amount_stars = payment.total_amount
+
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_by_telegram_id(session, tg_user.id)
+        if user:
+            idempotency_key = f"stars_{payment.telegram_payment_charge_id}"
+            await record_payment_transaction(
+                session=session,
+                telegram_id=tg_user.id,
+                item_id=item_id,
+                provider="telegram_stars",
+                idempotency_key=idempotency_key,
+                amount_stars=amount_stars,
+                user_id=user.id,
+            )
+            await grant_cosmetic_item(session, user, item_id)
+
+    item = get_cosmetic_item(item_id)
+    item_name = item["name"] if item else item_id
+    congrats = (
+        f"🎉 **TO'LOV MUVAFFAQIYATLI AMALGA OSHIRILDI!**\n\n"
+        f"⭐ **{amount_stars} Stars** qabul qilindi.\n"
+        f"🎁 Sizga **«{item_name}»** muvaffaqiyatli taqdim etildi!\n\n"
+        f"Uni Telegram Mini Appda yoki /profile menyusida faollashtirishingiz mumkin."
+    )
+    await msg.reply_text(congrats, parse_mode="Markdown")
+
+
 def register_donate_handlers(app):
     """Donate handlerlarini ro'yxatdan o'tkazish"""
-    app.add_handler(CommandHandler(["donate", "vip", "donat", "homiylik"], donate_command))
+    app.add_handler(CommandHandler(["donate", "vip", "donat", "homiylik", "stars", "shop"], donate_command))
+    app.add_handler(PreCheckoutQueryHandler(precheckout_callback))
+    app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_callback))
     app.add_handler(CallbackQueryHandler(donate_menu_callback, pattern="^menu_donate$"))
     app.add_handler(CallbackQueryHandler(donate_troops_menu_callback, pattern="^donate_troops_menu$"))
     app.add_handler(CallbackQueryHandler(donate_troop_type_callback, pattern="^donate_troop_type:"))

@@ -1248,65 +1248,53 @@
       </div>
     </div>
 
-    <!-- 10. VIP & DONATE MODAL -->
+    <!-- 10. VIP & KOSMETIKA DO'KONI (COSMETICS & ETHICAL MONETIZATION) -->
     <div id="donate-modal" class="modal-overlay" style="display:none;">
       <div class="modal-dialog modal-dialog-lg">
         <div class="modal-header">
-          <h3 class="modal-title">💎 Qirollik Xazinasi & VIP Rutbalar</h3>
+          <h3 class="modal-title">💎 Kosmetika Do'koni & VIP</h3>
           <button class="modal-close" id="modal-donate-close">✕</button>
         </div>
         <div class="modal-body">
-          <div class="text-center mb-3">
-            <span style="font-size:36px;">👑</span>
-            <h3 class="font-serif text-gold mt-1">Vesteros Qirollik Imtiyozlari</h3>
-            <p class="text-secondary mt-1" style="font-size:12px;">VIP rutbalar egasiga beqiyos imkoniyatlar va harbiy qudrat taqdim etadi.</p>
+          <div class="text-center mb-2">
+            <span style="font-size:32px;">👑</span>
+            <h3 class="font-serif text-gold mt-1">Vesteros Qirollik Do'koni</h3>
+            <p class="text-secondary mt-1" style="font-size:11px;">
+              ⚖️ <strong>Adolatli O'yin Kafolati:</strong> Pullik buyumlar jangda HECH QANDAY armiya, kuch yoki resurs ustunligi bermaydi. Faqat estetika va zararsiz qulayliklar!
+            </p>
           </div>
 
-          <div class="vip-tiers-grid">
-            <div class="card p-3 mb-2 vip-tier-card" style="border-left: 3px solid #cd7f32;">
-              <div class="d-flex justify-between align-center">
-                <h4 class="font-serif text-gold">🥉 Ritsar (Knight)</h4>
-                <strong class="text-gold">100 ⭐ / oy</strong>
+          <!-- User VIP & Cosmetics Status Card -->
+          <div class="card p-2 mb-3" id="user-vip-status-box" style="border-left: 3px solid #d4af37;">
+            <div class="d-flex justify-between align-center">
+              <div>
+                <span class="text-secondary" style="font-size:11px;">Sizning Maqomingiz:</span>
+                <h4 class="font-serif text-gold" id="user-vip-status-text">Oddiy Lord</h4>
               </div>
-              <ul class="vip-perks-list mt-2">
-                <li>⚔️ +10% Barcha qo'shinlar hujumi</li>
-                <li>🎯 Kunlik vazifalar soni +2 ta</li>
-                <li>🛡️ 1 marta bepul tinchlik qalqoni</li>
-              </ul>
+              <span class="badge" id="user-vip-badge">BEPUL</span>
             </div>
-
-            <div class="card p-3 mb-2 vip-tier-card" style="border-left: 3px solid #c0c0c0;">
-              <div class="d-flex justify-between align-center">
-                <h4 class="font-serif text-gold">🥈 Buyuk Lord (Lord)</h4>
-                <strong class="text-gold">250 ⭐ / oy</strong>
-              </div>
-              <ul class="vip-perks-list mt-2">
-                <li>⚔️ +20% Qo'shinlar qudrati</li>
-                <li>🪙 +15% Barcha qal'alardan soliq tushumi</li>
-                <li>🐉 Ajdahoga bepul ozuqa va tezlashtirish</li>
-                <li>👑 Chat va Mini Appda Oltin ramka</li>
-              </ul>
-            </div>
-
-            <div class="card p-3 mb-2 vip-tier-card" style="border-left: 3px solid #ffd700;">
-              <div class="d-flex justify-between align-center">
-                <h4 class="font-serif text-gold">👑 Hukmdor (Sovereign)</h4>
-                <strong class="text-gold">500 ⭐ / oy</strong>
-              </div>
-              <ul class="vip-perks-list mt-2">
-                <li>⚔️ +35% Mutlaq harbiy va qamal kuchi</li>
-                <li>🌾 Cheksiz oziq-ovqat va ocharchilikdan himoya</li>
-                <li>⚡ Harbiy yurishlar vaqti 50% ga kamayadi</li>
-                <li>🏛️ Shaxsiy unvon va admin yordamchisi</li>
-              </ul>
-            </div>
+            <div id="user-vip-expiry" class="text-secondary mt-1" style="font-size:10px; display:none;"></div>
           </div>
 
-          <div class="card p-3 mt-3 text-center">
-            <p class="text-secondary" style="font-size:12px;">Faollashtirish uchun Telegram boti orqali Stars to'lang yoki bosh admin bilan bog'laning:</p>
-            <a href="https://t.me/ironthrone_rpgbot" target="_blank" class="btn btn-primary w-100 mt-2 py-2">
-              ⭐ Botda Stars orqali Faollashtirish
-            </a>
+          <!-- Category Navigation Tabs -->
+          <div class="shop-tabs d-flex gap-1 mb-3" style="overflow-x: auto; padding-bottom: 4px;">
+            <button class="btn btn-secondary py-1 px-2 shop-tab active" data-cat="special_and_vip" style="font-size:11px;">👑 VIP & Paket</button>
+            <button class="btn btn-secondary py-1 px-2 shop-tab" data-cat="castle_skins" style="font-size:11px;">🏰 Qal'alar</button>
+            <button class="btn btn-secondary py-1 px-2 shop-tab" data-cat="dragon_skins" style="font-size:11px;">🐉 Ajdarlar</button>
+            <button class="btn btn-secondary py-1 px-2 shop-tab" data-cat="avatar_frames" style="font-size:11px;">⛓️ Ramkalar</button>
+            <button class="btn btn-secondary py-1 px-2 shop-tab" data-cat="titles" style="font-size:11px;">📜 Unvonlar</button>
+            <button class="btn btn-secondary py-1 px-2 shop-tab" data-cat="message_effects" style="font-size:11px;">🔥 Effektlar</button>
+          </div>
+
+          <!-- Dynamic Items Grid -->
+          <div id="cosmetics-items-container" class="d-flex flex-column gap-2" style="max-height: 360px; overflow-y: auto;">
+            <div class="text-center text-secondary py-3">Yuklanmoqda...</div>
+          </div>
+
+          <div class="card p-2 mt-3 text-center">
+            <p class="text-secondary" style="font-size:11px;">
+              ⭐ Telegram Stars orqali tezkor to'lov yoki mahalliy to'lov (karta) orqali botda tasdiqlash mumkin.
+            </p>
           </div>
         </div>
       </div>
@@ -1368,6 +1356,17 @@
             </div>
             <div id="admin-errors-list-container" class="mt-2" style="max-height: 280px; overflow-y: auto;">
               <!-- Dynamically populated error items -->
+            </div>
+          </div>
+
+          <!-- Payment Transactions & Refunds -->
+          <div class="card p-3 mt-3">
+            <div class="d-flex justify-between align-center mb-2">
+              <h4 class="font-serif text-gold" style="margin:0;">💳 Xaridlar & To'lovlar Jurnali</h4>
+              <button class="btn btn-secondary py-1 px-2" id="btn-refresh-admin-txs" style="font-size:11px;">🔄 Yangilash</button>
+            </div>
+            <div id="admin-txs-list-container" class="mt-2" style="max-height: 280px; overflow-y: auto;">
+              <!-- Dynamically populated payment transactions -->
             </div>
           </div>
         </div>

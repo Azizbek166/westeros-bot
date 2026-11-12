@@ -43,6 +43,13 @@ class User(Base):
     custom_audio_title = Column(String(255), nullable=True)   # Musiqa nomi
     royal_decree_count = Column(Integer, default=0)          # Qirollik farmonlari soni (Sovereign uchun)
 
+    # Kosmetika va vizual sozlamalar (Pay-to-win bo'lmagan)
+    avatar_frame = Column(String(50), nullable=True)           # Tanlangan profil ramkasi
+    castle_skin = Column(String(50), nullable=True)            # Tanlangan qal'a skini
+    dragon_skin = Column(String(50), nullable=True)            # Tanlangan ajdar ko'rinishi
+    message_effect = Column(String(50), nullable=True)         # Xabar effekti
+    has_starter_pack = Column(Boolean, default=False)          # Starter pack xarid qilinganligi
+
     # Shaxsiy resurslar
     gold = Column(BigInteger, default=500)
     food = Column(BigInteger, default=1000)
@@ -988,6 +995,47 @@ class SystemErrorLog(Base):
     is_resolved = Column(Boolean, default=False, index=True)
     resolved_at = Column(DateTime, nullable=True)
     resolved_by = Column(BigInteger, nullable=True)
+
+
+# ============================================================
+# 37. USER COSMETICS (FOYDALANUVCHI KOSMETIKA INVENTARI)
+# ============================================================
+class UserCosmetic(Base):
+    __tablename__ = "user_cosmetics"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    item_id = Column(String(50), nullable=False, index=True)  # castle_ice, dragon_shadow va h.k.
+    category = Column(String(50), nullable=False, index=True) # castle_skin, dragon_skin, avatar_frame, title, effect
+    is_equipped = Column(Boolean, default=False)
+    acquired_at = Column(DateTime, default=datetime.utcnow)
+    is_gift = Column(Boolean, default=False)
+    gifted_by_telegram_id = Column(BigInteger, nullable=True)
+
+    user = relationship("User", foreign_keys=[user_id])
+
+
+# ============================================================
+# 38. PAYMENT TRANSACTIONS (TO'LOVLAR VA XARIDLAR JURNALI)
+# ============================================================
+class PaymentTransaction(Base):
+    __tablename__ = "payment_transactions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, nullable=True, index=True)
+    telegram_id = Column(BigInteger, nullable=False, index=True)
+    item_id = Column(String(50), nullable=False)
+    item_name = Column(String(100), nullable=False)
+    provider = Column(String(30), default="telegram_stars")  # telegram_stars, manual_uzs, click, payme
+    amount_stars = Column(Integer, default=0)
+    amount_uzs = Column(Integer, default=0)
+    status = Column(String(30), default="completed", index=True)  # completed, pending, refunded, cancelled
+    idempotency_key = Column(String(100), unique=True, index=True, nullable=False)
+    is_gift = Column(Boolean, default=False)
+    recipient_telegram_id = Column(BigInteger, nullable=True)
+    admin_notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    refunded_at = Column(DateTime, nullable=True)
 
 
 

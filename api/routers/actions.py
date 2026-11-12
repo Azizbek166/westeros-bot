@@ -1009,18 +1009,97 @@ async def send_raven_endpoint(
 
 
 # ============================================================
-# VIP & DONATE (PREMIUM SUBSCRIPTIONS)
+# VIP & KOSMETIKA DO'KONI (COSMETICS & ETHICAL MONETIZATION)
 # ============================================================
 
+class EquipCosmeticRequest(BaseModel):
+    item_id: str = Field(..., min_length=2, max_length=50)
+
+
+class BuyCosmeticRequest(BaseModel):
+    item_id: str = Field(..., min_length=2, max_length=50)
+    payment_provider: str = Field("telegram_stars", max_length=30)
+    idempotency_key: Optional[str] = Field(None, max_length=100)
+
+
+class GiftCosmeticRequest(BaseModel):
+    recipient_telegram_id: int = Field(..., ge=1)
+    item_id: str = Field(..., min_length=2, max_length=50)
+    payment_provider: str = Field("telegram_stars", max_length=30)
+    idempotency_key: Optional[str] = Field(None, max_length=100)
+
+
+class AdminRefundTransactionRequest(BaseModel):
+    tx_id: int = Field(..., ge=1)
+
+
 @router.get("/donate/hub")
+@router.get("/cosmetics/hub")
 async def get_donate_hub_endpoint(
     auth: Tuple[models.User, Dict[str, Any]] = Depends(get_current_player),
     session: AsyncSession = Depends(get_db_session),
 ) -> Dict[str, Any]:
-    """VIP tariflar va imtiyozlar do'koni"""
+    """Kosmetika do'koni, VIP imtiyozlari va o'yinchi jihozlari"""
     user, _ = auth
     data = await services.get_donate_hub_data(session, user.id)
-    return {"success": True, "donate_hub": data}
+    return {"success": True, "donate_hub": data, "cosmetics_hub": data}
+
+
+@router.post("/cosmetics/equip")
+async def equip_cosmetic_endpoint(
+    req: EquipCosmeticRequest,
+    auth: Tuple[models.User, Dict[str, Any]] = Depends(get_current_player),
+    session: AsyncSession = Depends(get_db_session),
+) -> Dict[str, Any]:
+    """Kosmetik buyumni taqish yoki yechish"""
+    user, _ = auth
+    ok, msg = await services.equip_user_cosmetic_service(session, user, req.item_id)
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
+    hub_data = await services.get_donate_hub_data(session, user.id)
+    return {"success": True, "message": msg, "donate_hub": hub_data}
+
+
+@router.post("/cosmetics/buy")
+async def buy_cosmetic_endpoint(
+    req: BuyCosmeticRequest,
+    auth: Tuple[models.User, Dict[str, Any]] = Depends(get_current_player),
+    session: AsyncSession = Depends(get_db_session),
+) -> Dict[str, Any]:
+    """Kosmetik buyumni xarid qilish (Telegram Stars / Idempotent)"""
+    user, _ = auth
+    ok, msg, details = await services.buy_cosmetic_service(
+        session=session,
+        user=user,
+        item_id=req.item_id,
+        payment_provider=req.payment_provider,
+        idempotency_key=req.idempotency_key,
+    )
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
+    hub_data = await services.get_donate_hub_data(session, user.id)
+    return {"success": True, "message": msg, "details": details, "donate_hub": hub_data}
+
+
+@router.post("/cosmetics/gift")
+async def gift_cosmetic_endpoint(
+    req: GiftCosmeticRequest,
+    auth: Tuple[models.User, Dict[str, Any]] = Depends(get_current_player),
+    session: AsyncSession = Depends(get_db_session),
+) -> Dict[str, Any]:
+    """Do'stga yoki xonadon a'zosiga kosmetika sovg'a qilish"""
+    user, _ = auth
+    ok, msg = await services.gift_cosmetic_service(
+        session=session,
+        sender=user,
+        recipient_telegram_id=req.recipient_telegram_id,
+        item_id=req.item_id,
+        payment_provider=req.payment_provider,
+        idempotency_key=req.idempotency_key,
+    )
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
+    return {"success": True, "message": msg}
 
 
 # ============================================================
@@ -1083,5 +1162,30 @@ async def admin_adjust_resources_endpoint(
     if not ok:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
     return {"success": True, "message": msg}
+
+
+@router.get("/admin/transactions")
+async def get_admin_transactions_endpoint(
+    auth: Tuple[models.User, Dict[str, Any]] = Depends(require_admin_player),
+    session: AsyncSession = Depends(get_db_session),
+) -> Dict[str, Any]:
+    """Admin: So'nggi to'lovlar va xaridlar jurnali"""
+    txs = await services.get_payment_transactions_history(session, limit=50)
+    return {"success": True, "transactions": txs}
+
+
+@router.post("/admin/refund")
+async def post_admin_refund_endpoint(
+    req: AdminRefundTransactionRequest,
+    auth: Tuple[models.User, Dict[str, Any]] = Depends(require_admin_player),
+    session: AsyncSession = Depends(get_db_session),
+) -> Dict[str, Any]:
+    """Admin: Xaridni bekor qilish va pulini qaytarilgan deb belgilash"""
+    admin_user, _ = auth
+    ok, msg = await services.refund_payment_transaction(session, req.tx_id, admin_user.telegram_id)
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
+    return {"success": True, "message": msg}
+
 
 

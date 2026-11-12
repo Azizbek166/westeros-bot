@@ -2932,13 +2932,233 @@
     }
   }
 
-  // --- VIP & DONATE ---
-  function openDonateModal() {
+  // --- VIP & KOSMETIKA DO'KONI (COSMETICS & ETHICAL MONETIZATION) ---
+  let cachedCosmeticsHub = null;
+  let currentShopCategory = 'special_and_vip';
+
+  async function openDonateModal() {
     showModal('donate-modal');
+    await loadCosmeticsHub();
   }
 
   function closeDonateModal() {
     hideModal('donate-modal');
+  }
+
+  async function loadCosmeticsHub() {
+    const container = document.getElementById('cosmetics-items-container');
+    if (!container) return;
+    container.innerHTML = '<div class="text-center text-secondary py-3">⏳ Do‘kon yuklanmoqda...</div>';
+
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+
+      const resp = await fetch('/api/actions/cosmetics/hub', { method: 'GET', headers: headers });
+      const res = await resp.json();
+      if (!resp.ok || !res.success) throw new Error(res.detail || 'Do‘konni yuklab bo‘lmadi.');
+
+      cachedCosmeticsHub = res.donate_hub || res.cosmetics_hub;
+      renderCosmeticsHubHeader(cachedCosmeticsHub);
+      renderCosmeticsCategory(currentShopCategory);
+    } catch (err) {
+      console.error('Cosmetics load error:', err);
+      container.innerHTML = `<div class="text-danger text-center py-3">❌ Xatolik: ${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  function renderCosmeticsHubHeader(hub) {
+    if (!hub) return;
+    const isVip = hub.is_vip_active;
+    const statusText = document.getElementById('user-vip-status-text');
+    const badge = document.getElementById('user-vip-badge');
+    const expiry = document.getElementById('user-vip-expiry');
+
+    if (statusText) statusText.textContent = isVip ? '👑 Oliyjanob Lord (Noble VIP)' : 'Oddiy Lord';
+    if (badge) {
+      badge.textContent = isVip ? 'FAOL VIP' : 'BEPUL';
+      badge.style.background = isVip ? '#d4af37' : '#444';
+      badge.style.color = isVip ? '#000' : '#fff';
+    }
+    if (expiry) {
+      if (isVip && hub.vip_until) {
+        expiry.style.display = 'block';
+        expiry.textContent = `VIP muddati: ${hub.vip_until.replace('T', ' ').slice(0, 16)} gacha`;
+      } else {
+        expiry.style.display = 'none';
+      }
+    }
+  }
+
+  function renderCosmeticsCategory(catKey) {
+    const container = document.getElementById('cosmetics-items-container');
+    if (!container || !cachedCosmeticsHub) return;
+
+    const catalog = cachedCosmeticsHub.catalog || {};
+    const items = catalog[catKey] || [];
+    const ownedSet = new Set(cachedCosmeticsHub.owned_items || []);
+    const equippedMap = cachedCosmeticsHub.equipped || {};
+
+    if (items.length === 0) {
+      container.innerHTML = '<div class="text-center text-secondary py-3">Ushbu bo‘limda buyumlar mavjud emas.</div>';
+      return;
+    }
+
+    let html = '';
+    items.forEach(item => {
+      const isOwned = ownedSet.has(item.id) || (item.category === 'starter_pack' && cachedCosmeticsHub.has_starter_pack);
+      const isVipSub = (item.category === 'vip_subscription');
+      const isEquipped = (
+        equippedMap.avatar_frame === item.id ||
+        equippedMap.castle_skin === item.id ||
+        equippedMap.dragon_skin === item.id ||
+        equippedMap.message_effect === item.id ||
+        equippedMap.title === item.name
+      );
+
+      const rarityColor = item.rarity === 'afsonaviy' ? '#ff9900' : item.rarity === 'nodir' ? '#00bfff' : '#aaa';
+      const rarityBadge = `<span class="badge" style="background:${rarityColor}22; color:${rarityColor}; border:1px solid ${rarityColor}; font-size:10px;">${escapeHtml(item.rarity_label || item.rarity || 'Oddiy')}</span>`;
+
+      html += `
+        <div class="card p-3 mb-2" style="border-left: 3px solid ${rarityColor}; background: rgba(20,20,25,0.7);">
+          <div class="d-flex justify-between align-center mb-1">
+            <h4 class="font-serif text-gold" style="margin:0; font-size:14px;">${escapeHtml(item.name)}</h4>
+            ${rarityBadge}
+          </div>
+          <p class="text-secondary mt-1" style="font-size:11px; line-height:1.4; white-space:pre-line;">${escapeHtml(item.description || '')}</p>
+          <div class="d-flex justify-between align-center mt-2 pt-2" style="border-top:1px solid rgba(255,255,255,0.08);">
+            <div>
+              <span class="text-gold font-bold" style="font-size:13px;">⭐ ${item.price_stars} Stars</span>
+              ${item.price_uzs ? `<span class="text-secondary ms-2" style="font-size:11px;">(${formatNum(item.price_uzs)} so'm)</span>` : ''}
+            </div>
+            <div class="d-flex gap-1">
+              ${isOwned && !isVipSub && item.category !== 'starter_pack' ? `
+                <button class="btn ${isEquipped ? 'btn-secondary' : 'btn-primary'} py-1 px-3 btn-equip-cosmetic" data-item-id="${item.id}" style="font-size:11px;">
+                  ${isEquipped ? '❌ Yechish' : '✅ Taqish'}
+                </button>
+              ` : isOwned ? `
+                <span class="badge" style="background:#28a745; color:#fff; font-size:11px; padding:4px 8px;">Xarid qilingan</span>
+              ` : `
+                <button class="btn btn-primary py-1 px-2 btn-buy-cosmetic" data-item-id="${item.id}" style="font-size:11px;">
+                  ⭐ Xarid
+                </button>
+                <button class="btn btn-secondary py-1 px-2 btn-gift-cosmetic" data-item-id="${item.id}" style="font-size:11px;">
+                  🎁 Sovg'a
+                </button>
+              `}
+            </div>
+          </div>
+        </div>
+      `;
+    });
+
+    container.innerHTML = html;
+
+    // Attach button listeners
+    container.querySelectorAll('.btn-equip-cosmetic').forEach(b => {
+      b.addEventListener('click', () => handleEquipCosmetic(b.getAttribute('data-item-id')));
+    });
+    container.querySelectorAll('.btn-buy-cosmetic').forEach(b => {
+      b.addEventListener('click', () => handleBuyCosmetic(b.getAttribute('data-item-id')));
+    });
+    container.querySelectorAll('.btn-gift-cosmetic').forEach(b => {
+      b.addEventListener('click', () => handleGiftCosmetic(b.getAttribute('data-item-id')));
+    });
+  }
+
+  async function handleEquipCosmetic(itemId) {
+    if (isActionPending || !itemId) return;
+    isActionPending = true;
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+
+      const resp = await fetch('/api/actions/cosmetics/equip', {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({ item_id: itemId })
+      });
+      const res = await resp.json();
+      if (!resp.ok || !res.success) throw new Error(res.detail || 'Buyumni taqib bo‘lmadi.');
+
+      showToast(res.message, 'success');
+      haptic('light');
+      cachedCosmeticsHub = res.donate_hub || res.cosmetics_hub;
+      renderCosmeticsCategory(currentShopCategory);
+      await fetchDashboard();
+    } catch (e) {
+      showToast(e.message, 'error');
+    } finally {
+      isActionPending = false;
+    }
+  }
+
+  async function handleBuyCosmetic(itemId) {
+    if (isActionPending || !itemId) return;
+    isActionPending = true;
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+
+      const resp = await fetch('/api/actions/cosmetics/buy', {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({
+          item_id: itemId,
+          payment_provider: 'telegram_stars'
+        })
+      });
+      const res = await resp.json();
+      if (!resp.ok || !res.success) throw new Error(res.detail || 'Xaridni amalga oshirib bo‘lmadi.');
+
+      showToast(res.message, 'success');
+      haptic('heavy');
+      cachedCosmeticsHub = res.donate_hub || res.cosmetics_hub;
+      renderCosmeticsHubHeader(cachedCosmeticsHub);
+      renderCosmeticsCategory(currentShopCategory);
+      await fetchDashboard();
+    } catch (e) {
+      showToast(e.message, 'error');
+    } finally {
+      isActionPending = false;
+    }
+  }
+
+  async function handleGiftCosmetic(itemId) {
+    if (isActionPending || !itemId) return;
+    const recipientTg = prompt("Sovg'a yuboriluvchi Lordning Telegram ID sini kiriting:");
+    if (!recipientTg) return;
+
+    const rId = parseInt(recipientTg.trim());
+    if (!rId || isNaN(rId)) {
+      showToast("Noto'g'ri Telegram ID kiritildi.", 'error');
+      return;
+    }
+
+    isActionPending = true;
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+
+      const resp = await fetch('/api/actions/cosmetics/gift', {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({
+          recipient_telegram_id: rId,
+          item_id: itemId,
+          payment_provider: 'telegram_stars'
+        })
+      });
+      const res = await resp.json();
+      if (!resp.ok || !res.success) throw new Error(res.detail || 'Sovg‘ani yuborib bo‘lmadi.');
+
+      showToast(res.message, 'success');
+      haptic('heavy');
+    } catch (e) {
+      showToast(e.message, 'error');
+    } finally {
+      isActionPending = false;
+    }
   }
 
   // --- ADMIN CONSOLE ---
@@ -2964,6 +3184,7 @@
       document.getElementById('admin-stat-houses').textContent = `${res.total_houses || 0} / ${res.total_castles || 22}`;
 
       await loadAdminErrorLogs();
+      await loadAdminTransactions();
     } catch (err) {
       console.error('Admin error:', err);
       showToast(err.message, 'error');
@@ -3135,6 +3356,100 @@
       showToast('Xatolik hal qilingan deb belgilandi.', 'success');
       haptic('medium');
       await loadAdminErrorLogs();
+    } catch (e) {
+      showToast(e.message, 'error');
+    } finally {
+      isActionPending = false;
+    }
+  }
+
+  // --- ADMIN TRANSACTIONS & REFUNDS ---
+  async function loadAdminTransactions() {
+    const container = document.getElementById('admin-txs-list-container');
+    if (!container) return;
+
+    container.innerHTML = '<div class="text-muted text-center py-2" style="font-size:12px;">⏳ Xaridlar jurnali yuklanmoqda...</div>';
+
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+
+      const resp = await fetch('/api/actions/admin/transactions', { method: 'GET', headers: headers });
+      const res = await resp.json();
+      if (!resp.ok || !res.success) throw new Error(res.detail || 'Tranzaksiyalarni yuklab bo‘lmadi.');
+
+      const txs = res.transactions || [];
+      if (txs.length === 0) {
+        container.innerHTML = '<div class="text-secondary text-center py-2" style="font-size:12px;">Xaridlar hozircha mavjud emas.</div>';
+        return;
+      }
+
+      let html = '';
+      txs.forEach(t => {
+        const isRefunded = (t.status === 'refunded');
+        const statusBadge = isRefunded
+          ? '<span class="badge" style="background:#dc3545; color:#fff; font-size:10px;">Qaytarilgan (Refund)</span>'
+          : '<span class="badge" style="background:#28a745; color:#fff; font-size:10px;">Bajarilgan</span>';
+
+        html += `
+          <div class="card p-2 mb-2" style="background:rgba(255,255,255,0.03); border-left:3px solid ${isRefunded ? '#dc3545' : '#28a745'};">
+            <div class="d-flex justify-between align-center">
+              <div>
+                <strong class="text-gold" style="font-size:12px;">#${t.id} ${escapeHtml(t.item_name)}</strong>
+                <span class="text-secondary ms-1" style="font-size:10px;">(${escapeHtml(t.provider)})</span>
+              </div>
+              ${statusBadge}
+            </div>
+            <div class="d-flex justify-between align-center mt-1" style="font-size:11px;">
+              <span class="text-secondary">TG: ${t.telegram_id} ${t.is_gift ? `➡️ ${t.recipient_telegram_id}` : ''}</span>
+              <span class="text-gold">⭐ ${t.amount_stars} (${formatNum(t.amount_uzs)} so'm)</span>
+            </div>
+            <div class="d-flex justify-between align-center mt-1 pt-1" style="border-top:1px solid rgba(255,255,255,0.05); font-size:10px;">
+              <span class="text-secondary">${escapeHtml(t.created_at)}</span>
+              ${!isRefunded ? `
+                <button class="btn btn-outline-danger btn-sm py-0 px-2 btn-refund-tx" data-tx-id="${t.id}" style="font-size:10px;">
+                  Bekor qilish (Refund)
+                </button>
+              ` : ''}
+            </div>
+          </div>
+        `;
+      });
+
+      container.innerHTML = html;
+
+      container.querySelectorAll('.btn-refund-tx').forEach(b => {
+        b.addEventListener('click', async () => {
+          const txId = parseInt(b.getAttribute('data-tx-id'));
+          if (txId && confirm(`#${txId} tranzaksiyani bekor qilish va qaytarishni tasdiqlaysizmi?`)) {
+            await handleAdminRefund(txId);
+          }
+        });
+      });
+    } catch (e) {
+      console.error('Error loading admin txs:', e);
+      container.innerHTML = `<div class="text-danger text-center py-2" style="font-size:12px;">❌ Xatolik: ${escapeHtml(e.message)}</div>`;
+    }
+  }
+
+  async function handleAdminRefund(txId) {
+    if (isActionPending || !txId) return;
+    isActionPending = true;
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+
+      const resp = await fetch('/api/actions/admin/refund', {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({ tx_id: txId })
+      });
+      const res = await resp.json();
+      if (!resp.ok || !res.success) throw new Error(res.detail || 'Qaytarib bo‘lmadi.');
+
+      showToast(res.message, 'success');
+      haptic('heavy');
+      await loadAdminTransactions();
     } catch (e) {
       showToast(e.message, 'error');
     } finally {
@@ -3524,10 +3839,22 @@
     // Hero Unequip
     document.getElementById('btn-unequip-artifact')?.addEventListener('click', handleUnequipArtifact);
 
+    // Shop Category Tabs
+    document.querySelectorAll('.shop-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        haptic('light');
+        document.querySelectorAll('.shop-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        currentShopCategory = tab.getAttribute('data-cat') || 'special_and_vip';
+        renderCosmeticsCategory(currentShopCategory);
+      });
+    });
+
     // Admin Console Actions
     document.getElementById('btn-submit-admin-ban')?.addEventListener('click', handleAdminBan);
     document.getElementById('btn-submit-admin-res')?.addEventListener('click', handleAdminAdjustResources);
     document.getElementById('btn-refresh-admin-errors')?.addEventListener('click', loadAdminErrorLogs);
+    document.getElementById('btn-refresh-admin-txs')?.addEventListener('click', loadAdminTransactions);
   }
 
   // ============================================================

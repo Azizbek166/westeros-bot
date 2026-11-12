@@ -173,6 +173,12 @@ async def init_db():
                 "ALTER TABLE guild_members ADD COLUMN last_deposit_date VARCHAR(10) DEFAULT ''",
                 "ALTER TABLE guild_members ADD COLUMN total_deposited_gold INTEGER DEFAULT 0",
                 "ALTER TABLE guild_members ADD COLUMN total_deposited_iron INTEGER DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN peace_shield_until DATETIME",
+                "ALTER TABLE users ADD COLUMN avatar_frame VARCHAR(50)",
+                "ALTER TABLE users ADD COLUMN castle_skin VARCHAR(50)",
+                "ALTER TABLE users ADD COLUMN dragon_skin VARCHAR(50)",
+                "ALTER TABLE users ADD COLUMN message_effect VARCHAR(50)",
+                "ALTER TABLE users ADD COLUMN has_starter_pack BOOLEAN DEFAULT 0",
             ]:
                 try:
                     await conn.execute(text(alter_stmt))
@@ -249,6 +255,24 @@ async def init_db():
                 "ALTER TABLE guild_members ADD COLUMN IF NOT EXISTS last_deposit_date VARCHAR(10) DEFAULT ''",
                 "ALTER TABLE guild_members ADD COLUMN IF NOT EXISTS total_deposited_gold INTEGER DEFAULT 0",
                 "ALTER TABLE guild_members ADD COLUMN IF NOT EXISTS total_deposited_iron INTEGER DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS peace_shield_until TIMESTAMP",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_frame VARCHAR(50)",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS castle_skin VARCHAR(50)",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS dragon_skin VARCHAR(50)",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS message_effect VARCHAR(50)",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS has_starter_pack BOOLEAN DEFAULT FALSE",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_donation_count INTEGER DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_story_quest_count INTEGER DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_rank_quest_count INTEGER DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_ww_attack_count INTEGER DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_bandit_count INTEGER DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_plague_count INTEGER DEFAULT 0",
+                "ALTER TABLE houses ADD COLUMN IF NOT EXISTS lord_elected_at TIMESTAMP",
+                "ALTER TABLE battle_marches ADD COLUMN IF NOT EXISTS has_dragon BOOLEAN DEFAULT FALSE",
+                "ALTER TABLE battle_marches ADD COLUMN IF NOT EXISTS dragon_tactic VARCHAR(50) DEFAULT 'none'",
+                "ALTER TABLE territories ADD COLUMN IF NOT EXISTS last_tax_collected_at TIMESTAMP",
+                "ALTER TABLE dragons ADD COLUMN IF NOT EXISTS has_laid_egg BOOLEAN DEFAULT FALSE",
+                "ALTER TABLE dragons ADD COLUMN IF NOT EXISTS artifact_code VARCHAR(50)",
             ]:
                 try:
                     await conn.execute(text(pg_alter))

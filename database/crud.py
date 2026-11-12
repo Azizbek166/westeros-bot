@@ -8364,9 +8364,9 @@ async def update_user_custom_photo(session: AsyncSession, user_id: int, file_id:
     if not user:
         return False, "O'yinchi topilmadi."
 
-    allowed = ["lord", "dragonlord", "sovereign"]
+    allowed = ["noble", "lord", "dragonlord", "sovereign"]
     if user.vip_tier not in allowed:
-        return False, "❌ Profilga fotosurat qo'yish uchun kamida «🏰 Lordlar Xazinasi» VIP to'plami talab qilinadi."
+        return False, "❌ Profilga fotosurat qo'yish uchun «👑 Noble VIP» yoki maxsus VIP talab qilinadi."
 
     user.custom_photo_file_id = file_id
     await session.commit()
@@ -8382,9 +8382,9 @@ async def update_user_custom_status(session: AsyncSession, user_id: int, status_
     if not user:
         return False, "O'yinchi topilmadi."
 
-    allowed = ["lord", "dragonlord", "sovereign"]
+    allowed = ["noble", "lord", "dragonlord", "sovereign"]
     if user.vip_tier not in allowed:
-        return False, "❌ Shaxsiy status/shior qo'yish uchun kamida «🏰 Lordlar Xazinasi» VIP to'plami talab qilinadi."
+        return False, "❌ Shaxsiy status/shior qo'yish uchun «👑 Noble VIP» yoki maxsus VIP talab qilinadi."
 
     if status_text:
         clean_text = status_text.strip()[:100]
@@ -8405,9 +8405,9 @@ async def update_user_custom_audio(session: AsyncSession, user_id: int, file_id:
     if not user:
         return False, "O'yinchi topilmadi."
 
-    allowed = ["lord", "dragonlord", "sovereign"]
+    allowed = ["noble", "lord", "dragonlord", "sovereign"]
     if user.vip_tier not in allowed:
-        return False, "❌ Shaxsiy musiqa biriktirish uchun kamida «🏰 Lordlar Xazinasi» VIP to'plami talab qilinadi."
+        return False, "❌ Shaxsiy musiqa biriktirish uchun «👑 Noble VIP» yoki maxsus VIP talab qilinadi."
 
     user.custom_audio_file_id = file_id
     if audio_title or file_id:
@@ -8428,9 +8428,9 @@ async def update_user_custom_video(session: AsyncSession, user_id: int, file_id:
     if not user:
         return False, "O'yinchi topilmadi."
 
-    allowed = ["lord", "dragonlord", "sovereign"]
+    allowed = ["noble", "lord", "dragonlord", "sovereign"]
     if user.vip_tier not in allowed:
-        return False, "❌ Profilga video joylash uchun kamida 25,000 so'mlik «🏰 Lordlar Xazinasi» yoki undan yuqori VIP to'plam talab qilinadi."
+        return False, "❌ Profilga video joylash uchun «👑 Noble VIP» yoki maxsus VIP talab qilinadi."
 
     user.custom_video_file_id = file_id
     await session.commit()

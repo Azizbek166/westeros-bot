@@ -24,6 +24,8 @@ from database.models import (
     GuildQuestProgress,
     GuildTreasuryTransaction,
     SystemErrorLog,
+    UserCosmetic,
+    PaymentTransaction,
 )
 
 __all__ = [
@@ -54,4 +56,6 @@ __all__ = [
     "GuildQuestProgress",
     "GuildTreasuryTransaction",
     "SystemErrorLog",
+    "UserCosmetic",
+    "PaymentTransaction",
 ]
