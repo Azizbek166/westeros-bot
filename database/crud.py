@@ -4521,15 +4521,25 @@ async def claim_daily_quest_reward(session: AsyncSession, user_id: int, quest_ke
         except Exception:
             claimed_map = {}
 
-    user.gold = (user.gold or 0) + quest_info.get("gold", 0)
-    user.food = (user.food or 0) + quest_info.get("food", 0)
-    user.iron = (user.iron or 0) + quest_info.get("iron", 0)
-    user.prestige = (user.prestige or 0) + quest_info.get("prestige", 0)
-    user.xp = (user.xp or 0) + quest_info.get("xp", 0)
-    if quest_info.get("gold", 0) > 0:
-        track_user_gold_gain(user, quest_info["gold"])
-    if quest_info.get("prestige", 0) > 0:
-        track_user_prestige_gain(user, quest_info["prestige"])
+    # Mukofotni hisoblash (Catch-up bonusi bilan)
+    from core.anti_cheat import get_catchup_multiplier
+    catchup_mult, is_catchup = get_catchup_multiplier(user.level or 1)
+
+    r_gold = int(quest_info.get("gold", 0) * catchup_mult)
+    r_food = int(quest_info.get("food", 0) * catchup_mult)
+    r_iron = int(quest_info.get("iron", 0) * catchup_mult)
+    r_prestige = int(quest_info.get("prestige", 0) * catchup_mult)
+    r_xp = int(quest_info.get("xp", 0) * catchup_mult)
+
+    user.gold = (user.gold or 0) + r_gold
+    user.food = (user.food or 0) + r_food
+    user.iron = (user.iron or 0) + r_iron
+    user.prestige = (user.prestige or 0) + r_prestige
+    user.xp = (user.xp or 0) + r_xp
+    if r_gold > 0:
+        track_user_gold_gain(user, r_gold)
+    if r_prestige > 0:
+        track_user_prestige_gain(user, r_prestige)
 
     army = await get_user_army(session, user.id)
     extra_units = []
@@ -4561,18 +4571,21 @@ async def claim_daily_quest_reward(session: AsyncSession, user_id: int, quest_ke
     await session.commit()
 
     reward_summary = []
-    if quest_info.get("gold"):
-        reward_summary.append(f"• 🪙 Oltin: **+{quest_info['gold']:,}**")
-    if quest_info.get("food"):
-        reward_summary.append(f"• 🌾 Oziq-ovqat: **+{quest_info['food']:,}**")
-    if quest_info.get("iron"):
-        reward_summary.append(f"• ⛓️ Temir: **+{quest_info['iron']:,}**")
-    if quest_info.get("prestige"):
-        reward_summary.append(f"• 🏆 Nufuz: **+{quest_info['prestige']:,}**")
-    if quest_info.get("xp"):
-        reward_summary.append(f"• ⭐ Tajriba: **+{quest_info['xp']:,} XP**")
+    if r_gold:
+        bonus_tag = " _(Catch-up +35%)_" if is_catchup else ""
+        reward_summary.append(f"• 🪙 Oltin: **+{r_gold:,}**{bonus_tag}")
+    if r_food:
+        reward_summary.append(f"• 🌾 Oziq-ovqat: **+{r_food:,}**")
+    if r_iron:
+        reward_summary.append(f"• ⛓️ Temir: **+{r_iron:,}**")
+    if r_prestige:
+        reward_summary.append(f"• 🏆 Nufuz: **+{r_prestige:,}**")
+    if r_xp:
+        reward_summary.append(f"• ⭐ Tajriba: **+{r_xp:,} XP**")
     if extra_units:
         reward_summary.append(f"• 🛡️ Qo'shin: **{', '.join(extra_units)}**")
+    if is_catchup:
+        reward_summary.append("• 🚀 **Catch-up Faol:** Siz yangi lord bo'lganingiz sababli mukofotlar +35% oshirildi!")
 
     msg = (
         f"🎯 **VAZIFA MUKOFOTI QABUL QILINDI!**\n\n"

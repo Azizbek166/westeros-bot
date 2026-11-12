@@ -10,6 +10,7 @@ from config import (
     UPKEEP_FOOD_PER_SPEARMAN,
     UPKEEP_FOOD_PER_SPECIAL,
 )
+from core.balance import ECONOMY
 
 
 def calculate_army_upkeep(army: models.Army, weather_type: str = "normal") -> float:
@@ -24,36 +25,38 @@ def calculate_army_upkeep(army: models.Army, weather_type: str = "normal") -> fl
         + (army.special_troops * UPKEEP_FOOD_PER_SPECIAL)
     )
     if weather_type == "severe_winter":
-        base *= 1.25  # Qattiq qishda sovuq tufayli oziq-ovqat sarfi +25%
+        base *= ECONOMY.severe_winter_food_upkeep_mult
     return base
 
 
 async def calculate_hourly_income(session: AsyncSession, user: models.User, weather_type: str = "normal") -> Dict[str, int]:
     """O'yinchining hududlari, temir koni, don tegirmoni va bazaviy soatlik daromadlari"""
     mine_lvl = getattr(user, "iron_mine_level", 1) or 1
-    mine_iron = mine_lvl * 50  # Har daraja uchun +50 temir/soat (Kon Lv.X darajasiga mos)
+    mine_iron = mine_lvl * ECONOMY.mine_iron_per_level
 
     mill_lvl = getattr(user, "grain_mill_level", 1) or 1
-    mill_food = mill_lvl * 75  # Har daraja uchun +75 oziq-ovqat/soat (Tegirmon Lv.X darajasiga mos)
+    mill_food = mill_lvl * ECONOMY.mill_food_per_level
 
-    base_gold = 25
-    base_food = 40 + mill_food
-    base_iron = 15 + mine_iron
+    base_gold = ECONOMY.base_hourly_gold
+    base_food = ECONOMY.base_hourly_food + mill_food
+    base_iron = ECONOMY.base_hourly_iron + mine_iron
 
     if not user.house_id:
         total_gold = base_gold
         total_food = base_food
         total_iron = base_iron
     else:
-        # Xonadonga qarashli hududlar daromadidan ulush (Qal'a darajasiga ko'ra +25% bonus bilan)
+        # Xonadonga qarashli hududlar daromadidan ulush (Qal'a darajasiga ko'ra bonus bilan)
         res = await session.execute(
             select(models.Territory).where(models.Territory.owner_house_id == user.house_id)
         )
         territories = res.scalars().all()
 
-        terr_gold = sum(int((t.gold_income or 0) * (1.0 + (max(1, getattr(t, 'castle_level', 1) or 1) - 1) * 0.25)) for t in territories) // 4
-        terr_food = sum(int((t.food_income or 0) * (1.0 + (max(1, getattr(t, 'castle_level', 1) or 1) - 1) * 0.25)) for t in territories) // 4
-        terr_iron = sum(int((t.iron_income or 0) * (1.0 + (max(1, getattr(t, 'castle_level', 1) or 1) - 1) * 0.25)) for t in territories) // 4
+        divisor = ECONOMY.house_territory_share_divisor
+        tier_bonus = ECONOMY.castle_level_income_bonus_per_tier
+        terr_gold = sum(int((t.gold_income or 0) * (1.0 + (max(1, getattr(t, 'castle_level', 1) or 1) - 1) * tier_bonus)) for t in territories) // divisor
+        terr_food = sum(int((t.food_income or 0) * (1.0 + (max(1, getattr(t, 'castle_level', 1) or 1) - 1) * tier_bonus)) for t in territories) // divisor
+        terr_iron = sum(int((t.iron_income or 0) * (1.0 + (max(1, getattr(t, 'castle_level', 1) or 1) - 1) * tier_bonus)) for t in territories) // divisor
 
         total_gold = base_gold + terr_gold
         total_food = base_food + terr_food
@@ -61,14 +64,14 @@ async def calculate_hourly_income(session: AsyncSession, user: models.User, weat
 
     # Yozgi mo'l-ko'llik: Oltin va oziq-ovqat daromadiga bonus
     if weather_type == "summer_abundance":
-        total_gold = int(total_gold * 1.25)
-        total_food = int(total_food * 1.50)
+        total_gold = int(total_gold * ECONOMY.summer_gold_mult)
+        total_food = int(total_food * ECONOMY.summer_food_mult)
 
-    # VIP Temir Taxt Sohibi (Sovereign): Imperatorlik doimiy daromad bonusi +25%
+    # VIP Temir Taxt Sohibi (Sovereign): Imperatorlik doimiy daromad bonusi
     if getattr(user, "vip_tier", None) == "sovereign":
-        total_gold = int(total_gold * 1.25)
-        total_food = int(total_food * 1.25)
-        total_iron = int(total_iron * 1.25)
+        total_gold = int(total_gold * ECONOMY.sovereign_vip_income_mult)
+        total_food = int(total_food * ECONOMY.sovereign_vip_income_mult)
+        total_iron = int(total_iron * ECONOMY.sovereign_vip_income_mult)
 
     return {
         "gold": total_gold,

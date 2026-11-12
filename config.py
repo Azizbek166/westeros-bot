@@ -99,24 +99,32 @@ def _persist_admins():
         print(f"Error persisting admins: {e}")
 
 # ============================================================
-# KUNLIK LIMITLAR
+# KUNLIK LIMITLAR & BALANS (core/balance.py orqali markazlashtirilgan)
 # ============================================================
-DAILY_QUIZ_LIMIT = 8
-DAILY_COUNCIL_LIMIT = 3
-DAILY_SECRET_QUEST_LIMIT = 2
-DAILY_DUEL_LIMIT = int(os.getenv("DAILY_DUEL_LIMIT", "5"))
+from core.balance import (
+    ECONOMY,
+    DAILY_LIMITS,
+    PROTECTION,
+    UNITS_CONFIG,
+    STREAK_REWARDS_CONFIG,
+)
+
+DAILY_QUIZ_LIMIT = int(os.getenv("DAILY_QUIZ_LIMIT", str(DAILY_LIMITS.daily_quiz_limit)))
+DAILY_COUNCIL_LIMIT = int(os.getenv("DAILY_COUNCIL_LIMIT", str(DAILY_LIMITS.daily_council_limit)))
+DAILY_SECRET_QUEST_LIMIT = int(os.getenv("DAILY_SECRET_QUEST_LIMIT", str(DAILY_LIMITS.daily_secret_quest_limit)))
+DAILY_DUEL_LIMIT = int(os.getenv("DAILY_DUEL_LIMIT", str(DAILY_LIMITS.daily_duel_limit)))
 
 # ============================================================
 # O'YIN IQTISODIYOTI VA BALANS
 # ============================================================
 
 # Yangi o'yinchi boshlang'ich resurslari
-STARTING_GOLD = 500
-STARTING_FOOD = 1000
-STARTING_IRON = 300
+STARTING_GOLD = ECONOMY.starting_gold
+STARTING_FOOD = ECONOMY.starting_food
+STARTING_IRON = ECONOMY.starting_iron
 
-# Boshlang'ich Tinchlik Qalqoni (soatlarda, masalan 72 soat = 3 kun)
-PEACE_SHIELD_HOURS = 72
+# Boshlang'ich Tinchlik Qalqoni (soatlarda: 72 soat = 3 kun)
+PEACE_SHIELD_HOURS = PROTECTION.newbie_peace_shield_hours
 
 # Boshlang'ich armiya
 STARTING_INFANTRY = 100
@@ -125,11 +133,11 @@ STARTING_CAVALRY = 25
 STARTING_SPEARMEN = 25
 
 # Askarlarning oziq-ovqat iste'moli (soatiga 1 ta askar uchun)
-UPKEEP_FOOD_PER_INFANTRY = 0.5
-UPKEEP_FOOD_PER_ARCHER = 0.6
-UPKEEP_FOOD_PER_CAVALRY = 1.2
-UPKEEP_FOOD_PER_SPEARMAN = 0.5
-UPKEEP_FOOD_PER_SPECIAL = 1.5
+UPKEEP_FOOD_PER_INFANTRY = UNITS_CONFIG["infantry"]["food_upkeep"]
+UPKEEP_FOOD_PER_ARCHER = UNITS_CONFIG["archers"]["food_upkeep"]
+UPKEEP_FOOD_PER_CAVALRY = UNITS_CONFIG["cavalry"]["food_upkeep"]
+UPKEEP_FOOD_PER_SPEARMAN = UNITS_CONFIG["spearmen"]["food_upkeep"]
+UPKEEP_FOOD_PER_SPECIAL = UNITS_CONFIG["special_troops"]["food_upkeep"]
 
 # Yurish tezligi (hududlar orasidagi bazaviy daqiqa - mudofaa reaksiyasi uchun)
 BASE_MARCH_MINUTES = int(os.getenv("BASE_MARCH_MINUTES", "5"))

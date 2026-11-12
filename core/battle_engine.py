@@ -1,6 +1,7 @@
 import random
 from typing import Dict, Any, Tuple, Optional, List
 from data.units_data import UNITS_DATA, RPS_ADVANTAGES
+from core.balance import BATTLE
 
 
 def calculate_battle(
@@ -267,13 +268,13 @@ def calculate_battle(
     if def_art.get("defense_bonus", 0.0) > 0:
         castle_mult *= (1.0 + def_art["defense_bonus"])
 
-    # 3. Jang raundlari (maksimal 3 raund)
+    # 3. Jang raundlari (maksimal BATTLE.max_combat_rounds raund)
     att_losses = {t: 0 for t in troop_types}
     if not def_losses:
         def_losses = {t: 0 for t in troop_types}
 
     rounds = 0
-    while rounds < 3:
+    while rounds < BATTLE.max_combat_rounds:
         rounds += 1
 
         curr_att_total = sum(att_troops.values())
@@ -303,11 +304,12 @@ def calculate_battle(
             elif attacker_champion == "oberyn_martell" and a_type == "spearmen":
                 c_atk_mult = 1.30
 
-            # RPS multiplikatorini dominant himoyachiga nisbatan olish
-            mult = 1.0
-            for d_type, d_count in def_troops.items():
-                if d_count > 0 and (a_type, d_type) in RPS_ADVANTAGES:
-                    mult = max(mult, RPS_ADVANTAGES[(a_type, d_type)])
+            # Weighted RPS multiplikatori (Raqib garnizoni tarkibiga mutanosib)
+            def_total_curr = sum(def_troops.values()) or 1
+            mult = sum(
+                (d_count / def_total_curr) * RPS_ADVANTAGES.get((a_type, d_type), 1.0)
+                for d_type, d_count in def_troops.items() if d_count > 0
+            ) or 1.0
 
             att_power += a_count * unit_atk * mult * c_atk_mult
 
@@ -332,10 +334,12 @@ def calculate_battle(
             elif defender_champion == "brienne_tarth":
                 c_def_mult = 1.15
 
-            mult = 1.0
-            for a_type, a_count in att_troops.items():
-                if a_count > 0 and (d_type, a_type) in RPS_ADVANTAGES:
-                    mult = max(mult, RPS_ADVANTAGES[(d_type, a_type)])
+            # Weighted RPS multiplikatori (Hujumchi armiyasi tarkibiga mutanosib)
+            att_total_curr = sum(att_troops.values()) or 1
+            mult = sum(
+                (a_count / att_total_curr) * RPS_ADVANTAGES.get((d_type, a_type), 1.0)
+                for a_type, a_count in att_troops.items() if a_count > 0
+            ) or 1.0
 
             def_power += d_count * unit_def * mult * c_def_mult
 

@@ -1,5 +1,6 @@
 import random
 from typing import Dict, Any, Tuple, List
+from core.balance import DRAGON
 
 LEGENDARY_NPC_DRAGONS = [
     {"name": "🐉 Balerion (Qora Dahshat)", "grade": "A", "stage": "adult", "level": 20, "power": 3800, "user_name": "Eygon Targaryen"},
@@ -20,9 +21,9 @@ def calculate_dragon_power(dragon: Dict[str, Any]) -> int:
     stage = str(dragon.get("stage", "adult")).lower()
     level = int(dragon.get("level", 1) or 1)
 
-    grade_mult = 1.20 if grade == "A" else (1.10 if grade == "B" else 1.0)
-    stage_mult = 1.30 if stage == "adult" else 1.05
-    level_mult = 1.0 + (level * 0.025)
+    grade_mult = DRAGON.grade_multipliers.get(grade, 1.0)
+    stage_mult = DRAGON.stage_multipliers.get(stage, 1.05)
+    level_mult = 1.0 + (level * DRAGON.level_growth_rate)
 
     return int(base_power * grade_mult * stage_mult * level_mult)
 

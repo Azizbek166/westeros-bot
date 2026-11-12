@@ -80,10 +80,20 @@ async def create_trade_lot_service(
     request_resource: str,
     request_amount: int,
 ) -> Tuple[bool, str]:
-    """Bozorga yangi resurs loti qo'yish"""
+    """Bozorga yangi resurs loti qo'yish (Anti-cheat nisbat tekshiruvi bilan)"""
     user = await crud.get_user_any(session, identifier)
     if not user:
         return False, "Foydalanuvchi topilmadi."
+
+    from core.anti_cheat import validate_market_trade_offer
+    is_valid, err_msg = validate_market_trade_offer(
+        offer_type=offer_resource,
+        offer_amount=offer_amount,
+        request_type=request_resource,
+        request_amount=request_amount,
+    )
+    if not is_valid:
+        return False, err_msg
 
     return await crud.create_house_trade(
         session=session,
