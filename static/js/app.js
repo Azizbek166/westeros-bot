@@ -97,6 +97,104 @@
       .replace(/'/g, '&#039;');
   }
 
+  // Visual Asset Manager & Graphics Quality Controller
+  const AssetManager = {
+    quality: localStorage.getItem('it_graphics_quality') || 'high',
+
+    init() {
+      this.applyQuality(this.quality);
+      const btn = document.getElementById('btn-toggle-graphics');
+      if (btn) {
+        btn.addEventListener('click', () => {
+          haptic('light');
+          this.toggleQuality();
+        });
+      }
+    },
+
+    applyQuality(q) {
+      this.quality = q;
+      localStorage.setItem('it_graphics_quality', q);
+      const btn = document.getElementById('btn-toggle-graphics');
+      if (q === 'low') {
+        document.body.classList.add('low-graphics');
+        if (btn) btn.textContent = '⚡ Tejamkor';
+      } else {
+        document.body.classList.remove('low-graphics');
+        if (btn) btn.textContent = '💎 Yuqori Grafika';
+      }
+    },
+
+    toggleQuality() {
+      const next = this.quality === 'high' ? 'low' : 'high';
+      this.applyQuality(next);
+      showToast(next === 'low' ? '⚡ Tejamkor grafika rejimi faollashdi' : '💎 Yuqori grafika rejimi faollashdi', 'info');
+      return next;
+    },
+
+    getUnitIcon(key) {
+      const map = {
+        infantry: 'assets/units/unit-infantry.svg',
+        archers: 'assets/units/unit-archers.svg',
+        cavalry: 'assets/units/unit-cavalry.svg',
+        spearmen: 'assets/units/unit-spearmen.svg',
+        catapults: 'assets/units/unit-catapult.svg',
+        siege_towers: 'assets/units/unit-catapult.svg',
+        special_troops: 'assets/units/unit-wildfire.svg',
+        wildfire: 'assets/units/unit-wildfire.svg'
+      };
+      return map[key] || 'assets/ui/placeholder.svg';
+    },
+
+    getCastleIcon(level = 1, skin = null) {
+      if (skin === 'castle_ice') return 'assets/castles/castle-ice.svg';
+      if (skin === 'castle_valyrian') return 'assets/castles/castle-valyrian.svg';
+      if (skin === 'castle_golden') return 'assets/castles/castle-golden.svg';
+      if (level >= 3) return 'assets/castles/castle-tier3.svg';
+      if (level >= 2) return 'assets/castles/castle-tier2.svg';
+      return 'assets/castles/castle-tier1.svg';
+    },
+
+    getDragonPortrait(stage = 'adult', skin = null) {
+      if (stage === 'egg') return 'assets/dragons/dragon-egg.svg';
+      if (stage === 'baby' || stage === 'hatchling') return 'assets/dragons/dragon-baby.svg';
+      if (stage === 'young') return 'assets/dragons/dragon-young.svg';
+      if (skin === 'dragon_crimson') return 'assets/dragons/dragon-adult-crimson.svg';
+      if (skin === 'dragon_emerald') return 'assets/dragons/dragon-adult-emerald.svg';
+      if (skin === 'dragon_golden') return 'assets/dragons/dragon-adult-golden.svg';
+      return 'assets/dragons/dragon-adult.svg';
+    },
+
+    getHeroPortrait(type = 'lord') {
+      if (type === 'maester') return 'assets/heroes/hero-maester.svg';
+      if (type === 'spy') return 'assets/heroes/hero-spy.svg';
+      return 'assets/heroes/hero-lord.svg';
+    }
+  };
+
+  // Battle clash cinematic overlay animation
+  function playBattleClashAnimation(title = 'JANG KETMOQDA...', subtitle = 'Qilichlar jaranglamoqda!', durationMs = 1200) {
+    return new Promise(resolve => {
+      const overlay = document.getElementById('battle-clash-overlay');
+      if (!overlay || document.body.classList.contains('low-graphics')) {
+        haptic('heavy');
+        resolve();
+        return;
+      }
+      const titleEl = document.getElementById('battle-clash-title');
+      const subEl = document.getElementById('battle-clash-subtitle');
+      if (titleEl) titleEl.textContent = title;
+      if (subEl) subEl.textContent = subtitle;
+      overlay.style.display = 'flex';
+      haptic('heavy');
+
+      setTimeout(() => {
+        overlay.style.display = 'none';
+        resolve();
+      }, durationMs);
+    });
+  }
+
   // Toast notification utility
   function showToast(message, type = 'info') {
     const container = document.getElementById('toast-container');
@@ -589,11 +687,14 @@
     unitTypes.forEach(u => {
       const count = troops[u.key] || 0;
       const cfg = configs[u.key] || { attack: 1, defense: 1, food_upkeep: 0.5, gold_cost: 2, iron_cost: 1 };
+      const unitImg = AssetManager.getUnitIcon(u.key);
       const card = document.createElement('div');
       card.className = 'unit-card';
       card.innerHTML = `
         <div class="unit-left">
-          <span class="unit-icon">${u.icon}</span>
+          <div class="unit-icon-wrapper">
+            <img src="${unitImg}" class="unit-icon-img" alt="${escapeHtml(u.name)}" loading="lazy" onerror="this.src='assets/ui/placeholder.svg';">
+          </div>
           <div>
             <div class="unit-name">${escapeHtml(cfg.name || u.name)}</div>
             <div class="unit-sub">⚔️ Atk: ${cfg.attack} | 🛡️ Def: ${cfg.defense} | 🌾 -${cfg.food_upkeep}/s</div>
@@ -636,11 +737,14 @@
     siegeTypes.forEach(s => {
       const count = siege[s.key] || 0;
       const max = siege[s.maxKey] || 10;
+      const siegeImg = AssetManager.getUnitIcon(s.key);
       const card = document.createElement('div');
       card.className = 'unit-card';
       card.innerHTML = `
         <div class="unit-left">
-          <span class="unit-icon">${s.icon}</span>
+          <div class="unit-icon-wrapper">
+            <img src="${siegeImg}" class="unit-icon-img" alt="${escapeHtml(s.name)}" loading="lazy" onerror="this.src='assets/ui/placeholder.svg';">
+          </div>
           <div>
             <div class="unit-name">${s.name}</div>
             <div class="unit-sub">Qal'a devorlarini yorish quroli</div>
@@ -695,7 +799,7 @@
 
     list.forEach(c => {
       const card = document.createElement('div');
-      card.className = 'castle-card';
+      card.className = 'castle-card castle-card-enhanced';
       const taxInfo = c.tax || {};
       const isReady = taxInfo.is_ready || c.is_ready_to_claim;
       const hours = taxInfo.hours_ready || c.hours_accumulated || 0;
@@ -706,11 +810,14 @@
         ? `<button class="btn-tax-claim" data-id="${c.id}">💰 Olish (+${formatNum(accumGold)}🪙)</button>`
         : `<span class="castle-tax-badge castle-tax-wait">⏳ ~${remMin} daq</span>`;
 
+      const castleImg = AssetManager.getCastleIcon(c.level || 1, c.skin);
       card.innerHTML = `
         <div class="castle-left">
-          <span class="castle-icon">🏰</span>
+          <div class="castle-visual-box">
+            <img src="${castleImg}" class="castle-visual-img" alt="${escapeHtml(c.name || 'Qal‘a')}" loading="lazy" onerror="this.src='assets/ui/placeholder.svg';">
+          </div>
           <div>
-            <div class="castle-name">${escapeHtml(c.name || c.castle_name)}</div>
+            <div class="castle-name">${escapeHtml(c.name || c.castle_name)} <span class="castle-level-badge">${c.level || 1}-Daraja</span></div>
             <div class="castle-sub">📍 ${escapeHtml(c.region || 'Vesteros')} | 🛡️ Def: ${c.defense || c.defense_power || 0} | ${hours}s to'plangan</div>
           </div>
         </div>
@@ -1237,6 +1344,8 @@
       }
 
       const duelRes = res.data;
+      await playBattleClashAnimation('⚔️ MAYDONDA DUEL!', `${selectedChampion} bilan shafqatsiz to‘qnashuv...`, 1200);
+
       const outcomeCard = document.getElementById('duel-outcome-card');
       const titleEl = document.getElementById('duel-outcome-title');
       const descEl = document.getElementById('duel-outcome-desc');
@@ -2188,6 +2297,8 @@
         throw new Error(res.detail || res.error || 'Harbiy yurishni boshlashda xatolik yuz berdi.');
       }
 
+      await playBattleClashAnimation('🚩 HARBIY YURISH!', 'Qo‘shinlar qal‘a sari harakatga tushdi...', 1000);
+
       showToast(`🚩 Harbiy yurish boshlandi! Yetib borish vaqti: ${res.march.travel_seconds}s`, 'success');
       haptic('heavy');
       await fetchDashboard();
@@ -2367,6 +2478,11 @@
         const hungerPct = Math.min(100, Math.max(0, 100 - (d.hunger || 0)));
         document.getElementById('dragon-hunger-val').textContent = `To‘qlik: ${hungerPct}%`;
         document.getElementById('dragon-hunger-bar').style.width = `${hungerPct}%`;
+
+        const portraitImg = document.getElementById('dragon-portrait-img');
+        if (portraitImg) {
+          portraitImg.src = AssetManager.getDragonPortrait(d.stage || 'adult', d.skin);
+        }
       }
     } catch (err) {
       console.error('Dragon error:', err);
@@ -3957,6 +4073,7 @@
 
   // 7. Initialize Application
   document.addEventListener('DOMContentLoaded', async () => {
+    AssetManager.init();
     setupListeners();
     await fetchDashboard();
     handleDeepLinkRouting();

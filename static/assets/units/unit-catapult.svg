@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" width="80" height="80">
+  <defs>
+    <linearGradient id="catWood" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#8d6e63"/>
+      <stop offset="60%" stop-color="#4e342e"/>
+      <stop offset="100%" stop-color="#271b17"/>
+    </linearGradient>
+  </defs>
+  <!-- Base Wooden Frame -->
+  <polygon points="12,62 68,62 64,52 16,52" fill="url(#catWood)" stroke="#1a110e" stroke-width="1.2"/>
+  <rect x="24" y="32" width="6" height="24" fill="url(#catWood)"/>
+  <rect x="44" y="32" width="6" height="24" fill="url(#catWood)"/>
+  <line x1="20" y1="52" x2="30" y2="32" stroke="#4e342e" stroke-width="3"/>
+  <line x1="50" y1="32" x2="60" y2="52" stroke="#4e342e" stroke-width="3"/>
+  <!-- Heavy Wooden Wheels -->
+  <circle cx="22" cy="62" r="9" fill="#3e2723" stroke="#d4af37" stroke-width="1.5"/>
+  <circle cx="22" cy="62" r="3" fill="#cfd8dc"/>
+  <circle cx="58" cy="62" r="9" fill="#3e2723" stroke="#d4af37" stroke-width="1.5"/>
+  <circle cx="58" cy="62" r="3" fill="#cfd8dc"/>
+  <!-- Throwing Arm -->
+  <line x1="30" y1="48" x2="65" y2="18" stroke="url(#catWood)" stroke-width="4" stroke-linecap="round"/>
+  <!-- Sling Bucket with Heavy Boulder -->
+  <circle cx="68" cy="16" r="6" fill="#78909c" stroke="#37474f" stroke-width="1"/>
+  <!-- Rope Tension Cable -->
+  <line x1="30" y1="48" x2="18" y2="44" stroke="#d7ccc8" stroke-width="1.5"/>
+</svg>

@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" width="80" height="80">
+  <defs>
+    <linearGradient id="horseArmor" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#b0bec5"/>
+      <stop offset="60%" stop-color="#455a64"/>
+      <stop offset="100%" stop-color="#263238"/>
+    </linearGradient>
+    <linearGradient id="pennantGold" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#ffe082"/>
+      <stop offset="100%" stop-color="#ffb300"/>
+    </linearGradient>
+  </defs>
+  <!-- Armored Warhorse Head & Neck -->
+  <path d="M18 64 Q26 44 38 38 Q48 36 56 46 Q54 58 48 64 Z" fill="url(#horseArmor)"/>
+  <path d="M38 38 L32 24 L24 30 L22 42 Z" fill="url(#horseArmor)" stroke="#263238" stroke-width="1.2"/>
+  <!-- Horse Chamfron (Face plate) -->
+  <polygon points="26,27 30,25 24,38 20,38" fill="#cfd8dc"/>
+  <circle cx="28" cy="30" r="1.5" fill="#111"/>
+  <!-- Knight Torso -->
+  <rect x="42" y="24" width="16" height="20" rx="3" fill="url(#horseArmor)" stroke="#1c2529" stroke-width="1"/>
+  <!-- Great Helm with Plume -->
+  <circle cx="50" cy="18" r="6" fill="#78909c" stroke="#263238" stroke-width="1"/>
+  <line x1="47" y1="18" x2="53" y2="18" stroke="#111" stroke-width="1.5"/>
+  <path d="M50 12 Q56 6 62 8" stroke="#b71c1c" stroke-width="2.5" fill="none"/>
+  <!-- Long Lance with Pennant -->
+  <line x1="30" y1="58" x2="75" y2="8" stroke="#8d6e63" stroke-width="2.5"/>
+  <polygon points="73,10 78,6 74,6" fill="#cfd8dc"/>
+  <!-- Golden Knight Pennant -->
+  <polygon points="68,14 74,18 64,22" fill="url(#pennantGold)"/>
+</svg>

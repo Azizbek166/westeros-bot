@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="crownGold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fff59d"/>
+      <stop offset="30%" stop-color="#fbc02d"/>
+      <stop offset="70%" stop-color="#f57f17"/>
+      <stop offset="100%" stop-color="#bc5100"/>
+    </linearGradient>
+    <radialGradient id="rubyGlow" cx="30%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#ff8a80"/>
+      <stop offset="60%" stop-color="#d50000"/>
+      <stop offset="100%" stop-color="#5f0909"/>
+    </radialGradient>
+  </defs>
+  <!-- Crown Base -->
+  <path d="M8 46 L14 22 L24 34 L32 14 L40 34 L50 22 L56 46 Z" fill="url(#crownGold)" stroke="#664600" stroke-width="1.5"/>
+  <rect x="7" y="46" width="50" height="7" rx="2" fill="url(#crownGold)" stroke="#664600" stroke-width="1.5"/>
+  <!-- Crown Jewels -->
+  <circle cx="32" cy="13" r="3" fill="url(#rubyGlow)"/>
+  <circle cx="14" cy="21" r="2.5" fill="#00e676"/>
+  <circle cx="50" cy="21" r="2.5" fill="#00e676"/>
+  <!-- Headband gems -->
+  <circle cx="18" cy="49.5" r="2" fill="url(#rubyGlow)"/>
+  <circle cx="27" cy="49.5" r="2" fill="#2979ff"/>
+  <circle cx="37" cy="49.5" r="2" fill="url(#rubyGlow)"/>
+  <circle cx="46" cy="49.5" r="2" fill="#2979ff"/>
+</svg>

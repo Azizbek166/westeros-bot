@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="ironSteel" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#b0bec5"/>
+      <stop offset="35%" stop-color="#546e7a"/>
+      <stop offset="70%" stop-color="#263238"/>
+      <stop offset="100%" stop-color="#10171a"/>
+    </linearGradient>
+    <linearGradient id="ironTop" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#cfd8dc"/>
+      <stop offset="100%" stop-color="#78909c"/>
+    </linearGradient>
+  </defs>
+  <!-- Ingot bottom -->
+  <polygon points="10,48 54,48 50,28 14,28" fill="url(#ironSteel)"/>
+  <!-- Ingot top bevel -->
+  <polygon points="14,28 50,28 44,18 20,18" fill="url(#ironTop)"/>
+  <!-- Front shadow/details -->
+  <polygon points="10,48 14,28 20,18 16,38" fill="#1c2529" opacity="0.4"/>
+  <!-- Valyrian Steel ripple lines -->
+  <path d="M18 34 Q32 30 46 34" stroke="#90a4ae" stroke-width="1.2" fill="none" opacity="0.6"/>
+  <path d="M16 40 Q32 36 48 40" stroke="#78909c" stroke-width="1.2" fill="none" opacity="0.6"/>
+  <!-- Runes / stamp -->
+  <circle cx="32" cy="23" r="2.5" fill="#37474f"/>
+  <circle cx="32" cy="23" r="1.5" fill="#78909c"/>
+</svg>

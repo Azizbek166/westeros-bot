@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="wheatGold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffe680"/>
+      <stop offset="50%" stop-color="#e6a817"/>
+      <stop offset="100%" stop-color="#805300"/>
+    </linearGradient>
+    <linearGradient id="ribbonRed" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#b71c1c"/>
+      <stop offset="50%" stop-color="#e53935"/>
+      <stop offset="100%" stop-color="#7f0000"/>
+    </linearGradient>
+  </defs>
+  <!-- Stalks -->
+  <path d="M32 60 Q30 40 22 20" stroke="#754c00" stroke-width="2.5" fill="none"/>
+  <path d="M32 60 Q32 38 32 12" stroke="#754c00" stroke-width="3" fill="none"/>
+  <path d="M32 60 Q34 40 42 20" stroke="#754c00" stroke-width="2.5" fill="none"/>
+  
+  <!-- Left grains -->
+  <ellipse cx="20" cy="18" rx="3.5" ry="7" transform="rotate(-30 20 18)" fill="url(#wheatGold)"/>
+  <ellipse cx="24" cy="25" rx="3.5" ry="7" transform="rotate(-25 24 25)" fill="url(#wheatGold)"/>
+  <ellipse cx="27" cy="33" rx="3.5" ry="7" transform="rotate(-20 27 33)" fill="url(#wheatGold)"/>
+
+  <!-- Center grains -->
+  <ellipse cx="32" cy="10" rx="3.5" ry="8" fill="url(#wheatGold)"/>
+  <ellipse cx="32" cy="20" rx="4" ry="8" fill="url(#wheatGold)"/>
+  <ellipse cx="32" cy="30" rx="4" ry="8" fill="url(#wheatGold)"/>
+
+  <!-- Right grains -->
+  <ellipse cx="44" cy="18" rx="3.5" ry="7" transform="rotate(30 44 18)" fill="url(#wheatGold)"/>
+  <ellipse cx="40" cy="25" rx="3.5" ry="7" transform="rotate(25 40 25)" fill="url(#wheatGold)"/>
+  <ellipse cx="37" cy="33" rx="3.5" ry="7" transform="rotate(20 37 33)" fill="url(#wheatGold)"/>
+
+  <!-- Tied Ribbon -->
+  <ellipse cx="32" cy="42" rx="7" ry="3.5" fill="url(#ribbonRed)"/>
+  <path d="M29 44 L25 54 L30 50 L31 54 Z" fill="#b71c1c"/>
+  <path d="M35 44 L39 54 L34 50 L33 54 Z" fill="#b71c1c"/>
+</svg>

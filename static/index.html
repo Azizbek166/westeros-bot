@@ -32,19 +32,19 @@
 
       <div class="resources-row">
         <div class="res-item" title="Oltin">
-          <span class="res-icon">🪙</span>
+          <img src="assets/icons/gold.svg" class="res-icon-img" alt="Oltin">
           <span class="res-val" id="res-gold">0</span>
         </div>
         <div class="res-item" title="Oziq-ovqat">
-          <span class="res-icon">🌾</span>
+          <img src="assets/icons/food.svg" class="res-icon-img" alt="Bug'doy">
           <span class="res-val" id="res-food">0</span>
         </div>
         <div class="res-item" title="Temir">
-          <span class="res-icon">⛓️</span>
+          <img src="assets/icons/iron.svg" class="res-icon-img" alt="Temir">
           <span class="res-val" id="res-iron">0</span>
         </div>
         <div class="res-item" title="Nufuz / Shon-sharaf">
-          <span class="res-icon">👑</span>
+          <img src="assets/icons/prestige.svg" class="res-icon-img" alt="Nufuz">
           <span class="res-val" id="res-prestige">0</span>
         </div>
       </div>
@@ -112,7 +112,8 @@
         <!-- Hero Profile Banner Card -->
         <div class="card profile-hero-card">
           <div class="profile-avatar-box">
-            <span class="profile-avatar" id="prof-avatar">🦁</span>
+            <img src="assets/heroes/hero-lord.svg" class="hero-avatar-img" id="prof-hero-img" alt="Lord Avatar" onerror="this.style.display='none'; document.getElementById('prof-avatar').style.display='inline';">
+            <span class="profile-avatar" id="prof-avatar" style="display:none;">🦁</span>
             <span class="profile-lvl-badge" id="prof-level">1-Daraja</span>
           </div>
           <div class="profile-info-box">
@@ -120,6 +121,15 @@
             <div class="profile-house" id="prof-house">Lannister Xonadoni</div>
             <div class="profile-rank" id="prof-rank">Ritsarlar Safida</div>
           </div>
+        </div>
+
+        <!-- Graphics Quality Switcher & Quick Settings -->
+        <div class="card p-2 d-flex justify-between align-center mb-2" style="background: rgba(20,24,33,0.7); border: 1px solid rgba(212,175,55,0.2);">
+          <div class="d-flex align-center gap-2">
+            <span style="font-size:16px;">🎨</span>
+            <span style="font-size:12px; font-weight:600; color:var(--text-secondary);">Vizual Rejim:</span>
+          </div>
+          <button id="btn-toggle-graphics" class="btn btn-secondary py-1 px-3" style="font-size:11px;">💎 Yuqori Grafika</button>
         </div>
 
         <!-- Experience Progress Bar -->
@@ -826,6 +836,9 @@
           <button class="modal-close" id="modal-map-close">✕</button>
         </div>
         <div class="modal-body">
+          <div class="map-interactive-wrapper mb-3" id="map-interactive-wrapper" style="text-align:center;">
+            <img src="assets/map/westeros-map.svg" class="westeros-interactive-svg" alt="Vesteros Interaktiv Xaritasi" style="width:100%; max-height:220px; object-fit:contain; border-radius:8px; border:1px solid rgba(212,175,55,0.25); background:rgba(10,12,16,0.6);" loading="lazy">
+          </div>
           <div class="quick-pills-row mb-3" id="map-region-filters">
             <button class="pill-btn active" data-region="all">Barchasi</button>
             <button class="pill-btn" data-region="The North">Shimol</button>
@@ -1005,7 +1018,9 @@
         </div>
         <div class="modal-body">
           <div id="dragon-view-unclaimed" style="display:none;" class="text-center py-3">
-            <span style="font-size:50px;">🥚</span>
+            <div class="dragon-portrait-box mb-2">
+              <img src="assets/dragons/dragon-egg.svg" class="dragon-portrait-img" alt="Valyriya Tuxumi">
+            </div>
             <h3 class="mt-2 text-gold font-serif">Valyriya Ajdaho Tuxumi</h3>
             <p class="text-secondary mt-1" style="font-size:12px;">Qadimgi Valyriya qoniga ega bo'lgan Lordlar o'z shaxsiy ajdarlarini voyaga yetkazishlari mumkin.</p>
             <button class="btn btn-primary mt-3 w-100 py-2" id="btn-claim-dragon-egg">
@@ -1014,7 +1029,9 @@
           </div>
 
           <div id="dragon-view-egg" style="display:none;" class="text-center py-3">
-            <span style="font-size:50px;">🔥🥚</span>
+            <div class="dragon-portrait-box mb-2">
+              <img src="assets/dragons/dragon-egg.svg" class="dragon-portrait-img pulse-glow" alt="Ajdaho Tuxumi">
+            </div>
             <h3 class="mt-2 text-gold font-serif" id="dragon-egg-name">Ajdaho Tuxumi</h3>
             <p class="text-secondary mt-1" style="font-size:12px;">Tuxum olovli haroratda inkubatsiyaga tayyor. Qadimiy marosimni boshlang!</p>
             <button class="btn btn-primary mt-3 w-100 py-2" id="btn-hatch-dragon">
@@ -1024,7 +1041,9 @@
 
           <div id="dragon-view-active" style="display:none;">
             <div class="dragon-profile-card card text-center p-3">
-              <span id="dragon-avatar" style="font-size:54px;">🐉</span>
+              <div class="dragon-portrait-box mb-2" id="dragon-avatar-box">
+                <img id="dragon-portrait-img" src="assets/dragons/dragon-baby.svg" class="dragon-portrait-img" alt="Ajdaho">
+              </div>
               <h3 class="mt-2 text-gold font-serif" id="dragon-name">Drogon</h3>
               <p class="text-secondary" style="font-size:11px;" id="dragon-stage-lbl">Yosh Ajdaho • 14 Kunlik</p>
               
@@ -1370,6 +1389,19 @@
             </div>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- BATTLE CLASH OVERLAY ANIMATION -->
+    <div id="battle-clash-overlay" class="battle-clash-overlay" style="display:none;">
+      <div class="battle-clash-content">
+        <div class="swords-clash-wrap">
+          <img src="assets/icons/swords.svg" class="clash-sword sword-left" alt="Qilich">
+          <img src="assets/icons/swords.svg" class="clash-sword sword-right" alt="Qilich">
+          <div class="clash-spark"></div>
+        </div>
+        <h2 id="battle-clash-title" class="battle-clash-title">JANG KETMOQDA...</h2>
+        <p id="battle-clash-subtitle" class="battle-clash-subtitle">Qilichlar jaranglamoqda!</p>
       </div>
     </div>
 

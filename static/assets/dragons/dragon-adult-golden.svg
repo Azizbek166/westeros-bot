@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 140" width="160" height="140">
+  <defs>
+    <radialGradient id="goldDragonBody" cx="35%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#fff59d"/>
+      <stop offset="35%" stop-color="#fbc02d"/>
+      <stop offset="75%" stop-color="#f57f17"/>
+      <stop offset="100%" stop-color="#5d2600"/>
+    </radialGradient>
+    <linearGradient id="goldDragonWing" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fff9c4"/>
+      <stop offset="45%" stop-color="#fdd835"/>
+      <stop offset="100%" stop-color="#e65100"/>
+    </linearGradient>
+  </defs>
+  <path d="M48 60 L18 8 L44 14 L75 25 L65 65 Z" fill="#8c6d00" opacity="0.9"/>
+  <path d="M40 85 Q15 95 6 72 Q0 50 2 35 Q10 40 10 58 Q14 82 45 96 Z" fill="#7a4e00"/>
+  <polygon points="2,35 6,24 10,40" fill="#fff59d"/>
+  <polygon points="10,50 16,42 14,58" fill="#fff59d"/>
+  <path d="M40 70 Q55 58 78 68 Q95 80 82 105 Q60 110 40 92 Z" fill="url(#goldDragonBody)"/>
+  <polygon points="46,62 50,46 54,64" fill="#ffe082"/>
+  <polygon points="56,64 61,48 65,66" fill="#ffe082"/>
+  <polygon points="67,68 73,52 77,72" fill="#ffe082"/>
+  <polygon points="78,75 84,62 88,80" fill="#ffe082"/>
+  <path d="M48 98 L38 122 L46 124 L52 118 L55 102 Z" fill="#4e2600"/>
+  <path d="M72 102 L70 126 L78 126 L84 120 L80 104 Z" fill="#4e2600"/>
+  <path d="M52 68 Q80 8 135 6 C115 28 140 45 125 75 C105 68 85 82 65 72 Z" fill="url(#goldDragonWing)" stroke="#ffd700" stroke-width="1.5"/>
+  <path d="M74 72 Q90 52 105 44 Q125 36 138 42 Q142 50 132 58 Q115 70 88 84 Z" fill="url(#goldDragonBody)"/>
+  <path d="M110 40 Q130 15 146 10 Q135 25 122 38 Z" fill="#3e2000" stroke="#fff176" stroke-width="1"/>
+  <circle cx="124" cy="46" r="4" fill="#ffffff"/>
+  <ellipse cx="124" cy="46" rx="1.2" ry="3.5" fill="#e65100"/>
+  <path d="M136 48 L146 54 L134 60 Z" fill="#ffb300"/>
+  <path d="M142 52 Q150 48 160 50 Q152 58 140 56 Z" fill="#ffe57f"/>
+</svg>

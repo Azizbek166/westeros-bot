@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 120" width="140" height="120">
+  <defs>
+    <linearGradient id="valyrianStone" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#424242"/>
+      <stop offset="40%" stop-color="#212121"/>
+      <stop offset="80%" stop-color="#0a0a0a"/>
+      <stop offset="100%" stop-color="#000000"/>
+    </linearGradient>
+    <linearGradient id="volcanicGlow" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ff9100"/>
+      <stop offset="50%" stop-color="#ff3d00"/>
+      <stop offset="100%" stop-color="#b71c1c"/>
+    </linearGradient>
+    <filter id="fireAura" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#ff3d00" flood-opacity="0.9"/>
+    </filter>
+  </defs>
+  <!-- Obsidian Base -->
+  <polygon points="15,108 125,108 120,68 20,68" fill="url(#valyrianStone)" stroke="#ff3d00" stroke-width="1.2"/>
+  <polygon points="32,68 108,68 104,38 36,38" fill="url(#valyrianStone)" stroke="#ff3d00" stroke-width="1.2"/>
+  <!-- Curved Dragonhorn Spires -->
+  <path d="M58 38 Q66 18 70 4 Q74 18 82 38 Z" fill="url(#valyrianStone)" stroke="url(#volcanicGlow)" stroke-width="2"/>
+  <path d="M16 68 Q24 38 28 14 Q32 38 38 68 Z" fill="url(#valyrianStone)" stroke="url(#volcanicGlow)" stroke-width="2"/>
+  <path d="M102 68 Q108 38 112 14 Q116 38 124 68 Z" fill="url(#valyrianStone)" stroke="url(#volcanicGlow)" stroke-width="2"/>
+  <!-- Molten Lava Portal -->
+  <path d="M58 108 L58 84 C58 74 82 74 82 84 L82 108 Z" fill="#1b0000" stroke="#ff3d00" stroke-width="2"/>
+  <rect x="62" y="86" width="16" height="22" fill="url(#volcanicGlow)" filter="url(#fireAura)"/>
+  <!-- Dragon Gargoyle Emblem -->
+  <circle cx="70" cy="52" r="5" fill="#ff3d00" filter="url(#fireAura)"/>
+  <circle cx="70" cy="52" r="2.5" fill="#fff59d"/>
+</svg>

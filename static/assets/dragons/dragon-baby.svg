@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <defs>
+    <radialGradient id="babyBody" cx="40%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#ff8a65"/>
+      <stop offset="60%" stop-color="#d84315"/>
+      <stop offset="100%" stop-color="#3e2723"/>
+    </radialGradient>
+    <linearGradient id="wingSkin" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ffab91"/>
+      <stop offset="100%" stop-color="#bf360c"/>
+    </linearGradient>
+  </defs>
+  <!-- Tail -->
+  <path d="M40 85 Q20 95 15 80 Q10 70 5 75 Q10 88 30 100 Q45 102 52 90 Z" fill="#bf360c"/>
+  <!-- Back Wing -->
+  <path d="M65 45 Q75 18 95 22 Q85 38 78 52 Z" fill="#d84315" opacity="0.7"/>
+  <!-- Body -->
+  <ellipse cx="56" cy="72" rx="22" ry="20" fill="url(#babyBody)"/>
+  <ellipse cx="52" cy="76" rx="14" ry="14" fill="#ffab91" opacity="0.3"/>
+  <!-- Legs -->
+  <ellipse cx="44" cy="92" rx="8" ry="6" fill="#bf360c"/>
+  <ellipse cx="68" cy="92" rx="8" ry="6" fill="#bf360c"/>
+  <!-- Front Wing -->
+  <path d="M58 58 Q78 30 105 38 C90 52 82 72 65 72 Z" fill="url(#wingSkin)" stroke="#bf360c" stroke-width="1.5"/>
+  <path d="M58 58 Q85 45 105 38" stroke="#bf360c" stroke-width="2" fill="none"/>
+  <!-- Neck and Head -->
+  <path d="M64 62 Q72 50 78 40 Q84 32 94 36 Q100 40 98 48 Q90 56 76 64 Z" fill="url(#babyBody)"/>
+  <!-- Horns -->
+  <path d="M82 34 L88 20 L86 35 Z" fill="#3e2723"/>
+  <path d="M78 36 L80 24 L82 37 Z" fill="#3e2723"/>
+  <!-- Eye -->
+  <circle cx="88" cy="40" r="3.5" fill="#ffd600"/>
+  <circle cx="89" cy="40" r="1.8" fill="#1b0000"/>
+  <circle cx="87.5" cy="39" r="1" fill="#ffffff"/>
+  <!-- Snout smoke puff -->
+  <ellipse cx="98" cy="46" rx="2" ry="1" fill="#ff5722"/>
+  <circle cx="106" cy="42" r="3" fill="#ffccbc" opacity="0.6"/>
+  <circle cx="112" cy="38" r="4" fill="#ffab91" opacity="0.4"/>
+</svg>

@@ -150,6 +150,9 @@ class TestCosmeticsAndMonetization(unittest.IsolatedAsyncioTestCase):
                 session.add(user)
                 await session.commit()
                 await session.refresh(user)
+            else:
+                user.vip_tier = "sovereign"
+                await session.commit()
 
             ok, msg = await apply_legacy_vip_compensation(session, user)
             self.assertTrue(ok)

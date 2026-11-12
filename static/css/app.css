@@ -1862,6 +1862,272 @@ body {
   margin-bottom: 8px;
 }
 
+/* ============================================================
+   VISUAL GRAPHICS & WESTEROS MEDIEVAL THEME ENHANCEMENTS
+   ============================================================ */
+
+/* 1. Resource Icons */
+.res-icon-img {
+  width: 18px;
+  height: 18px;
+  vertical-align: middle;
+  filter: drop-shadow(0 1px 3px rgba(0,0,0,0.6));
+  transition: transform 0.2s ease;
+}
+
+.res-item:hover .res-icon-img {
+  transform: scale(1.15);
+}
+
+/* 2. Castle Visual Progression */
+.castle-card-enhanced {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: linear-gradient(135deg, rgba(21, 26, 35, 0.95) 0%, rgba(13, 17, 24, 0.95) 100%);
+  border: 1px solid var(--border-gold);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  position: relative;
+  overflow: hidden;
+}
+
+.castle-card-enhanced::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 100%;
+  background: var(--gold-primary);
+}
+
+.castle-visual-img {
+  width: 52px;
+  height: 52px;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 6px rgba(0,0,0,0.7));
+  flex-shrink: 0;
+}
+
+/* 3. Dragon Stage & Skin Dynamic Portrait */
+.dragon-portrait-box {
+  width: 130px;
+  height: 130px;
+  margin: 0 auto 12px auto;
+  border-radius: 50%;
+  background: radial-gradient(circle, #2d1616 0%, #120808 70%, #000 100%);
+  border: 2px solid var(--gold-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  box-shadow: 0 0 20px rgba(230, 57, 70, 0.4);
+}
+
+.dragon-portrait-img {
+  width: 110px;
+  height: 110px;
+  object-fit: contain;
+  transition: transform 0.3s ease;
+  filter: drop-shadow(0 4px 10px rgba(0,0,0,0.8));
+}
+
+.dragon-portrait-box:hover .dragon-portrait-img {
+  transform: scale(1.08);
+}
+
+/* 4. Army Unit Illustrations */
+.unit-icon-img {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 5px rgba(0,0,0,0.6));
+  flex-shrink: 0;
+}
+
+/* 5. Interactive SVG Map */
+.westeros-map-wrapper {
+  background: #080d15;
+  border: 1px solid var(--border-gold);
+  border-radius: 10px;
+  padding: 10px;
+  margin-bottom: 12px;
+  box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
+  position: relative;
+}
+
+.westeros-interactive-svg {
+  display: block;
+  width: 100%;
+  max-height: 420px;
+  border-radius: 8px;
+}
+
+.map-svg-region {
+  cursor: pointer;
+  transition: all 0.25s ease;
+}
+
+.map-svg-region:hover,
+.map-svg-region.active-region {
+  filter: drop-shadow(0 0 10px #d4af37);
+  fill-opacity: 0.95;
+  stroke: #ffd700;
+  stroke-width: 2.2px;
+}
+
+.castle-node {
+  cursor: pointer;
+  transition: transform 0.2s ease, fill 0.2s ease;
+}
+
+.castle-node:hover {
+  transform: scale(1.4);
+  fill: #ffea00;
+}
+
+/* 6. Battle Clash Animation (1.2s Epic Result Overlay) */
+.battle-clash-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 9999;
+  background: rgba(5, 7, 12, 0.88);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  animation: clashFadeInOut 1.4s ease forwards;
+}
+
+.clash-effects {
+  position: relative;
+  width: 240px;
+  height: 140px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.clash-sword {
+  position: absolute;
+  font-size: 58px;
+  top: 20px;
+}
+
+.clash-sword-left {
+  left: 10px;
+  animation: swordClashLeft 0.5s cubic-bezier(0.17, 0.89, 0.32, 1.28) forwards;
+}
+
+.clash-sword-right {
+  right: 10px;
+  animation: swordClashRight 0.5s cubic-bezier(0.17, 0.89, 0.32, 1.28) forwards;
+}
+
+.clash-sparks {
+  position: absolute;
+  font-size: 52px;
+  opacity: 0;
+  animation: sparkExplode 0.6s ease 0.45s forwards;
+}
+
+.clash-flash {
+  position: absolute;
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #ffffff 0%, #ffd700 40%, rgba(255, 61, 0, 0) 70%);
+  opacity: 0;
+  animation: flashBang 0.5s ease 0.45s forwards;
+}
+
+.clash-banner {
+  margin-top: 20px;
+  font-size: 18px;
+  letter-spacing: 1.5px;
+  text-shadow: 0 0 10px rgba(212, 175, 55, 0.8);
+  opacity: 0;
+  animation: bannerFadeUp 0.6s ease 0.55s forwards;
+}
+
+@keyframes swordClashLeft {
+  0% { transform: translate(-80px, -40px) rotate(-60deg); opacity: 0; }
+  60% { opacity: 1; }
+  100% { transform: translate(35px, 0px) rotate(45deg); opacity: 1; }
+}
+
+@keyframes swordClashRight {
+  0% { transform: translate(80px, -40px) rotate(60deg) scaleX(-1); opacity: 0; }
+  60% { opacity: 1; }
+  100% { transform: translate(-35px, 0px) rotate(-45deg) scaleX(-1); opacity: 1; }
+}
+
+@keyframes sparkExplode {
+  0% { transform: scale(0.2); opacity: 0; }
+  40% { transform: scale(1.4); opacity: 1; }
+  100% { transform: scale(1); opacity: 0; }
+}
+
+@keyframes flashBang {
+  0% { transform: scale(0.2); opacity: 0; }
+  50% { transform: scale(2.2); opacity: 0.9; }
+  100% { transform: scale(3); opacity: 0; }
+}
+
+@keyframes bannerFadeUp {
+  0% { transform: translateY(15px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes clashFadeInOut {
+  0% { opacity: 0; }
+  15% { opacity: 1; }
+  80% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* 7. Low Graphics Mode (Performance on budget phones) */
+body.low-graphics * {
+  animation-duration: 0.001s !important;
+  transition-duration: 0.001s !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+  filter: none !important;
+}
+
+/* 8. Mobile Viewport Refinements (320px - 430px) */
+@media (max-width: 430px) {
+  .castle-visual-img {
+    width: 44px;
+    height: 44px;
+  }
+  .unit-icon-img {
+    width: 38px;
+    height: 38px;
+  }
+  .dragon-portrait-box {
+    width: 110px;
+    height: 110px;
+  }
+  .dragon-portrait-img {
+    width: 90px;
+    height: 90px;
+  }
+  .westeros-interactive-svg {
+    max-height: 340px;
+  }
+}
+
+
 
 
 
