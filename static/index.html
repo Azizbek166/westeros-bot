@@ -132,6 +132,18 @@
           <button id="btn-toggle-graphics" class="btn btn-secondary py-1 px-3" style="font-size:11px;">💎 Yuqori Grafika</button>
         </div>
 
+        <!-- Season Pass & Status Quick Card -->
+        <div class="card p-2 mb-3 d-flex justify-between align-center" id="profile-open-season-btn" style="background: linear-gradient(135deg, rgba(212,175,55,0.12), rgba(18,22,30,0.85)); border: 1px solid rgba(212,175,55,0.3); cursor: pointer;">
+          <div class="d-flex align-center gap-2">
+            <span style="font-size:20px;">🌟</span>
+            <div>
+              <div class="font-serif text-gold" style="font-size:12px; font-weight:700;" id="prof-season-title">1-Mavsum: Temir Taxt Qadami</div>
+              <div class="text-secondary" style="font-size:10px;" id="prof-season-status-sub">Tier 1 • 0 SO • Season Pass</div>
+            </div>
+          </div>
+          <button class="btn btn-secondary py-1 px-2" style="font-size:11px;">Ochish ➔</button>
+        </div>
+
         <!-- Experience Progress Bar -->
         <div class="xp-bar-box card">
           <div class="xp-labels">
@@ -1319,6 +1331,99 @@
       </div>
     </div>
 
+    <!-- 10.5 MAVSUM VA SEASON PASS (SEASON PASS & HALL OF FAME) MODAL -->
+    <div id="season-modal" class="modal-overlay" style="display:none;">
+      <div class="modal-dialog modal-dialog-lg">
+        <div class="modal-header">
+          <h3 class="modal-title" id="season-modal-title">🌟 Mavsum & Season Pass</h3>
+          <button class="modal-close" id="modal-season-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <!-- Season Overview Banner -->
+          <div class="season-pass-banner mb-3">
+            <div class="d-flex justify-between align-center">
+              <span class="badge badge-gold" id="sp-season-badge">👑 1-Mavsum</span>
+              <span class="season-countdown-chip" id="sp-countdown">⏳ 41 kun 18 soat</span>
+            </div>
+            <h3 class="font-serif text-gold mt-2" id="sp-theme-title">1-Mavsum: Temir Taxt Qadami</h3>
+            <p class="text-secondary mt-1" style="font-size:11px; line-height:1.4;" id="sp-theme-desc">
+              Vesterosda hukmronlik uchun yangi kurash davri boshlandi!
+            </p>
+
+            <!-- Player's Season Status Box -->
+            <div class="season-xp-track-box mt-3">
+              <div class="d-flex justify-between align-center">
+                <span class="season-so-pill" id="sp-my-points">⭐ 0 SO (Season Ochkolari)</span>
+                <span class="text-secondary" style="font-size:11px;" id="sp-my-rank">Reyting: #--</span>
+              </div>
+              <div class="d-flex justify-between align-center mt-2" style="font-size:11px;">
+                <span class="text-gold font-serif" id="sp-my-tier-lbl">Tier 1 / 20</span>
+                <span class="text-secondary" id="sp-my-xp-lbl">0 / 100 XP</span>
+              </div>
+              <div class="xp-track mt-1">
+                <div class="xp-fill" id="sp-xp-bar" style="width: 0%; background: linear-gradient(90deg, #d4af37, #f39c12);"></div>
+              </div>
+            </div>
+
+            <!-- Pass Purchase & Quick Claim Row -->
+            <div class="d-flex gap-2 mt-3">
+              <button class="btn btn-primary flex-1 py-2" id="btn-sp-buy-pass" style="font-size:12px;">
+                ⭐ Premium Pass (250 Stars)
+              </button>
+              <button class="btn btn-secondary flex-1 py-2" id="btn-sp-claim-all" style="font-size:12px;">
+                🎁 Barchasini Olish
+              </button>
+            </div>
+          </div>
+
+          <!-- Season Navigation Chips -->
+          <div class="shop-tabs d-flex gap-1 mb-3">
+            <button class="btn btn-secondary py-1 px-3 season-tab-btn active" data-tab="tiers" style="font-size:11px;">🎖️ 20 ta Tier</button>
+            <button class="btn btn-secondary py-1 px-3 season-tab-btn" data-tab="leaderboard" style="font-size:11px;">🏆 SO Reytingi</button>
+            <button class="btn btn-secondary py-1 px-3 season-tab-btn" data-tab="fame" style="font-size:11px;">🏛️ Shon-sharaf</button>
+            <button class="btn btn-secondary py-1 px-3 season-tab-btn" data-tab="rules" style="font-size:11px;">📜 Qoidalar</button>
+          </div>
+
+          <!-- Tab Content 1: 20 Tiers Track -->
+          <div id="sp-tab-tiers" class="season-tab-content">
+            <div class="season-tiers-scroll-wrap" id="sp-tiers-container">
+              <!-- Dynamically populated 20 tiers -->
+            </div>
+          </div>
+
+          <!-- Tab Content 2: Leaderboard -->
+          <div id="sp-tab-leaderboard" class="season-tab-content" style="display:none;">
+            <div class="card p-2">
+              <h4 class="font-serif text-gold mb-2" style="font-size:13px;">🏆 Mavsum Yetakchilari (Season Ochkolari)</h4>
+              <div id="sp-leaderboard-list">
+                <!-- Dynamically populated top 10 -->
+              </div>
+            </div>
+          </div>
+
+          <!-- Tab Content 3: Hall of Fame -->
+          <div id="sp-tab-fame" class="season-tab-content" style="display:none;">
+            <div class="card p-2">
+              <h4 class="font-serif text-gold mb-2" style="font-size:13px;">🏛️ Shon-sharaf Zali (O'tgan Mavsumlar)</h4>
+              <div id="sp-fame-list">
+                <!-- Dynamically populated Hall of Fame -->
+              </div>
+            </div>
+          </div>
+
+          <!-- Tab Content 4: Rules & Fairness -->
+          <div id="sp-tab-rules" class="season-tab-content" style="display:none;">
+            <div class="season-info-box">
+              <h4 class="font-serif text-gold mb-1">⚖️ Mavsum va Adolat Qoidalari:</h4>
+              <p><strong>1. Season Ochkolari (SO):</strong> G'olibni eng ko'p resurs yoki eng ko'p donat qilgan lord emas, balki eng ko'p jang qilgan, kvest bajargan va faol lord belgilaydi.</p>
+              <p class="mt-1"><strong>2. Yumshoq Reset (Soft-Reset):</strong> Mavsum tugagach profil, unvonlar, kosmetika, ramkalar va ajdarlar <strong>100% abadiy saqlanadi</strong>. Faqat armiyalar va hududlar yangilanadi, resurslar 15-20% gacha (oltin maks 15k) tejaladi.</p>
+              <p class="mt-1"><strong>3. Eksklyuzivlik:</strong> Mavsum tugashi bilan yetib kelingan barcha olinmagan mukofotlar hisobingizga avtomatik topshiriladi. Yetib borilmagan tierlar esa abadiy yopiladi.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- 11. ADMIN MANAGEMENT CONSOLE MODAL -->
     <div id="admin-modal" class="modal-overlay" style="display:none;">
       <div class="modal-dialog modal-dialog-lg">
@@ -1387,6 +1492,26 @@
             <div id="admin-txs-list-container" class="mt-2" style="max-height: 280px; overflow-y: auto;">
               <!-- Dynamically populated payment transactions -->
             </div>
+          </div>
+
+          <!-- Season Management (Admin) -->
+          <div class="card p-3 mt-3">
+            <div class="d-flex justify-between align-center mb-2">
+              <h4 class="font-serif text-gold" style="margin:0;">🌟 Mavsum Boshqaruvi (Seasons)</h4>
+              <span class="badge badge-gold" id="admin-season-badge">Mavsum #1</span>
+            </div>
+            <div class="mb-2">
+              <label class="text-secondary" style="font-size:11px;">Mavsum Nomi & Mavzusi:</label>
+              <input type="text" id="admin-season-title" class="amount-input w-100 mt-1" placeholder="Mavsum sarlavhasi">
+              <textarea id="admin-season-desc" class="amount-input w-100 mt-1" rows="2" placeholder="Mavsum tavsifi"></textarea>
+            </div>
+            <div class="d-flex gap-2 mb-2">
+              <input type="number" id="admin-season-extend-days" class="amount-input flex-1" placeholder="+/- Muddat (kun)">
+              <button class="btn btn-secondary flex-1 py-1" id="btn-admin-update-season">Saqlash</button>
+            </div>
+            <button class="btn w-100 py-2 mt-2" id="btn-admin-conclude-season" style="background:#e63946; color:#fff; font-weight:700;">
+              🛑 Mavsumni Majburiy Yakunlash (Snapshot & Reset)
+            </button>
           </div>
         </div>
       </div>

@@ -3573,6 +3573,339 @@
     }
   }
 
+  // --- SEASON & SEASON PASS LOGIC ---
+  let cachedSeasonData = null;
+
+  async function openSeasonModal() {
+    showModal('season-modal');
+    await loadSeasonData();
+  }
+
+  function closeSeasonModal() {
+    hideModal('season-modal');
+  }
+
+  async function loadSeasonData() {
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+
+      const resp = await fetch('/api/actions/season/hub', { method: 'GET', headers: headers });
+      const res = await resp.json();
+      if (!resp.ok || !res.success) throw new Error(res.detail || 'Mavsum ma‘lumotlarini yuklab bo‘lmadi.');
+
+      cachedSeasonData = res.data;
+      renderSeasonHub(res.data);
+    } catch (err) {
+      console.error('Season load error:', err);
+      showToast(err.message, 'error');
+    }
+  }
+
+  function renderSeasonHub(data) {
+    if (!data) return;
+    const season = data.season || {};
+    const ps = data.player_state || {};
+    const tiers = data.tiers || [];
+    const leaderboard = data.leaderboard || [];
+    const fame = data.hall_of_fame || [];
+
+    // Header & Countdown
+    const badgeEl = document.getElementById('sp-season-badge');
+    if (badgeEl) badgeEl.textContent = `👑 ${season.season_number || 1}-Mavsum`;
+
+    const countdownEl = document.getElementById('sp-countdown');
+    if (countdownEl) countdownEl.textContent = `⏳ ${season.days_left || 0}k ${season.hours_left || 0}s ${season.minutes_left || 0}d`;
+
+    const titleEl = document.getElementById('sp-theme-title');
+    if (titleEl) titleEl.textContent = season.title || 'Temir Taxt Qadami';
+
+    const descEl = document.getElementById('sp-theme-desc');
+    if (descEl) descEl.textContent = season.theme_description || '';
+
+    // Profile Quick Banner
+    const profSeasonTitle = document.getElementById('prof-season-title');
+    if (profSeasonTitle) profSeasonTitle.textContent = `${season.season_number || 1}-Mavsum: ${season.title || 'Temir Taxt Qadami'}`;
+
+    const profSeasonSub = document.getElementById('prof-season-status-sub');
+    if (profSeasonSub) profSeasonSub.textContent = `Tier ${ps.pass_tier || 1} • ${formatNum(ps.season_points || 0)} SO • ${ps.has_premium_pass ? '👑 Premium' : 'Bepul'}`;
+
+    // Player Status
+    const myPointsEl = document.getElementById('sp-my-points');
+    if (myPointsEl) myPointsEl.textContent = `⭐ ${formatNum(ps.season_points || 0)} SO`;
+
+    const myRankEl = document.getElementById('sp-my-rank');
+    if (myRankEl) myRankEl.textContent = `Reyting: #${ps.my_rank || 1}`;
+
+    const myTierLbl = document.getElementById('sp-my-tier-lbl');
+    if (myTierLbl) myTierLbl.textContent = `Tier ${ps.pass_tier || 1} / 20`;
+
+    const myXpLbl = document.getElementById('sp-my-xp-lbl');
+    if (myXpLbl) myXpLbl.textContent = `${ps.xp_in_current_tier || 0} / 100 XP`;
+
+    const xpPct = Math.min(100, Math.floor(((ps.xp_in_current_tier || 0) / 100) * 100));
+    const xpBar = document.getElementById('sp-xp-bar');
+    if (xpBar) xpBar.style.width = `${xpPct}%`;
+
+    // Buy Button status
+    const buyBtn = document.getElementById('btn-sp-buy-pass');
+    if (buyBtn) {
+      if (ps.has_premium_pass) {
+        buyBtn.textContent = '👑 Premium Pass Faol';
+        buyBtn.disabled = true;
+        buyBtn.classList.remove('btn-primary');
+        buyBtn.classList.add('btn-secondary');
+      } else {
+        buyBtn.textContent = '⭐ Premium Pass (250 Stars)';
+        buyBtn.disabled = false;
+        buyBtn.classList.add('btn-primary');
+        buyBtn.classList.remove('btn-secondary');
+      }
+    }
+
+    // Render 20 Tiers Track
+    const tiersContainer = document.getElementById('sp-tiers-container');
+    if (tiersContainer) {
+      tiersContainer.innerHTML = tiers.map(t => {
+        const isReached = t.is_reached;
+        const free = t.free || {};
+        const prem = t.premium || {};
+
+        const getBtnHtml = (trk, info) => {
+          if (info.status === 'claimed') {
+            return `<button class="btn-tier-claim claimed">✅ Olindi</button>`;
+          } else if (info.status === 'claimable') {
+            return `<button class="btn-tier-claim claimable" data-tier="${t.tier}" data-track="${trk}">🎁 Olish</button>`;
+          } else if (info.status === 'requires_premium') {
+            return `<button class="btn-tier-claim requires-premium" data-action="buy_pass">⭐ Pass Kerak</button>`;
+          } else {
+            return `<button class="btn-tier-claim locked" disabled>🔒 Qulf</button>`;
+          }
+        };
+
+        return `
+          <div class="tier-item-row ${isReached ? 'reached' : ''}">
+            <div class="tier-badge-col">
+              <span class="tier-badge-num">T${t.tier}</span>
+              <span style="font-size:9px; color:var(--text-secondary);">${t.xp_required}XP</span>
+            </div>
+            <div class="tier-cards-container">
+              <!-- Free Track -->
+              <div class="tier-track-card free">
+                <div>
+                  <div class="tier-track-label">Bepul</div>
+                  <div class="tier-reward-title">${free.icon || '🎖️'} ${escapeHtml(free.name)}</div>
+                </div>
+                ${getBtnHtml('free', free)}
+              </div>
+              <!-- Premium Track -->
+              <div class="tier-track-card premium">
+                <div>
+                  <div class="tier-track-label">👑 Premium</div>
+                  <div class="tier-reward-title">${prem.icon || '⭐'} ${escapeHtml(prem.name)}</div>
+                </div>
+                ${getBtnHtml('premium', prem)}
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      // Wire claim listeners
+      tiersContainer.querySelectorAll('.btn-tier-claim.claimable').forEach(b => {
+        b.addEventListener('click', async () => {
+          const tier = parseInt(b.getAttribute('data-tier'));
+          const track = b.getAttribute('data-track');
+          await handleClaimTier(tier, track);
+        });
+      });
+
+      tiersContainer.querySelectorAll('.btn-tier-claim.requires-premium').forEach(b => {
+        b.addEventListener('click', () => {
+          haptic('light');
+          handleBuySeasonPass();
+        });
+      });
+    }
+
+    // Render Leaderboard
+    const lbContainer = document.getElementById('sp-leaderboard-list');
+    if (lbContainer) {
+      if (!leaderboard.length) {
+        lbContainer.innerHTML = '<div class="text-secondary text-center py-2" style="font-size:11px;">Mavsum reytingi shakllanmoqda...</div>';
+      } else {
+        lbContainer.innerHTML = leaderboard.map(l => `
+          <div class="card p-2 mb-2 d-flex justify-between align-center" style="font-size:11px; background:rgba(255,255,255,0.02);">
+            <div>
+              <strong class="text-gold">#${l.rank} ${escapeHtml(l.name)}</strong>
+              <div class="text-secondary" style="font-size:10px;">${escapeHtml(l.title)} • Tier ${l.pass_tier}</div>
+            </div>
+            <span class="season-so-pill">${formatNum(l.season_points)} SO</span>
+          </div>
+        `).join('');
+      }
+    }
+
+    // Render Hall of Fame
+    const fameContainer = document.getElementById('sp-fame-list');
+    if (fameContainer) {
+      if (!fame.length) {
+        fameContainer.innerHTML = '<div class="text-secondary text-center py-2" style="font-size:11px;">Hozircha yakunlangan mavsumlar yo‘q.</div>';
+      } else {
+        fameContainer.innerHTML = fame.map(h => `
+          <div class="card p-2 mb-2" style="font-size:11px; border-left:3px solid #d4af37;">
+            <div class="d-flex justify-between align-center">
+              <strong class="text-gold font-serif">${h.season_number}-Mavsum Chempioni</strong>
+              <span class="text-secondary" style="font-size:10px;">${escapeHtml(h.concluded_at)}</span>
+            </div>
+            <div class="mt-1">
+              👑 Qirol: <strong>${escapeHtml(h.king_name)}</strong> (${escapeHtml(h.winner_house_name)})<br>
+              ⭐ Eng ko'p SO: <strong>${escapeHtml(h.top_so_player_name)}</strong> (${formatNum(h.top_so_points)} SO)
+            </div>
+          </div>
+        `).join('');
+      }
+    }
+  }
+
+  async function handleClaimTier(tier, track) {
+    if (isActionPending) return;
+    isActionPending = true;
+    haptic('medium');
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+
+      const resp = await fetch('/api/actions/season/claim-tier', {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({ tier: tier, track: track })
+      });
+      const res = await resp.json();
+      if (!resp.ok || !res.success) throw new Error(res.detail || 'Mukofotni olib bo‘lmadi.');
+
+      showToast(res.message, 'success');
+      haptic('heavy');
+      await loadSeasonData();
+      await fetchDashboard();
+    } catch (e) {
+      showToast(e.message, 'error');
+    } finally {
+      isActionPending = false;
+    }
+  }
+
+  async function handleClaimAllSeasonTiers() {
+    if (isActionPending) return;
+    isActionPending = true;
+    haptic('medium');
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+
+      const resp = await fetch('/api/actions/season/claim-all', { method: 'POST', headers: headers });
+      const res = await resp.json();
+      if (!resp.ok || !res.success) throw new Error(res.detail || 'Mukofotlarni olib bo‘lmadi.');
+
+      showToast(res.message, 'success');
+      haptic('heavy');
+      await loadSeasonData();
+      await fetchDashboard();
+    } catch (e) {
+      showToast(e.message, 'error');
+    } finally {
+      isActionPending = false;
+    }
+  }
+
+  async function handleBuySeasonPass() {
+    if (isActionPending) return;
+    isActionPending = true;
+    haptic('medium');
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+
+      const resp = await fetch('/api/actions/season/buy-pass', {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({ payment_method: 'stars' })
+      });
+      const res = await resp.json();
+      if (!resp.ok || !res.success) throw new Error(res.detail || 'Pass xarid qilib bo‘lmadi.');
+
+      showToast(res.message, 'success');
+      haptic('heavy');
+      await loadSeasonData();
+      await fetchDashboard();
+    } catch (e) {
+      showToast(e.message, 'error');
+    } finally {
+      isActionPending = false;
+    }
+  }
+
+  async function handleAdminUpdateSeason() {
+    if (isActionPending) return;
+    const title = document.getElementById('admin-season-title')?.value;
+    const desc = document.getElementById('admin-season-desc')?.value;
+    const extendDays = parseInt(document.getElementById('admin-season-extend-days')?.value) || 0;
+
+    isActionPending = true;
+    haptic('medium');
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+
+      const resp = await fetch('/api/actions/admin/season/update', {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({
+          title: title || undefined,
+          theme_description: desc || undefined,
+          extend_days: extendDays || undefined,
+        })
+      });
+      const res = await resp.json();
+      if (!resp.ok || !res.success) throw new Error(res.detail || 'Mavsumni yangilab bo‘lmadi.');
+
+      showToast(res.message, 'success');
+      haptic('heavy');
+      await loadAdminData();
+    } catch (e) {
+      showToast(e.message, 'error');
+    } finally {
+      isActionPending = false;
+    }
+  }
+
+  async function handleAdminConcludeSeason() {
+    if (isActionPending) return;
+    if (!confirm('⚠️ DIQQAT! Mavsumni majburiy yakunlash, barcha o‘yinchilarga yakuniy mukofotlarni berish va Yumshoq Reset (Soft-Reset) qilishni tasdiqlaysizmi?')) {
+      return;
+    }
+
+    isActionPending = true;
+    haptic('heavy');
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+
+      const resp = await fetch('/api/actions/admin/season/conclude', { method: 'POST', headers: headers });
+      const res = await resp.json();
+      if (!resp.ok || !res.success) throw new Error(res.detail || 'Mavsumni yakunlab bo‘lmadi.');
+
+      showToast(res.message, 'success');
+      haptic('heavy');
+      await loadAdminData();
+      await fetchDashboard();
+    } catch (e) {
+      showToast(e.message, 'error');
+    } finally {
+      isActionPending = false;
+    }
+  }
+
   // --- FRONTEND ERROR REPORTING (AUTOMATIC TELEGRAM ERROR LOGGING) ---
   const _reportedErrorsMap = new Map();
 
@@ -3873,6 +4206,7 @@
       { closeId: 'modal-raven-close', overlayId: 'raven-modal', closeFn: closeRavenModal },
       { closeId: 'modal-hero-close', overlayId: 'hero-modal', closeFn: closeHeroModal },
       { closeId: 'modal-donate-close', overlayId: 'donate-modal', closeFn: closeDonateModal },
+      { closeId: 'modal-season-close', overlayId: 'season-modal', closeFn: closeSeasonModal },
       { closeId: 'modal-admin-close', overlayId: 'admin-modal', closeFn: closeAdminModal },
     ];
 
@@ -3882,6 +4216,29 @@
         if (e.target.id === b.overlayId) b.closeFn();
       });
     });
+
+    // Season Modal & Season Pass Listeners
+    document.getElementById('profile-open-season-btn')?.addEventListener('click', () => {
+      haptic('light');
+      openSeasonModal();
+    });
+
+    document.querySelectorAll('.season-tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        haptic('light');
+        document.querySelectorAll('.season-tab-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const tab = btn.getAttribute('data-tab');
+        document.querySelectorAll('.season-tab-content').forEach(c => c.style.display = 'none');
+        const target = document.getElementById(`sp-tab-${tab}`);
+        if (target) target.style.display = 'block';
+      });
+    });
+
+    document.getElementById('btn-sp-buy-pass')?.addEventListener('click', handleBuySeasonPass);
+    document.getElementById('btn-sp-claim-all')?.addEventListener('click', handleClaimAllSeasonTiers);
+    document.getElementById('btn-admin-update-season')?.addEventListener('click', handleAdminUpdateSeason);
+    document.getElementById('btn-admin-conclude-season')?.addEventListener('click', handleAdminConcludeSeason);
 
     // Map Region Filters
     document.querySelectorAll('#map-region-filters .pill-btn').forEach(btn => {
@@ -4039,6 +4396,12 @@
       case 'vip':
         switchTab('tab-profile');
         setTimeout(() => openDonateModal(), 300);
+        break;
+      case 'season':
+      case 'pass':
+      case 'season_pass':
+        switchTab('tab-profile');
+        setTimeout(() => openSeasonModal(), 300);
         break;
       case 'admin':
         switchTab('tab-profile');

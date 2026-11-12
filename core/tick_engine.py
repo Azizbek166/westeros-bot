@@ -406,6 +406,11 @@ async def process_due_marches(bot_app=None):
                     if can_annex:
                         territory.owner_house_id = attacker.house_id
                         territory.conquered_by_user_id = attacker.id
+                        try:
+                            from services.season_service import record_season_activity
+                            await record_season_activity(session, attacker.id, "march_win")
+                        except Exception:
+                            pass
                         # Zabt etilgan qal'a mudofaa devorlari shikastlangan
                         territory.defense = min(territory.defense or 0, 300)
                         territory.castle_level = 1

@@ -179,6 +179,15 @@ async def init_db():
                 "ALTER TABLE users ADD COLUMN dragon_skin VARCHAR(50)",
                 "ALTER TABLE users ADD COLUMN message_effect VARCHAR(50)",
                 "ALTER TABLE users ADD COLUMN has_starter_pack BOOLEAN DEFAULT 0",
+                "ALTER TABLE season_states ADD COLUMN title VARCHAR(150) DEFAULT '1-Mavsum: Temir Taxt Qadami'",
+                "ALTER TABLE season_states ADD COLUMN theme_description TEXT DEFAULT 'Vesterosda hukmronlik uchun yangi kurash davri.'",
+                "ALTER TABLE season_states ADD COLUMN is_concluded BOOLEAN DEFAULT 0",
+                "ALTER TABLE season_states ADD COLUMN snapshot_data TEXT DEFAULT '{}'",
+                "ALTER TABLE hall_of_fame ADD COLUMN top_so_user_id INTEGER",
+                "ALTER TABLE hall_of_fame ADD COLUMN top_so_player_name VARCHAR(100)",
+                "ALTER TABLE hall_of_fame ADD COLUMN top_so_points INTEGER DEFAULT 0",
+                "ALTER TABLE hall_of_fame ADD COLUMN top_guild_name VARCHAR(100)",
+                "ALTER TABLE hall_of_fame ADD COLUMN snapshot_json TEXT DEFAULT '{}'",
             ]:
                 try:
                     await conn.execute(text(alter_stmt))
@@ -273,6 +282,15 @@ async def init_db():
                 "ALTER TABLE territories ADD COLUMN IF NOT EXISTS last_tax_collected_at TIMESTAMP",
                 "ALTER TABLE dragons ADD COLUMN IF NOT EXISTS has_laid_egg BOOLEAN DEFAULT FALSE",
                 "ALTER TABLE dragons ADD COLUMN IF NOT EXISTS artifact_code VARCHAR(50)",
+                "ALTER TABLE season_states ADD COLUMN IF NOT EXISTS title VARCHAR(150) DEFAULT '1-Mavsum: Temir Taxt Qadami'",
+                "ALTER TABLE season_states ADD COLUMN IF NOT EXISTS theme_description TEXT DEFAULT 'Vesterosda hukmronlik uchun yangi kurash davri.'",
+                "ALTER TABLE season_states ADD COLUMN IF NOT EXISTS is_concluded BOOLEAN DEFAULT FALSE",
+                "ALTER TABLE season_states ADD COLUMN IF NOT EXISTS snapshot_data TEXT DEFAULT '{}'",
+                "ALTER TABLE hall_of_fame ADD COLUMN IF NOT EXISTS top_so_user_id INTEGER",
+                "ALTER TABLE hall_of_fame ADD COLUMN IF NOT EXISTS top_so_player_name VARCHAR(100)",
+                "ALTER TABLE hall_of_fame ADD COLUMN IF NOT EXISTS top_so_points INTEGER DEFAULT 0",
+                "ALTER TABLE hall_of_fame ADD COLUMN IF NOT EXISTS top_guild_name VARCHAR(100)",
+                "ALTER TABLE hall_of_fame ADD COLUMN IF NOT EXISTS snapshot_json TEXT DEFAULT '{}'",
             ]:
                 try:
                     await conn.execute(text(pg_alter))

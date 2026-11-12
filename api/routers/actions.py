@@ -1188,4 +1188,122 @@ async def post_admin_refund_endpoint(
     return {"success": True, "message": msg}
 
 
+# ============================================================
+# SEZON VA SEASON PASS (MAVSUM PASPORTI & SHON-SHARAF)
+# ============================================================
+
+class ClaimSeasonTierRequest(BaseModel):
+    tier: int = Field(..., ge=1, le=20, description="Da'vo qilinayotgan tier raqami (1-20)")
+    track: str = Field("free", description="'free' yoki 'premium'")
+
+
+class BuySeasonPassRequest(BaseModel):
+    payment_method: str = Field("stars", description="'stars' yoki 'card'")
+    transaction_id: Optional[str] = Field(None, description="To'lov tranzaksiya identifikatori")
+
+
+class AdminUpdateSeasonRequest(BaseModel):
+    title: Optional[str] = Field(None, max_length=150)
+    theme_description: Optional[str] = Field(None)
+    extend_days: Optional[int] = Field(None, ge=-30, le=90)
+
+
+@router.get("/season/hub")
+async def get_season_hub_endpoint(
+    auth: Tuple[models.User, Dict[str, Any]] = Depends(get_current_player),
+    session: AsyncSession = Depends(get_db_session),
+) -> Dict[str, Any]:
+    """Joriy mavsum ma'lumotlari, Season Pass, SO reytingi va 20 ta tier holati"""
+    user, _ = auth
+    data = await services.get_season_hub_data(session, user.id)
+    return {"success": True, "data": data}
+
+
+@router.post("/season/claim-tier")
+async def post_claim_season_tier_endpoint(
+    req: ClaimSeasonTierRequest,
+    auth: Tuple[models.User, Dict[str, Any]] = Depends(get_current_player),
+    session: AsyncSession = Depends(get_db_session),
+) -> Dict[str, Any]:
+    """Season Pass bitta tier mukofotini qabul qilish"""
+    user, _ = auth
+    ok, msg = await services.claim_season_pass_tier(session, user, req.tier, req.track)
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
+    return {"success": True, "message": msg}
+
+
+@router.post("/season/claim-all")
+async def post_claim_all_season_tiers_endpoint(
+    auth: Tuple[models.User, Dict[str, Any]] = Depends(get_current_player),
+    session: AsyncSession = Depends(get_db_session),
+) -> Dict[str, Any]:
+    """Barcha erishilgan ochiq tier mukofotlarini bir zumda olish"""
+    user, _ = auth
+    count, items = await services.claim_all_available_pass_tiers(session, user)
+    if count == 0:
+        return {"success": True, "message": "Hozirda olinmagan yangi mukofotlar yo'q.", "claimed_count": 0}
+    return {
+        "success": True,
+        "message": f"{count} ta tier mukofoti qabul qilindi!",
+        "claimed_count": count,
+        "items": items,
+    }
+
+
+@router.post("/season/buy-pass")
+async def post_buy_season_pass_endpoint(
+    req: BuySeasonPassRequest,
+    auth: Tuple[models.User, Dict[str, Any]] = Depends(get_current_player),
+    session: AsyncSession = Depends(get_db_session),
+) -> Dict[str, Any]:
+    """Premium Season Pass xarid qilish (retroaktiv barcha o'tgan mukofotlar bilan)"""
+    user, _ = auth
+    ok, msg = await services.buy_premium_season_pass(
+        session=session,
+        user=user,
+        payment_method=req.payment_method,
+        telegram_charge_id=req.transaction_id,
+    )
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
+    return {"success": True, "message": msg}
+
+
+@router.post("/admin/season/conclude")
+async def post_admin_season_conclude_endpoint(
+    auth: Tuple[models.User, Dict[str, Any]] = Depends(require_admin_player),
+    session: AsyncSession = Depends(get_db_session),
+) -> Dict[str, Any]:
+    """Admin: Mavsumni majburiy yakunlash, snapshot olish, mukofotlash va Soft-Reset"""
+    ok, announcement, summary = await services.conclude_and_rollover_season(session, force=True)
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=announcement)
+    return {
+        "success": True,
+        "message": f"{summary.get('concluded_season_number')}-Mavsum muvaffaqiyatli yakunlandi va {summary.get('next_season_number')}-Mavsum boshlandi!",
+        "summary": summary,
+        "announcement": announcement,
+    }
+
+
+@router.post("/admin/season/update")
+async def post_admin_season_update_endpoint(
+    req: AdminUpdateSeasonRequest,
+    auth: Tuple[models.User, Dict[str, Any]] = Depends(require_admin_player),
+    session: AsyncSession = Depends(get_db_session),
+) -> Dict[str, Any]:
+    """Admin: Mavsum sarlavhasi, mavzusi yoki muddatini o'zgartirish"""
+    ok, msg, data = await services.admin_update_season_config(
+        session=session,
+        title=req.title,
+        theme_description=req.theme_description,
+        extend_days=req.extend_days,
+    )
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
+    return {"success": True, "message": msg, "data": data}
+
+
+
 

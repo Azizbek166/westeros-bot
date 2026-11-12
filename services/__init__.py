@@ -75,6 +75,17 @@ from services.admin_service import (
     admin_set_ban_status_service,
     admin_adjust_resources_service,
 )
+from services.season_service import (
+    get_or_create_active_season,
+    get_or_create_player_season_state,
+    record_season_activity,
+    claim_season_pass_tier,
+    claim_all_available_pass_tiers,
+    buy_premium_season_pass,
+    get_season_hub_data,
+    conclude_and_rollover_season,
+    admin_update_season_config,
+)
 
 __all__ = [
     "get_player_profile",
@@ -141,4 +152,13 @@ __all__ = [
     "get_admin_dashboard_data",
     "admin_set_ban_status_service",
     "admin_adjust_resources_service",
+    "get_or_create_active_season",
+    "get_or_create_player_season_state",
+    "record_season_activity",
+    "claim_season_pass_tier",
+    "claim_all_available_pass_tiers",
+    "buy_premium_season_pass",
+    "get_season_hub_data",
+    "conclude_and_rollover_season",
+    "admin_update_season_config",
 ]

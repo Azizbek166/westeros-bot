@@ -541,17 +541,65 @@ class IronBank(Base):
 
 
 # ============================================================
-# 23. MAVSUMLAR TIZIMI (30-DAY SEASONS)
+# 23. MAVSUMLAR TIZIMI (42-DAY SEASONS & SEASON PASS)
 # ============================================================
 class SeasonState(Base):
     __tablename__ = "season_states"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     season_number = Column(Integer, default=1, unique=True)
+    title = Column(String(150), default="1-Mavsum: Temir Taxt Qadami")
+    theme_description = Column(Text, default="Vesterosda hukmronlik uchun yangi kurash davri.")
     start_date = Column(DateTime, default=datetime.utcnow)
     end_date = Column(DateTime, nullable=False)
     is_active = Column(Boolean, default=True)
+    is_concluded = Column(Boolean, default=False)
+    snapshot_data = Column(Text, default="{}")
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# ============================================================
+# 23.1 MAVSUMIY O'YINCHI HOLATI VA SEASON PASS
+# ============================================================
+class SeasonPlayerState(Base):
+    __tablename__ = "season_player_states"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    season_number = Column(Integer, nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    season_points = Column(Integer, default=0, index=True)      # SO (Season Ochkolari)
+    season_xp = Column(Integer, default=0)                      # Season Pass XP
+    pass_tier = Column(Integer, default=1)                      # Erishilgan tier (1..20)
+    has_premium_pass = Column(Boolean, default=False)           # Pullik Pass olinganmi
+    claimed_free_tiers_json = Column(Text, default="[]")        # Olingan bepul tierlar ro'yxati
+    claimed_premium_tiers_json = Column(Text, default="[]")     # Olingan pullik tierlar ro'yxati
+    duels_won = Column(Integer, default=0)
+    marches_won = Column(Integer, default=0)
+    quests_completed = Column(Integer, default=0)
+    guild_contribution_points = Column(Integer, default=0)
+    active_days_count = Column(Integer, default=0)
+    rewards_granted = Column(Boolean, default=False)            # Mavsum yakunida mukofot berildimi
+    final_rank = Column(Integer, nullable=True)                 # Yakuniy reyting o'rni
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("User")
+
+
+# ============================================================
+# 23.2 MAVSUMIY MUKOFOTLARNI BIR MARTALIK (IDEMPOTENT) TOPSHIRISH
+# ============================================================
+class SeasonRewardClaim(Base):
+    __tablename__ = "season_reward_claims"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    season_number = Column(Integer, nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    reward_type = Column(String(50), nullable=False)            # top_1, top_3, top_10, top_100, participant, guild_top1
+    reward_details_json = Column(Text, default="{}")
+    granted_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User")
 
 
 # ============================================================
@@ -568,6 +616,11 @@ class HallOfFame(Base):
     king_name = Column(String(100), nullable=True)
     top_warrior_name = Column(String(100), nullable=True)
     top_warrior_prestige = Column(Integer, default=0)
+    top_so_user_id = Column(Integer, nullable=True, index=True)
+    top_so_player_name = Column(String(100), nullable=True)
+    top_so_points = Column(Integer, default=0)
+    top_guild_name = Column(String(100), nullable=True)
+    snapshot_json = Column(Text, default="{}")
     concluded_at = Column(DateTime, default=datetime.utcnow)
 
     winner_house = relationship("House", foreign_keys=[winner_house_id])

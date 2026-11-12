@@ -93,6 +93,12 @@ async def fight_ai_champion_service(
         bet_gold=bet_gold,
         player_tactic=player_tactic,
     )
+    if res.get("won"):
+        try:
+            from services.season_service import record_season_activity
+            await record_season_activity(session, user.id, "duel_win")
+        except Exception:
+            pass
     return res
 
 

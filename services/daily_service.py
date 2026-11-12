@@ -70,6 +70,13 @@ async def claim_daily_streak_service(
         return False, "Foydalanuvchi topilmadi.", {}
 
     ok, msg = await crud.claim_daily_bonus(session, user.id)
+    if ok:
+        try:
+            from services.season_service import record_season_activity
+            await record_season_activity(session, user.id, "active_day_streak")
+        except Exception:
+            pass
+
     return ok, msg, {
         "user_id": user.id,
         "streak_count": user.streak_count,
@@ -96,6 +103,13 @@ async def claim_daily_quest_service(
         return False, "Foydalanuvchi topilmadi.", {}
 
     ok, msg = await crud.claim_daily_quest_reward(session, user.id, quest_key)
+    if ok:
+        try:
+            from services.season_service import record_season_activity
+            await record_season_activity(session, user.id, "daily_quest")
+        except Exception:
+            pass
+
     return ok, msg, {
         "user_id": user.id,
         "quest_key": quest_key,
