@@ -185,14 +185,16 @@ body {
    CONTENT VIEWPORT & TABS
    ============================================================ */
 
+.content-wrapper,
 .content-viewport {
   flex: 1;
-  padding: 14px 14px calc(72px + var(--safe-bottom)) 14px;
+  padding: 14px 14px calc(95px + var(--safe-bottom, 20px)) 14px;
 }
 
 .view-panel {
   display: none;
   animation: fadeIn 0.25s ease-out forwards;
+  padding-bottom: 20px;
 }
 
 .view-panel.active {
