@@ -322,39 +322,82 @@
   function renderHeaderAndProfile(prof, fullData) {
     if (!prof) return;
 
-    // Header Brief
+    // Header Brief (optional elements)
     const house = prof.house || {};
-    document.getElementById('hdr-house-emoji').textContent = house.emoji || '🛡️';
-    document.getElementById('hdr-hero-name').textContent = prof.hero_name || prof.full_name || 'Lord';
-    document.getElementById('hdr-house-name').textContent = house.name || 'Mustaqil Xonadon';
+    const heroName = prof.hero_name || prof.full_name || 'Lord';
+    const houseName = house.name || 'Mustaqil Xonadon';
+    const houseEmoji = house.emoji || '🛡️';
+
+    const hdrHouseEmoji = document.getElementById('hdr-house-emoji');
+    if (hdrHouseEmoji) hdrHouseEmoji.textContent = houseEmoji;
+
+    const hdrHeroName = document.getElementById('hdr-hero-name');
+    if (hdrHeroName) hdrHeroName.textContent = heroName;
+
+    const hdrHouseName = document.getElementById('hdr-house-name');
+    if (hdrHouseName) hdrHouseName.textContent = houseName;
 
     // VIP Badge
     const vipEl = document.getElementById('hdr-vip-badge');
-    if (prof.vip_tier) {
-      vipEl.textContent = prof.vip_tier.toUpperCase();
-      vipEl.style.display = 'inline-block';
-    } else {
-      vipEl.style.display = 'none';
+    if (vipEl) {
+      if (prof.vip_tier) {
+        vipEl.textContent = prof.vip_tier.toUpperCase();
+        vipEl.style.display = 'inline-block';
+      } else {
+        vipEl.style.display = 'none';
+      }
     }
 
     // Sticky Resources Bar
-    document.getElementById('res-gold').textContent = formatNum(prof.gold);
-    document.getElementById('res-food').textContent = formatNum(prof.food);
-    document.getElementById('res-iron').textContent = formatNum(prof.iron);
-    document.getElementById('res-prestige').textContent = formatNum(prof.prestige);
+    const resGold = document.getElementById('res-gold');
+    if (resGold) resGold.textContent = formatNum(prof.gold || 0);
+
+    const resFood = document.getElementById('res-food');
+    if (resFood) resFood.textContent = formatNum(prof.food || 0);
+
+    const resIron = document.getElementById('res-iron');
+    if (resIron) resIron.textContent = formatNum(prof.iron || 0);
+
+    const resPrestige = document.getElementById('res-prestige');
+    if (resPrestige) resPrestige.textContent = formatNum(prof.prestige || 0);
+
+    // Profile Hero Card: Name, House, Rank, Avatar
+    const profName = document.getElementById('prof-name');
+    if (profName) profName.textContent = heroName;
+
+    const profHouse = document.getElementById('prof-house');
+    if (profHouse) profHouse.textContent = `${houseEmoji ? houseEmoji + ' ' : ''}${houseName}`;
+
+    const profRank = document.getElementById('prof-rank');
+    if (profRank) profRank.textContent = prof.rank_title || prof.level_title || prof.title || 'Ritsarlar Safida';
+
+    const profAvatar = document.getElementById('prof-avatar');
+    if (profAvatar && houseEmoji) profAvatar.textContent = houseEmoji;
 
     // Profile Card: Level & XP
-    document.getElementById('prof-level').textContent = `${prof.level || 1}-Daraja`;
-    document.getElementById('prof-level-title').textContent = prof.level_title || 'Lord';
+    const profLevel = document.getElementById('prof-level');
+    if (profLevel) profLevel.textContent = `${prof.level || 1}-Daraja`;
+
+    const profLevelTitle = document.getElementById('prof-level-title');
+    if (profLevelTitle) profLevelTitle.textContent = prof.level_title || 'Lord';
+
     const xpPct = prof.xp_progress_pct || 0;
-    document.getElementById('prof-xp-fill').style.width = `${Math.min(100, Math.max(0, xpPct))}%`;
-    document.getElementById('prof-xp-text').textContent = `${formatNum(prof.xp)} / ${formatNum(prof.xp_next_req)} (${xpPct}%)`;
+    const xpBar = document.getElementById('prof-xp-bar') || document.getElementById('prof-xp-fill');
+    if (xpBar) xpBar.style.width = `${Math.min(100, Math.max(0, xpPct))}%`;
+
+    const xpVal = document.getElementById('prof-xp-val') || document.getElementById('prof-xp-text');
+    if (xpVal) xpVal.textContent = `${formatNum(prof.xp || 0)} / ${formatNum(prof.xp_next_req || 100)} (${xpPct}%)`;
 
     // Combat Stats
-    document.getElementById('prof-atk').textContent = formatNum(prof.hero_attack || 50);
-    document.getElementById('prof-def').textContent = formatNum(prof.hero_defense || 50);
+    const profAtk = document.getElementById('prof-atk');
+    if (profAtk) profAtk.textContent = formatNum(prof.hero_attack || 50);
+
+    const profDef = document.getElementById('prof-def');
+    if (profDef) profDef.textContent = formatNum(prof.hero_defense || 50);
+
     const armyTotal = prof.army?.total_troops || prof.army?.total || fullData?.army?.troops?.total || 0;
-    document.getElementById('prof-army-total').textContent = formatNum(armyTotal);
+    const profArmy = document.getElementById('prof-army-total');
+    if (profArmy) profArmy.textContent = formatNum(armyTotal);
 
     // Castles Count in Profile Card
     const castlesCount = fullData?.castles?.total_castles ?? (fullData?.castles?.castles ? fullData.castles.castles.length : 0);
@@ -362,33 +405,41 @@
     if (castlesEl) castlesEl.textContent = formatNum(castlesCount);
 
     // Household Info
-    document.getElementById('prof-title').textContent = prof.title || 'Faxriy unvon berilmagan';
-    document.getElementById('prof-status').textContent = prof.custom_status ? `"${prof.custom_status}"` : 'Status o‘rnatilmagan';
-    
+    const profTitle = document.getElementById('prof-title');
+    if (profTitle) profTitle.textContent = prof.title || 'Faxriy unvon berilmagan';
+
+    const profStatus = document.getElementById('prof-status');
+    if (profStatus) profStatus.textContent = prof.custom_status ? `"${prof.custom_status}"` : 'Status o‘rnatilmagan';
+
     // Shield
     const shieldEl = document.getElementById('prof-shield');
-    const isShieldActive = prof.peace_shield?.is_active || prof.peace_shield?.active || false;
-    const hoursLeft = prof.peace_shield?.hours_left ?? Math.ceil((prof.peace_shield?.remaining_seconds || 0) / 3600);
-    if (isShieldActive) {
-      shieldEl.textContent = `Faol (${hoursLeft} soat)`;
-      shieldEl.className = 'info-val text-green';
-    } else {
-      shieldEl.textContent = 'Faol emas';
-      shieldEl.className = 'info-val text-secondary';
+    if (shieldEl) {
+      const isShieldActive = prof.peace_shield?.is_active || prof.peace_shield?.active || false;
+      const hoursLeft = prof.peace_shield?.hours_left ?? Math.ceil((prof.peace_shield?.remaining_seconds || 0) / 3600);
+      if (isShieldActive) {
+        shieldEl.textContent = `Faol (${hoursLeft} soat)`;
+        shieldEl.className = 'info-val text-green';
+      } else {
+        shieldEl.textContent = 'Faol emas';
+        shieldEl.className = 'info-val text-secondary';
+      }
     }
 
     // Guild
     const guildEl = document.getElementById('prof-guild');
-    const g = prof.guild;
-    if (g && (g.name || g.tag || g.in_guild)) {
-      guildEl.textContent = `${g.tag ? g.tag + ' ' : ''}${g.name || 'Gildiya'}`;
-    } else {
-      guildEl.textContent = 'Gildiyada emas';
+    if (guildEl) {
+      const g = prof.guild;
+      if (g && (g.name || g.tag || g.in_guild)) {
+        guildEl.textContent = `${g.tag ? g.tag + ' ' : ''}${g.name || 'Gildiya'}`;
+      } else {
+        guildEl.textContent = 'Gildiyada emas';
+      }
     }
 
     // Income
     const hourlyGold = prof.income_hourly?.gold ?? prof.income_hourly?.total_gold_per_hour ?? 0;
-    document.getElementById('prof-hourly-income').textContent = `+${formatNum(hourlyGold)}🪙 / soat`;
+    const profIncome = document.getElementById('prof-hourly-income');
+    if (profIncome) profIncome.textContent = `+${formatNum(hourlyGold)}🪙 / soat`;
 
     // AI Advisor status refresh
     loadAiAdvisorStatus();

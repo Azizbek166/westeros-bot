@@ -77,40 +77,63 @@ async def _extract_player_state(
     # 1. Xonadon
     house_name = "Xonadonsiz"
     house_power = 0
-    if user.house_id:
-        house = await session.get(models.House, user.house_id)
-        if house:
-            house_name = house.name
-            house_power = house.power or 0
+    try:
+        if user.house_id:
+            house = await session.get(models.House, user.house_id)
+            if house:
+                house_name = getattr(house, "name", "Xonadonsiz")
+                house_power = getattr(house, "prestige", 0) or getattr(house, "power", 0) or 0
+    except Exception as e:
+        logger.warning(f"AI state extract house error: {e}")
 
     # 2. Armiya
-    army_res = await session.execute(
-        select(models.Army).where(models.Army.user_id == user.id)
-    )
-    army = army_res.scalar_one_or_none()
+    army = None
+    try:
+        army_res = await session.execute(
+            select(models.Army).where(models.Army.user_id == user.id)
+        )
+        army = army_res.scalar_one_or_none()
+    except Exception as e:
+        logger.warning(f"AI state extract army error: {e}")
 
     # 3. Qal'alar soni
-    terr_count_res = await session.execute(
-        select(func.count(models.Territory.id)).where(
-            models.Territory.conquered_by_user_id == user.id
+    castles_count = 0
+    try:
+        terr_count_res = await session.execute(
+            select(func.count(models.Territory.id)).where(
+                models.Territory.conquered_by_user_id == user.id
+            )
         )
-    )
-    castles_count = terr_count_res.scalar() or 0
+        castles_count = terr_count_res.scalar() or 0
+    except Exception as e:
+        logger.warning(f"AI state extract castles error: {e}")
 
     # 4. Ajdaho
-    dragon_res = await session.execute(
-        select(models.Dragon).where(models.Dragon.user_id == user.id)
-    )
-    dragon = dragon_res.scalar_one_or_none()
-    dragon_name = dragon.name if dragon else "Mavjud emas"
-    dragon_level = dragon.level if dragon else 0
-    dragon_hunger = getattr(dragon, "hunger", 0) if dragon else 0
+    dragon_name = "Mavjud emas"
+    dragon_level = 0
+    dragon_hunger = 0
+    try:
+        dragon_res = await session.execute(
+            select(models.Dragon).where(models.Dragon.user_id == user.id)
+        )
+        dragon = dragon_res.scalar_one_or_none()
+        if dragon:
+            dragon_name = dragon.name or "Ajdaho"
+            dragon_level = dragon.level or 1
+            dragon_hunger = getattr(dragon, "hunger", 50) or 50
+    except Exception as e:
+        logger.warning(f"AI state extract dragon error: {e}")
 
     # 5. Mavsum holati
-    active_season = await get_or_create_active_season(session)
-    season_number = active_season.season_number if active_season else 1
-    tracker = await get_or_create_player_season_state(session, user.id, season_number)
-    season_points = tracker.season_points if tracker else 0
+    season_number = 1
+    season_points = 0
+    try:
+        active_season = await get_or_create_active_season(session)
+        season_number = active_season.season_number if active_season else 1
+        tracker = await get_or_create_player_season_state(session, user.id, season_number)
+        season_points = tracker.season_points if tracker else 0
+    except Exception as e:
+        logger.warning(f"AI state extract season error: {e}")
 
     # 6. Tinchlik qalqoni
     shield_status = "Yo'q"
@@ -218,15 +241,19 @@ async def ask_council_advisor(
             "cached": True,
         }
 
-    # O'yinchining serverdagi joriy ko'rsatkichlarini olish
-    player_state = await _extract_player_state(session, user)
+    try:
+        # O'yinchining serverdagi joriy ko'rsatkichlarini olish
+        player_state = await _extract_player_state(session, user)
 
-    # 1. Google Gemini API ga so'rov jo'natishga urinish
-    ai_answer = await call_gemini_advisor_api(clean_q, player_state)
+        # 1. Google Gemini API ga so'rov jo'natishga urinish
+        ai_answer = await call_gemini_advisor_api(clean_q, player_state)
 
-    # 2. Agar API ishlamasa yoki sozlanmagan bo'lsa, ichki Westeros Maslahatchisidan foydalanish
-    if not ai_answer:
-        ai_answer = generate_heuristic_advice(clean_q, player_state)
+        # 2. Agar API ishlamasa yoki sozlanmagan bo'lsa, ichki Westeros Maslahatchisidan foydalanish
+        if not ai_answer:
+            ai_answer = generate_heuristic_advice(clean_q, player_state)
+    except Exception as e:
+        logger.error(f"AI maslahatchisi hisoblashda kutilmagan xatolik: {e}")
+        ai_answer = generate_heuristic_advice(clean_q, {"level": user.level or 1, "gold": user.gold or 0})
 
     # Keshga saqlash
     store_cached_answer(clean_q, ai_answer)
