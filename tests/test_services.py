@@ -8,16 +8,13 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker
+from database.db import AsyncSessionLocal, init_db
 import services
 
 
-async def run_stage2_tests(db_url: str = "sqlite+aiosqlite:///test_stage2.db"):
-    engine = create_async_engine(db_url)
-    async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    
-    async with async_session() as session:
+async def run_stage2_tests():
+    await init_db()
+    async with AsyncSessionLocal() as session:
         # 1. Player Profile
         prof = await services.get_player_profile(session, 1)
         assert prof["user_id"] == 1, "Player profile failed"
@@ -64,7 +61,6 @@ async def run_stage2_tests(db_url: str = "sqlite+aiosqlite:///test_stage2.db"):
         assert "active_outbound_marches" in battle, "Battle hub failed"
         print("  [OK] Domain 9 (Battles & Marches): PASSED")
 
-    await engine.dispose()
     print("\n>>> ALL 9 SERVICE DOMAINS VERIFIED 100% OPERATIONAL! <<<")
 
 

@@ -4088,6 +4088,15 @@
   async function reportFrontendError(errData) {
     if (!errData || !errData.error_message) return;
 
+    const errMsg = String(errData.error_message);
+    // Tashqi brauzerdan kesh/initData yo'qligi sababli oddiy xabarlarni log qilmaslik
+    if (errMsg.includes('Autentifikatsiya talab qilinadi') ||
+        errMsg.includes('Telegram ilovasi orqali kiring') ||
+        errMsg.includes('initData yetishmayapti') ||
+        errMsg.includes('401')) {
+      return;
+    }
+
     // Client-side debounce to prevent loop spam (max 1 of same error per 60 seconds)
     const errKey = `${errData.error_type || 'Error'}:${errData.error_message}`;
     const now = Date.now();

@@ -9,6 +9,30 @@ logger = logging.getLogger(__name__)
 UZBEKISTAN_TZ = timezone(timedelta(hours=5))
 
 
+async def _broadcast_event_announcement(bot, text: str, reply_markup=None):
+    """O'yinchilarga xavfsiz va FloodWait'dan himoyalangan xabarnoma tarqatish (fon rejimida)"""
+    try:
+        async with AsyncSessionLocal() as session:
+            users_res = await session.execute(models.User.__table__.select())
+            rows = users_res.fetchall()
+            for r in rows:
+                tg_id = getattr(r, "telegram_id", None)
+                if tg_id:
+                    try:
+                        await bot.send_message(
+                            chat_id=tg_id,
+                            text=text,
+                            parse_mode="Markdown",
+                            reply_markup=reply_markup
+                        )
+                    except Exception:
+                        pass
+                    # Telegram limitlariga mos ravishda tanaffus (sekundiga ~25 ta xabar)
+                    await asyncio.sleep(0.04)
+    except Exception as e:
+        logger.error(f"Xabarnoma tarqatishda xatolik: {e}")
+
+
 async def start_event_by_code(app, event_code: str):
     """Eventni boshlash, e'lon qilish va bazaga kiritish"""
     now_uzb = datetime.utcnow() + timedelta(hours=5)
@@ -51,23 +75,9 @@ async def start_event_by_code(app, event_code: str):
         except Exception as e:
             logger.error(f"Kanalga event e'lon qilishda xatolik: {e}")
 
-    # 2. Botdagi o'yinchilarga xabar yuborish
+    # 2. Botdagi o'yinchilarga xavfsiz fon rejimida xabar yuborish (FloodWait va bloklanishsiz)
     if hasattr(app, "bot"):
-        async with AsyncSessionLocal() as session:
-            users_res = await session.execute(models.User.__table__.select())
-            rows = users_res.fetchall()
-            for r in rows:
-                tg_id = getattr(r, "telegram_id", None)
-                if tg_id:
-                    try:
-                        await app.bot.send_message(
-                            chat_id=tg_id,
-                            text=announcement_text,
-                            parse_mode="Markdown",
-                            reply_markup=join_kb
-                        )
-                    except Exception:
-                        pass
+        asyncio.create_task(_broadcast_event_announcement(app.bot, announcement_text, join_kb))
 
 
 async def resolve_event_by_code(app, event_code: str):

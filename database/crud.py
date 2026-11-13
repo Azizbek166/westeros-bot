@@ -5446,10 +5446,26 @@ async def cancel_house_trade(session: AsyncSession, user_id: int, trade_id: int)
     if trade.seller_user_id != user.id:
         return False, "❌ Bu savdo taklifi sizga tegishli emas!"
 
+    # Poyga holati (race condition) va resurs dublikatsiyasiga qarshi atomik o'zgartirish
+    stmt = (
+        update(models.HouseTrade)
+        .where(
+            models.HouseTrade.id == trade_id,
+            models.HouseTrade.status == "active",
+            models.HouseTrade.seller_user_id == user.id,
+        )
+        .values(
+            status="cancelled",
+            completed_at=datetime.utcnow(),
+        )
+    )
+    res = await session.execute(stmt)
+    if res.rowcount != 1:
+        await session.rollback()
+        return False, "❌ Savdo taklifi topilmadi, allaqachon bekor qilingan yoki sotib olingan."
+
     curr = getattr(user, trade.offer_resource, 0) or 0
     setattr(user, trade.offer_resource, curr + trade.offer_amount)
-    trade.status = "cancelled"
-    trade.completed_at = datetime.utcnow()
     await session.commit()
     res_names = {"food": "🌾 Don", "iron": "⛓️ Temir", "gold": "🪙 Oltin"}
     return True, f"✅ Savdo loti bekor qilindi. +{trade.offer_amount:,} {res_names.get(trade.offer_resource, '')} hamyoningizga qaytarildi."
@@ -5477,6 +5493,25 @@ async def fulfill_house_trade(session: AsyncSession, buyer_user_id: int, trade_i
     if not seller:
         return False, "Sotuvchi topilmadi."
 
+    # Poyga holati (race condition) va resurs dublikatsiyasiga qarshi atomik o'zgartirish
+    stmt = (
+        update(models.HouseTrade)
+        .where(
+            models.HouseTrade.id == trade_id,
+            models.HouseTrade.status == "active",
+        )
+        .values(
+            status="completed",
+            buyer_user_id=buyer.id,
+            buyer_house_id=buyer.house_id,
+            completed_at=datetime.utcnow(),
+        )
+    )
+    res = await session.execute(stmt)
+    if res.rowcount != 1:
+        await session.rollback()
+        return False, "❌ Ushbu savdo loti allaqachon boshqa lord tomonidan xarid qilindi yoki bekor qilindi."
+
     # Resurslar o'tkazmasi
     setattr(buyer, trade.request_resource, buyer_res - trade.request_amount)
     buyer_get = getattr(buyer, trade.offer_resource, 0) or 0
@@ -5487,11 +5522,6 @@ async def fulfill_house_trade(session: AsyncSession, buyer_user_id: int, trade_i
 
     seller_house = await session.get(models.House, trade.seller_house_id)
     buyer_house = await session.get(models.House, buyer.house_id)
-
-    trade.buyer_user_id = buyer.id
-    trade.buyer_house_id = buyer.house_id
-    trade.status = "completed"
-    trade.completed_at = datetime.utcnow()
 
     # Sotuvchiga Qarg'a xabarnomasi yuborish
     seller_h_name = seller_house.name if seller_house else "Xonadon"
@@ -7980,6 +8010,9 @@ async def raid_trade_caravan(
     # Kunlik qaroqchilik/pistirma limiti (kuniga 2 ta)
     if getattr(raider, "daily_caravan_raid_count", 0) >= 2:
         return False, "❌ Kunlik qaroqchilik/pistirma limitingiz (2/2) tugagan! Ertaga yana urinib ko'rishingiz mumkin.", {}
+
+    if raid_inf < 0 or raid_cav < 0:
+        return False, "❌ Askar soni manfiy bo'lishi mumkin emas!", {}
 
     if raid_inf < 10 and raid_cav < 10:
         return False, "❌ Pistirma uchun kamida 10 ta piyoda yoki 10 ta otliq kerak!", {}

@@ -4,9 +4,13 @@ and Strict Non-P2W Verification.
 """
 import unittest
 import asyncio
+import os
+import sys
 import uuid
 from datetime import datetime, timedelta
 from sqlalchemy import select
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from database.db import AsyncSessionLocal, init_db
 from database import models

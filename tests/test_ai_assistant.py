@@ -12,11 +12,15 @@ Tests:
 """
 import unittest
 import asyncio
+import os
+import sys
 from datetime import datetime, timedelta
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from sqlalchemy import select
 from database.db import AsyncSessionLocal, init_db
-from database import models
+from database import models, crud
 import services
 from core.ai_advisor import (
     moderate_user_input,
@@ -92,6 +96,8 @@ class TestAiAssistantSystem(unittest.IsolatedAsyncioTestCase):
                 await session.commit()
                 await session.refresh(user)
 
+            user.vip_tier = None
+            user.vip_until = None
             user.daily_ai_requests_count = 0
             user.food = 200
             await session.commit()
@@ -214,20 +220,25 @@ class TestAiAssistantSystem(unittest.IsolatedAsyncioTestCase):
             tg_id = 88771106
             res = await session.execute(select(models.User).where(models.User.telegram_id == tg_id))
             user = res.scalar_one_or_none()
+            today_str = crud.get_game_today_str()
             if not user:
                 user = models.User(
                     telegram_id=tg_id,
                     username="ExhaustedLord",
                     full_name="Stannis",
                     gold=500,
+                    daily_limit_date=today_str,
                     daily_ai_requests_count=10,  # Limit tugagan!
                 )
                 session.add(user)
                 await session.commit()
                 await session.refresh(user)
-            else:
-                user.daily_ai_requests_count = 10
-                await session.commit()
+
+            user.vip_tier = None
+            user.vip_until = None
+            user.daily_limit_date = today_str
+            user.daily_ai_requests_count = 10
+            await session.commit()
 
             ok, answer, meta = await services.ask_council_advisor(
                 session=session,

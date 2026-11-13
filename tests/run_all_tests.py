@@ -21,6 +21,12 @@ TEST_SCRIPTS = [
     "tests/test_stage5_feature7_guild.py",
     "tests/test_stage6_notifications_and_fallback.py",
     "tests/test_stage7_switchover.py",
+    "tests/test_stage8_all_features.py",
+    "tests/test_error_reporting.py",
+    "tests/test_balance_and_anticheat.py",
+    "tests/test_cosmetics_and_monetization.py",
+    "tests/test_season_and_pass.py",
+    "tests/test_ai_assistant.py",
 ]
 
 
@@ -32,6 +38,9 @@ def main():
     passed_count = 0
     failed = []
 
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(BASE_DIR)
+
     for test_file in TEST_SCRIPTS:
         file_path = BASE_DIR / test_file
         if not file_path.exists():
@@ -39,7 +48,7 @@ def main():
             continue
 
         cmd = [sys.executable, str(file_path)]
-        res = subprocess.run(cmd, cwd=str(BASE_DIR), capture_output=True, text=True, encoding="utf-8", errors="replace")
+        res = subprocess.run(cmd, cwd=str(BASE_DIR), env=env, capture_output=True, text=True, encoding="utf-8", errors="replace")
         if res.returncode == 0:
             passed_count += 1
             print(f"[PASSED] {test_file}")
