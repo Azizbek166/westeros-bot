@@ -13,6 +13,7 @@
   let activeTab = 'tab-profile';
   let activeRankingCategory = 'wealth';
   let cachedDashboardData = null;
+  let isActionPending = false;
 
   // Initialize Telegram viewport & settings
   if (tg) {
