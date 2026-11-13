@@ -133,7 +133,7 @@
         </div>
 
         <!-- Season Pass & Status Quick Card -->
-        <div class="card p-2 mb-3 d-flex justify-between align-center" id="profile-open-season-btn" style="background: linear-gradient(135deg, rgba(212,175,55,0.12), rgba(18,22,30,0.85)); border: 1px solid rgba(212,175,55,0.3); cursor: pointer;">
+        <div class="card p-2 mb-2 d-flex justify-between align-center" id="profile-open-season-btn" style="background: linear-gradient(135deg, rgba(212,175,55,0.12), rgba(18,22,30,0.85)); border: 1px solid rgba(212,175,55,0.3); cursor: pointer;">
           <div class="d-flex align-center gap-2">
             <span style="font-size:20px;">🌟</span>
             <div>
@@ -142,6 +142,18 @@
             </div>
           </div>
           <button class="btn btn-secondary py-1 px-2" style="font-size:11px;">Ochish ➔</button>
+        </div>
+
+        <!-- AI Council Advisor Quick Card (Feature 12) -->
+        <div class="card p-2 mb-3 d-flex justify-between align-center" id="profile-open-ai-btn" style="background: linear-gradient(135deg, rgba(80,120,200,0.15), rgba(18,22,30,0.9)); border: 1px solid rgba(120,160,255,0.3); cursor: pointer;">
+          <div class="d-flex align-center gap-2">
+            <span style="font-size:22px;">🧙‍♂️</span>
+            <div>
+              <div class="font-serif text-gold" style="font-size:12px; font-weight:700;">Kengash Maslahatchisi</div>
+              <div class="text-secondary" style="font-size:10px;" id="prof-ai-status-sub">Buyuk Meysterdan strategik yo'l-yo'riq</div>
+            </div>
+          </div>
+          <button class="btn btn-secondary py-1 px-2" style="font-size:11px;">Maslahat ➔</button>
         </div>
 
         <!-- Experience Progress Bar -->
@@ -1512,6 +1524,70 @@
             <button class="btn w-100 py-2 mt-2" id="btn-admin-conclude-season" style="background:#e63946; color:#fff; font-weight:700;">
               🛑 Mavsumni Majburiy Yakunlash (Snapshot & Reset)
             </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 12. AI COUNCIL ADVISOR ("KENGASH MASLAHATCHISI") MODAL -->
+    <div id="ai-modal" class="modal-overlay" style="display:none;">
+      <div class="modal-dialog modal-dialog-lg">
+        <div class="modal-header">
+          <div class="d-flex align-center gap-2">
+            <span style="font-size:24px;">🧙‍♂️</span>
+            <div>
+              <h3 class="modal-title" style="margin:0; font-size:15px;">Kengash Maslahatchisi</h3>
+              <div class="text-secondary" style="font-size:10px;">Buyuk Meyster • Qoidalar & Strategiya</div>
+            </div>
+          </div>
+          <button class="modal-close" id="modal-ai-close">✕</button>
+        </div>
+        <div class="modal-body p-3">
+          <!-- Daily Quota Banner -->
+          <div class="d-flex justify-between align-center p-2 mb-3 rounded" style="background:rgba(212,175,55,0.08); border:1px solid rgba(212,175,55,0.25);">
+            <div class="d-flex align-center gap-2">
+              <span style="font-size:14px;">📜</span>
+              <span class="text-secondary" style="font-size:11px;">Kunlik bepul savollar limiti:</span>
+            </div>
+            <span id="ai-quota-badge" class="badge" style="background:var(--gold-primary); color:#000; font-weight:700; font-size:11px;">10/10 qoldi</span>
+          </div>
+
+          <!-- Chat Dialogue Message History -->
+          <div id="ai-chat-history" class="ai-chat-container mb-3" style="max-height:280px; overflow-y:auto; display:flex; flex-direction:column; gap:10px; padding:8px; background:rgba(0,0,0,0.2); border-radius:8px; border:1px solid rgba(255,255,255,0.05);">
+            <!-- Greeting Bubble -->
+            <div class="ai-msg-bubble ai-msg-advisor" style="background:rgba(212,175,55,0.08); border:1px solid rgba(212,175,55,0.2); border-radius:8px; padding:10px;">
+              <div class="d-flex align-center gap-1 mb-1">
+                <span style="font-size:14px;">🧙‍♂️</span>
+                <strong class="text-gold" style="font-size:11px;">Buyuk Meyster:</strong>
+              </div>
+              <p style="font-size:12px; margin:0; line-height:1.45; color:var(--text-primary);">
+                Assalomu alaykum, muhtaram Lord! Men Qirollik Kengashining Bosh Meysteriman. 
+                Armiyangiz balansi, xazinani boyitish, ajdahongiz parvarishi yoki joriy ahvolingiz bo'yicha 
+                savolingiz bo'lsa, xizmatingizdaman.
+              </p>
+            </div>
+          </div>
+
+          <!-- Suggested Quick Prompts -->
+          <div class="mb-3">
+            <div class="text-secondary mb-1" style="font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">💡 Tezkor Savollar:</div>
+            <div class="d-flex flex-wrap gap-1" id="ai-quick-prompts-container">
+              <button class="btn btn-secondary py-1 px-2 ai-prompt-chip" data-prompt="Hozir nima qilay? Keyingi eng muhim qadamim nima?" style="font-size:10px;">🎯 Hozir nima qilay?</button>
+              <button class="btn btn-secondary py-1 px-2 ai-prompt-chip" data-prompt="Armiyada qaysi askarni ko'proq yollash kerak va jang taktikasi qanday?" style="font-size:10px;">⚔️ Armiya balansi</button>
+              <button class="btn btn-secondary py-1 px-2 ai-prompt-chip" data-prompt="Ajdahoni qanday parvarishlash, boqish va kuchaytirish kerak?" style="font-size:10px;">🐉 Ajdaho sirlari</button>
+              <button class="btn btn-secondary py-1 px-2 ai-prompt-chip" data-prompt="Ko'proq oltin topish va Temir Bankdan foydalanish sirlari qanday?" style="font-size:10px;">💰 Boylik topish</button>
+              <button class="btn btn-secondary py-1 px-2 ai-prompt-chip" data-prompt="Mavsum va Season Pass ochkolari qanday yig'iladi?" style="font-size:10px;">🌟 Season Pass</button>
+            </div>
+          </div>
+
+          <!-- Input Box & Send Button -->
+          <div class="d-flex gap-2 align-center">
+            <input type="text" id="ai-query-input" class="amount-input flex-1" maxlength="300" placeholder="Savolingizni yozing (masalan: Qal'ani qanday himoyalay?)..." style="font-size:12px; padding:8px 12px;">
+            <button class="btn btn-primary px-3 py-2" id="btn-ai-submit" style="font-size:12px; white-space:nowrap;">Yuborish ➔</button>
+          </div>
+          <div class="d-flex justify-between align-center text-secondary mt-1" style="font-size:9px;">
+            <span>ℹ️ Maslahatchi faqat o'yin qoidalari va strategiya bo'yicha javob beradi.</span>
+            <span id="ai-char-counter">0 / 300</span>
           </div>
         </div>
       </div>

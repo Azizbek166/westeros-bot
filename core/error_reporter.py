@@ -280,13 +280,25 @@ async def send_support_ticket_to_error_chat(
     }
     tag = cat_tags.get(ticket_category.lower(), "📩 #MUROJAAT")
 
+    # AI Triage & Classification (Avtomatik tasniflash)
+    classification = None
+    try:
+        from core.ai_advisor import classify_bug_report
+        classification = await classify_bug_report(clean_text)
+    except Exception as ce:
+        logger.warning(f"AI bug classification xatoligi: {ce}")
+
     # Record in DB as well
+    err_type = (
+        f"BugReport_{classification.get('severity', 'MINOR')}_{classification.get('category', 'BOSHQA')}"
+        if classification else f"BugReport_{ticket_category.capitalize()}"
+    )
     fingerprint = compute_error_fingerprint("support", ticket_category, "user_ticket", clean_text)
     try:
         await record_error_in_db(
             fingerprint=fingerprint,
             source="support",
-            error_type=f"BugReport_{ticket_category.capitalize()}",
+            error_type=err_type,
             error_message=clean_text,
             handler_name="player_support",
             user_telegram_id=user_telegram_id,
@@ -297,15 +309,19 @@ async def send_support_ticket_to_error_chat(
         logger.warning(f"Support ticketni DB ga yozishda xatolik: {e}")
 
     uname_str = f"@{username}" if username else "yo‘q"
+    badge_line = f"🏷️ <b>AI Tasnifi:</b> <code>{html.escape(classification.get('badge', ''))}</code>" if (classification and classification.get("badge")) else ""
+
     lines = [
         f"{tag} <b>O‘YINCHIDAN MUROJAAT</b>",
+        badge_line,
         "━━━━━━━━━━━━━━━━━━━━━━",
         f"⏱ <b>Vaqt:</b> <code>{html.escape(uz_time_str)}</code>",
         f"👤 <b>Foydalanuvchi ID:</b> <code>{user_telegram_id}</code> ({html.escape(uname_str)})",
         f"\n💬 <b>Murojaat matni:</b>\n<blockquote>{html.escape(clean_text[:2000])}</blockquote>",
     ]
+    clean_lines = [line for line in lines if line]
 
-    return await send_to_error_chat("\n".join(lines), parse_mode="HTML")
+    return await send_to_error_chat("\n".join(clean_lines), parse_mode="HTML")
 
 
 # ============================================================

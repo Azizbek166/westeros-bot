@@ -97,6 +97,7 @@ def reset_user_daily_counters(user: models.User, today_str: Optional[str] = None
     user.daily_spy_scout_count = 0
     user.daily_spy_sabotage_count = 0
     user.daily_spy_gates_count = 0
+    user.daily_ai_requests_count = 0
     user.daily_quests_claimed_json = "{}"
     user.daily_gold_earned = 0
     user.daily_prestige_earned = 0

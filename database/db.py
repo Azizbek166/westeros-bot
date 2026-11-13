@@ -188,6 +188,7 @@ async def init_db():
                 "ALTER TABLE hall_of_fame ADD COLUMN top_so_points INTEGER DEFAULT 0",
                 "ALTER TABLE hall_of_fame ADD COLUMN top_guild_name VARCHAR(100)",
                 "ALTER TABLE hall_of_fame ADD COLUMN snapshot_json TEXT DEFAULT '{}'",
+                "ALTER TABLE users ADD COLUMN daily_ai_requests_count INTEGER DEFAULT 0",
             ]:
                 try:
                     await conn.execute(text(alter_stmt))
@@ -291,6 +292,7 @@ async def init_db():
                 "ALTER TABLE hall_of_fame ADD COLUMN IF NOT EXISTS top_so_points INTEGER DEFAULT 0",
                 "ALTER TABLE hall_of_fame ADD COLUMN IF NOT EXISTS top_guild_name VARCHAR(100)",
                 "ALTER TABLE hall_of_fame ADD COLUMN IF NOT EXISTS snapshot_json TEXT DEFAULT '{}'",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_ai_requests_count INTEGER DEFAULT 0",
             ]:
                 try:
                     await conn.execute(text(pg_alter))

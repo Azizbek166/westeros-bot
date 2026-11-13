@@ -86,6 +86,10 @@ from services.season_service import (
     conclude_and_rollover_season,
     admin_update_season_config,
 )
+from services.ai_service import (
+    get_ai_advisor_status,
+    ask_council_advisor,
+)
 
 __all__ = [
     "get_player_profile",
@@ -161,4 +165,6 @@ __all__ = [
     "get_season_hub_data",
     "conclude_and_rollover_season",
     "admin_update_season_config",
+    "get_ai_advisor_status",
+    "ask_council_advisor",
 ]

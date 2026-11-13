@@ -389,6 +389,9 @@
     // Income
     const hourlyGold = prof.income_hourly?.gold ?? prof.income_hourly?.total_gold_per_hour ?? 0;
     document.getElementById('prof-hourly-income').textContent = `+${formatNum(hourlyGold)}🪙 / soat`;
+
+    // AI Advisor status refresh
+    loadAiAdvisorStatus();
   }
 
   // Render Daily Streak & Quests (Feature 1)
@@ -3906,6 +3909,179 @@
     }
   }
 
+  // ============================================================
+  // FEATURE 12: AI COUNCIL ADVISOR ("KENGASH MASLAHATCHISI")
+  // ============================================================
+  let isAiQueryPending = false;
+
+  async function openAiAdvisorModal() {
+    showModal('ai-modal');
+    await loadAiAdvisorStatus();
+    const input = document.getElementById('ai-query-input');
+    if (input) setTimeout(() => input.focus(), 300);
+  }
+
+  function closeAiAdvisorModal() {
+    hideModal('ai-modal');
+  }
+
+  async function loadAiAdvisorStatus() {
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+
+      const resp = await fetch('/api/actions/ai/status', { headers });
+      const res = await resp.json();
+      if (!resp.ok || !res.success) return;
+
+      const badge = document.getElementById('ai-quota-badge');
+      if (badge) {
+        badge.textContent = `${res.remaining_today}/${res.daily_limit} qoldi`;
+        badge.style.background = res.remaining_today > 0 ? 'var(--gold-primary)' : '#e74c3c';
+        badge.style.color = res.remaining_today > 0 ? '#000' : '#fff';
+      }
+
+      const profSub = document.getElementById('prof-ai-status-sub');
+      if (profSub) {
+        profSub.textContent = `Buyuk Meyster • ${res.remaining_today} ta savol qoldi`;
+      }
+    } catch (e) {
+      console.warn('AI status yuklashda xatolik:', e);
+    }
+  }
+
+  function appendAiMessage(role, text) {
+    const chat = document.getElementById('ai-chat-history');
+    if (!chat) return;
+
+    const bubble = document.createElement('div');
+    bubble.className = `ai-msg-bubble ${role === 'user' ? 'ai-msg-user' : 'ai-msg-advisor'}`;
+
+    const formattedText = escapeHtml(text).replace(/\n/g, '<br>');
+    if (role === 'user') {
+      bubble.innerHTML = `
+        <div class="d-flex align-center gap-1 mb-1 justify-end">
+          <strong class="text-secondary" style="font-size:10px;">Siz:</strong>
+          <span style="font-size:12px;">👤</span>
+        </div>
+        <p style="font-size:12px; margin:0; line-height:1.4; color:#fff;">${formattedText}</p>
+      `;
+    } else {
+      bubble.innerHTML = `
+        <div class="d-flex align-center gap-1 mb-1">
+          <span style="font-size:14px;">🧙‍♂️</span>
+          <strong class="text-gold" style="font-size:11px;">Buyuk Meyster:</strong>
+        </div>
+        <div style="font-size:12px; margin:0; line-height:1.45; color:var(--text-primary);">${formattedText}</div>
+      `;
+    }
+
+    chat.appendChild(bubble);
+    chat.scrollTop = chat.scrollHeight;
+  }
+
+  function showAiTyping() {
+    const chat = document.getElementById('ai-chat-history');
+    if (!chat) return null;
+    const typing = document.createElement('div');
+    typing.id = 'ai-typing-indicator';
+    typing.className = 'ai-msg-bubble ai-msg-advisor';
+    typing.innerHTML = `
+      <div class="d-flex align-center gap-2">
+        <span style="font-size:13px;">🧙‍♂️</span>
+        <span class="text-secondary" style="font-size:11px;">Meyster mulohaza qilmoqda...</span>
+        <span class="ai-typing-indicator">
+          <span class="ai-typing-dot"></span>
+          <span class="ai-typing-dot"></span>
+          <span class="ai-typing-dot"></span>
+        </span>
+      </div>
+    `;
+    chat.appendChild(typing);
+    chat.scrollTop = chat.scrollHeight;
+    return typing;
+  }
+
+  function removeAiTyping() {
+    const typing = document.getElementById('ai-typing-indicator');
+    if (typing) typing.remove();
+  }
+
+  async function handleSendAiQuery(customQuery = null) {
+    if (isAiQueryPending) return;
+
+    const input = document.getElementById('ai-query-input');
+    const query = (customQuery || (input ? input.value : '')).trim();
+    if (!query) return;
+
+    if (query.length > 300) {
+      showToast('Savol juda uzun (maksimal 300 ta belgi).', 'error');
+      return;
+    }
+
+    if (input) input.value = '';
+    const counter = document.getElementById('ai-char-counter');
+    if (counter) counter.textContent = '0 / 300';
+
+    appendAiMessage('user', query);
+    showAiTyping();
+
+    isAiQueryPending = true;
+    const btnSubmit = document.getElementById('btn-ai-submit');
+    if (btnSubmit) {
+      btnSubmit.disabled = true;
+      btnSubmit.textContent = 'Kutilmoqda...';
+    }
+
+    haptic('medium');
+
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+
+      const resp = await fetch('/api/actions/ai/ask', {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({ query: query })
+      });
+
+      const res = await resp.json();
+      removeAiTyping();
+
+      if (!resp.ok || !res.success) {
+        const errDetail = res.detail || 'Meyster javob bera olmadi.';
+        appendAiMessage('advisor', `⚠️ ${errDetail}`);
+        showToast(errDetail, 'error');
+      } else {
+        appendAiMessage('advisor', res.answer);
+        haptic('light');
+
+        if (res.metadata && res.metadata.remaining !== undefined) {
+          const badge = document.getElementById('ai-quota-badge');
+          if (badge) {
+            badge.textContent = `${res.metadata.remaining}/${res.metadata.daily_limit} qoldi`;
+            badge.style.background = res.metadata.remaining > 0 ? 'var(--gold-primary)' : '#e74c3c';
+            badge.style.color = res.metadata.remaining > 0 ? '#000' : '#fff';
+          }
+          const profSub = document.getElementById('prof-ai-status-sub');
+          if (profSub) {
+            profSub.textContent = `Buyuk Meyster • ${res.metadata.remaining} ta savol qoldi`;
+          }
+        }
+      }
+    } catch (e) {
+      removeAiTyping();
+      appendAiMessage('advisor', '⚠️ Tarmoq xatoligi yoki maslahatchi bilan aloqa uzildi. Iltimos, keyinroq urinib ko‘ring.');
+      showToast(e.message, 'error');
+    } finally {
+      isAiQueryPending = false;
+      if (btnSubmit) {
+        btnSubmit.disabled = false;
+        btnSubmit.textContent = 'Yuborish ➔';
+      }
+    }
+  }
+
   // --- FRONTEND ERROR REPORTING (AUTOMATIC TELEGRAM ERROR LOGGING) ---
   const _reportedErrorsMap = new Map();
 
@@ -4208,6 +4384,7 @@
       { closeId: 'modal-donate-close', overlayId: 'donate-modal', closeFn: closeDonateModal },
       { closeId: 'modal-season-close', overlayId: 'season-modal', closeFn: closeSeasonModal },
       { closeId: 'modal-admin-close', overlayId: 'admin-modal', closeFn: closeAdminModal },
+      { closeId: 'modal-ai-close', overlayId: 'ai-modal', closeFn: closeAiAdvisorModal },
     ];
 
     closeBindings.forEach(b => {
@@ -4221,6 +4398,35 @@
     document.getElementById('profile-open-season-btn')?.addEventListener('click', () => {
       haptic('light');
       openSeasonModal();
+    });
+
+    // AI Council Advisor Listeners (Feature 12)
+    document.getElementById('profile-open-ai-btn')?.addEventListener('click', () => {
+      haptic('light');
+      openAiAdvisorModal();
+    });
+
+    document.getElementById('btn-ai-submit')?.addEventListener('click', () => handleSendAiQuery());
+
+    const aiInput = document.getElementById('ai-query-input');
+    aiInput?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        handleSendAiQuery();
+      }
+    });
+
+    aiInput?.addEventListener('input', (e) => {
+      const counter = document.getElementById('ai-char-counter');
+      if (counter) counter.textContent = `${e.target.value.length} / 300`;
+    });
+
+    document.querySelectorAll('.ai-prompt-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        haptic('light');
+        const p = chip.getAttribute('data-prompt');
+        handleSendAiQuery(p);
+      });
     });
 
     document.querySelectorAll('.season-tab-btn').forEach(btn => {

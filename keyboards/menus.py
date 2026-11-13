@@ -75,6 +75,9 @@ def legacy_main_menu_keyboard(user_id: int = None) -> InlineKeyboardMarkup:
             InlineKeyboardButton("🌤️ Ob-havo", callback_data="menu_weather"),
             InlineKeyboardButton("🎁 Kunlik Tuhfalar", callback_data="menu_daily"),
         ],
+        [
+            InlineKeyboardButton("🧙‍♂️ Meyster Maslahati (AI)", callback_data="menu_ai_advisor"),
+        ],
     ])
 
     # Faqat bot egasi va ruxsat berilgan adminlar ko'ra oladi

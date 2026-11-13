@@ -350,4 +350,16 @@ DONATE_TIERS = {
     },
 }
 
+# ============================================================
+# AI ASSISTANT ("KENGASH MASLAHATCHISI") CONFIGURATION
+# ============================================================
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", os.getenv("AI_API_KEY", "")).strip()
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash").strip()
+AI_USER_DAILY_LIMIT = int(os.getenv("AI_USER_DAILY_LIMIT", "10"))
+AI_VIP_DAILY_LIMIT = int(os.getenv("AI_VIP_DAILY_LIMIT", "20"))
+AI_GLOBAL_DAILY_LIMIT = int(os.getenv("AI_GLOBAL_DAILY_LIMIT", "500"))
+AI_MAX_RESPONSE_TOKENS = int(os.getenv("AI_MAX_RESPONSE_TOKENS", "450"))
+AI_CACHE_TTL_SECONDS = int(os.getenv("AI_CACHE_TTL_SECONDS", "3600"))
+
+
 

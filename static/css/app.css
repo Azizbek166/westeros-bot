@@ -2331,6 +2331,77 @@ body.low-graphics * {
   color: var(--gold-light);
 }
 
+/* ============================================================
+   FEATURE 12: AI COUNCIL ADVISOR ("KENGASH MASLAHATCHISI")
+   ============================================================ */
+.ai-chat-container {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(212, 175, 55, 0.3) transparent;
+}
+
+.ai-chat-container::-webkit-scrollbar {
+  width: 4px;
+}
+
+.ai-chat-container::-webkit-scrollbar-thumb {
+  background: rgba(212, 175, 55, 0.3);
+  border-radius: 4px;
+}
+
+.ai-msg-bubble {
+  padding: 10px 12px;
+  border-radius: 8px;
+  max-width: 90%;
+  animation: fadeIn 0.25s ease-out;
+}
+
+.ai-msg-advisor {
+  align-self: flex-start;
+  background: rgba(212, 175, 55, 0.08);
+  border: 1px solid rgba(212, 175, 55, 0.22);
+}
+
+.ai-msg-user {
+  align-self: flex-end;
+  background: rgba(52, 152, 219, 0.15);
+  border: 1px solid rgba(52, 152, 219, 0.35);
+}
+
+.ai-prompt-chip {
+  transition: all 0.2s ease;
+  border-radius: 20px;
+}
+
+.ai-prompt-chip:hover, .ai-prompt-chip:active {
+  background: rgba(212, 175, 55, 0.2) !important;
+  border-color: var(--gold-primary) !important;
+  transform: translateY(-1px);
+}
+
+.ai-typing-indicator {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  padding: 4px 8px;
+}
+
+.ai-typing-dot {
+  width: 6px;
+  height: 6px;
+  background: var(--gold-primary);
+  border-radius: 50%;
+  animation: aiBounce 1.2s infinite ease-in-out both;
+}
+
+.ai-typing-dot:nth-child(1) { animation-delay: -0.32s; }
+.ai-typing-dot:nth-child(2) { animation-delay: -0.16s; }
+
+@keyframes aiBounce {
+  0%, 80%, 100% { transform: scale(0); opacity: 0.4; }
+  40% { transform: scale(1); opacity: 1; }
+}
+
+
 
 
 

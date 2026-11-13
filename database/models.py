@@ -79,6 +79,7 @@ class User(Base):
     daily_spy_scout_count = Column(Integer, default=0)     # Kunlik josuslik: Razvedka (max 2)
     daily_spy_sabotage_count = Column(Integer, default=0)  # Kunlik josuslik: Sabotaj (max 2)
     daily_spy_gates_count = Column(Integer, default=0)     # Kunlik josuslik: Darvoza ochish (max 2)
+    daily_ai_requests_count = Column(Integer, default=0)   # Kengash maslahatchisiga kunlik so'rovlar soni
     equipped_artifact_id = Column(Integer, nullable=True)
     iron_mine_level = Column(Integer, default=1)           # Temir koni darajasi (1-10)
     grain_mill_level = Column(Integer, default=1)          # Don tegirmoni darajasi (1-10)
@@ -1089,6 +1090,23 @@ class PaymentTransaction(Base):
     admin_notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     refunded_at = Column(DateTime, nullable=True)
+
+
+# ============================================================
+# 39. AI MODERATION LOGS (KENGASH MASLAHATCHISI XAVFSIZLIK JURNALI)
+# ============================================================
+class AIModerationLog(Base):
+    __tablename__ = "ai_moderation_logs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    telegram_id = Column(BigInteger, nullable=True, index=True)
+    query_text = Column(Text, nullable=False)
+    category = Column(String(50), default="profanity")  # profanity, injection, abuse
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", foreign_keys=[user_id])
+
 
 
 

@@ -1305,5 +1305,48 @@ async def post_admin_season_update_endpoint(
     return {"success": True, "message": msg, "data": data}
 
 
+# ============================================================
+# FEATURE 12: AI COUNCIL ADVISOR ("KENGASH MASLAHATCHISI")
+# ============================================================
+
+class AIAskRequest(BaseModel):
+    query: str = Field(..., min_length=1, max_length=300, description="Kengash maslahatchisiga savol (maks 300 belgi)")
+
+
+@router.get("/ai/status")
+async def get_ai_status_endpoint(
+    auth: Tuple[models.User, Dict[str, Any]] = Depends(get_current_player),
+    session: AsyncSession = Depends(get_db_session),
+) -> Dict[str, Any]:
+    """Kengash Maslahatchisi uchun o'yinchi limiti va tavsiya etilgan savollar"""
+    user, _ = auth
+    status_data = await services.get_ai_advisor_status(session, user)
+    return status_data
+
+
+@router.post("/ai/ask")
+async def post_ai_ask_endpoint(
+    req: AIAskRequest,
+    auth: Tuple[models.User, Dict[str, Any]] = Depends(get_current_player),
+    session: AsyncSession = Depends(get_db_session),
+) -> Dict[str, Any]:
+    """Kengash Maslahatchisiga savol berish (Server-side himoyalangan va kontekstli)"""
+    user, _ = auth
+    ok, answer, meta = await services.ask_council_advisor(
+        session=session,
+        user=user,
+        query=req.query,
+    )
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=answer)
+
+    return {
+        "success": True,
+        "answer": answer,
+        "metadata": meta,
+    }
+
+
+
 
 
