@@ -5130,21 +5130,40 @@ async def reset_entire_game(session: AsyncSession) -> None:
     # 2. Xonadonlarni boshlang'ich holatiga qaytarish va lord_user_id ni tozalash
     houses_res = await session.execute(select(models.House))
     all_houses = houses_res.scalars().all()
+    custom_house_ids = []
     for h in all_houses:
         h.lord_user_id = None
         h.lord_elected_at = None
+        if h.code not in HOUSES_DATA and (h.id or 0) > 50:
+            custom_house_ids.append(h.id)
+            continue
         h_info = HOUSES_DATA.get(h.code, {})
         h.gold = h_info.get("starting_gold", 5000)
         h.food = h_info.get("starting_food", 10000)
         h.iron = h_info.get("starting_iron", 2000)
         h.prestige = h_info.get("prestige", 100)
 
-    # 3. Foydalanuvchilar bilan bog'langan doimiy jadvallar tashqi kalitlarini tozalash
+    # 3. Eski mavsumdan qolgan barcha pending donat so'rovlarini yopish (yangi mavsumda tasdiqlab bo'lmasligi uchun)
+    await session.execute(
+        update(models.DonationRequest)
+        .where(models.DonationRequest.status == "pending")
+        .values(
+            status="rejected",
+            admin_notes="Eski mavsum yakunlandi — restart oldidan avtomatik yopildi.",
+            reviewed_at=datetime.utcnow(),
+        )
+    )
+
+    # 4. Foydalanuvchilar bilan bog'langan doimiy jadvallar tashqi kalitlarini tozalash
     await session.execute(update(models.Territory).values(conquered_by_user_id=None, last_tax_collected_at=None, gates_compromised_until=None, reinforcements_json=None, wildfire_count=0, castle_level=1))
     await session.execute(update(models.House).values(lord_user_id=None, lord_elected_at=None))
-    await session.execute(update(models.HallOfFame).values(king_user_id=None))
+    await session.execute(update(models.HallOfFame).values(king_user_id=None, top_so_user_id=None))
     await session.execute(update(models.Tournament).values(winner_user_id=None))
     await session.execute(update(models.DonationRequest).values(user_id=None))
+    try:
+        await session.execute(update(models.PaymentTransaction).values(user_id=None))
+    except Exception:
+        pass
 
     # PostgreSQL uchun eskirgan cheklovlarni (FK constraints) xavfsiz olib tashlash
     try:
@@ -5166,8 +5185,24 @@ async def reset_entire_game(session: AsyncSession) -> None:
 
     await session.flush()
 
-    # 4. Bog'langan barcha jadvallarni ketma-ket (child -> parent tartibida) tozalash
+    # 5. Bog'langan barcha jadvallarni ketma-ket (child -> parent tartibida) tozalash
     table_models = [
+        models.DailyDragonTournamentParticipant,
+        models.DailyDragonTournament,
+        models.DailyEventParticipant,
+        models.DailyScheduledEvent,
+        models.DragonDuel,
+        models.GuildQuestProgress,
+        models.GuildQuest,
+        models.GuildTreasuryTransaction,
+        models.GuildApplication,
+        models.GuildCooldown,
+        models.GuildLog,
+        models.GuildMember,
+        models.Guild,
+        models.SeasonRewardClaim,
+        models.SeasonPlayerState,
+        models.UserCosmetic,
         models.TournamentBet,
         models.TournamentParticipant,
         models.Tournament,
@@ -5198,6 +5233,12 @@ async def reset_entire_game(session: AsyncSession) -> None:
             await session.execute(delete(tm))
         except Exception as te:
             logger.warning(f"reset_entire_game delete warning on {tm.__tablename__}: {te}")
+
+    if custom_house_ids:
+        try:
+            await session.execute(delete(models.House).where(models.House.id.in_(custom_house_ids)))
+        except Exception as he:
+            logger.warning(f"reset_entire_game custom house delete warning: {he}")
 
     # Boshlang'ich faol turnirni qayta tiklash
     new_tourney = models.Tournament(
@@ -6453,6 +6494,32 @@ async def get_season_status_summary(session: AsyncSession) -> Dict[str, Any]:
     rem_hours = (rem_seconds % 86400) // 3600
     rem_mins = (rem_seconds % 3600) // 60
 
+    # Avval haqiqiy o'yinchilarni (telegram_id >= 100000000) olish; test bazada bo'lmasa barcha o'yinchilarga qaytish
+    real_users_res = await session.execute(
+        select(models.User)
+        .options(
+            selectinload(models.User.characters),
+            selectinload(models.User.house),
+            selectinload(models.User.army),
+        )
+        .where(models.User.telegram_id >= 100000000, models.User.telegram_id != 9594457048)
+        .order_by(models.User.prestige.desc(), models.User.level.desc(), models.User.gold.desc())
+        .limit(3)
+    )
+    top_players = list(real_users_res.scalars().all())
+    if not top_players:
+        top_users_res = await session.execute(
+            select(models.User)
+            .options(
+                selectinload(models.User.characters),
+                selectinload(models.User.house),
+                selectinload(models.User.army),
+            )
+            .order_by(models.User.prestige.desc(), models.User.level.desc(), models.User.gold.desc())
+            .limit(3)
+        )
+        top_players = list(top_users_res.scalars().all())
+
     kl_res = await session.execute(
         select(models.Territory).where(models.Territory.code == "kings_landing")
     )
@@ -6460,9 +6527,14 @@ async def get_season_status_summary(session: AsyncSession) -> Dict[str, Any]:
     winner_house = None
     if kl_terr and kl_terr.owner_house_id:
         winner_house = await session.get(models.House, kl_terr.owner_house_id)
+    if not winner_house and top_players and top_players[0].house:
+        winner_house = top_players[0].house
     if not winner_house:
         top_h_res = await session.execute(
-            select(models.House).order_by(models.House.prestige.desc()).limit(1)
+            select(models.House)
+            .where(models.House.code != "white_walkers")
+            .order_by(models.House.prestige.desc())
+            .limit(1)
         )
         winner_house = top_h_res.scalar_one_or_none()
 
@@ -6471,41 +6543,44 @@ async def get_season_status_summary(session: AsyncSession) -> Dict[str, Any]:
     winner_house_id = winner_house.id if winner_house else None
     king_name = "Noma'lum Lord"
     king_user = None
-    if winner_house and winner_house.lord_user_id:
+    if winner_house and winner_house.lord_user_id and winner_house.lord_user_id >= 100000000:
         king_user = await get_user_by_telegram_id(session, winner_house.lord_user_id)
         if king_user:
             k_char_res = await session.execute(
                 select(models.Character.name).where(models.Character.user_id == king_user.id).limit(1)
             )
             k_name = k_char_res.scalar_one_or_none()
-            king_name = k_name if k_name else king_user.full_name
+            king_name = f"{king_user.full_name} ({k_name})" if k_name and k_name != king_user.full_name else king_user.full_name
+    elif top_players:
+        king_user = top_players[0]
+        k_name = king_user.characters[0].name if king_user.characters else None
+        king_name = f"{king_user.full_name} ({k_name})" if k_name and k_name != king_user.full_name else king_user.full_name
 
-    top_users_res = await session.execute(
-        select(models.User)
-        .options(
-            selectinload(models.User.characters),
-            selectinload(models.User.house),
-            selectinload(models.User.army),
-        )
-        .order_by(models.User.prestige.desc(), models.User.level.desc(), models.User.gold.desc())
-        .limit(3)
-    )
-    top_players = list(top_users_res.scalars().all())
     top3_list = []
     for rank, p in enumerate(top_players, start=1):
         char_name = p.characters[0].name if p.characters else p.full_name
+        display_name = f"{p.full_name} ({char_name})" if char_name and char_name != p.full_name else p.full_name
         h_name = p.house.name if p.house else "Mustaqil"
         top3_list.append({
             "rank": rank,
             "telegram_id": p.telegram_id,
-            "name": char_name,
+            "name": display_name,
             "house": h_name,
             "prestige": p.prestige or 0,
             "level": p.level or 1,
         })
 
+    # Haqiqiy yakunlangan mavsumlar sonini tekshirish
+    real_bonus_seasons_res = await session.execute(
+        select(func.count(func.distinct(models.SeasonTopBonus.season_number))).where(
+            models.SeasonTopBonus.telegram_id >= 100000000
+        )
+    )
+    real_concluded_seasons = real_bonus_seasons_res.scalar() or 0
+    effective_season_num = real_concluded_seasons + 1
+
     return {
-        "season_number": season.season_number if season else 1,
+        "season_number": effective_season_num,
         "start_date": season.start_date if season else now,
         "end_date": season.end_date if season else now,
         "rem_days": rem_days,
@@ -6529,19 +6604,49 @@ async def admin_conclude_and_restart_season(session: AsyncSession, bot_app=None)
     3. Butun o'yin 0 ga tushiriladi (reset_entire_game).
     4. Yangi mavsum (SeasonState) yaratiladi va xabarnomalar yuboriladi.
     """
-    # 0. Yangi jadvallar mavjudligini kafolatlash
-    from database.db import engine
-    async with engine.begin() as conn:
-        await conn.run_sync(models.Base.metadata.create_all)
-
     summary = await get_season_status_summary(session)
     season = await get_active_season(session)
     if not season:
         return False, "Faol mavsum topilmadi.", {}
 
     now = datetime.utcnow()
-    current_season_num = season.season_number
+    current_season_num = summary["season_number"]
     next_season_num = current_season_num + 1
+
+    # Agar 1-Mavsum yakunlanayotgan bo'lsa, test va eski sinov HallOfFame / SeasonState yozuvlarini tozalash
+    if current_season_num == 1:
+        await session.execute(delete(models.HallOfFame))
+        await session.execute(delete(models.SeasonTopBonus))
+        await session.execute(delete(models.SeasonState))
+        s1_record = models.SeasonState(
+            season_number=1,
+            title="1-Mavsum: Temir Taxt Qadami",
+            theme_description="Vesterosda hukmronlik uchun kurashning ilk mavsumi.",
+            start_date=now - timedelta(days=30),
+            end_date=now,
+            is_active=False,
+            is_concluded=True,
+            snapshot_data="{}",
+            created_at=now - timedelta(days=30),
+        )
+        session.add(s1_record)
+        await session.flush()
+    else:
+        await session.execute(
+            delete(models.HallOfFame).where(
+                or_(
+                    models.HallOfFame.winner_house_name == "The White Walkers",
+                    models.HallOfFame.king_name == "Lord Alpha (Champion)",
+                )
+            )
+        )
+        await session.execute(
+            delete(models.SeasonState).where(models.SeasonState.season_number >= next_season_num)
+        )
+        await session.execute(
+            update(models.SeasonState).values(is_active=False, is_concluded=True)
+        )
+        await session.flush()
 
     winner_house_name = summary["winner_house_name"]
     winner_house_id = summary["winner_house_id"]
@@ -6589,12 +6694,15 @@ async def admin_conclude_and_restart_season(session: AsyncSession, bot_app=None)
         })
 
     # 3. Joriy mavsumni yopish va yangi mavsumni ochish
-    season.is_active = False
     next_season = models.SeasonState(
         season_number=next_season_num,
+        title=f"{next_season_num}-Mavsum: Ajdarlar va Muz Davri",
+        theme_description="Vesterosda yangi mavsum boshlandi! Qal'alar qayta taqsimlandi, 6 xil qudratli ajdarlar va yangi shon-sharaf sizni kutmoqda.",
         start_date=now,
         end_date=now + timedelta(days=30),
         is_active=True,
+        is_concluded=False,
+        snapshot_data="{}",
         created_at=now,
     )
     session.add(next_season)
@@ -9021,6 +9129,22 @@ async def approve_donation_request(
 
     if req.status != "pending":
         return False, f"Ushbu so'rov allaqachon ko'rib chiqilgan (Holati: {req.status})!", {}
+
+    # Eski mavsumga tegishli so'rovni yangi mavsumda tasdiqlashni taqiqlash
+    active_season = await get_active_season(session)
+    if req.user_id is None or (
+        active_season
+        and (active_season.season_number or 1) > 1
+        and active_season.start_date
+        and req.created_at
+        and req.created_at < active_season.start_date
+    ):
+        req.status = "rejected"
+        req.admin_notes = "Eski mavsumga tegishli so'rov (yangi mavsumda tasdiqlash yopilgan)"
+        req.reviewed_by_admin_id = admin_telegram_id
+        req.reviewed_at = datetime.utcnow()
+        await session.commit()
+        return False, "❌ Ushbu donat so'rovi oldingi mavsumga tegishli! Restartdan keyin eski sezonga tegishli so'rovni tasdiqlash yopilgan.", {}
 
     if getattr(req, "request_type", "tier") == "troops" or req.tier_id == "troops":
         # Qo'shin sotib olish so'rovini tasdiqlash
