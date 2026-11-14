@@ -1716,13 +1716,14 @@ async def post_admin_season_conclude_endpoint(
     auth: Tuple[models.User, Dict[str, Any]] = Depends(require_admin_player),
     session: AsyncSession = Depends(get_db_session),
 ) -> Dict[str, Any]:
-    """Admin: Mavsumni majburiy yakunlash, snapshot olish, mukofotlash va Soft-Reset"""
-    ok, announcement, summary = await services.conclude_and_rollover_season(session, force=True)
+    """Admin: Mavsumni majburiy yakunlash, snapshot olish, mukofotlash va yangi mavsum boshlash (Bot va Mini App uchun yagona mantiq)"""
+    from database import crud
+    ok, announcement, summary = await crud.admin_conclude_and_restart_season(session)
     if not ok:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=announcement)
     return {
         "success": True,
-        "message": f"{summary.get('concluded_season_number')}-Mavsum muvaffaqiyatli yakunlandi va {summary.get('next_season_number')}-Mavsum boshlandi!",
+        "message": f"{summary.get('concluded_season_number', 1)}-Mavsum muvaffaqiyatli yakunlandi va {summary.get('next_season_number', 2)}-Mavsum boshlandi!",
         "summary": summary,
         "announcement": announcement,
     }

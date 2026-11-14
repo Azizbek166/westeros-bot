@@ -37,6 +37,12 @@ async def get_player_profile_endpoint(
     Joriy o'yinchi profili, unvoni, darajasi va resurslari.
     """
     user, _ = auth
+    # Oldingi mavsum TOP-3 g'olibi bo'lsa, bonusni avtomatik berish
+    from database import crud
+    pending_bonus = await crud.get_pending_season_bonus(session, user.telegram_id)
+    if pending_bonus:
+        await crud.apply_season_top_bonus(session, user, pending_bonus)
+
     profile_data = await services.get_player_profile(session, user.id)
     if not profile_data:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profil ma'lumotlari topilmadi.")
@@ -139,6 +145,12 @@ async def get_full_dashboard_endpoint(
             "telegram_user": user_info,
             "available_houses": catalog,
         }
+
+    # Oldingi mavsum TOP-3 g'olibi bo'lsa, bonusni avtomatik berish
+    from database import crud
+    pending_bonus = await crud.get_pending_season_bonus(session, user.telegram_id)
+    if pending_bonus:
+        await crud.apply_season_top_bonus(session, user, pending_bonus)
 
     profile_data = await services.get_player_profile(session, user.id)
     army_data = await services.get_army_overview(session, user.id)

@@ -2845,8 +2845,17 @@
         const trainBtn = document.getElementById('btn-train-dragon');
         if (activeDragonLevel >= (d.max_level || 20)) {
           if (trainLbl) trainLbl.textContent = 'Maksimal daraja (20/20)';
-          if (trainBtn) trainBtn.style.opacity = '0.85';
+          if (trainBtn) {
+            trainBtn.disabled = true;
+            trainBtn.style.opacity = '0.6';
+            trainBtn.style.cursor = 'not-allowed';
+          }
         } else {
+          if (trainBtn) {
+            trainBtn.disabled = false;
+            trainBtn.style.opacity = '1';
+            trainBtn.style.cursor = 'pointer';
+          }
           if (trainLbl) {
             if (d.upgrade_costs) {
               trainLbl.textContent = `${formatNum(d.upgrade_costs.gold || 0)}🪙 + ${formatNum(d.upgrade_costs.iron || 0)}⛓️ + ${formatNum(d.upgrade_costs.food || 0)}🌾`;
@@ -2854,7 +2863,6 @@
               trainLbl.textContent = 'Daraja oshirish';
             }
           }
-          if (trainBtn) trainBtn.style.opacity = '1';
         }
 
         // Show 2nd dragon button if player has < 2 dragons
