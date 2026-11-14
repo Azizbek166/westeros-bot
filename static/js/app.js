@@ -156,10 +156,11 @@
       return 'assets/castles/castle-tier1.svg';
     },
 
-    getDragonPortrait(stage = 'adult', skin = null, grade = null) {
+    getDragonPortrait(stage = 'adult', skin = null, grade = null, name = '') {
       if (stage === 'egg') return 'assets/dragons/dragon-egg.svg';
       if (stage === 'baby' || stage === 'hatchling') return 'assets/dragons/dragon-baby.svg';
       if (stage === 'young') return 'assets/dragons/dragon-young.svg';
+      if (name && typeof name === 'string' && name.toLowerCase().includes('balerion')) return 'assets/dragons/dragon-balerion.jpg';
       if (skin === 'dragon_crimson') return 'assets/dragons/dragon-adult-crimson.svg';
       if (skin === 'dragon_emerald' || grade === 'B') return 'assets/dragons/dragon-adult-emerald.svg';
       if (skin === 'dragon_golden' || grade === 'C') return 'assets/dragons/dragon-adult-golden.svg';
@@ -2582,7 +2583,7 @@
 
         const portraitImg = document.getElementById('dragon-portrait-img');
         if (portraitImg && typeof AssetManager !== 'undefined') {
-          portraitImg.src = AssetManager.getDragonPortrait(d.stage || 'adult', d.skin, d.grade);
+          portraitImg.src = AssetManager.getDragonPortrait(d.stage || 'adult', d.skin, d.grade, d.name);
         }
 
         // Dynamic costs on action buttons
