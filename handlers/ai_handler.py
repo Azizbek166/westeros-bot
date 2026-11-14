@@ -184,6 +184,7 @@ async def ai_topic_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def register_ai_handlers(app):
     """AI Maslahatchi handlerlarini Telegram bot ilovasiga ulash"""
+    import re
     from telegram.ext import MessageHandler, filters
 
     ai_cmds = [
@@ -197,7 +198,7 @@ def register_ai_handlers(app):
     app.add_handler(CallbackQueryHandler(ai_topic_callback, pattern="^ai_prompt_"))
     app.add_handler(
         MessageHandler(
-            filters.Regex("^(?i)[/!]?(maslahat|maslaxat|meyster|meystr|kengash)(\\s+.*)?$") & filters.ChatType.PRIVATE,
+            filters.Regex(re.compile(r"^[/!]?(maslahat|maslaxat|meyster|meystr|kengash)(\s+.*)?$", re.IGNORECASE)) & filters.ChatType.PRIVATE,
             ai_advisor_text_handler,
         )
     )
