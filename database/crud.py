@@ -6579,6 +6579,17 @@ async def get_season_status_summary(session: AsyncSession) -> Dict[str, Any]:
     real_concluded_seasons = real_bonus_seasons_res.scalar() or 0
     effective_season_num = real_concluded_seasons + 1
 
+    if effective_season_num == 1:
+        winner_house_id = 15
+        winner_house_name = "House Blackfyre"
+        winner_house_emoji = "🐉"
+        king_name = "Liar (@NiclausMikaelson)"
+        top3_list = [
+            {"rank": 1, "telegram_id": 5381961263, "name": "Liar (@NiclausMikaelson)", "house": "House Blackfyre", "prestige": 62514, "level": 10},
+            {"rank": 2, "telegram_id": 8838680114, "name": "Bexruz (@Bexruz)", "house": "House Stark", "prestige": 750, "level": 5},
+            {"rank": 3, "telegram_id": 8161647993, "name": "Abdulloh Askarov (@Abdulloh_askarov6)", "house": "House Bolton", "prestige": 457, "level": 6},
+        ]
+
     return {
         "season_number": effective_season_num,
         "start_date": season.start_date if season else now,
@@ -6648,50 +6659,99 @@ async def admin_conclude_and_restart_season(session: AsyncSession, bot_app=None)
         )
         await session.flush()
 
-    winner_house_name = summary["winner_house_name"]
-    winner_house_id = summary["winner_house_id"]
-    king_name = summary["king_name"]
+    if current_season_num == 1:
+        winner_house_name = "🐉 House Blackfyre"
+        winner_house_id = 15
+        overall_winner_name = "Liar (@NiclausMikaelson)"
+        top_warrior_name = "kozmunchoq 🐾 (@shaxnoza_0901)"
+        top_warrior_prestige = 62514
 
-    raw_top = summary["raw_top_players"]
-    top1_player = raw_top[0] if len(raw_top) > 0 else None
-    top_warrior_prestige = top1_player.prestige if top1_player else 0
-
-    # O'yinni yutgan odam (Temir Taxt Qiroli yoki Top 1 jangchi)
-    overall_winner_name = king_name if king_name and king_name != "Noma'lum Lord" else (top1_player.full_name if top1_player else "Vesteros Qiroli")
-
-    # 1. Shon-sharaf zaliga yozish (faqat o'yinni yutgan shaxs)
-    hof_entry = models.HallOfFame(
-        season_number=current_season_num,
-        winner_house_id=winner_house_id,
-        winner_house_name=winner_house_name,
-        king_user_id=None,
-        king_name=overall_winner_name,
-        top_warrior_name=overall_winner_name,
-        top_warrior_prestige=top_warrior_prestige,
-        concluded_at=now,
-    )
-    session.add(hof_entry)
-
-    # 2. Yangi mavsum uchun TOP 3 o'yinchilariga bonus yozish
-    top3_details = []
-    for rank, p in enumerate(raw_top, start=1):
-        char_name = p.characters[0].name if p.characters else p.full_name
-        bonus_entry = models.SeasonTopBonus(
-            season_number=current_season_num,
-            telegram_id=p.telegram_id,
-            character_name=char_name,
-            rank_position=rank,
-            prestige=p.prestige or 0,
-            is_claimed=False,
-            created_at=now,
+        # 1. Shon-sharaf zaliga yozish (faqat o'yinni yutgan shaxs va xonadon)
+        hof_entry = models.HallOfFame(
+            season_number=1,
+            winner_house_id=15,
+            winner_house_name="🐉 House Blackfyre",
+            king_user_id=None,
+            king_name="Liar (@NiclausMikaelson)",
+            top_warrior_name="kozmunchoq 🐾 (@shaxnoza_0901)",
+            top_warrior_prestige=62514,
+            top_so_user_id=None,
+            top_so_player_name="Liar (@NiclausMikaelson)",
+            top_so_points=62514,
+            top_guild_name="House Blackfyre",
+            snapshot_json=json.dumps([
+                {"rank": 1, "name": "Liar (@NiclausMikaelson)", "house_name": "House Blackfyre", "prestige": 62514},
+                {"rank": 2, "name": "Bexruz (@Bexruz)", "house_name": "House Stark", "prestige": 750},
+                {"rank": 3, "name": "Abdulloh Askarov (@Abdulloh_askarov6)", "house_name": "House Bolton", "prestige": 457},
+            ]),
+            concluded_at=now,
         )
-        session.add(bonus_entry)
-        top3_details.append({
-            "rank": rank,
-            "name": char_name,
-            "prestige": p.prestige or 0,
-            "telegram_id": p.telegram_id,
-        })
+        session.add(hof_entry)
+
+        # 2. Yangi mavsum uchun TOP 3 o'yinchilariga bonus yozish
+        top3_custom = [
+            {"rank": 1, "telegram_id": 5381961263, "name": "Liar (@NiclausMikaelson)", "prestige": 62514},
+            {"rank": 2, "telegram_id": 8838680114, "name": "Bexruz (@Bexruz)", "prestige": 750},
+            {"rank": 3, "telegram_id": 8161647993, "name": "Abdulloh Askarov (@Abdulloh_askarov6)", "prestige": 457},
+        ]
+        top3_details = []
+        for item in top3_custom:
+            bonus_entry = models.SeasonTopBonus(
+                season_number=1,
+                telegram_id=item["telegram_id"],
+                character_name=item["name"],
+                rank_position=item["rank"],
+                prestige=item["prestige"],
+                is_claimed=False,
+                created_at=now,
+            )
+            session.add(bonus_entry)
+            top3_details.append(item)
+    else:
+        winner_house_name = summary["winner_house_name"]
+        winner_house_id = summary["winner_house_id"]
+        king_name = summary["king_name"]
+
+        raw_top = summary["raw_top_players"]
+        top1_player = raw_top[0] if len(raw_top) > 0 else None
+        top_warrior_prestige = top1_player.prestige if top1_player else 0
+
+        # O'yinni yutgan odam (Temir Taxt Qiroli yoki Top 1 jangchi)
+        overall_winner_name = king_name if king_name and king_name != "Noma'lum Lord" else (top1_player.full_name if top1_player else "Vesteros Qiroli")
+
+        # 1. Shon-sharaf zaliga yozish (faqat o'yinni yutgan shaxs)
+        hof_entry = models.HallOfFame(
+            season_number=current_season_num,
+            winner_house_id=winner_house_id,
+            winner_house_name=winner_house_name,
+            king_user_id=None,
+            king_name=overall_winner_name,
+            top_warrior_name=overall_winner_name,
+            top_warrior_prestige=top_warrior_prestige,
+            concluded_at=now,
+        )
+        session.add(hof_entry)
+
+        # 2. Yangi mavsum uchun TOP 3 o'yinchilariga bonus yozish
+        top3_details = []
+        for rank, p in enumerate(raw_top, start=1):
+            char_name = p.characters[0].name if p.characters else p.full_name
+            bonus_entry = models.SeasonTopBonus(
+                season_number=current_season_num,
+                telegram_id=p.telegram_id,
+                character_name=char_name,
+                rank_position=rank,
+                prestige=p.prestige or 0,
+                is_claimed=False,
+                created_at=now,
+            )
+            session.add(bonus_entry)
+            top3_details.append({
+                "rank": rank,
+                "name": char_name,
+                "prestige": p.prestige or 0,
+                "telegram_id": p.telegram_id,
+            })
 
     # 3. Joriy mavsumni yopish va yangi mavsumni ochish
     next_season = models.SeasonState(
