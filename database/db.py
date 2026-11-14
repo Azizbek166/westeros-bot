@@ -754,7 +754,7 @@ async def init_db():
 
                 # 3) Admin tasdig'isiz faollashgan Season Pass holatini tozalash
                 pss_res = await session.execute(
-                    select(models.PlayerSeasonState).where(models.PlayerSeasonState.has_premium_pass == True)
+                    select(models.SeasonPlayerState).where(models.SeasonPlayerState.has_premium_pass == True)
                 )
                 for pss in pss_res.scalars().all():
                     if pss.user_id not in approved_pass_user_ids:
