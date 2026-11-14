@@ -707,6 +707,68 @@ async def init_db():
         # Qalalar balansini kanonik daromad, toifa va mudofaaga qat'iy sinxronlashtirish (Tier 1 > Tier 2 > Tier 3)
         await crud.sync_territories_canon_balance(session)
 
+        # Bir martalik tozalash: Eski tizimda to'lovsiz / tasdiqsiz avtomatik olingan
+        # VIP obuna, Starter Pack, Season Pass va kosmetikalarni bekor qilish (faqat admin tasdiqlagan donation_requests qoladi)
+        cleanup_flag_res = await session.execute(
+            select(models.EventState).where(models.EventState.event_name == "unpaid_stars_cleanup_v1")
+        )
+        if not cleanup_flag_res.scalar_one_or_none():
+            try:
+                approved_reqs_res = await session.execute(
+                    select(models.DonationRequest).where(models.DonationRequest.status == "approved")
+                )
+                approved_reqs = approved_reqs_res.scalars().all()
+                approved_user_ids = {r.user_id for r in approved_reqs if r.user_id}
+                approved_pass_user_ids = {
+                    r.user_id for r in approved_reqs
+                    if r.user_id and r.tier_id in ("premium_pass", "sovereign", "dragonlord")
+                }
+
+                # 1) To'lovsiz avtomatik yozilgan PaymentTransaction qatorlarini o'chirish va ularning kosmetikasini tozalash
+                unpaid_tx_res = await session.execute(
+                    select(models.PaymentTransaction).where(
+                        models.PaymentTransaction.provider.in_(["telegram_stars", "stars", "card"])
+                    )
+                )
+                for utx in unpaid_tx_res.scalars().all():
+                    if utx.user_id and utx.user_id not in approved_user_ids:
+                        await session.execute(
+                            delete(models.UserCosmetic).where(
+                                models.UserCosmetic.user_id == utx.user_id,
+                                models.UserCosmetic.item_id == utx.item_id,
+                            )
+                        )
+                    await session.delete(utx)
+
+                # 2) Admin tasdig'isiz Noble VIP yoki Starter Pack olgan foydalanuvchilarni tozalash
+                all_users_res = await session.execute(select(models.User))
+                for u_chk in all_users_res.scalars().all():
+                    if u_chk.id not in approved_user_ids:
+                        if getattr(u_chk, "has_starter_pack", False):
+                            u_chk.has_starter_pack = False
+                        if u_chk.vip_tier in ("noble", "starter", "premium_pass"):
+                            u_chk.vip_tier = None
+                            u_chk.vip_until = None
+                        elif u_chk.vip_until is not None and not u_chk.vip_tier:
+                            u_chk.vip_until = None
+
+                # 3) Admin tasdig'isiz faollashgan Season Pass holatini tozalash
+                pss_res = await session.execute(
+                    select(models.PlayerSeasonState).where(models.PlayerSeasonState.has_premium_pass == True)
+                )
+                for pss in pss_res.scalars().all():
+                    if pss.user_id not in approved_pass_user_ids:
+                        pss.has_premium_pass = False
+
+                session.add(models.EventState(
+                    event_name="unpaid_stars_cleanup_v1",
+                    data_json=json.dumps({"cleaned_at": datetime.utcnow().isoformat()}),
+                    is_active=True,
+                ))
+                logger.info("🧹 To'lovsiz (eski versiyada) olingan VIP, Starter Pack va Season Pass holatlari tozalandi.")
+            except Exception as cl_err:
+                logger.warning(f"unpaid_stars_cleanup_v1 xatosi: {cl_err}")
+
         await session.commit()
         logger.info("✅ 50 ta Xonadon va Westeros hududlari bazaga kiritildi.")
 
