@@ -661,7 +661,14 @@ async def get_westeros_map_endpoint(
     """Barcha 22 ta hudud va qal'alar interaktiv xaritasi"""
     user, _ = auth
     map_data = await services.get_westeros_map_data(session, user.id)
-    return {"success": True, "map": map_data}
+    territories_list = map_data.get("territories", []) if isinstance(map_data, dict) else []
+    regions_map = map_data.get("regions", {}) if isinstance(map_data, dict) else {}
+    return {
+        "success": True,
+        "map": map_data,
+        "territories": territories_list,
+        "regions": regions_map,
+    }
 
 
 @router.get("/map/territory/{territory_id}")
@@ -724,9 +731,11 @@ async def execute_spy_mission_endpoint(
 # ============================================================
 
 class HouseDepositRequest(BaseModel):
-    gold: int = Field(0, ge=0, description="Oltin miqdori")
-    food: int = Field(0, ge=0, description="Oziq-ovqat miqdori")
-    iron: int = Field(0, ge=0, description="Temir miqdori")
+    gold: Optional[int] = Field(0, ge=0, description="Oltin miqdori")
+    food: Optional[int] = Field(0, ge=0, description="Oziq-ovqat miqdori")
+    iron: Optional[int] = Field(0, ge=0, description="Temir miqdori")
+    resource_type: Optional[str] = Field(None, description="Resurs turi: gold, iron, food")
+    amount: Optional[int] = Field(0, ge=0, description="Miqdor")
 
 
 @router.get("/house/hub")
@@ -739,7 +748,24 @@ async def get_house_hub_endpoint(
     data = await services.get_house_hub_data(session, user.id)
     if not data:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Xonadon ma'lumotlari topilmadi.")
-    return {"success": True, "house_hub": data}
+
+    treasury = data.get("treasury", {}) if isinstance(data, dict) else {}
+    return {
+        "success": True,
+        "house_hub": data,
+        "house": {
+            "id": data.get("house_id"),
+            "name": data.get("name"),
+            "emoji": data.get("emoji"),
+            "region": data.get("region"),
+            "motto": data.get("description"),
+            "treasury_gold": treasury.get("gold", 0) if isinstance(treasury, dict) else 0,
+            "treasury_iron": treasury.get("iron", 0) if isinstance(treasury, dict) else 0,
+            "treasury_food": treasury.get("food", 0) if isinstance(treasury, dict) else 0,
+        },
+        "lord": {"full_name": str(data.get("lord_name") or "Hali saylanmagan")},
+        "members": data.get("members", []),
+    }
 
 
 @router.post("/house/deposit")
@@ -750,14 +776,26 @@ async def deposit_house_treasury_endpoint(
 ) -> Dict[str, Any]:
     """Xonadon umumiy g'aznasiga shaxsiy resurslarni ehson qilish"""
     user, _ = auth
-    if req.gold <= 0 and req.food <= 0 and req.iron <= 0:
+    g = req.gold or 0
+    f = req.food or 0
+    i = req.iron or 0
+    if req.amount and req.amount > 0 and req.resource_type:
+        rt = req.resource_type.lower().strip()
+        if rt == "gold":
+            g = max(g, req.amount)
+        elif rt == "iron":
+            i = max(i, req.amount)
+        elif rt == "food":
+            f = max(f, req.amount)
+
+    if g <= 0 and f <= 0 and i <= 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Kamida 1 ta resurs miqdorini kiriting.")
     ok, msg = await services.deposit_to_house_treasury_service(
         session=session,
         identifier=user.id,
-        gold=req.gold,
-        food=req.food,
-        iron=req.iron,
+        gold=g,
+        food=f,
+        iron=i,
     )
     if not ok:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
@@ -780,7 +818,20 @@ async def get_hero_hub_endpoint(
     """Lord qahramoni va uning Valiriya anjomlari / inventari"""
     user, _ = auth
     data = await services.get_hero_hub_data(session, user.id)
-    return {"success": True, "hero_hub": data}
+    hero_dict = {
+        "name": (data.get("hero_name") if data else None) or "Lord Chempioni",
+        "attack": data.get("attack", 50) if data else 50,
+        "defense": data.get("defense", 50) if data else 50,
+        "level": data.get("level", 1) if data else 1,
+        "health": data.get("health", 100) if data else 100,
+    }
+    return {
+        "success": True,
+        "hero_hub": data,
+        "hero": hero_dict,
+        "equipped_artifact": data.get("equipped_artifact") if data else None,
+        "artifacts": data.get("inventory", []) if data else [],
+    }
 
 
 @router.post("/hero/equip-artifact")
@@ -824,6 +875,7 @@ class DragonActionRequest(BaseModel):
 
 
 @router.get("/dragon/hub")
+@router.get("/dragon/status")
 async def get_dragon_hub_endpoint(
     auth: Tuple[models.User, Dict[str, Any]] = Depends(get_current_player),
     session: AsyncSession = Depends(get_db_session),
@@ -831,7 +883,14 @@ async def get_dragon_hub_endpoint(
     """Ajdarlar uyasi (Dragon Roost) bosh sahifasi"""
     user, _ = auth
     data = await services.get_dragon_hub_data(session, user.id)
-    return {"success": True, "dragon_hub": data}
+    first_dragon = None
+    if data and data.get("dragons"):
+        first_dragon = data["dragons"][0]
+    return {
+        "success": True,
+        "dragon_hub": data,
+        "dragon": first_dragon,
+    }
 
 
 @router.post("/dragon/claim-egg")

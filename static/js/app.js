@@ -2094,7 +2094,7 @@
       const res = await resp.json();
       if (!resp.ok || !res.success) throw new Error(res.detail || 'Xarita ma‘lumotlarini yuklab bo‘lmadi.');
 
-      cachedTerritories = res.territories || [];
+      cachedTerritories = res.territories || (res.map && res.map.territories) || [];
       renderMap(cachedTerritories);
     } catch (err) {
       console.error('Map error:', err);
@@ -2508,34 +2508,41 @@
       const res = await resp.json();
       if (!resp.ok || !res.success) throw new Error(res.detail || 'Ajdaho ma‘lumotini yuklab bo‘lmadi.');
 
-      const d = res.dragon;
+      const d = res.dragon || (res.dragon_hub && res.dragon_hub.dragons && res.dragon_hub.dragons[0]) || null;
       const vUnclaimed = document.getElementById('dragon-view-unclaimed');
       const vEgg = document.getElementById('dragon-view-egg');
       const vActive = document.getElementById('dragon-view-active');
 
       if (!d) {
-        vUnclaimed.style.display = 'block';
-        vEgg.style.display = 'none';
-        vActive.style.display = 'none';
+        if (vUnclaimed) vUnclaimed.style.display = 'block';
+        if (vEgg) vEgg.style.display = 'none';
+        if (vActive) vActive.style.display = 'none';
       } else if (d.is_egg) {
-        vUnclaimed.style.display = 'none';
-        vEgg.style.display = 'block';
-        vActive.style.display = 'none';
-        document.getElementById('dragon-egg-name').textContent = d.name || 'Valyriya Tuxumi';
+        if (vUnclaimed) vUnclaimed.style.display = 'none';
+        if (vEgg) vEgg.style.display = 'block';
+        if (vActive) vActive.style.display = 'none';
+        const eggNameEl = document.getElementById('dragon-egg-name');
+        if (eggNameEl) eggNameEl.textContent = d.name || 'Valyriya Tuxumi';
       } else {
-        vUnclaimed.style.display = 'none';
-        vEgg.style.display = 'none';
-        vActive.style.display = 'block';
-        document.getElementById('dragon-name').textContent = d.name || 'Ajdaho';
-        document.getElementById('dragon-stage-lbl').textContent = `${d.stage_label || 'Ajdaho'} • ${d.age_days || 1} Kunlik`;
-        document.getElementById('dragon-power-val').textContent = formatNum(d.power || 0);
-        document.getElementById('dragon-power-bar').style.width = `${Math.min(100, Math.floor((d.power || 0) / 50))}%`;
+        if (vUnclaimed) vUnclaimed.style.display = 'none';
+        if (vEgg) vEgg.style.display = 'none';
+        if (vActive) vActive.style.display = 'block';
+        const dName = document.getElementById('dragon-name');
+        if (dName) dName.textContent = d.name || 'Ajdaho';
+        const dStage = document.getElementById('dragon-stage-lbl');
+        if (dStage) dStage.textContent = `${d.stage_label || d.stage || 'Ajdaho'} • ${d.age_days || 1} Kunlik`;
+        const dPwr = document.getElementById('dragon-power-val');
+        if (dPwr) dPwr.textContent = formatNum(d.power || 0);
+        const dPwrBar = document.getElementById('dragon-power-bar');
+        if (dPwrBar) dPwrBar.style.width = `${Math.min(100, Math.floor((d.power || 0) / 50))}%`;
         const hungerPct = Math.min(100, Math.max(0, 100 - (d.hunger || 0)));
-        document.getElementById('dragon-hunger-val').textContent = `To‘qlik: ${hungerPct}%`;
-        document.getElementById('dragon-hunger-bar').style.width = `${hungerPct}%`;
+        const dHunger = document.getElementById('dragon-hunger-val');
+        if (dHunger) dHunger.textContent = `To‘qlik: ${hungerPct}%`;
+        const dHungerBar = document.getElementById('dragon-hunger-bar');
+        if (dHungerBar) dHungerBar.style.width = `${hungerPct}%`;
 
         const portraitImg = document.getElementById('dragon-portrait-img');
-        if (portraitImg) {
+        if (portraitImg && typeof AssetManager !== 'undefined') {
           portraitImg.src = AssetManager.getDragonPortrait(d.stage || 'adult', d.skin);
         }
       }
@@ -2647,28 +2654,32 @@
       const res = await resp.json();
       if (!resp.ok || !res.success) throw new Error(res.detail || 'Xonadon ma‘lumotini yuklab bo‘lmadi.');
 
-      const h = res.house || {};
+      const h = res.house || res.house_hub || {};
+      const treasury = h.treasury || {};
+      const goldVal = (h.treasury_gold !== undefined) ? h.treasury_gold : (treasury.gold || 0);
+      const ironVal = (h.treasury_iron !== undefined) ? h.treasury_iron : (treasury.iron || 0);
+
       document.getElementById('house-sigil').textContent = h.emoji || '🦁';
       document.getElementById('house-title-name').textContent = h.name || 'Buyuk Xonadon';
-      document.getElementById('house-motto').textContent = h.motto ? `"${h.motto}"` : '';
-      document.getElementById('house-lord-name').textContent = res.lord?.full_name || 'Hali saylanmagan';
-      document.getElementById('house-treasury-gold').textContent = `${formatNum(h.treasury_gold || 0)}🪙 Oltin`;
-      document.getElementById('house-treasury-iron').textContent = `${formatNum(h.treasury_iron || 0)}⛓️ Temir`;
+      document.getElementById('house-motto').textContent = h.motto || (h.description ? `"${h.description}"` : '');
+      document.getElementById('house-lord-name').textContent = res.lord?.full_name || h.lord_name || 'Hali saylanmagan';
+      document.getElementById('house-treasury-gold').textContent = `${formatNum(goldVal)}🪙 Oltin`;
+      document.getElementById('house-treasury-iron').textContent = `${formatNum(ironVal)}⛓️ Temir`;
 
       const list = document.getElementById('house-members-list');
-      const members = res.members || [];
+      const members = res.members || (res.house_hub && res.house_hub.members) || [];
       if (!members.length) {
         list.innerHTML = '<div class="text-secondary" style="font-size:11px;">A‘zolar topilmadi.</div>';
       } else {
         list.innerHTML = members.map(m => `
           <div class="card p-2 mb-2 d-flex justify-between align-center" style="font-size:11px;">
             <div>
-              <strong class="text-gold">${escapeHtml(m.full_name)}</strong>
-              <div class="text-secondary">${escapeHtml(m.rank_label || 'Ritsar')}</div>
+              <strong class="text-gold">${escapeHtml(m.full_name || m.name || m.username || 'Lord')}</strong>
+              <div class="text-secondary">${escapeHtml(m.rank_label || m.rank || 'Ritsar')}</div>
             </div>
             <div class="text-right">
-              <div>${formatNum(m.contribution_gold)}🪙</div>
-              <div class="text-secondary">${m.prestige} nufuz</div>
+              <div>${formatNum(m.contribution_gold !== undefined ? m.contribution_gold : (m.prestige || 0))}🪙</div>
+              <div class="text-secondary">${m.prestige || 0} nufuz</div>
             </div>
           </div>
         `).join('');
@@ -2698,6 +2709,9 @@
         body: JSON.stringify({
           resource_type: selectedHouseDepositResource,
           amount: amount,
+          gold: selectedHouseDepositResource === 'gold' ? amount : 0,
+          iron: selectedHouseDepositResource === 'iron' ? amount : 0,
+          food: selectedHouseDepositResource === 'food' ? amount : 0,
         }),
       });
 
@@ -3011,12 +3025,12 @@
       const res = await resp.json();
       if (!resp.ok || !res.success) throw new Error(res.detail || 'Qahramon ma‘lumotini olib bo‘lmadi.');
 
-      const h = res.hero || {};
-      document.getElementById('hero-name-val').textContent = h.name || 'Lord Chempioni';
+      const h = res.hero || res.hero_hub || {};
+      document.getElementById('hero-name-val').textContent = h.name || h.hero_name || 'Lord Chempioni';
       document.getElementById('hero-atk-val').textContent = formatNum(h.attack || 50);
       document.getElementById('hero-def-val').textContent = formatNum(h.defense || 50);
 
-      const eqArt = res.equipped_artifact;
+      const eqArt = res.equipped_artifact || (res.hero_hub && res.hero_hub.equipped_artifact);
       const eqName = document.getElementById('equipped-artifact-name');
       const unequipBtn = document.getElementById('btn-unequip-artifact');
 
@@ -3029,9 +3043,9 @@
       }
 
       const listCont = document.getElementById('hero-artifacts-container');
-      const artifacts = res.artifacts || [];
+      const artifacts = res.artifacts || (res.hero_hub && (res.hero_hub.inventory || res.hero_hub.artifacts)) || [];
       if (!artifacts.length) {
-        listCont.innerHTML = '<div class="text-center py-2 text-secondary" style="font-size:11px;">Hozirda sandiqda artefaktlar yo‘q.</div>';
+        listCont.innerHTML = '<div class="text-center py-3 text-secondary" style="font-size:11px;">🛡️ Hozirda sandiqda artefaktlar yo‘q.<br><span style="color:#888;">(Duellar, topshiriqlar va harbiy yurishlarda qatnashib Valyriya qurollarini qo‘lga kiriting)</span></div>';
       } else {
         listCont.innerHTML = artifacts.map(a => `
           <div class="artifact-card ${a.is_equipped ? 'equipped' : ''}">
