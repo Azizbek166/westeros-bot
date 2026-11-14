@@ -871,7 +871,8 @@ class ClaimDragonEggRequest(BaseModel):
 
 
 class DragonActionRequest(BaseModel):
-    dragon_id: int = Field(..., ge=1, description="Ajdar ID si")
+    dragon_id: Optional[int] = Field(None, ge=1, description="Ajdar ID si")
+    food_amount: Optional[int] = Field(None, description="Ozuqa miqdori")
 
 
 @router.get("/dragon/hub")
@@ -909,13 +910,14 @@ async def claim_dragon_egg_endpoint(
 
 @router.post("/dragon/hatch")
 async def hatch_dragon_endpoint(
-    req: DragonActionRequest,
+    req: Optional[DragonActionRequest] = None,
     auth: Tuple[models.User, Dict[str, Any]] = Depends(get_current_player),
     session: AsyncSession = Depends(get_db_session),
 ) -> Dict[str, Any]:
     """Ajdaho tuxumini yorib go'dak ajdar olish"""
     user, _ = auth
-    ok, msg = await services.hatch_dragon_service(session, user.id, req.dragon_id)
+    d_id = req.dragon_id if req else None
+    ok, msg = await services.hatch_dragon_service(session, user.id, d_id)
     if not ok:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
     return {"success": True, "message": msg}
@@ -923,13 +925,14 @@ async def hatch_dragon_endpoint(
 
 @router.post("/dragon/feed")
 async def feed_dragon_endpoint(
-    req: DragonActionRequest,
+    req: Optional[DragonActionRequest] = None,
     auth: Tuple[models.User, Dict[str, Any]] = Depends(get_current_player),
     session: AsyncSession = Depends(get_db_session),
 ) -> Dict[str, Any]:
     """Ajdahoni oziqlantirish (Ozuqa sarflab quvvat oshirish)"""
     user, _ = auth
-    ok, msg = await services.feed_dragon_service(session, user.id, req.dragon_id)
+    d_id = req.dragon_id if req else None
+    ok, msg = await services.feed_dragon_service(session, user.id, d_id)
     if not ok:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
     return {"success": True, "message": msg}
@@ -937,13 +940,14 @@ async def feed_dragon_endpoint(
 
 @router.post("/dragon/train")
 async def train_dragon_endpoint(
-    req: DragonActionRequest,
+    req: Optional[DragonActionRequest] = None,
     auth: Tuple[models.User, Dict[str, Any]] = Depends(get_current_player),
     session: AsyncSession = Depends(get_db_session),
 ) -> Dict[str, Any]:
     """Ajdaho jangovar mashg'uloti"""
     user, _ = auth
-    ok, msg = await services.train_dragon_service(session, user.id, req.dragon_id)
+    d_id = req.dragon_id if req else None
+    ok, msg = await services.train_dragon_service(session, user.id, d_id)
     if not ok:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
     return {"success": True, "message": msg}

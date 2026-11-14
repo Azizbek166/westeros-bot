@@ -1,39 +1,75 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" width="160" height="160">
   <defs>
-    <radialGradient id="babyBody" cx="40%" cy="40%" r="60%">
-      <stop offset="0%" stop-color="#ff8a65"/>
-      <stop offset="60%" stop-color="#d84315"/>
-      <stop offset="100%" stop-color="#3e2723"/>
+    <radialGradient id="babyAura" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ff7043" stop-opacity="0.35"/>
+      <stop offset="70%" stop-color="#d84315" stop-opacity="0.1"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
     </radialGradient>
-    <linearGradient id="wingSkin" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#ffab91"/>
-      <stop offset="100%" stop-color="#bf360c"/>
-    </linearGradient>
+    <radialGradient id="babyScales" cx="40%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#4e342e"/>
+      <stop offset="50%" stop-color="#271c19"/>
+      <stop offset="100%" stop-color="#0e0a09"/>
+    </radialGradient>
+    <radialGradient id="babyWing" cx="40%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#ff7043"/>
+      <stop offset="60%" stop-color="#bf360c"/>
+      <stop offset="100%" stop-color="#3e140a"/>
+    </radialGradient>
+    <filter id="babyGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="1.5" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
   </defs>
-  <!-- Tail -->
-  <path d="M40 85 Q20 95 15 80 Q10 70 5 75 Q10 88 30 100 Q45 102 52 90 Z" fill="#bf360c"/>
+
+  <circle cx="80" cy="80" r="75" fill="url(#babyAura)"/>
+
+  <!-- Cute tail -->
+  <path d="M55 110 Q30 120 22 105 Q18 95 12 100 Q18 115 42 128 Q60 130 70 116 Z" fill="url(#babyScales)"/>
+  <polygon points="14,101 10,95 17,98" fill="#ff5722"/>
+
   <!-- Back Wing -->
-  <path d="M65 45 Q75 18 95 22 Q85 38 78 52 Z" fill="#d84315" opacity="0.7"/>
-  <!-- Body -->
-  <ellipse cx="56" cy="72" rx="22" ry="20" fill="url(#babyBody)"/>
-  <ellipse cx="52" cy="76" rx="14" ry="14" fill="#ffab91" opacity="0.3"/>
-  <!-- Legs -->
-  <ellipse cx="44" cy="92" rx="8" ry="6" fill="#bf360c"/>
-  <ellipse cx="68" cy="92" rx="8" ry="6" fill="#bf360c"/>
+  <path d="M75 65 Q85 35 110 40 Q98 60 90 75 Z" fill="url(#babyWing)" opacity="0.75"/>
+
+  <!-- Plump Body -->
+  <ellipse cx="72" cy="98" rx="28" ry="24" fill="url(#babyScales)"/>
+  <!-- Underbelly soft scales -->
+  <path d="M68 85 Q82 92 84 112 Q75 122 62 120 Q56 102 68 85 Z" fill="#ff8a65" opacity="0.6"/>
+
+  <!-- Claws / Paws -->
+  <ellipse cx="56" cy="122" rx="10" ry="7" fill="#271c19"/>
+  <ellipse cx="88" cy="122" rx="10" ry="7" fill="#271c19"/>
+  <polygon points="50,127 52,122 54,127" fill="#fff"/>
+  <polygon points="56,128 58,122 60,128" fill="#fff"/>
+  <polygon points="82,127 84,122 86,127" fill="#fff"/>
+  <polygon points="88,128 90,122 92,128" fill="#fff"/>
+
   <!-- Front Wing -->
-  <path d="M58 58 Q78 30 105 38 C90 52 82 72 65 72 Z" fill="url(#wingSkin)" stroke="#bf360c" stroke-width="1.5"/>
-  <path d="M58 58 Q85 45 105 38" stroke="#bf360c" stroke-width="2" fill="none"/>
-  <!-- Neck and Head -->
-  <path d="M64 62 Q72 50 78 40 Q84 32 94 36 Q100 40 98 48 Q90 56 76 64 Z" fill="url(#babyBody)"/>
-  <!-- Horns -->
-  <path d="M82 34 L88 20 L86 35 Z" fill="#3e2723"/>
-  <path d="M78 36 L80 24 L82 37 Z" fill="#3e2723"/>
-  <!-- Eye -->
-  <circle cx="88" cy="40" r="3.5" fill="#ffd600"/>
-  <circle cx="89" cy="40" r="1.8" fill="#1b0000"/>
-  <circle cx="87.5" cy="39" r="1" fill="#ffffff"/>
-  <!-- Snout smoke puff -->
-  <ellipse cx="98" cy="46" rx="2" ry="1" fill="#ff5722"/>
-  <circle cx="106" cy="42" r="3" fill="#ffccbc" opacity="0.6"/>
-  <circle cx="112" cy="38" r="4" fill="#ffab91" opacity="0.4"/>
+  <path d="M72 82 Q96 48 128 58 C112 75 102 96 82 96 Z" fill="url(#babyWing)" stroke="#ff7043" stroke-width="1.5"/>
+  <path d="M72 82 Q105 66 128 58" stroke="#ffab91" stroke-width="1.5" fill="none"/>
+
+  <!-- Head -->
+  <path d="M80 86 Q90 70 98 58 Q108 48 122 52 Q130 58 128 68 Q118 78 98 88 Z" fill="url(#babyScales)"/>
+  
+  <!-- Tiny Horns -->
+  <path d="M106 50 L114 34 L112 52 Z" fill="#ff7043"/>
+  <path d="M100 52 L104 38 L106 54 Z" fill="#ff5722"/>
+
+  <!-- Big Curious Glowing Eye -->
+  <g filter="url(#babyGlow)">
+    <circle cx="114" cy="58" r="7" fill="#210a0a"/>
+    <circle cx="114" cy="58" r="5.5" fill="#ffd600"/>
+    <ellipse cx="114" cy="58" rx="2" ry="4.5" fill="#1a0505"/>
+    <circle cx="112" cy="56" r="2" fill="#ffffff"/>
+    <circle cx="116" cy="60" r="1" fill="#ffffff" opacity="0.8"/>
+  </g>
+
+  <!-- Cute Puff of Spark / Flame -->
+  <g filter="url(#babyGlow)">
+    <ellipse cx="132" cy="66" rx="4" ry="2.5" fill="#ff5722"/>
+    <circle cx="140" cy="62" r="3.5" fill="#ffab00" opacity="0.8"/>
+    <circle cx="146" cy="58" r="2" fill="#fff59d" opacity="0.9"/>
+  </g>
 </svg>

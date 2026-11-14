@@ -1,41 +1,99 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 120" width="100" height="120">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 220" width="180" height="220">
   <defs>
-    <radialGradient id="eggGrad" cx="35%" cy="30%" r="70%">
-      <stop offset="0%" stop-color="#ff7043"/>
-      <stop offset="30%" stop-color="#bf360c"/>
-      <stop offset="70%" stop-color="#3e2723"/>
-      <stop offset="100%" stop-color="#1a0c0a"/>
+    <!-- Fiery Outer Halo -->
+    <radialGradient id="eggAura" cx="50%" cy="55%" r="50%">
+      <stop offset="0%" stop-color="#ff3d00" stop-opacity="0.45"/>
+      <stop offset="60%" stop-color="#b71c1c" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
     </radialGradient>
-    <linearGradient id="glowCrack" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#ffff00"/>
-      <stop offset="50%" stop-color="#ff3d00"/>
-      <stop offset="100%" stop-color="#dd2c00"/>
+
+    <!-- Shell Stone/Obsidian base -->
+    <radialGradient id="eggShell" cx="38%" cy="32%" r="65%">
+      <stop offset="0%" stop-color="#4e342e"/>
+      <stop offset="35%" stop-color="#2d1c18"/>
+      <stop offset="75%" stop-color="#140a08"/>
+      <stop offset="100%" stop-color="#050202"/>
+    </radialGradient>
+
+    <!-- Scale Shading Gradient -->
+    <linearGradient id="scaleDark" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6d4c41"/>
+      <stop offset="50%" stop-color="#3e2723"/>
+      <stop offset="100%" stop-color="#1b0000"/>
     </linearGradient>
-    <filter id="flamePulse" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="0" stdDeviation="6" flood-color="#ff5722" flood-opacity="0.8"/>
+
+    <!-- Scale Highlight -->
+    <linearGradient id="scaleHighlight" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ff8a65"/>
+      <stop offset="40%" stop-color="#d84315"/>
+      <stop offset="100%" stop-color="#4e342e"/>
+    </linearGradient>
+
+    <!-- Magma Crack Glow -->
+    <linearGradient id="magmaCrack" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="30%" stop-color="#ffff00"/>
+      <stop offset="70%" stop-color="#ff3d00"/>
+      <stop offset="100%" stop-color="#b71c1c"/>
+    </linearGradient>
+
+    <filter id="eggGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
     </filter>
   </defs>
-  <!-- Egg Base Contour -->
-  <path d="M50 10 C25 10 12 45 12 75 C12 100 30 115 50 115 C70 115 88 100 88 75 C88 45 75 10 50 10 Z" fill="url(#eggGrad)" filter="url(#flamePulse)"/>
-  
-  <!-- Scales Texture Pattern -->
-  <path d="M40 25 Q50 30 60 25 Q50 20 40 25 Z" fill="#d84315" opacity="0.6"/>
-  <path d="M30 38 Q42 45 54 38 Q42 32 30 38 Z" fill="#d84315" opacity="0.6"/>
-  <path d="M46 38 Q58 45 70 38 Q58 32 46 38 Z" fill="#d84315" opacity="0.6"/>
-  
-  <path d="M22 55 Q35 63 48 55 Q35 48 22 55 Z" fill="#bf360c" opacity="0.7"/>
-  <path d="M40 55 Q53 63 66 55 Q53 48 40 55 Z" fill="#bf360c" opacity="0.7"/>
-  <path d="M58 55 Q71 63 84 55 Q71 48 58 55 Z" fill="#bf360c" opacity="0.7"/>
 
-  <path d="M18 75 Q32 85 46 75 Q32 67 18 75 Z" fill="#870000" opacity="0.8"/>
-  <path d="M38 75 Q52 85 66 75 Q52 67 38 75 Z" fill="#870000" opacity="0.8"/>
-  <path d="M58 75 Q72 85 86 75 Q72 67 58 75 Z" fill="#870000" opacity="0.8"/>
+  <!-- Aura -->
+  <circle cx="90" cy="115" r="85" fill="url(#eggAura)"/>
 
-  <path d="M25 95 Q40 105 55 95 Q40 88 25 95 Z" fill="#4e0d0d" opacity="0.9"/>
-  <path d="M45 95 Q60 105 75 95 Q60 88 45 95 Z" fill="#4e0d0d" opacity="0.9"/>
+  <!-- Base Egg Form -->
+  <path d="M90 22 C142 22 165 85 165 135 C165 185 132 208 90 208 C48 208 15 185 15 135 C15 85 38 22 90 22 Z" fill="url(#eggShell)" stroke="#ff5722" stroke-width="1"/>
 
-  <!-- Glowing Vein / Crack -->
-  <path d="M46 35 L52 48 L48 60 L58 72 L50 88 L54 98" stroke="url(#glowCrack)" stroke-width="2" fill="none" stroke-linecap="round"/>
-  <path d="M48 60 L42 66 L38 64" stroke="url(#glowCrack)" stroke-width="1.2" fill="none" stroke-linecap="round"/>
-  <path d="M58 72 L66 76" stroke="url(#glowCrack)" stroke-width="1.2" fill="none" stroke-linecap="round"/>
+  <!-- Overlapping Diamond Reptilian Scales Texture -->
+  <!-- Row 1 (Top) -->
+  <path d="M90 26 L98 40 L90 54 L82 40 Z" fill="url(#scaleHighlight)"/>
+  <path d="M76 44 L84 58 L76 72 L68 58 Z" fill="url(#scaleDark)"/>
+  <path d="M104 44 L112 58 L104 72 L96 58 Z" fill="url(#scaleHighlight)"/>
+
+  <!-- Row 2 -->
+  <path d="M62 62 L70 76 L62 90 L54 76 Z" fill="url(#scaleDark)"/>
+  <path d="M90 60 L100 75 L90 92 L80 75 Z" fill="url(#scaleHighlight)"/>
+  <path d="M118 62 L126 76 L118 90 L110 76 Z" fill="url(#scaleDark)"/>
+
+  <!-- Row 3 -->
+  <path d="M48 82 L58 98 L48 114 L38 98 Z" fill="url(#scaleDark)"/>
+  <path d="M76 80 L88 98 L76 116 L64 98 Z" fill="url(#scaleHighlight)"/>
+  <path d="M104 80 L116 98 L104 116 L92 98 Z" fill="url(#scaleHighlight)"/>
+  <path d="M132 82 L142 98 L132 114 L122 98 Z" fill="url(#scaleDark)"/>
+
+  <!-- Row 4 (Center - Majestic Scales) -->
+  <path d="M35 106 L46 124 L35 142 L24 124 Z" fill="url(#scaleDark)"/>
+  <path d="M64 104 L78 124 L64 144 L50 124 Z" fill="url(#scaleHighlight)"/>
+  <path d="M92 102 L106 122 L92 144 L78 122 Z" fill="url(#scaleHighlight)"/>
+  <path d="M120 104 L134 124 L120 144 L106 124 Z" fill="url(#scaleHighlight)"/>
+  <path d="M145 106 L156 124 L145 142 L134 124 Z" fill="url(#scaleDark)"/>
+
+  <!-- Row 5 -->
+  <path d="M50 134 L62 152 L50 170 L38 152 Z" fill="url(#scaleDark)"/>
+  <path d="M78 132 L92 152 L78 172 L64 152 Z" fill="url(#scaleHighlight)"/>
+  <path d="M106 132 L120 152 L106 172 L92 152 Z" fill="url(#scaleHighlight)"/>
+  <path d="M134 134 L146 152 L134 170 L122 152 Z" fill="url(#scaleDark)"/>
+
+  <!-- Row 6 (Base) -->
+  <path d="M64 162 L76 178 L64 194 L52 178 Z" fill="url(#scaleDark)"/>
+  <path d="M92 160 L104 178 L92 196 L80 178 Z" fill="url(#scaleHighlight)"/>
+  <path d="M120 162 L132 178 L120 194 L108 178 Z" fill="url(#scaleDark)"/>
+
+  <!-- Runic Valyrian Magma Fissures Glowing Across Shell -->
+  <g filter="url(#eggGlow)">
+    <path d="M90 35 Q96 65 88 95 Q82 120 95 150 Q105 175 92 200" stroke="url(#magmaCrack)" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+    <path d="M88 95 Q115 110 128 130 Q138 145 130 170" stroke="url(#magmaCrack)" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+    <path d="M82 120 Q60 135 48 155" stroke="url(#magmaCrack)" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+    <circle cx="95" cy="150" r="3" fill="#ffffff"/>
+    <circle cx="88" cy="95" r="2.5" fill="#ffff00"/>
+    <circle cx="128" cy="130" r="2" fill="#ff9100"/>
+  </g>
 </svg>

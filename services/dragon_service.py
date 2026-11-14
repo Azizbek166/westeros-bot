@@ -63,7 +63,7 @@ async def claim_starter_dragon_egg_service(session: AsyncSession, identifier: in
     }
 
 
-async def hatch_dragon_service(session: AsyncSession, identifier: int, dragon_id: int) -> Tuple[bool, str]:
+async def hatch_dragon_service(session: AsyncSession, identifier: int, dragon_id: Optional[int] = None) -> Tuple[bool, str]:
     """Ajdaho tuxumini yorib chiqish (Hatch)"""
     user = await crud.get_user_any(session, identifier)
     if not user:
@@ -71,7 +71,7 @@ async def hatch_dragon_service(session: AsyncSession, identifier: int, dragon_id
     return await crud.hatch_dragon(session, user.id, dragon_id)
 
 
-async def feed_dragon_service(session: AsyncSession, identifier: int, dragon_id: int) -> Tuple[bool, str]:
+async def feed_dragon_service(session: AsyncSession, identifier: int, dragon_id: Optional[int] = None) -> Tuple[bool, str]:
     """Ajdahoni oziqlantirish (Ozuqa sarflab quvvatini oshirish)"""
     user = await crud.get_user_any(session, identifier)
     if not user:
@@ -79,7 +79,7 @@ async def feed_dragon_service(session: AsyncSession, identifier: int, dragon_id:
     return await crud.feed_dragon(session, user.id, dragon_id)
 
 
-async def train_dragon_service(session: AsyncSession, identifier: int, dragon_id: int) -> Tuple[bool, str]:
+async def train_dragon_service(session: AsyncSession, identifier: int, dragon_id: Optional[int] = None) -> Tuple[bool, str]:
     """Ajdahoni mashq qildirish (Jangovar parvoz va Valiriya olovi)"""
     user = await crud.get_user_any(session, identifier)
     if not user:

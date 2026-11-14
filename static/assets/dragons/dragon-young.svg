@@ -1,43 +1,73 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 130" width="140" height="130">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
   <defs>
-    <radialGradient id="youngBody" cx="40%" cy="35%" r="65%">
-      <stop offset="0%" stop-color="#ff7043"/>
-      <stop offset="50%" stop-color="#c62828"/>
-      <stop offset="100%" stop-color="#1a0505"/>
+    <radialGradient id="youngAura" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ff5722" stop-opacity="0.35"/>
+      <stop offset="70%" stop-color="#b71c1c" stop-opacity="0.1"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
     </radialGradient>
-    <linearGradient id="youngWing" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#ff8a65"/>
-      <stop offset="60%" stop-color="#b71c1c"/>
-      <stop offset="100%" stop-color="#310404"/>
+    <linearGradient id="youngBody" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#37474f"/>
+      <stop offset="50%" stop-color="#212121"/>
+      <stop offset="100%" stop-color="#0d0d0d"/>
     </linearGradient>
+    <radialGradient id="youngWing" cx="50%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#e65100"/>
+      <stop offset="50%" stop-color="#bf360c"/>
+      <stop offset="100%" stop-color="#1b0000"/>
+    </radialGradient>
+    <filter id="youngGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
   </defs>
-  <!-- Back Wing Extended -->
-  <path d="M60 55 L90 12 L108 26 L124 38 L95 62 Z" fill="#8e0000" opacity="0.8"/>
-  <!-- Tail with spade tip -->
-  <path d="M42 85 Q20 95 12 75 Q8 58 2 64 Q6 85 24 105 Q38 108 50 92 Z" fill="#b71c1c"/>
-  <polygon points="2,64 10,60 7,72" fill="#5c0000"/>
-  <!-- Powerful Torso -->
-  <path d="M42 68 Q52 58 70 66 Q84 76 74 95 Q58 100 42 88 Z" fill="url(#youngBody)"/>
-  <!-- Back Spikes -->
-  <polygon points="50,62 53,52 56,64" fill="#3e2723"/>
-  <polygon points="58,64 62,54 65,66" fill="#3e2723"/>
-  <polygon points="66,68 70,60 73,72" fill="#3e2723"/>
-  <!-- Strong Claws -->
-  <path d="M48 92 L42 110 L48 112 L54 108 L56 94 Z" fill="#5c0000"/>
-  <path d="M66 94 L68 112 L74 112 L78 108 L76 94 Z" fill="#5c0000"/>
-  <!-- Muscular Neck and Fierce Head -->
-  <path d="M68 68 Q80 50 92 42 Q108 34 118 40 Q122 46 116 54 Q102 64 82 76 Z" fill="url(#youngBody)"/>
-  <!-- Sharp Horns -->
-  <path d="M96 38 L114 16 L108 34 Z" fill="#212121"/>
-  <path d="M92 42 L106 24 L102 42 Z" fill="#3e2723"/>
-  <!-- Glowing Amber Eye -->
-  <circle cx="106" cy="44" r="3.5" fill="#ffd600"/>
-  <ellipse cx="106" cy="44" rx="1" ry="3" fill="#000000"/>
-  <!-- Front Wing Fully Formed -->
-  <path d="M56 65 Q70 20 105 10 C92 30 115 45 102 70 C88 64 72 74 56 65 Z" fill="url(#youngWing)" stroke="#8e0000" stroke-width="2"/>
-  <path d="M56 65 L105 10 L102 70" stroke="#ff8a65" stroke-width="1.5" fill="none" opacity="0.6"/>
-  <!-- Jaws open with sparks -->
-  <path d="M116 48 L126 50 L118 56 Z" fill="#ffab00"/>
-  <circle cx="128" cy="50" r="2" fill="#ff6d00"/>
-  <circle cx="134" cy="48" r="3" fill="#ffab00" opacity="0.7"/>
+
+  <circle cx="100" cy="100" r="90" fill="url(#youngAura)"/>
+
+  <!-- Back Wing -->
+  <g opacity="0.8">
+    <path d="M60 90 L20 30 Q45 25 75 42 Q95 60 90 85 Z" fill="url(#youngWing)"/>
+    <path d="M60 90 L20 30 Q45 50 65 80" stroke="#ff5722" stroke-width="1.2" fill="none"/>
+  </g>
+
+  <!-- Neck & Body -->
+  <path d="M75 160 Q85 120 100 90 Q115 65 135 60 Q125 105 110 155 Z" fill="url(#youngBody)"/>
+  <path d="M105 145 Q115 115 125 85 Q128 80 131 86 Q120 118 110 150 Z" fill="#ff7043" opacity="0.75"/>
+
+  <!-- Fore Wing -->
+  <g>
+    <path d="M78 120 Q105 35 155 15 C145 38 160 60 148 90 C132 94 112 112 92 125 Z" fill="url(#youngWing)"/>
+    <path d="M78 120 Q112 65 155 15" stroke="#ff5722" stroke-width="2"/>
+    <path d="M118 52 Q138 70 148 90" stroke="#ffab40" stroke-width="1"/>
+  </g>
+
+  <!-- Head -->
+  <path d="M112 72 Q125 55 148 50 Q170 54 180 68 Q176 78 160 80 Q146 84 134 90 Q120 95 112 72 Z" fill="url(#youngBody)"/>
+  <!-- Horns -->
+  <path d="M118 62 Q102 32 82 18 Q98 34 112 55 Z" fill="#263238" stroke="#ff5722" stroke-width="0.7"/>
+  <path d="M128 58 Q115 22 92 10 Q112 26 124 50 Z" fill="#37474f" stroke="#ffab40" stroke-width="0.7"/>
+
+  <!-- Eye -->
+  <g filter="url(#youngGlow)">
+    <polygon points="142,62 152,64 148,70 139,68" fill="#1b0000"/>
+    <ellipse cx="145" cy="66" rx="4" ry="2.8" fill="#ff9100"/>
+    <ellipse cx="145" cy="66" rx="1.5" ry="1" fill="#fff"/>
+    <polygon points="144.5,63 145.5,65.5 144.5,69 143.5,65.5" fill="#000"/>
+  </g>
+
+  <!-- Lower Jaw & Fangs -->
+  <path d="M136 90 Q150 88 168 80 L165 90 Q148 98 132 94 Z" fill="url(#youngBody)"/>
+  <polygon points="150,75 152,82 154,75" fill="#fff"/>
+  <polygon points="156,73 159,83 161,73" fill="#fff"/>
+  <polygon points="163,72 165,80 167,72" fill="#fff"/>
+
+  <!-- Fire Spark -->
+  <g filter="url(#youngGlow)">
+    <path d="M165 77 Q180 75 195 72 Q188 84 170 83 Z" fill="#ff3d00"/>
+    <circle cx="180" cy="74" r="5" fill="#ffab00" opacity="0.8"/>
+    <circle cx="188" cy="72" r="3" fill="#ffff00" opacity="0.9"/>
+    <circle cx="192" cy="62" r="1.5" fill="#ffd600"/>
+  </g>
 </svg>

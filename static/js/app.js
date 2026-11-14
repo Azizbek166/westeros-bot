@@ -156,13 +156,13 @@
       return 'assets/castles/castle-tier1.svg';
     },
 
-    getDragonPortrait(stage = 'adult', skin = null) {
+    getDragonPortrait(stage = 'adult', skin = null, grade = null) {
       if (stage === 'egg') return 'assets/dragons/dragon-egg.svg';
       if (stage === 'baby' || stage === 'hatchling') return 'assets/dragons/dragon-baby.svg';
       if (stage === 'young') return 'assets/dragons/dragon-young.svg';
       if (skin === 'dragon_crimson') return 'assets/dragons/dragon-adult-crimson.svg';
-      if (skin === 'dragon_emerald') return 'assets/dragons/dragon-adult-emerald.svg';
-      if (skin === 'dragon_golden') return 'assets/dragons/dragon-adult-golden.svg';
+      if (skin === 'dragon_emerald' || grade === 'B') return 'assets/dragons/dragon-adult-emerald.svg';
+      if (skin === 'dragon_golden' || grade === 'C') return 'assets/dragons/dragon-adult-golden.svg';
       return 'assets/dragons/dragon-adult.svg';
     },
 
@@ -196,8 +196,21 @@
     });
   }
 
+  function formatErrorMessage(err) {
+    if (!err) return 'Xatolik yuz berdi.';
+    if (typeof err === 'string') return err;
+    if (Array.isArray(err)) {
+      return err.map(item => item.msg || item.message || JSON.stringify(item)).join(', ');
+    }
+    if (typeof err === 'object') {
+      return err.message || err.detail || err.error || JSON.stringify(err);
+    }
+    return String(err);
+  }
+
   // Toast notification utility
   function showToast(message, type = 'info') {
+    message = formatErrorMessage(message);
     const container = document.getElementById('toast-container');
     if (!container) return;
     const toast = document.createElement('div');
@@ -2499,6 +2512,8 @@
     hideModal('dragon-modal');
   }
 
+  let activeDragonId = null;
+
   async function loadDragonData() {
     try {
       const headers = { 'Content-Type': 'application/json' };
@@ -2506,7 +2521,7 @@
 
       const resp = await fetch('/api/actions/dragon/status', { method: 'GET', headers: headers });
       const res = await resp.json();
-      if (!resp.ok || !res.success) throw new Error(res.detail || 'Ajdaho ma‘lumotini yuklab bo‘lmadi.');
+      if (!resp.ok || !res.success) throw new Error(formatErrorMessage(res.detail || 'Ajdaho ma‘lumotini yuklab bo‘lmadi.'));
 
       const d = res.dragon || (res.dragon_hub && res.dragon_hub.dragons && res.dragon_hub.dragons[0]) || null;
       const vUnclaimed = document.getElementById('dragon-view-unclaimed');
@@ -2514,36 +2529,63 @@
       const vActive = document.getElementById('dragon-view-active');
 
       if (!d) {
+        activeDragonId = null;
         if (vUnclaimed) vUnclaimed.style.display = 'block';
         if (vEgg) vEgg.style.display = 'none';
         if (vActive) vActive.style.display = 'none';
-      } else if (d.is_egg) {
+      } else if (d.is_egg || d.stage === 'egg') {
+        activeDragonId = d.id;
         if (vUnclaimed) vUnclaimed.style.display = 'none';
         if (vEgg) vEgg.style.display = 'block';
         if (vActive) vActive.style.display = 'none';
         const eggNameEl = document.getElementById('dragon-egg-name');
         if (eggNameEl) eggNameEl.textContent = d.name || 'Valyriya Tuxumi';
       } else {
+        activeDragonId = d.id;
         if (vUnclaimed) vUnclaimed.style.display = 'none';
         if (vEgg) vEgg.style.display = 'none';
         if (vActive) vActive.style.display = 'block';
         const dName = document.getElementById('dragon-name');
         if (dName) dName.textContent = d.name || 'Ajdaho';
         const dStage = document.getElementById('dragon-stage-lbl');
-        if (dStage) dStage.textContent = `${d.stage_label || d.stage || 'Ajdaho'} • ${d.age_days || 1} Kunlik`;
+        const stageName = d.stage_label || (d.stage === 'baby' ? 'Go‘dak Ajdaho' : (d.stage === 'young' ? 'Yosh Ajdaho' : 'Ulg‘aygan Ajdaho'));
+        if (dStage) dStage.textContent = `${stageName} • ${d.level ? `${d.level}-daraja` : '1-daraja'}`;
         const dPwr = document.getElementById('dragon-power-val');
         if (dPwr) dPwr.textContent = formatNum(d.power || 0);
         const dPwrBar = document.getElementById('dragon-power-bar');
         if (dPwrBar) dPwrBar.style.width = `${Math.min(100, Math.floor((d.power || 0) / 50))}%`;
-        const hungerPct = Math.min(100, Math.max(0, 100 - (d.hunger || 0)));
+
+        // Hunger: in DB 0-100 where 100 is completely full (to'q)
+        const hungerPct = Math.min(100, Math.max(0, d.hunger !== undefined ? d.hunger : 50));
         const dHunger = document.getElementById('dragon-hunger-val');
-        if (dHunger) dHunger.textContent = `To‘qlik: ${hungerPct}%`;
+        if (dHunger) {
+          const hungerStatus = hungerPct >= 70 ? "To'q" : (hungerPct >= 30 ? "O'rtacha" : "Och");
+          dHunger.textContent = `${hungerStatus} (${hungerPct}%)`;
+          dHunger.className = hungerPct >= 70 ? 'text-green' : (hungerPct >= 30 ? 'text-gold' : 'text-danger');
+        }
         const dHungerBar = document.getElementById('dragon-hunger-bar');
-        if (dHungerBar) dHungerBar.style.width = `${hungerPct}%`;
+        if (dHungerBar) {
+          dHungerBar.style.width = `${hungerPct}%`;
+          dHungerBar.style.background = hungerPct >= 70 ? '#2a9d8f' : (hungerPct >= 30 ? '#e9c46a' : '#e63946');
+        }
 
         const portraitImg = document.getElementById('dragon-portrait-img');
         if (portraitImg && typeof AssetManager !== 'undefined') {
-          portraitImg.src = AssetManager.getDragonPortrait(d.stage || 'adult', d.skin);
+          portraitImg.src = AssetManager.getDragonPortrait(d.stage || 'adult', d.skin, d.grade);
+        }
+
+        // Dynamic costs on action buttons
+        const feedCost = d.feed_food_cost || (250 + ((d.level || 1) * 40));
+        const feedLbl = document.getElementById('dragon-feed-cost-lbl');
+        if (feedLbl) feedLbl.textContent = `${formatNum(feedCost)} Bug'doy`;
+
+        const trainLbl = document.getElementById('dragon-train-cost-lbl');
+        if (trainLbl) {
+          if (d.upgrade_costs) {
+            trainLbl.textContent = `${formatNum(d.upgrade_costs.gold || 120)} Oltin + ${formatNum(d.upgrade_costs.iron || 180)} Temir`;
+          } else {
+            trainLbl.textContent = `Daraja oshirish`;
+          }
         }
       }
     } catch (err) {
@@ -2557,9 +2599,13 @@
     try {
       const headers = { 'Content-Type': 'application/json' };
       if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
-      const resp = await fetch('/api/actions/dragon/claim-egg', { method: 'POST', headers: headers });
+      const resp = await fetch('/api/actions/dragon/claim-egg', {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({ name: 'Balerion' })
+      });
       const res = await resp.json();
-      if (!resp.ok || !res.success) throw new Error(res.detail || 'Tuxumni olib bo‘lmadi.');
+      if (!resp.ok || !res.success) throw new Error(formatErrorMessage(res.detail || 'Tuxumni olib bo‘lmadi.'));
       showToast('🥚 Valyriya ajdaho tuxumi sandiqingizga qo‘yildi!', 'success');
       haptic('heavy');
       await loadDragonData();
@@ -2576,9 +2622,13 @@
     try {
       const headers = { 'Content-Type': 'application/json' };
       if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
-      const resp = await fetch('/api/actions/dragon/hatch', { method: 'POST', headers: headers });
+      const resp = await fetch('/api/actions/dragon/hatch', {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({ dragon_id: activeDragonId || null })
+      });
       const res = await resp.json();
-      if (!resp.ok || !res.success) throw new Error(res.detail || 'Ajdahoni ochirib bo‘lmadi.');
+      if (!resp.ok || !res.success) throw new Error(formatErrorMessage(res.detail || 'Ajdahoni ochirib bo‘lmadi.'));
       showToast('🔥 Ajdaho tuxumdan chiqdi! U Vesteros osmonini zabt etadi!', 'success');
       haptic('heavy');
       await loadDragonData();
@@ -2598,11 +2648,11 @@
       const resp = await fetch('/api/actions/dragon/feed', {
         method: 'POST',
         headers: headers,
-        body: JSON.stringify({ food_amount: 50 }),
+        body: JSON.stringify({ dragon_id: activeDragonId || null, food_amount: 50 }),
       });
       const res = await resp.json();
-      if (!resp.ok || !res.success) throw new Error(res.detail || 'Boqishda xatolik.');
-      showToast('🥩 Ajdaho to‘yib oziqlandi! Qudrati ortmoqda.', 'success');
+      if (!resp.ok || !res.success) throw new Error(formatErrorMessage(res.detail || 'Boqishda xatolik.'));
+      showToast(res.message || '🥩 Ajdaho to‘yib oziqlandi! Qudrati ortmoqda.', 'success');
       haptic('medium');
       await fetchDashboard();
       await loadDragonData();
@@ -2619,10 +2669,14 @@
     try {
       const headers = { 'Content-Type': 'application/json' };
       if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
-      const resp = await fetch('/api/actions/dragon/train', { method: 'POST', headers: headers });
+      const resp = await fetch('/api/actions/dragon/train', {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({ dragon_id: activeDragonId || null })
+      });
       const res = await resp.json();
-      if (!resp.ok || !res.success) throw new Error(res.detail || 'Mashg‘ulotda xatolik.');
-      showToast('🔥 Ajdaho olov bilan jangga tayyorlandi!', 'success');
+      if (!resp.ok || !res.success) throw new Error(formatErrorMessage(res.detail || 'Mashg‘ulotda xatolik.'));
+      showToast(res.message || '🔥 Ajdaho olov bilan jangga tayyorlandi!', 'success');
       haptic('heavy');
       await fetchDashboard();
       await loadDragonData();
