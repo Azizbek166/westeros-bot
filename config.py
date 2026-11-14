@@ -45,6 +45,17 @@ OWNER_ID = 7689627859
 # Admin Telegram ID lari (Admin panelga kirish huquqi)
 ADMIN_IDS = [7689627859]
 
+
+def is_admin(user_id: Optional[int]) -> bool:
+    """Foydalanuvchi ID si adminlar ro'yxatida bor-yo'qligini tekshirish."""
+    try:
+        if user_id is None:
+            return False
+        uid = int(user_id)
+        return uid in [int(x) for x in ADMIN_IDS] or uid == int(OWNER_ID)
+    except Exception:
+        return False
+
 # Xatolar, baglar va tizim signallari yuboriladigan yopiq guruh chat ID si
 ERROR_CHAT_ID: Optional[int] = None
 _raw_error_chat = os.getenv("ERROR_CHAT_ID", "").strip()
@@ -348,7 +359,112 @@ DONATE_TIERS = {
             "• 📣 Butun Vesteros bo'ylab Qirollik tantanali e'loni!"
         ),
     },
+    "premium_pass": {
+        "id": "premium_pass",
+        "name": "👑 Premium Season Pass (30 kun)",
+        "subtitle": "Mavsumiy Premium Chipta + Yoqimli Resurs va Kunlik Bonuslar",
+        "price_uzs": 25000,
+        "price_label": "25,000 so'm",
+        "gold": 2500,
+        "food": 5000,
+        "iron": 1500,
+        "infantry": 0,
+        "archers": 0,
+        "cavalry": 0,
+        "spearmen": 0,
+        "special_troops": 0,
+        "catapults": 0,
+        "siege_towers": 0,
+        "shield_hours": 0,
+        "prestige": 50,
+        "wildfire": 0,
+        "duration_days": 30,
+        "daily_bonus_gold": 300,
+        "daily_bonus_food": 600,
+        "daily_bonus_iron": 200,
+        "vip_tier": "noble",
+        "avatar_frame": "frame_valyrian",
+        "title": "Mavsum Aslzodasi",
+        "is_season_pass": True,
+        "description": (
+            "• 👑 **Premium Status (30 kun):** Maxsus ramka («Valyriya Po'lati»), nishon va «Mavsum Aslzodasi» unvoni\n"
+            "• 🎁 **Darhol beriladigan yoqimli bonus:** +2,500 🪙 Oltin, +5,000 🌾 Bug'doy, +1,500 ⛓️ Temir, +50 ⭐ Nufuz\n"
+            "• 📅 **Kunlik Qo'shimcha Bonus (30 kun):** Har kuni kirganda +300 🪙 Oltin, +600 🌾 Bug'doy, +200 ⛓️ Temir\n"
+            "• 🏆 **Season Pass:** Barcha 20 ta pullik (Premium) pog'ona mukofotlarini ochish huquqi!"
+        ),
+    },
+    "vip_noble": {
+        "id": "vip_noble",
+        "name": "💎 Noble VIP (30 kun)",
+        "subtitle": "Zodagonlar imtiyozi va kunlik qulayliklar",
+        "price_uzs": 15000,
+        "price_label": "15,000 so'm",
+        "gold": 1500,
+        "food": 3000,
+        "iron": 1000,
+        "infantry": 0,
+        "archers": 0,
+        "cavalry": 0,
+        "spearmen": 0,
+        "special_troops": 0,
+        "catapults": 0,
+        "siege_towers": 0,
+        "shield_hours": 0,
+        "prestige": 30,
+        "wildfire": 0,
+        "duration_days": 30,
+        "daily_bonus_gold": 200,
+        "daily_bonus_food": 400,
+        "daily_bonus_iron": 100,
+        "vip_tier": "noble",
+        "avatar_frame": "frame_royal_gold",
+        "title": "Vesteros Zodagoni",
+        "description": (
+            "• 💎 **Noble VIP Statusi (30 kun):** 1-bosishda barcha soliqlarni yig'ish, zarhal profil nishoni\n"
+            "• 🎁 **Darhol beriladigan bonus:** +1,500 🪙 Oltin, +3,000 🌾 Bug'doy, +1,000 ⛓️ Temir, +30 ⭐ Nufuz\n"
+            "• 📅 **Kunlik Qo'shimcha Bonus (30 kun):** Har kuni +200 🪙 Oltin, +400 🌾 Bug'doy, +100 ⛓️ Temir\n"
+            "• 👑 **Faxriy Unvon:** «Vesteros Zodagoni» va Qirollik Oltin ramkasi"
+        ),
+    },
+    "starter_pack": {
+        "id": "starter_pack",
+        "name": "🎁 Starter Pack (Boshlang'ich)",
+        "subtitle": "Yangi Lordlar uchun foydali start va 7 kunlik VIP",
+        "price_uzs": 5000,
+        "price_label": "5,000 so'm",
+        "gold": 1000,
+        "food": 2000,
+        "iron": 500,
+        "infantry": 0,
+        "archers": 0,
+        "cavalry": 0,
+        "spearmen": 0,
+        "special_troops": 0,
+        "catapults": 0,
+        "siege_towers": 0,
+        "shield_hours": 0,
+        "prestige": 20,
+        "wildfire": 0,
+        "duration_days": 7,
+        "daily_bonus_gold": 150,
+        "daily_bonus_food": 300,
+        "daily_bonus_iron": 100,
+        "vip_tier": "noble",
+        "avatar_frame": "frame_valyrian",
+        "title": "Valyriya Ritsari",
+        "is_starter_pack": True,
+        "description": (
+            "• 🎁 **Darhol beriladigan bonus:** +1,000 🪙 Oltin, +2,000 🌾 Bug'doy, +500 ⛓️ Temir, +20 ⭐ Nufuz\n"
+            "• 👑 **7 kunlik VIP Status:** Kunlik qo'shimcha bonuslar va qulayliklar\n"
+            "• 🖼️ **Eksklyuziv Kosmetika:** «Valyriya Po'lati» ramkasi va «Valyriya Ritsari» unvoni"
+        ),
+    },
 }
+
+# ============================================================
+# MARKAZLASHTIRILGAN PREMIUM PASS MUKOFOTLARI SOZLAMASI
+# ============================================================
+PREMIUM_PASS_CONFIG = DONATE_TIERS["premium_pass"]
 
 # ============================================================
 # AI ASSISTANT ("KENGASH MASLAHATCHISI") CONFIGURATION

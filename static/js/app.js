@@ -3210,9 +3210,12 @@
     }
   }
 
-  // --- VIP & KOSMETIKA DO'KONI (COSMETICS & ETHICAL MONETIZATION) ---
+  // --- VIP, DONAT & KOSMETIKA DO'KONI (QO'LDA TASDIQLASH TIZIMI) ---
   let cachedCosmeticsHub = null;
   let currentShopCategory = 'special_and_vip';
+  let selectedPaymentPackageId = null;
+  let selectedReceiptBase64 = null;
+  let activeAdminDonationsFilter = 'pending';
 
   async function openDonateModal() {
     showModal('donate-modal');
@@ -3221,6 +3224,196 @@
 
   function closeDonateModal() {
     hideModal('donate-modal');
+  }
+
+  function closePaymentReceiptModal() {
+    hideModal('payment-receipt-modal');
+    selectedPaymentPackageId = null;
+    selectedReceiptBase64 = null;
+    const fileInput = document.getElementById('pay-receipt-file-input');
+    if (fileInput) fileInput.value = '';
+    const previewWrap = document.getElementById('pay-receipt-preview-wrap');
+    if (previewWrap) previewWrap.style.display = 'none';
+    const uploadSec = document.getElementById('pay-receipt-upload-section');
+    if (uploadSec) uploadSec.style.display = 'none';
+  }
+
+  async function openPaymentReceiptModal(packageId, fallbackMeta = null) {
+    if (!packageId) return;
+    haptic('medium');
+
+    // Check if user already has a pending request
+    const pendingReq = cachedCosmeticsHub?.pending_request || cachedSeasonData?.pending_request;
+    if (pendingReq && pendingReq.status === 'pending') {
+      showToast(`⏳ Sizda allaqachon ko'rib chiqilayotgan so'rov mavjud (#${pendingReq.id} — ${pendingReq.tier_name}). Admin javobini kuting!`, 'warning');
+      return;
+    }
+
+    selectedPaymentPackageId = packageId;
+    selectedReceiptBase64 = null;
+
+    // Fetch fresh requisites & pending status from server
+    let reqData = cachedCosmeticsHub?.payment_requisites || cachedSeasonData?.payment_requisites || {
+      card_number: '9860 1201 3456 7890',
+      card_holder: 'ADMIN',
+    };
+    let pkgInfo = fallbackMeta || null;
+
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+      const resp = await fetch('/api/actions/donate/requisites', { method: 'GET', headers });
+      const res = await resp.json();
+      if (resp.ok && res.success) {
+        if (res.pending_request && res.pending_request.status === 'pending') {
+          showToast(`⏳ Sizda allaqachon ko'rib chiqilayotgan so'rov mavjud (#${res.pending_request.id} — ${res.pending_request.tier_name}). Admin javobini kuting!`, 'warning');
+          return;
+        }
+        if (res.requisites) reqData = res.requisites;
+        const foundPkg = (res.packages || []).find(p => p.package_id === packageId);
+        if (foundPkg) pkgInfo = foundPkg;
+      }
+    } catch (e) {
+      console.warn('Requisites fetch warning:', e);
+    }
+
+    const nameEl = document.getElementById('pay-modal-pkg-name');
+    const priceEl = document.getElementById('pay-modal-pkg-price');
+    const descEl = document.getElementById('pay-modal-pkg-desc');
+    const cardNumEl = document.getElementById('pay-modal-card-number');
+    const cardHolderEl = document.getElementById('pay-modal-card-holder');
+
+    if (nameEl) nameEl.textContent = pkgInfo?.name || '👑 Premium Season Pass';
+    if (priceEl) {
+      const priceStr = pkgInfo?.price_label || (pkgInfo?.price_uzs ? `${formatNum(pkgInfo.price_uzs)} so'm` : "25,000 so'm");
+      priceEl.textContent = priceStr;
+    }
+    if (descEl) {
+      descEl.textContent = pkgInfo?.description || "• 30 kunlik Premium Pass maqomi, ramka va unvon\n• Darhol: +2,500 Oltin, +5,000 Bug'doy, +1,500 Temir\n• Har kuni qo'shimcha kunlik bonuslar";
+    }
+    if (cardNumEl) cardNumEl.textContent = reqData.card_number || '—';
+    if (cardHolderEl) cardHolderEl.textContent = reqData.card_holder || '—';
+
+    // Reset file input & upload section
+    const fileInput = document.getElementById('pay-receipt-file-input');
+    if (fileInput) fileInput.value = '';
+    const previewWrap = document.getElementById('pay-receipt-preview-wrap');
+    if (previewWrap) previewWrap.style.display = 'none';
+    const uploadSec = document.getElementById('pay-receipt-upload-section');
+    if (uploadSec) uploadSec.style.display = 'none';
+
+    showModal('payment-receipt-modal');
+  }
+
+  function handleConfirmPaidStep() {
+    haptic('light');
+    const uploadSec = document.getElementById('pay-receipt-upload-section');
+    if (uploadSec) {
+      uploadSec.style.display = 'block';
+    }
+    const fileInput = document.getElementById('pay-receipt-file-input');
+    if (fileInput) {
+      fileInput.click();
+    }
+  }
+
+  function handleReceiptFileSelected(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      showToast('❌ Faqat rasm (skrinshot) faylini tanlang!', 'error');
+      e.target.value = '';
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = function(evt) {
+      const dataUrl = evt.target.result;
+      // Compress via canvas if large
+      const img = new Image();
+      img.onload = function() {
+        const maxDim = 1280;
+        let w = img.width;
+        let h = img.height;
+        if (w > maxDim || h > maxDim) {
+          if (w > h) {
+            h = Math.round((h * maxDim) / w);
+            w = maxDim;
+          } else {
+            w = Math.round((w * maxDim) / h);
+            h = maxDim;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        selectedReceiptBase64 = canvas.toDataURL('image/jpeg', 0.84);
+
+        const previewWrap = document.getElementById('pay-receipt-preview-wrap');
+        const previewImg = document.getElementById('pay-receipt-preview-img');
+        if (previewImg) previewImg.src = selectedReceiptBase64;
+        if (previewWrap) previewWrap.style.display = 'block';
+      };
+      img.src = dataUrl;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function handleSubmitPaymentReceipt() {
+    if (isActionPending) return;
+    if (!selectedPaymentPackageId) {
+      showToast('Paket tanlanmagan.', 'error');
+      return;
+    }
+    if (!selectedReceiptBase64) {
+      showToast('📸 To‘lov cheki skrinshotini (rasm) tanlash majburiy!', 'error');
+      return;
+    }
+
+    const btn = document.getElementById('btn-submit-payment-receipt');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '⏳ Yuborilmoqda...';
+    }
+    isActionPending = true;
+    haptic('medium');
+
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+
+      const resp = await fetch('/api/actions/donate/request', {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({
+          package_id: selectedPaymentPackageId,
+          receipt_image_base64: selectedReceiptBase64,
+        }),
+      });
+      const res = await resp.json().catch(() => ({}));
+      if (!resp.ok || !res.success) {
+        throw new Error(formatErrorMessage(res.detail || res.error || 'Chekni yuborishda xatolik yuz berdi.'));
+      }
+
+      showToast(res.message || '✅ To‘lov cheki adminga yuborildi! Tasdiqlangach bonuslar beriladi.', 'success');
+      haptic('heavy');
+      closePaymentReceiptModal();
+      await loadCosmeticsHub();
+      if (document.getElementById('season-modal')?.style.display !== 'none') {
+        await loadSeasonData();
+      }
+      await fetchDashboard();
+    } catch (err) {
+      showToast(err.message, 'error');
+      haptic('error');
+    } finally {
+      isActionPending = false;
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '📤 Chekni Yuborish va Tasdiqlashga Jo‘natish';
+      }
+    }
   }
 
   async function loadCosmeticsHub() {
@@ -3252,7 +3445,15 @@
     const badge = document.getElementById('user-vip-badge');
     const expiry = document.getElementById('user-vip-expiry');
 
-    if (statusText) statusText.textContent = isVip ? '👑 Oliyjanob Lord (Noble VIP)' : 'Oddiy Lord';
+    if (statusText) {
+      if (hub.current_vip_tier === 'premium_pass' && isVip) {
+        statusText.textContent = '👑 Mavsum Aslzodasi (Premium Pass)';
+      } else if (isVip) {
+        statusText.textContent = '👑 Oliyjanob Lord (Noble VIP)';
+      } else {
+        statusText.textContent = 'Oddiy Lord';
+      }
+    }
     if (badge) {
       badge.textContent = isVip ? 'FAOL VIP' : 'BEPUL';
       badge.style.background = isVip ? '#d4af37' : '#444';
@@ -3261,9 +3462,23 @@
     if (expiry) {
       if (isVip && hub.vip_until) {
         expiry.style.display = 'block';
-        expiry.textContent = `VIP muddati: ${hub.vip_until.replace('T', ' ').slice(0, 16)} gacha`;
+        expiry.textContent = `Muddati: ${hub.vip_until.replace('T', ' ').slice(0, 16)} gacha (30 kunlik)`;
       } else {
         expiry.style.display = 'none';
+      }
+    }
+
+    // Pending Request Banner
+    const pendingBanner = document.getElementById('donate-pending-banner');
+    if (pendingBanner) {
+      if (hub.pending_request && hub.pending_request.status === 'pending') {
+        pendingBanner.style.display = 'block';
+        const pTitle = document.getElementById('donate-pending-title');
+        const pDesc = document.getElementById('donate-pending-desc');
+        if (pTitle) pTitle.textContent = `⏳ So'rov #${hub.pending_request.id}: ${hub.pending_request.tier_name}`;
+        if (pDesc) pDesc.textContent = `Summa: ${hub.pending_request.price_label || (formatNum(hub.pending_request.amount) + " so'm")} • Admin tekshirmoqda`;
+      } else {
+        pendingBanner.style.display = 'none';
       }
     }
   }
@@ -3273,17 +3488,34 @@
     if (!container || !cachedCosmeticsHub) return;
 
     const catalog = cachedCosmeticsHub.catalog || {};
-    const items = catalog[catKey] || [];
+    const rawItems = catalog[catKey] ? [...catalog[catKey]] : [];
     const ownedSet = new Set(cachedCosmeticsHub.owned_items || []);
     const equippedMap = cachedCosmeticsHub.equipped || {};
 
-    if (items.length === 0) {
+    // Ensure Premium Season Pass is displayed at top of 'special_and_vip'
+    if (catKey === 'special_and_vip' && cachedCosmeticsHub.premium_pass_info) {
+      const pp = cachedCosmeticsHub.premium_pass_info;
+      if (!rawItems.some(x => x.id === 'premium_pass')) {
+        rawItems.unshift({
+          id: 'premium_pass',
+          name: pp.name || '👑 Premium Season Pass (30 kun)',
+          category: 'vip_subscription',
+          rarity: 'afsonaviy',
+          rarity_label: 'Mavsumiy Pass',
+          price_uzs: pp.price_uzs || 25000,
+          price_label: pp.price_label || "25,000 so'm",
+          description: pp.description || '',
+        });
+      }
+    }
+
+    if (rawItems.length === 0) {
       container.innerHTML = '<div class="text-center text-secondary py-3">Ushbu bo‘limda buyumlar mavjud emas.</div>';
       return;
     }
 
     let html = '';
-    items.forEach(item => {
+    rawItems.forEach(item => {
       const isOwned = ownedSet.has(item.id) || (item.category === 'starter_pack' && cachedCosmeticsHub.has_starter_pack);
       const isVipSub = (item.category === 'vip_subscription');
       const isEquipped = (
@@ -3295,7 +3527,8 @@
       );
 
       const rarityColor = item.rarity === 'afsonaviy' ? '#ff9900' : item.rarity === 'nodir' ? '#00bfff' : '#aaa';
-      const rarityBadge = `<span class="badge" style="background:${rarityColor}22; color:${rarityColor}; border:1px solid ${rarityColor}; font-size:10px;">${escapeHtml(item.rarity_label || item.rarity || 'Oddiy')}</span>`;
+      const rarityBadge = `<span class="badge" style="background:${rarityColor}22; color:${rarityColor}; border:1px solid ${rarityColor}; font-size:10px;">${escapeHtml(item.rarity_label || item.rarity || 'Maxsus')}</span>`;
+      const priceUzs = item.price_uzs || 15000;
 
       html += `
         <div class="card p-3 mb-2" style="border-left: 3px solid ${rarityColor}; background: rgba(20,20,25,0.7);">
@@ -3306,8 +3539,7 @@
           <p class="text-secondary mt-1" style="font-size:11px; line-height:1.4; white-space:pre-line;">${escapeHtml(item.description || '')}</p>
           <div class="d-flex justify-between align-center mt-2 pt-2" style="border-top:1px solid rgba(255,255,255,0.08);">
             <div>
-              <span class="text-gold font-bold" style="font-size:13px;">⭐ ${item.price_stars} Stars</span>
-              ${item.price_uzs ? `<span class="text-secondary ms-2" style="font-size:11px;">(${formatNum(item.price_uzs)} so'm)</span>` : ''}
+              <span class="text-gold font-bold" style="font-size:13px;">💳 ${formatNum(priceUzs)} so'm</span>
             </div>
             <div class="d-flex gap-1">
               ${isOwned && !isVipSub && item.category !== 'starter_pack' ? `
@@ -3317,11 +3549,8 @@
               ` : isOwned ? `
                 <span class="badge" style="background:#28a745; color:#fff; font-size:11px; padding:4px 8px;">Xarid qilingan</span>
               ` : `
-                <button class="btn btn-primary py-1 px-2 btn-buy-cosmetic" data-item-id="${item.id}" style="font-size:11px;">
-                  ⭐ Xarid
-                </button>
-                <button class="btn btn-secondary py-1 px-2 btn-gift-cosmetic" data-item-id="${item.id}" style="font-size:11px;">
-                  🎁 Sovg'a
+                <button class="btn btn-primary py-1 px-3 btn-buy-cosmetic" data-item-id="${item.id}" style="font-size:11px;">
+                  💳 Xarid qilish (Chek bilan)
                 </button>
               `}
             </div>
@@ -3337,10 +3566,11 @@
       b.addEventListener('click', () => handleEquipCosmetic(b.getAttribute('data-item-id')));
     });
     container.querySelectorAll('.btn-buy-cosmetic').forEach(b => {
-      b.addEventListener('click', () => handleBuyCosmetic(b.getAttribute('data-item-id')));
-    });
-    container.querySelectorAll('.btn-gift-cosmetic').forEach(b => {
-      b.addEventListener('click', () => handleGiftCosmetic(b.getAttribute('data-item-id')));
+      b.addEventListener('click', () => {
+        const id = b.getAttribute('data-item-id');
+        const found = rawItems.find(x => x.id === id);
+        handleBuyCosmetic(id, found);
+      });
     });
   }
 
@@ -3371,72 +3601,14 @@
     }
   }
 
-  async function handleBuyCosmetic(itemId) {
-    if (isActionPending || !itemId) return;
-    isActionPending = true;
-    try {
-      const headers = { 'Content-Type': 'application/json' };
-      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
-
-      const resp = await fetch('/api/actions/cosmetics/buy', {
-        method: 'POST',
-        headers: headers,
-        body: JSON.stringify({
-          item_id: itemId,
-          payment_provider: 'telegram_stars'
-        })
-      });
-      const res = await resp.json();
-      if (!resp.ok || !res.success) throw new Error(res.detail || 'Xaridni amalga oshirib bo‘lmadi.');
-
-      showToast(res.message, 'success');
-      haptic('heavy');
-      cachedCosmeticsHub = res.donate_hub || res.cosmetics_hub;
-      renderCosmeticsHubHeader(cachedCosmeticsHub);
-      renderCosmeticsCategory(currentShopCategory);
-      await fetchDashboard();
-    } catch (e) {
-      showToast(e.message, 'error');
-    } finally {
-      isActionPending = false;
-    }
+  async function handleBuyCosmetic(itemId, itemMeta = null) {
+    if (!itemId) return;
+    await openPaymentReceiptModal(itemId, itemMeta);
   }
 
   async function handleGiftCosmetic(itemId) {
-    if (isActionPending || !itemId) return;
-    const recipientTg = prompt("Sovg'a yuboriluvchi Lordning Telegram ID sini kiriting:");
-    if (!recipientTg) return;
-
-    const rId = parseInt(recipientTg.trim());
-    if (!rId || isNaN(rId)) {
-      showToast("Noto'g'ri Telegram ID kiritildi.", 'error');
-      return;
-    }
-
-    isActionPending = true;
-    try {
-      const headers = { 'Content-Type': 'application/json' };
-      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
-
-      const resp = await fetch('/api/actions/cosmetics/gift', {
-        method: 'POST',
-        headers: headers,
-        body: JSON.stringify({
-          recipient_telegram_id: rId,
-          item_id: itemId,
-          payment_provider: 'telegram_stars'
-        })
-      });
-      const res = await resp.json();
-      if (!resp.ok || !res.success) throw new Error(res.detail || 'Sovg‘ani yuborib bo‘lmadi.');
-
-      showToast(res.message, 'success');
-      haptic('heavy');
-    } catch (e) {
-      showToast(e.message, 'error');
-    } finally {
-      isActionPending = false;
-    }
+    if (!itemId) return;
+    await openPaymentReceiptModal(itemId);
   }
 
   // --- ADMIN CONSOLE ---
@@ -3458,14 +3630,196 @@
       const res = await resp.json();
       if (!resp.ok || !res.success) throw new Error(res.detail || 'Admin panelni yuklab bo‘lmadi.');
 
-      document.getElementById('admin-stat-users').textContent = `${formatNum(res.total_users || 0)} / ${res.online_today || 0}`;
-      document.getElementById('admin-stat-houses').textContent = `${res.total_houses || 0} / ${res.total_castles || 22}`;
+      const adm = res.admin_data || res;
+      document.getElementById('admin-stat-users').textContent = `${formatNum(adm.total_users || 0)} / ${adm.online_today || 0}`;
+      document.getElementById('admin-stat-houses').textContent = `${adm.total_houses || 0} / ${adm.total_castles || 22}`;
 
+      if (adm.payment_requisites) {
+        const cNum = document.getElementById('admin-card-number-input');
+        const cHolder = document.getElementById('admin-card-holder-input');
+        if (cNum) cNum.value = adm.payment_requisites.card_number || '';
+        if (cHolder) cHolder.value = adm.payment_requisites.card_holder || '';
+      }
+
+      await loadAdminDonations(activeAdminDonationsFilter);
       await loadAdminErrorLogs();
       await loadAdminTransactions();
     } catch (err) {
       console.error('Admin error:', err);
       showToast(err.message, 'error');
+    }
+  }
+
+  async function handleSaveAdminCardRequisites() {
+    if (isActionPending) return;
+    const cardNumber = (document.getElementById('admin-card-number-input')?.value || '').trim();
+    const cardHolder = (document.getElementById('admin-card-holder-input')?.value || '').trim();
+    if (!cardNumber || !cardHolder) {
+      showToast('Karta raqami va karta egasi ismini to‘liq kiriting.', 'error');
+      return;
+    }
+
+    isActionPending = true;
+    haptic('medium');
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+
+      const resp = await fetch('/api/actions/admin/donations/requisites', {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({ card_number: cardNumber, card_holder: cardHolder }),
+      });
+      const res = await resp.json();
+      if (!resp.ok || !res.success) throw new Error(res.detail || 'Karta rekvizitlarini saqlab bo‘lmadi.');
+
+      showToast(res.message || '✅ Karta rekvizitlari yangilandi!', 'success');
+      haptic('heavy');
+    } catch (e) {
+      showToast(e.message, 'error');
+    } finally {
+      isActionPending = false;
+    }
+  }
+
+  async function loadAdminDonations(statusFilter = 'pending') {
+    activeAdminDonationsFilter = statusFilter;
+    document.querySelectorAll('.adm-don-filter-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.getAttribute('data-status') === statusFilter);
+    });
+
+    const container = document.getElementById('admin-donations-list-container');
+    if (!container) return;
+    container.innerHTML = '<div class="text-center text-secondary py-2" style="font-size:12px;">⏳ Donat so‘rovlari yuklanmoqda...</div>';
+
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+
+      const resp = await fetch(`/api/actions/admin/donations?status_filter=${encodeURIComponent(statusFilter)}`, {
+        method: 'GET',
+        headers: headers,
+      });
+      const res = await resp.json();
+      if (!resp.ok || !res.success) throw new Error(res.detail || 'Donat so‘rovlarini yuklab bo‘lmadi.');
+
+      if (res.counts) {
+        const cp = document.getElementById('adm-don-cnt-pending');
+        const ca = document.getElementById('adm-don-cnt-approved');
+        const cr = document.getElementById('adm-don-cnt-rejected');
+        if (cp) cp.textContent = res.counts.pending || 0;
+        if (ca) ca.textContent = res.counts.approved || 0;
+        if (cr) cr.textContent = res.counts.rejected || 0;
+      }
+
+      if (res.payment_requisites) {
+        const cNum = document.getElementById('admin-card-number-input');
+        const cHolder = document.getElementById('admin-card-holder-input');
+        if (cNum && !cNum.value) cNum.value = res.payment_requisites.card_number || '';
+        if (cHolder && !cHolder.value) cHolder.value = res.payment_requisites.card_holder || '';
+      }
+
+      const list = res.requests || [];
+      if (list.length === 0) {
+        container.innerHTML = '<div class="text-center text-secondary py-3" style="font-size:12px;">Ushbu bo‘limda so‘rovlar mavjud emas.</div>';
+        return;
+      }
+
+      let html = '';
+      list.forEach(r => {
+        const stColor = r.status === 'pending' ? '#f39c12' : (r.status === 'approved' ? '#2a9d8f' : '#e63946');
+        const stLabel = r.status === 'pending' ? '⏳ Kutilmoqda' : (r.status === 'approved' ? '✅ Tasdiqlangan' : '❌ Rad etilgan');
+        const isWebReceipt = r.receipt_file_id && String(r.receipt_file_id).startsWith('/static/');
+
+        html += `
+          <div class="card p-2 mb-2" style="border-left: 3px solid ${stColor}; background: rgba(20,25,35,0.85);">
+            <div class="d-flex justify-between align-center">
+              <strong class="text-gold" style="font-size:12px;">#${r.id} • ${escapeHtml(r.tier_name)}</strong>
+              <span class="badge" style="background:${stColor}33; color:${stColor}; border:1px solid ${stColor}; font-size:10px;">${stLabel}</span>
+            </div>
+            <div class="d-flex justify-between align-center mt-1" style="font-size:11px;">
+              <span>👤 ${escapeHtml(r.user_full_name)} ${r.user_username ? `(@${escapeHtml(r.user_username)})` : ''} <small class="text-secondary">[${r.telegram_id}]</small></span>
+              <strong class="text-gold">${escapeHtml(r.price_label || (formatNum(r.amount) + " so'm"))}</strong>
+            </div>
+            <div class="text-secondary mt-1" style="font-size:10px;">🕒 Yuborilgan: ${escapeHtml(r.created_at)}</div>
+            ${r.admin_notes ? `<div class="text-danger mt-1" style="font-size:10px;">📝 Izoh: ${escapeHtml(r.admin_notes)}</div>` : ''}
+            ${isWebReceipt ? `
+              <div class="mt-2 text-center">
+                <a href="${escapeHtml(r.receipt_file_id)}" target="_blank">
+                  <img src="${escapeHtml(r.receipt_file_id)}" alt="Chek #${r.id}" style="max-height:130px; max-width:100%; border-radius:6px; border:1px solid rgba(212,175,55,0.3);">
+                </a>
+              </div>
+            ` : `
+              <div class="text-secondary mt-1" style="font-size:10px;">📎 Chek: Telegram bot orqali yuborilgan</div>
+            `}
+            ${r.status === 'pending' ? `
+              <div class="d-flex gap-2 mt-2 pt-2" style="border-top:1px solid rgba(255,255,255,0.08);">
+                <button class="btn btn-primary flex-1 py-1 btn-adm-approve-don" data-req-id="${r.id}" style="font-size:11px; background:#2a9d8f;">
+                  ✅ Tasdiqlash
+                </button>
+                <button class="btn btn-secondary flex-1 py-1 btn-adm-reject-don" data-req-id="${r.id}" style="font-size:11px; background:#e63946; color:#fff;">
+                  ❌ Rad etish
+                </button>
+              </div>
+            ` : ''}
+          </div>
+        `;
+      });
+
+      container.innerHTML = html;
+
+      container.querySelectorAll('.btn-adm-approve-don').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const reqId = parseInt(btn.getAttribute('data-req-id'));
+          if (reqId) handleAdminReviewDonation(reqId, 'approve');
+        });
+      });
+
+      container.querySelectorAll('.btn-adm-reject-don').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const reqId = parseInt(btn.getAttribute('data-req-id'));
+          if (reqId) handleAdminReviewDonation(reqId, 'reject');
+        });
+      });
+    } catch (e) {
+      container.innerHTML = `<div class="text-danger text-center py-2" style="font-size:12px;">❌ ${escapeHtml(e.message)}</div>`;
+    }
+  }
+
+  async function handleAdminReviewDonation(requestId, action) {
+    if (isActionPending || !requestId) return;
+    let reason = null;
+    if (action === 'reject') {
+      reason = prompt(`#${requestId} so'rovni rad etish sababini kiriting:`, "To'lov cheki tasdiqlanmadi yoki summa mos emas.");
+      if (reason === null) return; // Cancelled
+    }
+
+    isActionPending = true;
+    haptic('medium');
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+
+      const resp = await fetch('/api/actions/admin/donations/review', {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({
+          request_id: requestId,
+          action: action,
+          reason: reason,
+        }),
+      });
+      const res = await resp.json();
+      if (!resp.ok || !res.success) throw new Error(res.detail || 'Amalni bajarib bo‘lmadi.');
+
+      showToast(res.message || '✅ Bajarildi!', 'success');
+      haptic('heavy');
+      await loadAdminDonations(activeAdminDonationsFilter);
+      await fetchDashboard();
+    } catch (e) {
+      showToast(e.message, 'error');
+    } finally {
+      isActionPending = false;
     }
   }
 
@@ -3812,13 +4166,19 @@
     // Buy Button status
     const buyBtn = document.getElementById('btn-sp-buy-pass');
     if (buyBtn) {
+      const priceLabel = data.pricing?.price_label || "25,000 so'm";
       if (ps.has_premium_pass) {
         buyBtn.textContent = '👑 Premium Pass Faol';
         buyBtn.disabled = true;
         buyBtn.classList.remove('btn-primary');
         buyBtn.classList.add('btn-secondary');
+      } else if (data.pending_request && data.pending_request.status === 'pending') {
+        buyBtn.textContent = `⏳ So'rov #${data.pending_request.id} Kutilmoqda`;
+        buyBtn.disabled = false;
+        buyBtn.classList.remove('btn-primary');
+        buyBtn.classList.add('btn-secondary');
       } else {
-        buyBtn.textContent = '⭐ Premium Pass (250 Stars)';
+        buyBtn.textContent = `👑 Premium Pass (${priceLabel})`;
         buyBtn.disabled = false;
         buyBtn.classList.add('btn-primary');
         buyBtn.classList.remove('btn-secondary');
@@ -3981,30 +4341,13 @@
   }
 
   async function handleBuySeasonPass() {
-    if (isActionPending) return;
-    isActionPending = true;
-    haptic('medium');
-    try {
-      const headers = { 'Content-Type': 'application/json' };
-      if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
-
-      const resp = await fetch('/api/actions/season/buy-pass', {
-        method: 'POST',
-        headers: headers,
-        body: JSON.stringify({ payment_method: 'stars' })
-      });
-      const res = await resp.json();
-      if (!resp.ok || !res.success) throw new Error(res.detail || 'Pass xarid qilib bo‘lmadi.');
-
-      showToast(res.message, 'success');
-      haptic('heavy');
-      await loadSeasonData();
-      await fetchDashboard();
-    } catch (e) {
-      showToast(e.message, 'error');
-    } finally {
-      isActionPending = false;
-    }
+    const ppCfg = cachedSeasonData?.premium_pass_config || {
+      name: '👑 Premium Season Pass (30 kun)',
+      price_uzs: 25000,
+      price_label: "25,000 so'm",
+      description: "• 30 kunlik Premium Pass maqomi, ramka va unvon\n• Darhol: +2,500 Oltin, +5,000 Bug'doy, +1,500 Temir, +50 Nufuz\n• Har kuni qo'shimcha kunlik bonuslar (+300 Oltin, +600 Bug'doy, +200 Temir)",
+    };
+    await openPaymentReceiptModal('premium_pass', ppCfg);
   }
 
   async function handleAdminUpdateSeason() {
@@ -4550,6 +4893,7 @@
       { closeId: 'modal-raven-close', overlayId: 'raven-modal', closeFn: closeRavenModal },
       { closeId: 'modal-hero-close', overlayId: 'hero-modal', closeFn: closeHeroModal },
       { closeId: 'modal-donate-close', overlayId: 'donate-modal', closeFn: closeDonateModal },
+      { closeId: 'modal-payment-receipt-close', overlayId: 'payment-receipt-modal', closeFn: closePaymentReceiptModal },
       { closeId: 'modal-season-close', overlayId: 'season-modal', closeFn: closeSeasonModal },
       { closeId: 'modal-admin-close', overlayId: 'admin-modal', closeFn: closeAdminModal },
       { closeId: 'modal-ai-close', overlayId: 'ai-modal', closeFn: closeAiAdvisorModal },
@@ -4697,7 +5041,35 @@
       });
     });
 
+    // Manual Payment & Receipt Upload Modal Listeners
+    document.getElementById('btn-copy-card-number')?.addEventListener('click', () => {
+      const cardEl = document.getElementById('pay-modal-card-number');
+      const cardText = (cardEl?.textContent || '').replace(/\s+/g, '');
+      if (cardText && navigator.clipboard) {
+        navigator.clipboard.writeText(cardText).then(() => {
+          showToast('📋 Karta raqami nusxalandi!', 'success');
+          haptic('light');
+        }).catch(() => {
+          showToast(`Karta: ${cardEl.textContent}`, 'info');
+        });
+      } else if (cardEl) {
+        showToast(`Karta: ${cardEl.textContent}`, 'info');
+      }
+    });
+    document.getElementById('btn-confirm-paid-step')?.addEventListener('click', handleConfirmPaidStep);
+    document.getElementById('pay-receipt-file-input')?.addEventListener('change', handleReceiptFileSelected);
+    document.getElementById('btn-submit-payment-receipt')?.addEventListener('click', handleSubmitPaymentReceipt);
+
     // Admin Console Actions
+    document.getElementById('btn-save-admin-card')?.addEventListener('click', handleSaveAdminCardRequisites);
+    document.getElementById('btn-refresh-admin-donations')?.addEventListener('click', () => loadAdminDonations(activeAdminDonationsFilter));
+    document.querySelectorAll('.adm-don-filter-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        haptic('light');
+        const st = btn.getAttribute('data-status') || 'pending';
+        loadAdminDonations(st);
+      });
+    });
     document.getElementById('btn-submit-admin-ban')?.addEventListener('click', handleAdminBan);
     document.getElementById('btn-submit-admin-res')?.addEventListener('click', handleAdminAdjustResources);
     document.getElementById('btn-refresh-admin-errors')?.addEventListener('click', loadAdminErrorLogs);

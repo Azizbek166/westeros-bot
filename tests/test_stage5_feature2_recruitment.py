@@ -21,10 +21,24 @@ def run_stage5_feature2_tests():
 
     auth_header = {"Authorization": f"tma {generate_test_init_data(telegram_id=7689627859)}"}
 
-    # 1. Check initial balances & troops
+    # 1. Check initial balances & troops (ensure test user has sufficient starting gold/iron)
     init_prof_resp = client.get("/api/player/profile", headers=auth_header)
     assert init_prof_resp.status_code == 200
     init_player = init_prof_resp.json()["player"]
+    if init_player["gold"] < 100 or init_player["iron"] < 50:
+        import asyncio
+        from database.db import AsyncSessionLocal
+        from database import crud
+        async def _topup():
+            async with AsyncSessionLocal() as s:
+                u = await crud.get_user_by_telegram_id(s, 7689627859)
+                if u:
+                    u.gold = max(u.gold or 0, 1000)
+                    u.iron = max(u.iron or 0, 500)
+                    await s.commit()
+        asyncio.run(_topup())
+        init_prof_resp = client.get("/api/player/profile", headers=auth_header)
+        init_player = init_prof_resp.json()["player"]
     init_gold = init_player["gold"]
     init_iron = init_player["iron"]
 

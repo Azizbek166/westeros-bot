@@ -1,33 +1,34 @@
 from datetime import datetime
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo, LabeledPrice, PreCheckoutQuery
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import (
     CommandHandler,
     CallbackQueryHandler,
     MessageHandler,
-    PreCheckoutQueryHandler,
     filters,
     ContextTypes,
 )
 from database import AsyncSessionLocal, crud, models
 from config import (
-    DONATE_CARD_NUMBER,
-    DONATE_CARD_HOLDER,
     DONATE_TIERS,
     OWNER_ID,
     ADMIN_IDS,
     escape_md,
     get_miniapp_url,
 )
-from core.cosmetics import COSMETICS_CATALOG, get_cosmetic_item, record_payment_transaction, grant_cosmetic_item
+from services.donate_service import (
+    is_authorized_admin,
+    resolve_package_info,
+    get_payment_requisites_service,
+    update_payment_requisites_service,
+    submit_donation_request_service,
+    approve_donation_request_service,
+    reject_donation_request_service,
+)
 from keyboards.menus import back_to_main_keyboard
 
 
 def is_admin(user_id: int) -> bool:
-    try:
-        uid = int(user_id)
-        return uid in [int(x) for x in ADMIN_IDS] or uid == int(OWNER_ID)
-    except Exception:
-        return False
+    return is_authorized_admin(user_id)
 
 
 TROOP_RATES = {
@@ -46,49 +47,107 @@ def calc_troops(troop_type: str, amount_uzs: int) -> int:
 
 
 def donate_menu_keyboard() -> InlineKeyboardMarkup:
-    """VIP to'plamlar va Kosmetika do'koni klaviaturasi"""
+    """VIP to'plamlar, Premium Pass va Kosmetika do'koni klaviaturasi"""
     buttons = [
         [
             InlineKeyboardButton(
-                "📱 Telegram Mini App Kosmetika Do'koni 💎",
-                web_app=WebAppInfo(url=get_miniapp_url("donate"))
+                "👑 Premium Season Pass (30 kun) — 25,000 so'm",
+                callback_data="donate_pick:premium_pass",
             )
         ],
         [
-            InlineKeyboardButton("👑 Noble VIP (30 kun) — 15,000 so'm / 75 ⭐", callback_data="donate_pick:vip_noble"),
+            InlineKeyboardButton(
+                "👑 Noble VIP (30 kun) — 15,000 so'm",
+                callback_data="donate_pick:vip_noble",
+            ),
         ],
         [
-            InlineKeyboardButton("🎁 Starter Pack (Boshlang'ich) — 5,000 so'm / 25 ⭐", callback_data="donate_pick:starter_pack"),
+            InlineKeyboardButton(
+                "🎁 Starter Pack (Boshlang'ich) — 5,000 so'm",
+                callback_data="donate_pick:starter_pack",
+            ),
         ],
         [
-            InlineKeyboardButton("⚖️ Halol O'yin: Qo'shin Sotib Olish Haqida", callback_data="donate_troops_menu"),
+            InlineKeyboardButton(
+                "📱 Mini App Do'koni (Kosmetika & Pass) 💎",
+                web_app=WebAppInfo(url=get_miniapp_url("donate")),
+            )
         ],
         [
-            InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")
-        ]
+            InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main"),
+        ],
     ]
     return InlineKeyboardMarkup(buttons)
 
 
+def donate_tier_keyboard(tier_id: str) -> InlineKeyboardMarkup:
+    """Tanlangan paket uchun 'To'lov qildim' (chek yuborish) klaviaturasi"""
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                "✅ To'lov qildim (Chek skrinshotini yuborish)",
+                callback_data=f"donate_submit:{tier_id}",
+            )
+        ],
+        [
+            InlineKeyboardButton("🔙 Paketlar ro'yxati", callback_data="menu_donate"),
+            InlineKeyboardButton("🏠 Asosiy Menyu", callback_data="menu_main"),
+        ],
+    ])
+
+
+def donate_troop_amount_keyboard(troop_type: str) -> InlineKeyboardMarkup:
+    """Qo'shin xaridi uchun summa tanlash klaviaturasi"""
+    amounts = [10000, 25000, 50000, 100000]
+    rows = []
+    for amt in amounts:
+        cnt = calc_troops(troop_type, amt)
+        rows.append([
+            InlineKeyboardButton(
+                f"💰 {amt:,} so'm — {cnt:,} ta",
+                callback_data=f"donate_troop_amt:{troop_type}:{amt}",
+            )
+        ])
+    rows.append([InlineKeyboardButton("✍️ Boshqa summa kiritish", callback_data=f"donate_troop_custom:{troop_type}")])
+    rows.append([InlineKeyboardButton("🔙 Orqaga", callback_data="menu_donate")])
+    return InlineKeyboardMarkup(rows)
+
+
+async def _build_donate_intro_text() -> str:
+    async with AsyncSessionLocal() as session:
+        reqs = await crud.get_payment_settings(session)
+    card_num = reqs["card_number"]
+    card_holder = reqs["card_holder"]
+    return (
+        "💎 **VESTEROS PREMIUM PASS & VIP DO'KONI**\n\n"
+        "Hurmatli Lord! Barcha paketlar **qo'lda tasdiqlash** orqali xavfsiz faollashtiriladi:\n\n"
+        "📦 **Mavjud Paketlar:**\n"
+        "• 👑 **Premium Season Pass (25,000 so'm / 30 kun):**\n"
+        "  — Premium belgi, Valiriya ramkasi va «Mavsum Aslzodasi» unvoni\n"
+        "  — Darhol beriladigan yoqimli bonus: **+2,500 Oltin, +5,000 Bug'doy, +1,500 Temir, +50 Nufuz**\n"
+        "  — 30 kun davomida har kuni qo'shimcha kunlik bonus (**+300 Oltin, +600 Bug'doy, +200 Temir**)\n"
+        "  — Mavsumning barcha 20 ta Premium mukofot yo'laklari\n"
+        "• 👑 **Noble VIP (15,000 so'm / 30 kun):**\n"
+        "  — 1-bosishda barcha qal'alardan soliq yig'ish, profilga video, VIP nishoni\n"
+        "  — Darhol bonus: **+1,000 Oltin, +2,000 Bug'doy, +500 Temir**\n"
+        "• 🎁 **Starter Pack (5,000 so'm / 7 kun VIP):**\n"
+        "  — «Yetti Qirollik Ritsari» unvoni + Po'lat ramka\n"
+        "  — Darhol bonus: **+800 Oltin, +1,500 Bug'doy, +400 Temir**\n\n"
+        "💳 **To'lov Karta Rekvizitlari:**\n"
+        f"• Karta raqami: `{card_num}`\n"
+        f"• Karta egasi: *{escape_md(card_holder)}*\n\n"
+        "👇 *Kerakli paketni tanlang, to'lov qiling va chek skrinshotini yuboring:*"
+    )
+
+
 async def donate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/donate, /vip, /shop buyrug'i"""
-    text = (
-        "💎 **VESTEROS KOSMETIKA & QULAYLIKLAR DO'KONI**\n\n"
-        "Hurmatli Lord! O'yinimizda **100% Halol Balans** amal qiladi: pullik buyumlar jangda hech qanday kuch, armiya yoki resurs ustunligi bermaydi!\n\n"
-        "🛍️ **Do'konda mavjud:**\n"
-        "• 👑 **Noble VIP:** 1-bosishda soliq yig'ish, profilga jonli video qo'yish, zarhal nishon.\n"
-        "• 🎁 **Starter Pack:** Eksklyuziv po'lat ramka + unvon + 7 kunlik VIP.\n"
-        "• 🏰 **Qal'a Skinlari:** Muz Qasri, Valiriya Qora Bazalti, Oltin Saroy.\n"
-        "• 🐉 **Ajdarlar:** Qora Soyalar, Qonli Qizil, Zumrad va Oltin ajdar.\n"
-        "• ⛓️ **Profil Ramkalari & Unvonlar:** Yetti Qirollikda ajralib turing!\n\n"
-        "⭐️ **To'lov usullari:** Telegram Stars (rasmiy) yoki O'zbekiston bank kartalari.\n\n"
-        "👇 *Quyidagi tugmalar orqali tanlang yoki Mini Appni oching:*"
-    )
+    text = await _build_donate_intro_text()
     if update.message:
         await update.message.reply_text(
             text,
             parse_mode="Markdown",
-            reply_markup=donate_menu_keyboard()
+            reply_markup=donate_menu_keyboard(),
         )
 
 
@@ -97,34 +156,23 @@ async def donate_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     query = update.callback_query
     await query.answer()
 
-    text = (
-        "💎 **VESTEROS KOSMETIKA & QULAYLIKLAR DO'KONI**\n\n"
-        "Hurmatli Lord! O'yinimizda **100% Halol Balans** amal qiladi: pullik buyumlar jangda hech qanday kuch, armiya yoki resurs ustunligi bermaydi!\n\n"
-        "🛍️ **Do'konda mavjud:**\n"
-        "• 👑 **Noble VIP:** 1-bosishda soliq yig'ish, profilga jonli video qo'yish, zarhal nishon.\n"
-        "• 🎁 **Starter Pack:** Eksklyuziv po'lat ramka + unvon + 7 kunlik VIP.\n"
-        "• 🏰 **Qal'a Skinlari:** Muz Qasri, Valiriya Qora Bazalti, Oltin Saroy.\n"
-        "• 🐉 **Ajdarlar:** Qora Soyalar, Qonli Qizil, Zumrad va Oltin ajdar.\n"
-        "• ⛓️ **Profil Ramkalari & Unvonlar:** Yetti Qirollikda ajralib turing!\n\n"
-        "⭐️ **To'lov usullari:** Telegram Stars (rasmiy) yoki O'zbekiston bank kartalari.\n\n"
-        "👇 *Quyidagi tugmalar orqali tanlang yoki Mini Appni oching:*"
-    )
+    text = await _build_donate_intro_text()
     try:
         await query.edit_message_text(
             text,
             parse_mode="Markdown",
-            reply_markup=donate_menu_keyboard()
+            reply_markup=donate_menu_keyboard(),
         )
     except Exception:
         await query.message.reply_text(
             text,
             parse_mode="Markdown",
-            reply_markup=donate_menu_keyboard()
+            reply_markup=donate_menu_keyboard(),
         )
 
 
 async def donate_pick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Tanlangan to'plam tafsilotlarini va karta raqamini ko'rsatish"""
+    """Tanlangan to'plam tafsilotlarini va admin kiritgan karta raqamini ko'rsatish"""
     query = update.callback_query
     await query.answer()
 
@@ -136,37 +184,62 @@ async def donate_pick_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     tier_id = parts[1]
     tier = DONATE_TIERS.get(tier_id)
     if not tier:
-        await query.answer("To'plam topilmadi!", show_alert=True)
-        return
+        pkg = resolve_package_info(tier_id)
+        if not pkg:
+            await query.answer("Paket topilmadi!", show_alert=True)
+            return
+        tier = {
+            "name": pkg["name"],
+            "subtitle": "Maxsus kosmetik buyum",
+            "description": pkg["description"],
+            "price_label": pkg["price_label"],
+        }
+
+    async with AsyncSessionLocal() as session:
+        reqs = await crud.get_payment_settings(session)
+        pending = await crud.get_user_pending_donation_request(session, telegram_id=query.from_user.id)
+
+    card_num = reqs["card_number"]
+    card_holder = reqs["card_holder"]
+
+    pending_note = ""
+    if pending:
+        pending_note = (
+            f"\n⚠️ *Eslatma: Sizda hozirda ko'rib chiqilayotgan so'rov mavjud "
+            f"(#{pending.id} — {escape_md(pending.tier_name)}). "
+            f"Yangi so'rov yuborish uchun avval joriy so'rov ko'rib chiqilishini kuting.*\n"
+        )
 
     text = (
         f"💎 **{tier['name'].upper()}**\n"
-        f"_{tier['subtitle']}_\n\n"
-        f"📦 **To'plam tarkibi va bonuslar:**\n"
-        f"{tier['description']}\n\n"
+        f"_{tier.get('subtitle', '')}_\n\n"
+        f"📦 **Paket tarkibi va mukofotlar:**\n"
+        f"{tier.get('description', '')}\n\n"
         f"━━━━━━━━━━━━━━━━━━━\n"
         f"💳 **TO'LOV REKVIZITLARI:**\n"
-        f"• Karta raqami: `{DONATE_CARD_NUMBER}`\n"
-        f"• Karta egasi: *{escape_md(DONATE_CARD_HOLDER)}*\n"
+        f"• Karta raqami: `{card_num}`\n"
+        f"• Karta egasi: *{escape_md(card_holder)}*\n"
         f"• To'lov summasi: *{tier['price_label']}*\n"
-        f"━━━━━━━━━━━━━━━━━━━\n\n"
-        f"📌 **QANDAY TO'LANADI?**\n"
-        f"1. Bank ilovangizda (Click, Payme, Uzum va h.k.) yuqoridagi kartaga **{tier['price_label']}** o'tkazing.\n"
-        f"2. To'lov chekini rasm (screenshot) qilib saqlang.\n"
-        f"3. Pastdagi **«📸 To'lov chekini yuborish»** tugmasini bosing va chekni botga jo'nating!\n"
+        f"━━━━━━━━━━━━━━━━━━━\n"
+        f"{pending_note}\n"
+        f"📌 **QANDAY FAOLLASHTIRILADI?**\n"
+        f"1. Yuqoridagi karta raqamiga **{tier['price_label']}** o'tkazing.\n"
+        f"2. To'lov chekini skrinshot (rasm) qilib oling.\n"
+        f"3. Pastdagi **«✅ To'lov qildim»** tugmasini bosing va chek rasmini botga yuboring.\n"
+        f"4. Admin tasdiqlashi bilan paket va resurslar hisobingizga avtomatik tushadi!"
     )
 
     try:
         await query.edit_message_text(
             text,
             parse_mode="Markdown",
-            reply_markup=donate_tier_keyboard(tier_id)
+            reply_markup=donate_tier_keyboard(tier_id),
         )
     except Exception:
         await query.message.reply_text(
             text,
             parse_mode="Markdown",
-            reply_markup=donate_tier_keyboard(tier_id)
+            reply_markup=donate_tier_keyboard(tier_id),
         )
 
 
@@ -178,260 +251,23 @@ async def donate_troops_menu_callback(update: Update, context: ContextTypes.DEFA
     text = (
         "⚖️ **HALOL VA ADOLATLI BALANS: PAY-TO-WIN YO'Q!**\n\n"
         "Hurmatli Lord! O'yinda raqobatbardoshlik, sharaf va tenglikni ta'minlash maqsadida "
-        "real pul evaziga askarlar, jang quvvati yoki resurslarni to'g'ridan-to'g'ri sotib olish "
-        "butunlay bekor qilindi.\n\n"
-        "🛡️ **Nima uchun?**\n"
-        "• Har bir g'alaba o'yinchining shaxsiy aql-zakovati va taktikasiga bog'liq bo'lishi kerak.\n"
-        "• Yangi va eski o'yinchilar o'rtasida sun'iy moddiy tafovut bo'lmasligi kafolatlanadi.\n\n"
+        "real pul evaziga askarlar yoki jang quvvatini sotib olish bekor qilingan.\n\n"
         "🎁 **Do'konda nima bor?**\n"
-        "Faqat go'zal qal'a va ajdar ko'rinishlari, faxriy unvonlar, ramkalar va "
-        "o'yin qulayliklari (Noble VIP) mavjud!\n\n"
-        "Barcha askarlarni Qal'angizdagi mashg'ulot maydonida sharaf bilan tayyorlang!"
+        "• 👑 **Premium Season Pass** (30 kunlik premium status, yoqimli resurs bonusi va kunlik bonuslar)\n"
+        "• 👑 **Noble VIP** va kosmetik qal'a/ajdar ko'rinishlari!"
     )
     buttons = [
-        [
-            InlineKeyboardButton(
-                "📱 Mini App Do'konini Ochish 💎",
-                web_app=WebAppInfo(url=get_miniapp_url("donate"))
-            )
-        ],
-        [InlineKeyboardButton("👑 Noble VIP & To'plamlar", callback_data="menu_donate")],
+        [InlineKeyboardButton("👑 Paketlarni Ko'rish", callback_data="menu_donate")],
         [InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")],
     ]
     try:
-        await query.edit_message_text(
-            text,
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(buttons)
-        )
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
     except Exception:
-        await query.message.reply_text(
-            text,
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(buttons)
-        )
-
-
-async def donate_troop_type_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Tanlangan qo'shin turi uchun summa tanlash paneli"""
-    query = update.callback_query
-    await query.answer()
-
-    data = query.data or ""
-    parts = data.split(":", 1)
-    if len(parts) < 2:
-        return
-
-    troop_type = parts[1]
-    t_info = TROOP_RATES.get(troop_type)
-    if not t_info:
-        await query.answer("Qo'shin turi topilmadi!", show_alert=True)
-        return
-
-    text = (
-        f"⚔️ **{t_info['icon']} {t_info['name'].upper()} SOTIB OLISH**\n\n"
-        f"💵 Narx: **{t_info['rate']} so'm = 1 ta {t_info['name']}**\n\n"
-        f"Kerakli to'lov summasini tanlang yoki o'zingiz kiriting:"
-    )
-    try:
-        await query.edit_message_text(
-            text,
-            parse_mode="Markdown",
-            reply_markup=donate_troop_amount_keyboard(troop_type)
-        )
-    except Exception:
-        await query.message.reply_text(
-            text,
-            parse_mode="Markdown",
-            reply_markup=donate_troop_amount_keyboard(troop_type)
-        )
-
-
-async def donate_troop_amt_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Tanlangan summa bo'yicha to'lov tafsilotlari va karta rekvizitlari"""
-    query = update.callback_query
-    await query.answer()
-
-    data = query.data or ""
-    parts = data.split(":")
-    if len(parts) < 3:
-        return
-
-    troop_type = parts[1]
-    try:
-        amount = int(parts[2])
-    except ValueError:
-        return
-
-    t_info = TROOP_RATES.get(troop_type)
-    if not t_info:
-        return
-
-    count = calc_troops(troop_type, amount)
-
-    text = (
-        f"⚔️ **QO'SHIN SOTIB OLISH — TO'LOV**\n\n"
-        f"👤 Tanlangan qo'shin: {t_info['icon']} **{t_info['name']}**\n"
-        f"💰 To'lov summasi: **{amount:,} so'm**\n"
-        f"🛡️ Beriladigan qo'shin soni: **{count:,} ta {t_info['name']}**\n\n"
-        f"━━━━━━━━━━━━━━━━━━━\n"
-        f"💳 **TO'LOV REKVIZITLARI:**\n"
-        f"• Karta raqami: `{DONATE_CARD_NUMBER}`\n"
-        f"• Karta egasi: *{escape_md(DONATE_CARD_HOLDER)}*\n"
-        f"• To'lov summasi: *{amount:,} so'm*\n"
-        f"━━━━━━━━━━━━━━━━━━━\n\n"
-        f"📌 **QANDAY TO'LANADI?**\n"
-        f"1. Bank ilovangizda (Click, Payme, Uzum va h.k.) yuqoridagi kartaga **{amount:,} so'm** o'tkazing.\n"
-        f"2. To'lov chekini rasm (screenshot) qilib saqlang.\n"
-        f"3. Pastdagi **«📸 To'lov chekini yuborish»** tugmasini bosing va chekni botga jo'nating!\n"
-    )
-
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📸 To'lov chekini yuborish", callback_data=f"donate_troop_submit:{troop_type}:{amount}")],
-        [InlineKeyboardButton("🔙 Boshqa summa tanlash", callback_data=f"donate_troop_type:{troop_type}")],
-        [InlineKeyboardButton("🏠 Asosiy Menyu", callback_data="menu_main")]
-    ])
-
-    try:
-        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=kb)
-    except Exception:
-        await query.message.reply_text(text, parse_mode="Markdown", reply_markup=kb)
-
-
-async def donate_troop_custom_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Qo'shin uchun erkin summa kiritish so'rovi"""
-    query = update.callback_query
-    await query.answer()
-
-    data = query.data or ""
-    parts = data.split(":", 1)
-    if len(parts) < 2:
-        return
-
-    troop_type = parts[1]
-    t_info = TROOP_RATES.get(troop_type)
-    if not t_info:
-        return
-
-    context.user_data["awaiting_donate_troop_custom"] = troop_type
-
-    cancel_kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("❌ Bekor qilish", callback_data=f"donate_troop_type:{troop_type}")]
-    ])
-
-    text = (
-        f"✍️ **SUMMANI KIRITING**\n\n"
-        f"Qancha so'mga {t_info['icon']} **{t_info['name']}** sotib olmoqchisiz?\n"
-        f"*(Kurs: {t_info['rate']} so'm = 1 ta)*\n\n"
-        f"Iltimos, to'lov qilmoqchi bo'lgan summani faqat raqamlar bilan yozing (Masalan: `50000` yoki `120000`)."
-    )
-
-    try:
-        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=cancel_kb)
-    except Exception:
-        await query.message.reply_text(text, parse_mode="Markdown", reply_markup=cancel_kb)
-
-
-async def handle_donate_troop_amount_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Foydalanuvchi qo'lda kiritgan to'lov summasini qabul qilish"""
-    troop_type = context.user_data.pop("awaiting_donate_troop_custom", None)
-    if not troop_type or not update.message or not update.message.text:
-        return
-
-    text = update.message.text.strip().replace(" ", "").replace(",", "").replace(".", "")
-    if not text.isdigit():
-        await update.message.reply_text(
-            "⚠️ Iltimos, faqat raqam kiriting (masalan: `50000` yoki `100000`).",
-            parse_mode="Markdown"
-        )
-        context.user_data["awaiting_donate_troop_custom"] = troop_type
-        return
-
-    amount = int(text)
-    if amount < 1000:
-        await update.message.reply_text(
-            "⚠️ Minimal to'lov summasi — 1,000 so'm. Iltimos, kattaroq summa kiriting.",
-            parse_mode="Markdown"
-        )
-        context.user_data["awaiting_donate_troop_custom"] = troop_type
-        return
-
-    t_info = TROOP_RATES.get(troop_type, {"name": "Askar", "rate": 1, "icon": "🗡️"})
-    count = calc_troops(troop_type, amount)
-
-    msg_text = (
-        f"⚔️ **QO'SHIN SOTIB OLISH — TO'LOV**\n\n"
-        f"👤 Tanlangan qo'shin: {t_info['icon']} **{t_info['name']}**\n"
-        f"💰 To'lov summasi: **{amount:,} so'm**\n"
-        f"🛡️ Beriladigan qo'shin soni: **{count:,} ta {t_info['name']}**\n\n"
-        f"━━━━━━━━━━━━━━━━━━━\n"
-        f"💳 **TO'LOV REKVIZITLARI:**\n"
-        f"• Karta raqami: `{DONATE_CARD_NUMBER}`\n"
-        f"• Karta egasi: *{escape_md(DONATE_CARD_HOLDER)}*\n"
-        f"• To'lov summasi: *{amount:,} so'm*\n"
-        f"━━━━━━━━━━━━━━━━━━━\n\n"
-        f"📌 **QANDAY TO'LANADI?**\n"
-        f"1. Bank ilovangizda (Click, Payme, Uzum va h.k.) yuqoridagi kartaga **{amount:,} so'm** o'tkazing.\n"
-        f"2. To'lov chekini rasm (screenshot) qilib saqlang.\n"
-        f"3. Pastdagi **«📸 To'lov chekini yuborish»** tugmasini bosing va chekni botga jo'nating!\n"
-    )
-
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📸 To'lov chekini yuborish", callback_data=f"donate_troop_submit:{troop_type}:{amount}")],
-        [InlineKeyboardButton("🔙 Boshqa summa tanlash", callback_data=f"donate_troop_type:{troop_type}")],
-        [InlineKeyboardButton("🏠 Asosiy Menyu", callback_data="menu_main")]
-    ])
-
-    await update.message.reply_text(msg_text, parse_mode="Markdown", reply_markup=kb)
-
-
-async def donate_troop_submit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Qo'shin uchun chek yuborish bosqichini boshlash"""
-    query = update.callback_query
-    await query.answer()
-
-    data = query.data or ""
-    parts = data.split(":")
-    if len(parts) < 3:
-        return
-
-    troop_type = parts[1]
-    try:
-        amount = int(parts[2])
-    except ValueError:
-        return
-
-    t_info = TROOP_RATES.get(troop_type)
-    if not t_info:
-        return
-
-    count = calc_troops(troop_type, amount)
-
-    context.user_data["awaiting_receipt_is_troops"] = True
-    context.user_data["donate_troop_type"] = troop_type
-    context.user_data["donate_troop_amount"] = amount
-    context.user_data["donate_troop_count"] = count
-
-    cancel_kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("❌ Bekor qilish", callback_data="donate_cancel_receipt")]
-    ])
-
-    prompt_text = (
-        f"📸 **TO'LOV CHEKINI YUBORING**\n\n"
-        f"Tanlangan qo'shin: {t_info['icon']} **{count:,} ta {t_info['name']}**\n"
-        f"To'lov summasi: **{amount:,} so'm**\n"
-        f"Karta: `{DONATE_CARD_NUMBER}` ({escape_md(DONATE_CARD_HOLDER)})\n\n"
-        f"👉 Bank ilovangizdagi muvaffaqiyatli to'lov cheki (screenshot yoki kvitansiya) rasmini shu yerga yuboring."
-    )
-
-    try:
-        await query.edit_message_text(prompt_text, parse_mode="Markdown", reply_markup=cancel_kb)
-    except Exception:
-        await query.message.reply_text(prompt_text, parse_mode="Markdown", reply_markup=cancel_kb)
+        await query.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
 
 
 async def donate_submit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Chek yuborish bosqichini boshlash"""
+    """'To'lov qildim' bosilganda chek rasmini so'rash (pending tekshiruvi bilan)"""
     query = update.callback_query
     await query.answer()
 
@@ -441,35 +277,48 @@ async def donate_submit_callback(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     tier_id = parts[1]
-    tier = DONATE_TIERS.get(tier_id)
-    if not tier:
-        await query.answer("To'plam topilmadi!", show_alert=True)
+    pkg = resolve_package_info(tier_id)
+    if not pkg:
+        await query.answer("Paket topilmadi!", show_alert=True)
+        return
+
+    async with AsyncSessionLocal() as session:
+        pending = await crud.get_user_pending_donation_request(session, telegram_id=query.from_user.id)
+        reqs = await crud.get_payment_settings(session)
+
+    if pending:
+        await query.answer(
+            f"⏳ Sizda allaqachon kutilayotgan so'rov bor (#{pending.id}). Admin javobini kuting!",
+            show_alert=True,
+        )
         return
 
     context.user_data["awaiting_receipt_tier"] = tier_id
+    context.user_data.pop("awaiting_receipt_is_troops", None)
 
     cancel_kb = InlineKeyboardMarkup([
         [InlineKeyboardButton("❌ Bekor qilish", callback_data="donate_cancel_receipt")]
     ])
 
     prompt_text = (
-        f"📸 **TO'LOV CHEKINI YUBORING**\n\n"
-        f"Siz tanladingiz: **{tier['name']}** ({tier['price_label']})\n"
-        f"Karta: `{DONATE_CARD_NUMBER}` ({escape_md(DONATE_CARD_HOLDER)})\n\n"
-        f"👉 Bank ilovangizdagi muvaffaqiyatli to'lov cheki (screenshot yoki kvitansiya) rasmini shu yerga yuboring."
+        f"📸 **TO'LOV CHEKI SKRINSHOTINI YUBORING (MAJBURIY)**\n\n"
+        f"📦 Tanlangan paket: **{pkg['name']}**\n"
+        f"💵 To'lov summasi: **{pkg['price_label']}**\n"
+        f"💳 Karta: `{reqs['card_number']}` (*{escape_md(reqs['card_holder'])}*)\n\n"
+        f"👉 Iltimos, to'lov cheki (skrinshot) **rasmini** shu yerga yuboring:"
     )
 
     try:
         await query.edit_message_text(
             prompt_text,
             parse_mode="Markdown",
-            reply_markup=cancel_kb
+            reply_markup=cancel_kb,
         )
     except Exception:
         await query.message.reply_text(
             prompt_text,
             parse_mode="Markdown",
-            reply_markup=cancel_kb
+            reply_markup=cancel_kb,
         )
 
 
@@ -487,7 +336,7 @@ async def donate_cancel_callback(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def donate_receipt_receiver(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Foydalanuvchi yuborgan to'lov chekini qabul qilish va adminga uzatish"""
+    """Foydalanuvchi yuborgan to'lov cheki skrinshotini qabul qilish va adminga yuborish"""
     is_troops = context.user_data.get("awaiting_receipt_is_troops", False)
     tier_id = context.user_data.get("awaiting_receipt_tier")
 
@@ -495,195 +344,93 @@ async def donate_receipt_receiver(update: Update, context: ContextTypes.DEFAULT_
         return
 
     user = update.effective_user
-    if not user:
+    if not user or not update.message:
         return
 
-    # Foto yoki hujjat tekshirish
+    # Rasm (photo) yoki rasm hujjatini tekshirish
     photo_file_id = None
     if update.message.photo:
         photo_file_id = update.message.photo[-1].file_id
-    elif update.message.document:
+    elif update.message.document and (update.message.document.mime_type or "").startswith("image/"):
         photo_file_id = update.message.document.file_id
 
     if not photo_file_id:
         await update.message.reply_text(
-            "⚠️ Iltimos, to'lov chekini rasm (foto yoki screenshot) ko'rinishida yuboring!"
-        )
-        return
-
-    # 1. Qo'shin sotib olish cheki bo'lsa
-    if is_troops:
-        troop_type = context.user_data.pop("donate_troop_type", "infantry")
-        amount = context.user_data.pop("donate_troop_amount", 0)
-        troop_count = context.user_data.pop("donate_troop_count", 0)
-        context.user_data.pop("awaiting_receipt_is_troops", None)
-        context.user_data.pop("awaiting_donate_troop_custom", None)
-
-        t_info = TROOP_RATES.get(troop_type, {"name": "Oddiy askar", "rate": 1, "icon": "🗡️"})
-        t_name = t_info["name"]
-
-        async with AsyncSessionLocal() as session:
-            user_db = await crud.get_user_with_relations(session, user.id)
-            if not user_db:
-                await update.message.reply_text("Iltimos, avval /start ni bosing.")
-                return
-
-            req = await crud.create_donation_request(
-                session=session,
-                user_id=user_db.id,
-                telegram_id=user.id,
-                user_full_name=user.full_name or "Lord",
-                user_username=user.username or "",
-                tier_id=f"troops_{troop_type}_{amount}",
-                receipt_file_id=photo_file_id,
-                request_type="troops",
-                amount=amount,
-                tier_name=f"{troop_count:,} ta {t_name}",
-                troop_type=troop_type,
-                troop_count=troop_count
-            )
-
-        req_id = req.id if req else 0
-
-        # Foydalanuvchiga tasdiq xabari
-        await update.message.reply_text(
-            f"✅ **To'lov chekingiz muvaffaqiyatli qabul qilindi (So'rov #{req_id})!**\n\n"
-            f"🛡️ Tanlangan qo'shin: **{troop_count:,} ta {t_name}**\n"
-            f"💰 To'lov summasi: **{amount:,} so'm**\n\n"
-            "Administrator tekshirishi uchun jo'natildi. To'lov tasdiqlanishi bilan armiyangizga barcha askarlar to'liq qo'shiladi va bu yerda bildirishnoma olasiz! ⚔️\n\n"
-            "Sabringiz uchun tashakkur!",
+            "⚠️ To'lov cheki **rasm (skrinshot)** ko'rinishida yuborilishi majburiy! "
+            "Iltimos, skrinshot rasmini yuboring.",
             parse_mode="Markdown",
-            reply_markup=back_to_main_keyboard()
         )
-
-        now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
-        username_str = f"@{user.username}" if user.username else "yo'q"
-        admin_caption = (
-            f"⚔️ **QO'SHIN SOTIB OLISH SO'ROVI (DONATE #{req_id})**\n\n"
-            f"👤 O‘yinchi: *{escape_md(user.full_name)}* ({username_str})\n"
-            f"🆔 ID raqami: `{user.id}`\n"
-            f"💰 To‘lov summasi: *{amount:,} so‘m*\n"
-            f"🛡️ Tanlangan qo‘shin turi: *{t_name}*\n"
-            f"🔢 Berilishi kerak bo‘lgan qo‘shin soni: *{troop_count:,} ta*\n"
-            f"💳 Karta: `{DONATE_CARD_NUMBER}` ({escape_md(DONATE_CARD_HOLDER)})\n"
-            f"⏱️ Vaqt: `{now_str}`\n\n"
-            f"❓ **Ushbu o‘yinchiga {troop_count:,} ta {t_name} berilsinmi?**"
-        )
-
-        admin_kb = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("✅ Tasdiqlash", callback_data=f"admin_donate_approve:{req_id}"),
-                InlineKeyboardButton("❌ Bekor qilish", callback_data=f"admin_donate_reject:{req_id}"),
-            ]
-        ])
-
-        admin_targets = set([OWNER_ID] + ADMIN_IDS)
-        for adm_id in admin_targets:
-            try:
-                if update.message.photo:
-                    await context.bot.send_photo(
-                        chat_id=adm_id,
-                        photo=photo_file_id,
-                        caption=admin_caption,
-                        parse_mode="Markdown",
-                        reply_markup=admin_kb
-                    )
-                else:
-                    await context.bot.send_document(
-                        chat_id=adm_id,
-                        document=photo_file_id,
-                        caption=admin_caption,
-                        parse_mode="Markdown",
-                        reply_markup=admin_kb
-                    )
-            except Exception as e:
-                print(f"Admin {adm_id} ga qo'shin cheki yuborishda xatolik: {e}")
-        return
-
-    # 2. VIP To'plam cheki bo'lsa
-    tier = DONATE_TIERS.get(tier_id)
-    if not tier:
-        context.user_data.pop("awaiting_receipt_tier", None)
         return
 
     context.user_data.pop("awaiting_receipt_tier", None)
+    context.user_data.pop("awaiting_receipt_is_troops", None)
 
     async with AsyncSessionLocal() as session:
         user_db = await crud.get_user_with_relations(session, user.id)
         if not user_db:
-            await update.message.reply_text("Iltimos, avval /start ni bosing.")
+            await update.message.reply_text("Iltimos, avval /start buyrug'ini bosing.")
             return
 
-        req = await crud.create_donation_request(
-            session=session,
-            user_id=user_db.id,
-            telegram_id=user.id,
-            user_full_name=user.full_name or "Lord",
-            user_username=user.username or "",
-            tier_id=tier_id,
-            receipt_file_id=photo_file_id
-        )
+        if is_troops:
+            troop_type = context.user_data.pop("donate_troop_type", "infantry")
+            amount = context.user_data.pop("donate_troop_amount", 0)
+            troop_count = context.user_data.pop("donate_troop_count", 0)
+            t_info = TROOP_RATES.get(troop_type, {"name": "Oddiy askar", "rate": 1, "icon": "🗡️"})
+            ok, msg, req = await submit_donation_request_service(
+                session=session,
+                user=user_db,
+                package_id=f"troops_{troop_type}_{amount}",
+                receipt_file_id=photo_file_id,
+                bot=context.bot,
+                request_type="troops",
+                troop_type=troop_type,
+                troop_count=troop_count,
+                custom_price_uzs=amount,
+                custom_tier_name=f"{troop_count:,} ta {t_info['name']}",
+            )
+        else:
+            ok, msg, req = await submit_donation_request_service(
+                session=session,
+                user=user_db,
+                package_id=tier_id,
+                receipt_file_id=photo_file_id,
+                bot=context.bot,
+            )
 
-    req_id = req.id if req else 0
-
-    # 1. Foydalanuvchiga tasdiq xabari
     await update.message.reply_text(
-        f"✅ **To'lov chekingiz muvaffaqiyatli qabul qilindi (So'rov #{req_id})!**\n\n"
-        "Administrator tekshirishi uchun jo'natildi. To'lov tasdiqlanishi bilan hisobingizga barcha mukofotlar to'liq avtomatik yuklanadi va bu yerda bildirishnoma olasiz! ⚔️\n\n"
-        "Sabringiz uchun tashakkur!",
-        parse_mode="Markdown",
-        reply_markup=back_to_main_keyboard()
+        msg,
+        reply_markup=back_to_main_keyboard(),
     )
 
-    # 2. Adminga xabar va rasm yuborish
-    now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
-    username_str = f"@{user.username}" if user.username else "yo'q"
-    caption = (
-        f"💎 **YANGI TO'LOV CHEKI (DONATE #{req_id})!**\n\n"
-        f"👤 Hukmdor: *{escape_md(user.full_name)}* ({username_str})\n"
-        f"🆔 Telegram ID: `{user.id}`\n"
-        f"📦 To'plam: *{tier['name']}*\n"
-        f"💰 Narxi: *{tier['price_label']}*\n"
-        f"💳 Karta: `{DONATE_CARD_NUMBER}` ({escape_md(DONATE_CARD_HOLDER)})\n"
-        f"⏱️ Vaqt: `{now_str}`\n\n"
-        f"To'lovni tasdiqlaysizmi?"
-    )
 
-    admin_kb = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("✅ Tasdiqlash va Berish", callback_data=f"admin_donate_approve:{req_id}"),
-            InlineKeyboardButton("❌ Rad etish", callback_data=f"admin_donate_reject:{req_id}"),
-        ],
-        [
-            InlineKeyboardButton("📋 Admin Panelda Ko'rish", callback_data=f"admin_donate_view:{req_id}"),
-        ]
+async def handle_donate_text_WhenAwaitingReceipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Foydalanuvchi chek kutilyotgan paytda oddiy matn yozsa, skrinshot majburiyligini eslatish"""
+    if context.user_data.get("awaiting_admin_reject_reason"):
+        await handle_admin_reject_reason_text(update, context)
+        return
+    if context.user_data.get("awaiting_admin_card_input"):
+        await handle_admin_card_settings_text(update, context)
+        return
+    if not context.user_data.get("awaiting_receipt_tier") and not context.user_data.get("awaiting_receipt_is_troops"):
+        return
+    if not update.message or not update.message.text:
+        return
+    if update.message.text.startswith("/"):
+        return
+
+    cancel_kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("❌ Bekor qilish", callback_data="donate_cancel_receipt")]
     ])
-
-    admin_targets = set([OWNER_ID] + ADMIN_IDS)
-    for adm_id in admin_targets:
-        try:
-            if update.message.photo:
-                await context.bot.send_photo(
-                    chat_id=adm_id,
-                    photo=photo_file_id,
-                    caption=caption,
-                    parse_mode="Markdown",
-                    reply_markup=admin_kb
-                )
-            else:
-                await context.bot.send_document(
-                    chat_id=adm_id,
-                    document=photo_file_id,
-                    caption=caption,
-                    parse_mode="Markdown",
-                    reply_markup=admin_kb
-                )
-        except Exception as e:
-            print(f"Admin {adm_id} ga chek yuborishda xatolik: {e}")
+    await update.message.reply_text(
+        "⚠️ **To'lov cheki skrinshotini (rasm) yuborish majburiy!**\n"
+        "Matn emas, to'lov cheki rasmini yuboring yoki bekor qilish tugmasini bosing.",
+        parse_mode="Markdown",
+        reply_markup=cancel_kb,
+    )
 
 
 async def admin_donate_approve_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Admin tomonidan to'lovni tasdiqlash va mukofotlarni berish"""
+    """Admin tomonidan to'lovni tasdiqlash va mukofotlarni berish (Yagona servis orqali)"""
     query = update.callback_query
     admin_user = query.from_user
 
@@ -692,165 +439,79 @@ async def admin_donate_approve_callback(update: Update, context: ContextTypes.DE
         return
 
     data = query.data or ""
-    parts = data.split(":")
-    if len(parts) < 2:
+    req_id = 0
+    if ":" in data:
+        parts = data.split(":")
+        if len(parts) >= 2 and parts[1].isdigit():
+            req_id = int(parts[1])
+    elif data.startswith("adm_don_ok_"):
+        tail = data.replace("adm_don_ok_", "")
+        if tail.isdigit():
+            req_id = int(tail)
+
+    if req_id <= 0:
+        await query.answer("⚠️ So'rov ID topilmadi.", show_alert=True)
         return
 
-    target_user_id = 0
-    if len(parts) == 2 and parts[1].isdigit():
-        req_id = int(parts[1])
-        async with AsyncSessionLocal() as session:
-            ok, msg, details = await crud.approve_donation_request(session, req_id, admin_user.id)
-            req = await crud.get_donation_request_by_id(session, req_id)
-            if req:
-                target_user_id = req.telegram_id
-    else:
-        tier_id = parts[1]
-        try:
-            target_user_id = int(parts[2])
-        except ValueError:
-            return
-        async with AsyncSessionLocal() as session:
-            ok, msg, details = await crud.apply_donate_rewards(session, target_user_id, tier_id)
+    async with AsyncSessionLocal() as session:
+        ok, msg, details = await approve_donation_request_service(
+            session=session,
+            request_id=req_id,
+            admin_telegram_id=admin_user.id,
+            bot=context.bot,
+        )
+        req = await crud.get_donation_request_by_id(session, req_id)
 
     if not ok:
         await query.answer(f"⚠️ {msg}", show_alert=True)
         return
 
-    await query.answer("✅ To'lov tasdiqlandi va mukofotlar to'liq berildi!", show_alert=True)
+    await query.answer("✅ To'lov tasdiqlandi va mukofotlar berildi!", show_alert=True)
 
     admin_name = admin_user.full_name
-
-    # Agar qo'shin xaridi bo'lsa
-    if details.get("is_troops"):
-        troop_name = details.get("troop_name", "askarlar")
-        troop_count = details.get("troop_count", 0)
-        amount_paid = details.get("amount", 0)
-
-        new_caption = (
-            f"✅ **QO'SHIN TO'LOVI TASDIQLANDI!**\n\n"
-            f"👑 Tasdiqlagan admin: *{escape_md(admin_name)}*\n"
-            f"👤 Qabul qiluvchi: `{target_user_id}`\n"
-            f"🛡️ Berilgan qo'shin: *+{troop_count:,} ta {troop_name}*\n"
-            f"💰 To'lov: *{amount_paid:,} so'm*\n"
-            f"📌 Holati: Muvaffaqiyatli topshirildi"
-        )
-
-        back_kb = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("🔙 Donatlar Ro'yxatiga Qaytish", callback_data="admin_donations_list:0:pending"),
-                InlineKeyboardButton("⚙️ Admin Panel", callback_data="admin_panel"),
-            ]
-        ])
-
-        try:
-            if query.message.caption is not None:
-                await query.edit_message_caption(caption=new_caption, parse_mode="Markdown", reply_markup=back_kb)
-            else:
-                await query.edit_message_text(text=new_caption, parse_mode="Markdown", reply_markup=back_kb)
-        except Exception:
-            try:
-                await query.message.reply_text(text=new_caption, parse_mode="Markdown", reply_markup=back_kb)
-            except Exception:
-                pass
-
-        user_congrats = (
-            f"🎉 **TABRIKLAYMIZ! TO'LOVINGIZ TASDIQLANDI!**\n\n"
-            f"Hurmatli Lord! Siz xarid qilgan qo'shinlar ma'muriyat tomonidan tasdiqlandi va armiyangiz safiga qo'shildi!\n\n"
-            f"🛡️ Berilgan qo'shin: **+{troop_count:,} ta {troop_name}**\n"
-            f"💰 To'lov: **{amount_paid:,} so'm**\n\n"
-            f"⚔️ Vesteros janglarida g'alaba siz tomonda bo'lsin!"
-        )
-
-        try:
-            await context.bot.send_message(
-                chat_id=target_user_id,
-                text=user_congrats,
-                parse_mode="Markdown"
-            )
-        except Exception as e:
-            print(f"Foydalanuvchi {target_user_id} ga bildirishnoma yuborishda xatolik: {e}")
-        return
-
-    # VIP to'plam bo'lsa
-    troops_summary = ", ".join([f"{k}: +{v}" for k, v in details.get("troops", {}).items()]) if details.get("troops") else "yo'q"
-    dragon_summary = details.get("dragon") or details.get("dragon_boost") or "yo'q"
-    title_summary = details.get("title") or "o'zgarishsiz"
+    target_user_id = req.telegram_id if req else 0
+    tier_label = details.get("tier_name") or (req.tier_name if req else "Paket")
+    price_label = details.get("price_label") or (req.price_label if req else "")
 
     new_caption = (
-        f"✅ **TO'LOV TASDIQLANDI VA MUKOFOTLAR BERILDI!**\n\n"
-        f"👑 Tasdiqlagan admin: *{escape_md(admin_name)}*\n"
-        f"👤 Qabul qiluvchi: `{target_user_id}`\n"
-        f"📦 To'plam: *{details.get('tier_name', 'VIP To\'plam')}* ({details.get('price_label', '')})\n\n"
-        f"🪙 Oltin: +{details.get('gold', 0):,} | 🌾 Oziq: +{details.get('food', 0):,} | ⛓️ Temir: +{details.get('iron', 0):,}\n"
-        f"🛡️ Armiya: {troops_summary}\n"
-        f"🐉 Ajdaho: {dragon_summary}\n"
-        f"🕊️ Qalqon: +{details.get('shield_hours', 0)} soat | ⭐ Prestige: +{details.get('prestige', 0)}\n"
-        f"👑 Unvon: {title_summary}"
+        f"✅ <b>TO'LOV TASDIQLANDI (#{req_id})</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"👑 <b>Tasdiqlagan admin:</b> {admin_name} (<code>{admin_user.id}</code>)\n"
+        f"👤 <b>O'yinchi ID:</b> <code>{target_user_id}</code>\n"
+        f"📦 <b>Paket:</b> {tier_label} ({price_label})\n"
+        f"🪙 +{details.get('gold', 0):,} Oltin | 🌾 +{details.get('food', 0):,} Bug'doy | ⚒️ +{details.get('iron', 0):,} Temir\n"
+        f"📌 <b>Holati:</b> Approved (Mukofotlar berildi)"
     )
 
     back_kb = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("🔙 Donatlar Ro'yxatiga Qaytish", callback_data="admin_donations_list:0:pending"),
+            InlineKeyboardButton("🔙 Donatlar Ro'yxati", callback_data="admin_donations_list:0:pending"),
             InlineKeyboardButton("⚙️ Admin Panel", callback_data="admin_panel"),
         ]
     ])
 
     try:
         if query.message.caption is not None:
-            await query.edit_message_caption(caption=new_caption, parse_mode="Markdown", reply_markup=back_kb)
+            await query.edit_message_caption(caption=new_caption, parse_mode="HTML", reply_markup=back_kb)
         else:
-            await query.edit_message_text(text=new_caption, parse_mode="Markdown", reply_markup=back_kb)
+            await query.edit_message_text(text=new_caption, parse_mode="HTML", reply_markup=back_kb)
     except Exception:
         try:
-            await query.message.reply_text(text=new_caption, parse_mode="Markdown", reply_markup=back_kb)
+            await query.message.reply_text(text=new_caption, parse_mode="HTML", reply_markup=back_kb)
         except Exception:
             pass
 
-    # Foydalanuvchiga bayramona xabar yuborish
-    congrats_text = (
-        f"🎉 **TABRIKLAYMIZ! TO'LOVINGIZ TASDIQLANDI!**\n\n"
-        f"Hurmatli Lord! Siz xarid qilgan «**{details.get('tier_name', 'VIP To\'plam')}**» to'plami muvaffaqiyatli tasdiqlandi va hisobingizga yuklandi!\n\n"
-        f"🎁 **Taqdim etilgan boyliklar:**\n"
-        f"• 🪙 Oltin: **+{details.get('gold', 0):,}**\n"
-        f"• 🌾 Oziq-ovqat: **+{details.get('food', 0):,}**\n"
-        f"• ⛓️ Temir: **+{details.get('iron', 0):,}**\n"
-        f"• 🕊️ Tinchlik Qalqoni: **+{details.get('shield_hours', 0)} soat**\n"
-        f"• ⭐ Nufuz (Prestige): **+{details.get('prestige', 0)}**\n"
-    )
-    if details.get("troops"):
-        congrats_text += f"• 🛡️ Armiya: **{troops_summary}**\n"
-    if details.get("dragon"):
-        congrats_text += f"• 🐉 Ajdaho: **{details['dragon']}**\n"
-    if details.get("dragon_boost"):
-        congrats_text += f"• 🐉 Ajdaho Kuchayishi: **{details['dragon_boost']}**\n"
-    if details.get("wildfire_castle"):
-        congrats_text += f"• 💚 Yovvoyi Olov: **{details['wildfire_castle']}** qal'asiga o'rnatildi!\n"
-    if details.get("title"):
-        congrats_text += f"• 👑 Faxriy Unvon: «**{details['title']}**»\n"
 
-    v_tier = details.get("vip_tier")
-    if v_tier == "lord":
-        congrats_text += "\n✨ **VIP IMTIYOZ:** Sizga «🏰 Lordlar Xazinasi» yaltiroq profili, fotosurat va 🎥 shaxsiy video qo'yish huquqi berildi! /profile menyusida sozlang.\n"
-    elif v_tier == "dragonlord":
-        congrats_text += "\n⚜️ **VIP IMTIYOZ:** Sizga «🐉 Valyriya Merosi» olovli yaltiroq profili, fotosurat, 🎥 shaxsiy video, shior va fon musiqasi sozlash huquqi berildi! /profile menyusida sozlang.\n"
-    elif v_tier == "sovereign":
-        congrats_text += "\n👑 **VIP IMTIYOZ:** Sizga «👑 Temir Taxt Sohibi» imperatorlik yaltiroq profili, fotosurat, 🎥 shaxsiy video, shior, musiqa, +25% doimiy daromad va Butun Vesterosga Qirollik Farmoni chiqarish huquqi berildi! /profile menyusida sozlang.\n"
-
-    congrats_text += "\n⚔️ Vesteros taxti sari kurashda sizga zafarlar tilaymiz!"
-
-    try:
-        await context.bot.send_message(
-            chat_id=target_user_id,
-            text=congrats_text,
-            parse_mode="Markdown"
-        )
-    except Exception as e:
-        print(f"Foydalanuvchi {target_user_id} ga bildirishnoma yuborishda xatolik: {e}")
+REJECT_REASON_PRESETS = {
+    "no_pay": "Hisobga to'lov kelib tushmagan.",
+    "bad_img": "Yuborilgan rasm to'lov cheki emas yoki o'qib bo'lmaydi.",
+    "wrong_amt": "To'lov summasi paket narxiga mos emas.",
+    "dup_img": "Eski yoki avval ishlatilgan to'lov cheki yuborilgan.",
+}
 
 
 async def admin_donate_reject_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Admin tomonidan to'lovni rad etish"""
+    """Admin tomonidan to'lovni rad etish (sabab tanlash yoki bevosita rad etish)"""
     query = update.callback_query
     admin_user = query.from_user
 
@@ -859,139 +520,257 @@ async def admin_donate_reject_callback(update: Update, context: ContextTypes.DEF
         return
 
     data = query.data or ""
-    parts = data.split(":")
-    if len(parts) < 2:
+    req_id = 0
+    reason_key = None
+
+    if data.startswith("adm_don_no_"):
+        tail = data.replace("adm_don_no_", "")
+        if tail.isdigit():
+            req_id = int(tail)
+    elif ":" in data:
+        parts = data.split(":")
+        if len(parts) >= 2 and parts[1].isdigit():
+            req_id = int(parts[1])
+        if len(parts) >= 3:
+            reason_key = parts[2]
+
+    if req_id <= 0:
+        await query.answer("⚠️ So'rov ID topilmadi.", show_alert=True)
         return
 
-    target_user_id = 0
-    tier_name = "To'lov so'rovi"
-    if len(parts) == 2 and parts[1].isdigit():
-        req_id = int(parts[1])
-        async with AsyncSessionLocal() as session:
-            ok, msg, req = await crud.reject_donation_request(session, req_id, admin_user.id)
-            if not ok:
-                await query.answer(f"⚠️ {msg}", show_alert=True)
-                return
-            if req:
-                target_user_id = req.telegram_id
-                tier_name = req.tier_name
-    else:
-        tier_id = parts[1]
+    # Agar sabab tanlanmagan bo'lsa, sabab tanlash tugmalarini ko'rsatamiz
+    if not reason_key:
+        await query.answer("Rad etish sababini tanlang")
+        reason_kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("❌ To'lov tushmagan", callback_data=f"admin_donate_reject:{req_id}:no_pay")],
+            [InlineKeyboardButton("🖼️ Chek xato / o'qib bo'lmaydi", callback_data=f"admin_donate_reject:{req_id}:bad_img")],
+            [InlineKeyboardButton("💰 Summa noto'g'ri", callback_data=f"admin_donate_reject:{req_id}:wrong_amt")],
+            [InlineKeyboardButton("♻️ Eski / dublikat chek", callback_data=f"admin_donate_reject:{req_id}:dup_img")],
+            [InlineKeyboardButton("✍️ Boshqa sabab yozish", callback_data=f"admin_donate_reject:{req_id}:custom")],
+            [InlineKeyboardButton("🔙 Orqaga", callback_data=f"admin_donate_view:{req_id}")],
+        ])
+        prompt = f"❓ <b>So'rov #{req_id} ni rad etish sababini tanlang:</b>"
         try:
-            target_user_id = int(parts[2])
-        except ValueError:
-            return
-        tier = DONATE_TIERS.get(tier_id, {"name": "VIP To'plam"})
-        tier_name = tier["name"]
+            if query.message.caption is not None:
+                await query.edit_message_caption(caption=prompt, parse_mode="HTML", reply_markup=reason_kb)
+            else:
+                await query.edit_message_text(text=prompt, parse_mode="HTML", reply_markup=reason_kb)
+        except Exception:
+            await query.message.reply_text(text=prompt, parse_mode="HTML", reply_markup=reason_kb)
+        return
 
-    await query.answer("❌ To'lov rad etildi.", show_alert=True)
+    if reason_key == "custom":
+        await query.answer()
+        context.user_data["awaiting_admin_reject_reason"] = req_id
+        await query.message.reply_text(
+            f"✍️ <b>So'rov #{req_id}</b> uchun rad etish sababini yozib yuboring:",
+            parse_mode="HTML",
+        )
+        return
 
-    admin_name = admin_user.full_name
+    reason_text = REJECT_REASON_PRESETS.get(reason_key, "To'lov cheki tasdiqlanmadi.")
+
+    async with AsyncSessionLocal() as session:
+        ok, msg, req = await reject_donation_request_service(
+            session=session,
+            request_id=req_id,
+            admin_telegram_id=admin_user.id,
+            reason=reason_text,
+            bot=context.bot,
+        )
+
+    if not ok:
+        await query.answer(f"⚠️ {msg}", show_alert=True)
+        return
+
+    await query.answer("❌ So'rov rad etildi va foydalanuvchiga xabar yuborildi.", show_alert=True)
+
     new_caption = (
-        f"❌ **TO'LOV SO'ROVI RAD ETILDI**\n\n"
-        f"👑 Rad etgan admin: *{escape_md(admin_name)}*\n"
-        f"👤 Foydalanuvchi: `{target_user_id}`\n"
-        f"📦 So'rov: *{tier_name}*\n"
-        f"📌 Holati: Rad etilgan"
+        f"❌ <b>TO'LOV SO'ROVI RAD ETILDI (#{req_id})</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"👑 <b>Rad etgan admin:</b> {admin_user.full_name} (<code>{admin_user.id}</code>)\n"
+        f"👤 <b>Foydalanuvchi:</b> <code>{req.telegram_id if req else 0}</code>\n"
+        f"📦 <b>Paket:</b> {req.tier_name if req else '-'}\n"
+        f"📝 <b>Sabab:</b> {reason_text}\n"
+        f"📌 <b>Holati:</b> Rejected"
     )
-
     back_kb = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("🔙 Donatlar Ro'yxatiga Qaytish", callback_data="admin_donations_list:0:pending"),
+            InlineKeyboardButton("🔙 Donatlar Ro'yxati", callback_data="admin_donations_list:0:pending"),
             InlineKeyboardButton("⚙️ Admin Panel", callback_data="admin_panel"),
         ]
     ])
-
     try:
         if query.message.caption is not None:
-            await query.edit_message_caption(caption=new_caption, parse_mode="Markdown", reply_markup=back_kb)
+            await query.edit_message_caption(caption=new_caption, parse_mode="HTML", reply_markup=back_kb)
         else:
-            await query.edit_message_text(text=new_caption, parse_mode="Markdown", reply_markup=back_kb)
+            await query.edit_message_text(text=new_caption, parse_mode="HTML", reply_markup=back_kb)
     except Exception:
         try:
-            await query.message.reply_text(text=new_caption, parse_mode="Markdown", reply_markup=back_kb)
+            await query.message.reply_text(text=new_caption, parse_mode="HTML", reply_markup=back_kb)
         except Exception:
             pass
 
-    # Foydalanuvchiga xabar berish
-    reject_text = (
-        f"❌ **TO'LOV TASDIQLANMADI**\n\n"
-        f"Hurmatli Lord, siz yuborgan «**{tier_name}**» bo'yicha to'lov cheki ma'muriyat tomonidan tasdiqlanmadi.\n\n"
-        f"Sababi: Hisobga to'lov kelib tushmagan yoki chek noto'g'ri bo'lishi mumkin.\n"
-        f"Agar buni xatolik deb hisoblasangiz, iltimos ma'muriyat bilan bog'laning."
+
+async def handle_admin_reject_reason_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin qo'lda yozgan rad etish sababini qabul qilish"""
+    req_id = context.user_data.pop("awaiting_admin_reject_reason", None)
+    if not req_id or not update.message or not update.message.text:
+        return
+
+    admin_user = update.effective_user
+    if not admin_user or not is_admin(admin_user.id):
+        return
+
+    reason_text = update.message.text.strip()
+    async with AsyncSessionLocal() as session:
+        ok, msg, req = await reject_donation_request_service(
+            session=session,
+            request_id=int(req_id),
+            admin_telegram_id=admin_user.id,
+            reason=reason_text,
+            bot=context.bot,
+        )
+
+    back_kb = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🔙 Donatlar Ro'yxati", callback_data="admin_donations_list:0:pending"),
+            InlineKeyboardButton("⚙️ Admin Panel", callback_data="admin_panel"),
+        ]
+    ])
+    if ok:
+        await update.message.reply_text(
+            f"❌ <b>So'rov #{req_id} rad etildi!</b>\n📝 Sabab: {reason_text}",
+            parse_mode="HTML",
+            reply_markup=back_kb,
+        )
+    else:
+        await update.message.reply_text(f"⚠️ {msg}", reply_markup=back_kb)
+
+
+async def admin_card_settings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin Panelda karta raqami va karta egasini ko'rish / o'zgartirish menyusi"""
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        await query.answer("❌ Ruxsat yo'q!", show_alert=True)
+        return
+
+    context.user_data.pop("awaiting_admin_card_input", None)
+    async with AsyncSessionLocal() as session:
+        reqs = await crud.get_payment_settings(session)
+
+    text = (
+        f"💳 <b>DONAT KARTA REKVIZITLARI SOZLAMALARI</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"🔢 <b>Karta raqami:</b> <code>{reqs['card_number']}</code>\n"
+        f"👤 <b>Karta egasi:</b> <b>{reqs['card_holder']}</b>\n"
+        f"🕒 <b>Yangilangan:</b> {reqs.get('updated_at') or 'Standart'}\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"Ushbu ma'lumotlar ham Botda, ham Mini Appda barcha o'yinchilarga ko'rinadi."
+    )
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("✏️ Karta va Egasini O'zgartirish", callback_data="admin_card_edit_start")],
+        [InlineKeyboardButton("🔙 Donat So'rovlariga Qaytish", callback_data="admin_donations_list:0:pending")],
+        [InlineKeyboardButton("⚙️ Admin Panel", callback_data="admin_panel")],
+    ])
+    try:
+        await query.edit_message_text(text=text, parse_mode="HTML", reply_markup=kb)
+    except Exception:
+        await query.message.reply_text(text=text, parse_mode="HTML", reply_markup=kb)
+
+
+async def admin_card_edit_start_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Karta raqami va egasini kiritishni boshlash"""
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        await query.answer("❌ Ruxsat yo'q!", show_alert=True)
+        return
+
+    context.user_data["awaiting_admin_card_input"] = True
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("❌ Bekor qilish", callback_data="admin_card_settings")]
+    ])
+    prompt = (
+        "✏️ <b>YANGI KARTA REKVIZITLARINI KIRITING</b>\n\n"
+        "Iltimos, yangi karta raqami va karta egasi ismini <code>|</code> belgisi bilan ajratib yuboring.\n\n"
+        "📌 <b>Namuna:</b>\n"
+        "<code>9860 1201 3456 7890 | ALISHER NAVOIY</code>"
     )
     try:
-        await context.bot.send_message(
-            chat_id=target_user_id,
-            text=reject_text,
-            parse_mode="Markdown"
-        )
+        await query.edit_message_text(text=prompt, parse_mode="HTML", reply_markup=kb)
     except Exception:
-        pass
+        await query.message.reply_text(text=prompt, parse_mode="HTML", reply_markup=kb)
 
 
-
-async def precheckout_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Telegram Stars precheckout tekshiruvi"""
-    query = update.pre_checkout_query
-    if not query:
+async def handle_admin_card_settings_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin yuborgan yangi karta raqami va karta egasini saqlash"""
+    if not context.user_data.get("awaiting_admin_card_input"):
         return
-    await query.answer(ok=True)
-
-
-async def successful_payment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Telegram Stars to'lovi muvaffaqiyatli qabul qilinganda"""
-    msg = update.effective_message
-    if not msg or not msg.successful_payment:
+    if not update.message or not update.message.text:
         return
 
-    payment = msg.successful_payment
-    tg_user = update.effective_user
-    payload = payment.invoice_payload or ""  # e.g. "cosmetic:castle_valyrian" or "vip_noble"
+    admin_user = update.effective_user
+    if not admin_user or not is_admin(admin_user.id):
+        context.user_data.pop("awaiting_admin_card_input", None)
+        return
 
-    item_id = payload.split(":")[-1] if ":" in payload else payload
-    amount_stars = payment.total_amount
+    raw = update.message.text.strip()
+    if "|" in raw:
+        parts = raw.split("|", 1)
+        card_number = parts[0].strip()
+        card_holder = parts[1].strip()
+    elif "\n" in raw:
+        parts = [p.strip() for p in raw.splitlines() if p.strip()]
+        if len(parts) < 2:
+            await update.message.reply_text("⚠️ Karta raqami va egasini `KARTA_RAQAMI | ISM FAMILIYA` formatida yuboring.")
+            return
+        card_number, card_holder = parts[0], parts[1]
+    else:
+        await update.message.reply_text(
+            "⚠️ Format noto'g'ri! Karta raqami va karta egasini `|` belgisi bilan ajratib yozing.\n"
+            "Masalan: `9860 1201 3456 7890 | SARDOR KARIMOV`",
+            parse_mode="Markdown",
+        )
+        return
 
+    context.user_data.pop("awaiting_admin_card_input", None)
     async with AsyncSessionLocal() as session:
-        user = await crud.get_user_by_telegram_id(session, tg_user.id)
-        if user:
-            idempotency_key = f"stars_{payment.telegram_payment_charge_id}"
-            await record_payment_transaction(
-                session=session,
-                telegram_id=tg_user.id,
-                item_id=item_id,
-                provider="telegram_stars",
-                idempotency_key=idempotency_key,
-                amount_stars=amount_stars,
-                user_id=user.id,
-            )
-            await grant_cosmetic_item(session, user, item_id)
+        ok, msg, data = await update_payment_requisites_service(
+            session=session,
+            admin_telegram_id=admin_user.id,
+            card_number=card_number,
+            card_holder=card_holder,
+        )
 
-    item = get_cosmetic_item(item_id)
-    item_name = item["name"] if item else item_id
-    congrats = (
-        f"🎉 **TO'LOV MUVAFFAQIYATLI AMALGA OSHIRILDI!**\n\n"
-        f"⭐ **{amount_stars} Stars** qabul qilindi.\n"
-        f"🎁 Sizga **«{item_name}»** muvaffaqiyatli taqdim etildi!\n\n"
-        f"Uni Telegram Mini Appda yoki /profile menyusida faollashtirishingiz mumkin."
-    )
-    await msg.reply_text(congrats, parse_mode="Markdown")
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("💳 Karta Sozlamalari", callback_data="admin_card_settings")],
+        [InlineKeyboardButton("🔙 Donat So'rovlari", callback_data="admin_donations_list:0:pending")],
+    ])
+    if ok:
+        await update.message.reply_text(
+            f"{msg}\n\n"
+            f"🔢 Karta: <code>{data['card_number']}</code>\n"
+            f"👤 Karta egasi: <b>{data['card_holder']}</b>",
+            parse_mode="HTML",
+            reply_markup=kb,
+        )
+    else:
+        await update.message.reply_text(f"❌ {msg}", reply_markup=kb)
 
 
 def register_donate_handlers(app):
     """Donate handlerlarini ro'yxatdan o'tkazish"""
     app.add_handler(CommandHandler(["donate", "vip", "donat", "homiylik", "stars", "shop"], donate_command))
-    app.add_handler(PreCheckoutQueryHandler(precheckout_callback))
-    app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_callback))
     app.add_handler(CallbackQueryHandler(donate_menu_callback, pattern="^menu_donate$"))
     app.add_handler(CallbackQueryHandler(donate_troops_menu_callback, pattern="^donate_troops_menu$"))
-    app.add_handler(CallbackQueryHandler(donate_troop_type_callback, pattern="^donate_troop_type:"))
-    app.add_handler(CallbackQueryHandler(donate_troop_amt_callback, pattern="^donate_troop_amt:"))
-    app.add_handler(CallbackQueryHandler(donate_troop_custom_callback, pattern="^donate_troop_custom:"))
-    app.add_handler(CallbackQueryHandler(donate_troop_submit_callback, pattern="^donate_troop_submit:"))
     app.add_handler(CallbackQueryHandler(donate_pick_callback, pattern="^donate_pick:"))
     app.add_handler(CallbackQueryHandler(donate_submit_callback, pattern="^donate_submit:"))
     app.add_handler(CallbackQueryHandler(donate_cancel_callback, pattern="^donate_cancel_receipt$"))
-    app.add_handler(CallbackQueryHandler(admin_donate_approve_callback, pattern="^admin_donate_approve:"))
-    app.add_handler(CallbackQueryHandler(admin_donate_reject_callback, pattern="^admin_donate_reject:"))
+    app.add_handler(CallbackQueryHandler(admin_donate_approve_callback, pattern="^(admin_donate_approve:|adm_don_ok_)"))
+    app.add_handler(CallbackQueryHandler(admin_donate_reject_callback, pattern="^(admin_donate_reject:|adm_don_no_)"))
+    app.add_handler(CallbackQueryHandler(admin_card_settings_callback, pattern="^admin_card_settings$"))
+    app.add_handler(CallbackQueryHandler(admin_card_edit_start_callback, pattern="^admin_card_edit_start$"))
     app.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL, donate_receipt_receiver), group=1)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_donate_text_WhenAwaitingReceipt), group=2)

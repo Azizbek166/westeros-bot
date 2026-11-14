@@ -170,7 +170,8 @@ class TestCosmeticsAndMonetization(unittest.IsolatedAsyncioTestCase):
             self.assertIn("castle_valyrian", item_ids)
 
     async def test_gifting_cosmetics(self):
-        """Test sending a cosmetic gift from User A to User B."""
+        """Test that unpaid instant cosmetic buy/gift is blocked and requires manual receipt approval."""
+        from config import OWNER_ID
         async with AsyncSessionLocal() as session:
             sender_tg = 9990005
             recipient_tg = 9990006
@@ -191,17 +192,209 @@ class TestCosmeticsAndMonetization(unittest.IsolatedAsyncioTestCase):
             await session.refresh(sender)
             await session.refresh(recipient)
 
-            ok, msg = await services.gift_cosmetic_service(
+            # 1) Direct unpaid buy & gift must be blocked
+            ok_buy, msg_buy, _ = await services.buy_cosmetic_service(
+                session=session,
+                user=sender,
+                item_id="dragon_golden",
+            )
+            self.assertFalse(ok_buy)
+
+            ok_gift, msg_gift = await services.gift_cosmetic_service(
                 session=session,
                 sender=sender,
                 recipient_telegram_id=recipient_tg,
                 item_id="dragon_golden",
             )
-            self.assertTrue(ok)
-            self.assertIn("muvaffaqiyatli yetkazildi", msg)
+            self.assertFalse(ok_gift)
+
+            # 2) Submit receipt and approve via admin
+            ok_sub, msg_sub, req = await services.submit_donation_request_service(
+                session=session,
+                user=recipient,
+                package_id="dragon_golden",
+                receipt_file_id="receipt_dragon_golden_test",
+            )
+            self.assertTrue(ok_sub, msg_sub)
+            ok_app, msg_app, _ = await services.approve_donation_request_service(
+                session=session,
+                request_id=req.id,
+                admin_telegram_id=OWNER_ID,
+            )
+            self.assertTrue(ok_app, msg_app)
 
             recipient_cosms = await get_user_cosmetics(session, recipient.id)
-            self.assertTrue(any(c.item_id == "dragon_golden" and c.is_gift for c in recipient_cosms))
+            self.assertTrue(any(c.item_id == "dragon_golden" for c in recipient_cosms))
+
+    async def test_manual_donation_workflow_security_and_pass_lifecycle(self):
+        """
+        To'liq qo'lda tasdiqlash oqimi tekshiruvi:
+        1. Majburiy chek skrinshoti
+        2. Pending so'rov spam oldini olish
+        3. Server-side admin huquqi tekshiruvi
+        4. Bitta so'rov faqat bir marta tasdiqlanishi (idempotency)
+        5. Dinamik karta raqami va karta egasi sozlamasi
+        6. Rad etish (sababi bilan)
+        7. Premium Pass kunlik bonusi va muddat tugaganda resurslar qolishi
+        """
+        from datetime import datetime, timedelta
+        from config import OWNER_ID
+
+        async with AsyncSessionLocal() as session:
+            tg_id = 9990077
+            res = await session.execute(select(models.User).where(models.User.telegram_id == tg_id))
+            user = res.scalar_one_or_none()
+            if not user:
+                user = models.User(
+                    telegram_id=tg_id,
+                    username="manual_don_tester",
+                    full_name="Lord Manual Tester",
+                    house_id=1,
+                    gold=1000,
+                    food=1000,
+                    iron=500,
+                    prestige=10,
+                )
+                session.add(user)
+                await session.commit()
+                await session.refresh(user)
+
+            # Clear any leftover pending requests for this test user
+            old_reqs = await session.execute(
+                select(models.DonationRequest).where(models.DonationRequest.telegram_id == tg_id)
+            )
+            for orq in old_reqs.scalars().all():
+                await session.delete(orq)
+            await session.commit()
+
+            # 1) Karta rekvizitlarini faqat admin o'zgartira oladi
+            ok_non_adm, _, _ = await services.update_payment_requisites_service(
+                session, admin_telegram_id=123456, card_number="8600 0000 0000 0000", card_holder="HACKER"
+            )
+            self.assertFalse(ok_non_adm)
+
+            ok_adm_card, _, card_data = await services.update_payment_requisites_service(
+                session, admin_telegram_id=OWNER_ID, card_number="9860 5555 4444 3333", card_holder="VALYRIYA XAZINASI"
+            )
+            self.assertTrue(ok_adm_card)
+            self.assertEqual(card_data["card_number"], "9860 5555 4444 3333")
+            self.assertEqual(card_data["card_holder"], "VALYRIYA XAZINASI")
+
+            reqs_fetched = await services.get_payment_requisites_service(session)
+            self.assertEqual(reqs_fetched["card_number"], "9860 5555 4444 3333")
+            self.assertEqual(reqs_fetched["card_holder"], "VALYRIYA XAZINASI")
+
+            # 2) Chek rasmi bo'lmasa so'rov yaratilmaydi
+            ok_no_img, _, _ = await services.submit_donation_request_service(
+                session=session,
+                user=user,
+                package_id="premium_pass",
+                receipt_file_id="   ",
+            )
+            self.assertFalse(ok_no_img)
+
+            # 3) To'g'ri chek bilan so'rov yaratish
+            ok_req1, _, req1 = await services.submit_donation_request_service(
+                session=session,
+                user=user,
+                package_id="premium_pass",
+                receipt_file_id="/static/uploads/receipts/test_check_1.jpg",
+            )
+            self.assertTrue(ok_req1)
+            self.assertEqual(req1.package, "premium_pass")
+            self.assertEqual(req1.amount, 25000)
+            self.assertEqual(req1.status, "pending")
+
+            # 4) Pending so'rov bor paytda ikkinchi so'rov yuborish (spam) bloklanadi
+            ok_spam, msg_spam, _ = await services.submit_donation_request_service(
+                session=session,
+                user=user,
+                package_id="vip_noble",
+                receipt_file_id="/static/uploads/receipts/test_check_2.jpg",
+            )
+            self.assertFalse(ok_spam)
+            self.assertIn("ko'rib chiqilayotgan so'rov mavjud", msg_spam)
+
+            # 5) Admin bo'lmagan odam tasdiqlay yoki rad eta olmaydi
+            ok_fake_app, _, _ = await services.approve_donation_request_service(
+                session=session,
+                request_id=req1.id,
+                admin_telegram_id=7777777,
+            )
+            self.assertFalse(ok_fake_app)
+
+            # 6) Admin rad etsa, status rejected bo'ladi va sabab yoziladi
+            ok_rej, _, rej_req = await services.reject_donation_request_service(
+                session=session,
+                request_id=req1.id,
+                admin_telegram_id=OWNER_ID,
+                reason="Skrinshot xira",
+            )
+            self.assertTrue(ok_rej)
+            self.assertEqual(rej_req.status, "rejected")
+            self.assertEqual(rej_req.admin_notes, "Skrinshot xira")
+            self.assertEqual(rej_req.reviewed_by, OWNER_ID)
+
+            # 7) Rad etilgach foydalanuvchi yangi so'rov yubora oladi va Admin tasdiqlaydi
+            ok_req2, _, req2 = await services.submit_donation_request_service(
+                session=session,
+                user=user,
+                package_id="premium_pass",
+                receipt_file_id="/static/uploads/receipts/test_check_valid.jpg",
+            )
+            self.assertTrue(ok_req2)
+
+            gold_before = user.gold
+            food_before = user.food
+            iron_before = user.iron
+
+            ok_app1, _, details1 = await services.approve_donation_request_service(
+                session=session,
+                request_id=req2.id,
+                admin_telegram_id=OWNER_ID,
+            )
+            self.assertTrue(ok_app1)
+            await session.refresh(user)
+            self.assertEqual(user.gold, gold_before + 2500)
+            self.assertEqual(user.food, food_before + 5000)
+            self.assertEqual(user.iron, iron_before + 1500)
+            self.assertIn(user.vip_tier, ("noble", "premium_pass"))
+            self.assertIsNotNone(user.vip_until)
+
+            # 8) Ikki marta tasdiqlash (idempotency): ikkinchi marta bosilganda rad etiladi va resurs ikki marta berilmaydi
+            gold_after_first = user.gold
+            ok_app2, msg_app2, _ = await services.approve_donation_request_service(
+                session=session,
+                request_id=req2.id,
+                admin_telegram_id=OWNER_ID,
+            )
+            self.assertFalse(ok_app2)
+            await session.refresh(user)
+            self.assertEqual(user.gold, gold_after_first)
+
+            # 9) Kunlik bonusda Premium Pass qo'shimcha mukofoti (+300 oltin, +600 bug'doy, +200 temir)
+            from database import crud
+            user.last_streak_date = "2020-01-01"
+            await session.commit()
+            ok_claim, claim_msg = await crud.claim_daily_bonus(session, user.id)
+            self.assertTrue(ok_claim)
+            self.assertIn("Premium Qo'shimcha Kunlik Bonus", claim_msg)
+            self.assertIn("+300", claim_msg)
+
+            # 10) Muddat (30 kun) tugagach status o'chadi, lekin yig'ilgan resurslar saqlanib qoladi
+            await session.refresh(user)
+            saved_gold = user.gold
+            user.vip_until = datetime.utcnow() - timedelta(seconds=10)
+            user.last_streak_date = "2020-01-01"
+            await session.commit()
+
+            ok_claim_exp, claim_msg_exp = await crud.claim_daily_bonus(session, user.id)
+            self.assertTrue(ok_claim_exp)
+            self.assertNotIn("Premium Qo'shimcha Kunlik Bonus", claim_msg_exp)
+            await session.refresh(user)
+            self.assertIsNone(user.vip_until)
+            self.assertIn(user.vip_tier, (None, "free"))
+            self.assertGreater(user.gold, saved_gold)
 
 
 if __name__ == "__main__":

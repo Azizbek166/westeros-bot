@@ -307,26 +307,23 @@ async def claim_all_available_pass_tiers(
 
 
 # ============================================================
-# 4. PREMIUM SEASON PASS SOTIB OLISH (RETROAKTIV OCHILISH)
+# 4. PREMIUM SEASON PASS FAOLLASHTIRISH (FAQAT ADMIN TASDIQLAGACH)
 # ============================================================
 
-async def buy_premium_season_pass(
+async def activate_premium_season_pass_after_approval(
     session: AsyncSession,
     user: models.User,
-    payment_method: str = "stars",
-    telegram_charge_id: Optional[str] = None
-) -> Tuple[bool, str]:
+    telegram_charge_id: Optional[str] = None,
+) -> Tuple[bool, str, int]:
     """
-    O'yinchiga Premium Season Pass berish.
+    Admin to'lov chekini tasdiqlagandan so'ng o'yinchiga Premium Season Pass berish.
     O'yinchining hozirgi tier'igacha bo'lgan barcha oldingi pullik mukofotlar darhol ochiladi (Retroaktiv).
     """
     season = await get_or_create_active_season(session)
     state = await get_or_create_player_season_state(session, user.id, season.season_number)
 
-    if state.has_premium_pass:
-        return False, "Sizda ushbu mavsum uchun Premium Pass allaqachon faollashtirilgan!"
+    already_active = bool(state.has_premium_pass)
 
-    # To'lov jurnaliga yozish
     tx_hash = telegram_charge_id or f"pass_s{season.season_number}_{user.id}_{int(datetime.utcnow().timestamp())}"
     tx = models.PaymentTransaction(
         telegram_id=user.telegram_id,
@@ -335,28 +332,43 @@ async def buy_premium_season_pass(
         item_name=f"Premium Season Pass ({season.season_number}-Mavsum)",
         amount_stars=PREMIUM_PASS_PRICE_STARS,
         amount_uzs=PREMIUM_PASS_PRICE_UZS,
-        provider="telegram_stars" if payment_method == "stars" else "manual_uzs",
+        provider="manual_uzs_approved",
         idempotency_key=tx_hash,
         status="completed",
         created_at=datetime.utcnow(),
     )
     session.add(tx)
 
-    # Passni yoqish
     state.has_premium_pass = True
-    await session.commit()
+    await session.flush()
 
-    # O'yinchining yetib kelgan barcha o'tgan tier'larini avtomatik claim qilish (retroaktiv)
-    auto_claimed_count, auto_items = await claim_all_available_pass_tiers(session, user)
-
+    auto_claimed_count, _ = await claim_all_available_pass_tiers(session, user)
     bonus_msg = ""
     if auto_claimed_count > 0:
-        bonus_msg = f"\n\n🎁 Siz avval bosib o'tgan {auto_claimed_count} ta tier mukofotlari hisobingizga avtomatik qo'shildi!"
+        bonus_msg = f"\n🎁 Bosib o'tilgan {auto_claimed_count} ta tier mukofotlari hisobingizga avtomatik qo'shildi!"
+    elif already_active:
+        bonus_msg = "\n✨ Premium Season Pass muddati uzaytirildi!"
 
     return True, (
-        f"👑 **PREMIUM SEASON PASS FAQLLASHTIRILDI!**\n\n"
-        f"Hurmatli {user.full_name}, {season.season_number}-Mavsum Premium Chiptasi muvaffaqiyatli rasmiylashtirildi.{bonus_msg}\n"
-        f"Barcha eksklyuziv ajdaho terilari, saroylar va unvonlar maydoni siz uchun ochiq!"
+        f"👑 **PREMIUM SEASON PASS FAOLLASHTIRILDI!**\n\n"
+        f"Hurmatli {user.full_name}, {season.season_number}-Mavsum Premium Chiptasi admin tomonidan tasdiqlandi.{bonus_msg}"
+    ), auto_claimed_count
+
+
+async def buy_premium_season_pass(
+    session: AsyncSession,
+    user: models.User,
+    payment_method: str = "manual_uzs",
+    telegram_charge_id: Optional[str] = None
+) -> Tuple[bool, str]:
+    """
+    XAVFSIZLIK QOIDASI: Premium Season Pass to'lovsiz yoki cheksiz darhol berilmaydi!
+    Faqat to'lov cheki (skrinshot) yuborilib, admin tasdiqlagandan keyin faollashadi.
+    """
+    return False, (
+        "🔒 Premium Season Pass to'lovsiz darhol berilmaydi!\n"
+        "Iltimos, ko'rsatilgan karta raqamiga to'lov qilib, to'lov cheki (skrinshot) rasmini yuboring. "
+        "Admin tasdiqlagach, Premium Pass va barcha bonus resurslar avtomatik beriladi."
     )
 
 
@@ -469,6 +481,11 @@ async def get_season_hub_data(session: AsyncSession, user_id: int) -> Dict[str, 
             "concluded_at": h.concluded_at.strftime("%Y-%m-%d") if h.concluded_at else "",
         })
 
+    from config import PREMIUM_PASS_CONFIG
+    from database import crud
+    payment_requisites = await crud.get_payment_settings(session)
+    pending_req = await crud.get_user_pending_donation_request(session, user_id=user_id)
+
     return {
         "season": {
             "season_number": season.season_number,
@@ -500,7 +517,18 @@ async def get_season_hub_data(session: AsyncSession, user_id: int) -> Dict[str, 
         "pricing": {
             "stars": PREMIUM_PASS_PRICE_STARS,
             "uzs": PREMIUM_PASS_PRICE_UZS,
-        }
+            "price_label": PREMIUM_PASS_CONFIG.get("price_label", "25,000 so'm"),
+        },
+        "premium_pass_config": PREMIUM_PASS_CONFIG,
+        "payment_requisites": payment_requisites,
+        "pending_request": {
+            "id": pending_req.id,
+            "package": pending_req.tier_id,
+            "tier_name": pending_req.tier_name,
+            "amount": pending_req.price_uzs,
+            "status": pending_req.status,
+            "created_at": pending_req.created_at.isoformat() if pending_req.created_at else None,
+        } if pending_req else None,
     }
 
 

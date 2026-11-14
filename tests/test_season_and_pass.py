@@ -174,13 +174,38 @@ class TestSeasonAndPassSystem(unittest.IsolatedAsyncioTestCase):
             state.claimed_premium_tiers_json = "[]"
             await session.commit()
 
-            # Premium Pass sotib olish
-            ok, msg = await services.buy_premium_season_pass(session, user, payment_method="stars")
-            self.assertTrue(ok)
-            self.assertIn("PREMIUM SEASON PASS", msg)
+            # 1) To'lovsiz to'g'ridan-to'g'ri xarid bloklanishi shart
+            ok_unpaid, msg_unpaid = await services.buy_premium_season_pass(session, user, payment_method="stars")
+            self.assertFalse(ok_unpaid)
+            await session.refresh(state)
+            self.assertFalse(state.has_premium_pass)
+
+            # 2) To'lov cheki (skrinshot) yuborish va admin tasdiqlashi orqali Premium Pass olish
+            from config import OWNER_ID
+            gold_before = user.gold or 0
+            ok_sub, msg_sub, req = await services.submit_donation_request_service(
+                session=session,
+                user=user,
+                package_id="premium_pass",
+                receipt_file_id="receipt_photo_test_s_pass",
+            )
+            self.assertTrue(ok_sub, msg_sub)
+            self.assertIsNotNone(req)
+            self.assertEqual(req.status, "pending")
+
+            ok_app, msg_app, details = await services.approve_donation_request_service(
+                session=session,
+                request_id=req.id,
+                admin_telegram_id=OWNER_ID,
+            )
+            self.assertTrue(ok_app, msg_app)
+            self.assertTrue(details.get("premium_pass_activated"))
 
             await session.refresh(state)
+            await session.refresh(user)
             self.assertTrue(state.has_premium_pass)
+            self.assertGreaterEqual(user.gold, gold_before + 2500)
+            self.assertIsNotNone(user.vip_until)
 
             # O'tgan 1..4 tierlarning premium mukofotlari retroaktiv olinganini tekshirish
             claimed_prem = json.loads(state.claimed_premium_tiers_json or "[]")

@@ -4364,6 +4364,13 @@ async def claim_daily_bonus(session: AsyncSession, user_id: int) -> Tuple[bool, 
     user.last_streak_date = today_str
     user.last_daily_bonus = datetime.utcnow()
 
+    # Muddatli Premium / VIP status muddatini tekshirish
+    now_utc = datetime.utcnow()
+    if user.vip_until and user.vip_until <= now_utc:
+        if user.vip_tier in ("noble", "starter", "premium_pass"):
+            user.vip_tier = None
+        user.vip_until = None
+
     user.gold = (user.gold or 0) + reward["gold"]
     user.food = (user.food or 0) + reward["food"]
     user.iron = (user.iron or 0) + reward["iron"]
@@ -4371,6 +4378,26 @@ async def claim_daily_bonus(session: AsyncSession, user_id: int) -> Tuple[bool, 
     user.xp = (user.xp or 0) + reward["xp"]
     track_user_gold_gain(user, reward["gold"])
     track_user_prestige_gain(user, reward["prestige"])
+
+    # Premium Pass / VIP faol muddat davomida qo'shimcha kunlik bonus
+    premium_bonus_msg = ""
+    has_active_premium = bool(
+        (user.vip_until and user.vip_until > now_utc)
+        or user.vip_tier in ("noble", "knight", "lord", "dragonlord", "sovereign")
+    )
+    if has_active_premium:
+        from config import PREMIUM_PASS_CONFIG
+        p_gold = PREMIUM_PASS_CONFIG.get("daily_bonus_gold", 300)
+        p_food = PREMIUM_PASS_CONFIG.get("daily_bonus_food", 600)
+        p_iron = PREMIUM_PASS_CONFIG.get("daily_bonus_iron", 200)
+        user.gold = (user.gold or 0) + p_gold
+        user.food = (user.food or 0) + p_food
+        user.iron = (user.iron or 0) + p_iron
+        track_user_gold_gain(user, p_gold)
+        premium_bonus_msg = (
+            f"\n👑 **Premium Qo'shimcha Kunlik Bonus:** "
+            f"+{p_gold:,} 🪙 Oltin, +{p_food:,} 🌾 Bug'doy, +{p_iron:,} ⛓️ Temir"
+        )
 
     # Askarlarni qo'shish
     troops_msg = ""
@@ -4413,6 +4440,7 @@ async def claim_daily_bonus(session: AsyncSession, user_id: int) -> Tuple[bool, 
         f"• ⛓️ Temir: **+{reward['iron']:,}**\n"
         f"• 🏆 Nufuz: **+{reward['prestige']:,}**\n"
         f"• ⭐ Tajriba: **+{reward['xp']:,} XP**"
+        f"{premium_bonus_msg}"
         f"{troops_msg}"
         f"{dragon_msg}"
         f"{extra_lvl}\n\n"
@@ -8256,44 +8284,74 @@ async def check_and_rotate_weather(session: AsyncSession, bot_app=None) -> None:
 
 async def apply_donate_rewards(session: AsyncSession, telegram_id: int, tier_id: str) -> Tuple[bool, str, dict]:
     """
-    VIP / Donate to'plami bo'yicha mukofotlarni taqdim etish:
+    VIP / Donate / Premium Pass / Kosmetika to'plami bo'yicha mukofotlarni taqdim etish:
     - Oltin, oziq-ovqat, temir, nufuz (prestige)
-    - Armiya askarlari (piyoda, kamonchi, otliq, nayzachi, maxsus)
-    - Tinchlik qalqoni (peace shield)
-    - Wildfire (agar xonadon qal'asi mavjud bo'lsa)
-    - Faxriy unvon (title)
-    - Afsonaviy ajdaho (agar to'plamda ko'rsatilgan bo'lsa)
+    - Muddatli Premium / VIP status (vip_until, masalan 30 kun)
+    - Season Pass faollashtirish (retroaktiv mukofotlar bilan)
+    - Kosmetika, ramka va faxriy unvon
     """
     from config import DONATE_TIERS
-    tier = DONATE_TIERS.get(tier_id)
-    if not tier:
-        return False, f"Bunday to'plam topilmadi: {tier_id}", {}
+    from core.cosmetics import get_cosmetic_item, grant_cosmetic_item
 
     user = await get_user_with_relations(session, telegram_id)
     if not user:
+        user = await get_user_any(session, telegram_id)
+    if not user:
         return False, "Foydalanuvchi ma'lumotlar bazasidan topilmadi.", {}
 
+    tier = DONATE_TIERS.get(tier_id)
+    cosmetic = get_cosmetic_item(tier_id)
+
+    # Agar faqat kosmetika katalogidagi buyum bo'lsa (va DONATE_TIERS da bo'lmasa)
+    if not tier and cosmetic:
+        ok_c, msg_c = await grant_cosmetic_item(session, user, tier_id)
+        if not ok_c:
+            return False, msg_c, {}
+        return True, msg_c, {
+            "tier_name": cosmetic["name"],
+            "price_label": f"{cosmetic.get('price_uzs', 0):,} so'm",
+            "gold": 0,
+            "food": 0,
+            "iron": 0,
+            "prestige": 0,
+            "troops": {},
+            "dragon": None,
+            "title": cosmetic["name"] if cosmetic.get("category") == "title" else None,
+            "shield_hours": 0,
+            "vip_tier": user.vip_tier,
+        }
+
+    if not tier:
+        return False, f"Bunday to'plam topilmadi: {tier_id}", {}
+
     applied_details = {
+        "tier_id": tier_id,
         "tier_name": tier["name"],
         "price_label": tier["price_label"],
-        "gold": tier["gold"],
-        "food": tier["food"],
-        "iron": tier["iron"],
-        "prestige": tier["prestige"],
+        "gold": tier.get("gold", 0),
+        "food": tier.get("food", 0),
+        "iron": tier.get("iron", 0),
+        "prestige": tier.get("prestige", 0),
         "troops": {},
         "dragon": None,
         "title": tier.get("title"),
-        "shield_hours": tier["shield_hours"],
+        "shield_hours": tier.get("shield_hours", 0),
+        "duration_days": tier.get("duration_days", 0),
+        "daily_bonus_gold": tier.get("daily_bonus_gold", 0),
+        "daily_bonus_food": tier.get("daily_bonus_food", 0),
+        "daily_bonus_iron": tier.get("daily_bonus_iron", 0),
     }
 
     # 1. Resurslar va nufuz
-    user.gold = (user.gold or 0) + tier["gold"]
-    user.food = (user.food or 0) + tier["food"]
-    user.iron = (user.iron or 0) + tier["iron"]
-    user.prestige = (user.prestige or 0) + tier["prestige"]
+    user.gold = (user.gold or 0) + tier.get("gold", 0)
+    user.food = (user.food or 0) + tier.get("food", 0)
+    user.iron = (user.iron or 0) + tier.get("iron", 0)
+    user.prestige = (user.prestige or 0) + tier.get("prestige", 0)
 
     # 2. Armiya
-    army = user.army
+    army = getattr(user, "army", None)
+    if not army:
+        army = await get_user_army(session, user.id)
     if not army:
         army = models.Army(user_id=user.id)
         session.add(army)
@@ -8331,10 +8389,20 @@ async def apply_donate_rewards(session: AsyncSession, telegram_id: int, tier_id:
     else:
         applied_details["shield_hours"] = 0
 
-
-    # 4. Faxriy Unvon
+    # 4. Faxriy Unvon va Ramka
     if tier.get("title"):
         user.title = tier["title"]
+    if tier.get("avatar_frame"):
+        user.avatar_frame = tier["avatar_frame"]
+    if tier.get("is_starter_pack"):
+        user.has_starter_pack = True
+
+    # Kosmetika jadvaliga ham yozib qo'yish (agar mos kelsa)
+    if cosmetic:
+        try:
+            await grant_cosmetic_item(session, user, tier_id)
+        except Exception:
+            pass
 
     # 5. Wildfire
     wf_amount = tier.get("wildfire", 0)
@@ -8372,17 +8440,36 @@ async def apply_donate_rewards(session: AsyncSession, telegram_id: int, tier_id:
             top_dragon.hunger = 100
             applied_details["dragon_boost"] = f"{top_dragon.name} quvvati +{dragon_data['power']:,} ga oshirildi!"
 
-    # 7. VIP Darajasini biriktirish
-    vip_ranks = {"knight": 1, "lord": 2, "dragonlord": 3, "sovereign": 4}
+    # 7. VIP Darajasini va Muddatini (masalan 30 kun) biriktirish
+    duration_days = tier.get("duration_days", 0)
+    if duration_days > 0:
+        now = datetime.utcnow()
+        base_vip_time = user.vip_until if (user.vip_until and user.vip_until > now) else now
+        user.vip_until = base_vip_time + timedelta(days=duration_days)
+        applied_details["vip_until"] = user.vip_until.strftime("%Y-%m-%d %H:%M UTC")
+
+    vip_ranks = {"noble": 1, "knight": 2, "lord": 3, "dragonlord": 4, "sovereign": 5}
+    target_vip = tier.get("vip_tier") or (tier_id if tier_id in vip_ranks else "noble")
     curr_rank = vip_ranks.get(user.vip_tier, 0)
-    new_rank = vip_ranks.get(tier_id, 0)
-    if new_rank >= curr_rank:
-        user.vip_tier = tier_id
+    new_rank = vip_ranks.get(target_vip, 1)
+    if new_rank >= curr_rank or not user.vip_tier:
+        user.vip_tier = target_vip
     applied_details["vip_tier"] = user.vip_tier
 
     if tier_id == "sovereign":
         user.royal_decree_count = (user.royal_decree_count or 0) + 1
         applied_details["royal_decree_count"] = user.royal_decree_count
+
+    # 8. Agar Premium Season Pass bo'lsa, mavsumiy chiptani faollashtirish
+    if tier.get("is_season_pass") or tier.get("grants_season_pass") or tier_id == "premium_pass":
+        try:
+            from services.season_service import activate_premium_season_pass_after_approval
+            _, pass_msg, claimed_cnt = await activate_premium_season_pass_after_approval(session, user)
+            applied_details["is_season_pass"] = True
+            applied_details["premium_pass_activated"] = True
+            applied_details["pass_claimed_tiers"] = claimed_cnt
+        except Exception as e:
+            print(f"Season pass activation error: {e}")
 
     await session.commit()
     return True, "Mukofotlar muvaffaqiyatli taqdim etildi!", applied_details
@@ -8491,13 +8578,110 @@ async def use_royal_decree(session: AsyncSession, user_id: int) -> Tuple[bool, s
     return True, "Farmon qabul qilindi."
 
 
+async def get_payment_settings(session: AsyncSession) -> dict:
+    """Admin tomonidan kiritilgan karta raqami va karta egasi ismini bazadan olish (yoki config default)."""
+    from config import DONATE_CARD_NUMBER, DONATE_CARD_HOLDER
+    default_data = {
+        "card_number": DONATE_CARD_NUMBER,
+        "card_holder": DONATE_CARD_HOLDER,
+        "updated_at": None,
+        "updated_by": None,
+    }
+    try:
+        res = await session.execute(
+            select(models.EventState).where(models.EventState.event_name == "payment_requisites")
+        )
+        ev = res.scalar_one_or_none()
+        if ev and ev.data_json:
+            parsed = json.loads(ev.data_json)
+            if isinstance(parsed, dict):
+                return {
+                    "card_number": parsed.get("card_number") or DONATE_CARD_NUMBER,
+                    "card_holder": parsed.get("card_holder") or DONATE_CARD_HOLDER,
+                    "updated_at": parsed.get("updated_at"),
+                    "updated_by": parsed.get("updated_by"),
+                }
+    except Exception:
+        pass
+    return default_data
+
+
+async def update_payment_settings(
+    session: AsyncSession,
+    card_number: str,
+    card_holder: str,
+    admin_id: Optional[int] = None,
+) -> Tuple[bool, str, dict]:
+    """Karta raqami va karta egasi ismini bazada yangilash."""
+    clean_card = (card_number or "").strip()
+    clean_holder = (card_holder or "").strip()
+    if not clean_card or len(clean_card.replace(" ", "")) < 8:
+        return False, "Karta raqami noto'g'ri kiritildi.", {}
+    if not clean_holder or len(clean_holder) < 2:
+        return False, "Karta egasi ismi kiritilishi shart.", {}
+
+    payload = {
+        "card_number": clean_card,
+        "card_holder": clean_holder,
+        "updated_at": datetime.utcnow().isoformat(),
+        "updated_by": admin_id,
+    }
+    res = await session.execute(
+        select(models.EventState).where(models.EventState.event_name == "payment_requisites")
+    )
+    ev = res.scalar_one_or_none()
+    if not ev:
+        ev = models.EventState(
+            event_name="payment_requisites",
+            is_active=True,
+            started_at=datetime.utcnow(),
+            data_json=json.dumps(payload, ensure_ascii=False),
+        )
+        session.add(ev)
+    else:
+        ev.data_json = json.dumps(payload, ensure_ascii=False)
+        ev.started_at = datetime.utcnow()
+
+    await session.commit()
+    return True, "✅ Karta rekvizitlari muvaffaqiyatli yangilandi!", payload
+
+
+async def get_user_pending_donation_request(
+    session: AsyncSession,
+    telegram_id: Optional[int] = None,
+    user_id: Optional[int] = None,
+) -> Optional[models.DonationRequest]:
+    """Foydalanuvchining ko'rib chiqilayotgan (pending) donat so'rovi bor-yo'qligini tekshirish."""
+    try:
+        query = select(models.DonationRequest).where(models.DonationRequest.status == "pending")
+        if user_id is not None and telegram_id is not None:
+            from sqlalchemy import or_
+            query = query.where(
+                or_(
+                    models.DonationRequest.user_id == user_id,
+                    models.DonationRequest.telegram_id == telegram_id,
+                )
+            )
+        elif user_id is not None:
+            query = query.where(models.DonationRequest.user_id == user_id)
+        elif telegram_id is not None:
+            query = query.where(models.DonationRequest.telegram_id == telegram_id)
+        else:
+            return None
+        query = query.order_by(models.DonationRequest.id.desc()).limit(1)
+        res = await session.execute(query)
+        return res.scalar_one_or_none()
+    except Exception:
+        return None
+
+
 async def create_donation_request(
     session: AsyncSession,
     user_id: int,
     telegram_id: int,
     user_full_name: str,
     user_username: str,
-    tier_id: str,
+    tier_id: Optional[str] = None,
     receipt_file_id: Optional[str] = None,
     request_type: str = "tier",
     troop_type: Optional[str] = None,
@@ -8506,10 +8690,14 @@ async def create_donation_request(
     price_label: Optional[str] = None,
     tier_name: Optional[str] = None,
     amount: Optional[int] = None,
+    package: Optional[str] = None,
 ) -> Optional[models.DonationRequest]:
-    """Yangi to'lov cheki so'rovini bazaga saqlash (VIP to'plam yoki Qo'shin sotib olish)"""
+    """Yangi to'lov cheki so'rovini bazaga saqlash (VIP to'plam, Premium Pass, kosmetika yoki Qo'shin)"""
+    if package and not tier_id:
+        tier_id = package
     if amount is not None and price_uzs is None:
         price_uzs = amount
+
     if request_type == "troops":
         req = models.DonationRequest(
             user_id=user_id,
@@ -8519,7 +8707,7 @@ async def create_donation_request(
             tier_id="troops",
             tier_name=tier_name or f"Qo'shin: {troop_count:,} ta",
             price_uzs=price_uzs or 0,
-            price_label=price_label or f"{price_uzs:,} so'm",
+            price_label=price_label or f"{(price_uzs or 0):,} so'm",
             receipt_file_id=receipt_file_id,
             status="pending",
             request_type="troops",
@@ -8529,7 +8717,21 @@ async def create_donation_request(
         )
     else:
         from config import DONATE_TIERS
-        tier = DONATE_TIERS.get(tier_id)
+        from core.cosmetics import COSMETICS_CATALOG
+        tier = DONATE_TIERS.get(tier_id or "")
+        if not tier and tier_id in COSMETICS_CATALOG:
+            c_item = COSMETICS_CATALOG[tier_id]
+            tier = {
+                "name": f"{c_item.get('icon', '✨')} {c_item.get('name', tier_id)}",
+                "price_uzs": int(c_item.get("price_uzs", 15000)),
+                "price_label": c_item.get("price_label") or f"{int(c_item.get('price_uzs', 15000)):,} so'm",
+            }
+        if not tier and price_uzs is not None:
+            tier = {
+                "name": tier_name or str(tier_id or "Maxsus Paket"),
+                "price_uzs": int(price_uzs),
+                "price_label": price_label or f"{int(price_uzs):,} so'm",
+            }
         if not tier:
             return None
 
@@ -8539,9 +8741,9 @@ async def create_donation_request(
             user_full_name=user_full_name or "",
             user_username=user_username or "",
             tier_id=tier_id,
-            tier_name=tier["name"],
-            price_uzs=tier["price_uzs"],
-            price_label=tier["price_label"],
+            tier_name=tier_name or tier["name"],
+            price_uzs=price_uzs if price_uzs is not None else tier["price_uzs"],
+            price_label=price_label or tier["price_label"],
             receipt_file_id=receipt_file_id,
             status="pending",
             request_type="tier",
@@ -8675,9 +8877,10 @@ async def approve_donation_request(
 async def reject_donation_request(
     session: AsyncSession,
     request_id: int,
-    admin_telegram_id: int
+    admin_telegram_id: int,
+    reason: Optional[str] = None,
 ) -> Tuple[bool, str, Optional[models.DonationRequest]]:
-    """Admin tomonidan donat so'rovini rad etish"""
+    """Admin tomonidan donat so'rovini rad etish (sababi bilan)"""
     req = await get_donation_request_by_id(session, request_id)
     if not req:
         return False, f"#{request_id} so'rovi topilmadi.", None
@@ -8688,7 +8891,11 @@ async def reject_donation_request(
     req.status = "rejected"
     req.reviewed_by_admin_id = admin_telegram_id
     req.reviewed_at = datetime.utcnow()
+    if reason:
+        req.admin_notes = str(reason).strip()[:250]
     await session.commit()
+    await session.refresh(req)
+    return True, "To'lov so'rovi rad etildi.", req
 
 # ============================================================
 # 32. ERKIN AJDARLAR DUELI CRUD

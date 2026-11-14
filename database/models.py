@@ -779,6 +779,30 @@ class DonationRequest(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     reviewed_at = Column(DateTime, nullable=True)
 
+    @property
+    def package(self) -> str:
+        return self.tier_id
+
+    @package.setter
+    def package(self, val: str):
+        self.tier_id = val
+
+    @property
+    def amount(self) -> int:
+        return self.price_uzs or 0
+
+    @amount.setter
+    def amount(self, val: int):
+        self.price_uzs = val
+
+    @property
+    def reviewed_by(self) -> Optional[int]:
+        return self.reviewed_by_admin_id
+
+    @reviewed_by.setter
+    def reviewed_by(self, val: Optional[int]):
+        self.reviewed_by_admin_id = val
+
 
 # ============================================================
 # 29. DRAGON DUELS (ERKIN AJDARLAR DUELI)

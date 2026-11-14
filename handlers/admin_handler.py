@@ -106,7 +106,10 @@ async def show_admin_dashboard(target, is_message: bool):
         donations_badge = f" ({pending_donations} ta kutilmoqda)" if pending_donations > 0 else ""
 
         buttons = [
-            [InlineKeyboardButton(f"💳 Donat So'rovlari{donations_badge}", callback_data="admin_donations_list:0:pending")],
+            [
+                InlineKeyboardButton(f"💳 Donat So'rovlari{donations_badge}", callback_data="admin_donations_list:0:pending"),
+                InlineKeyboardButton("💳 Karta Sozlamasi", callback_data="admin_card_settings"),
+            ],
             [InlineKeyboardButton("📜 O'yinchilar Harakatlari Jurnali (Logs)", callback_data="admin_activity_logs:0")],
             [InlineKeyboardButton("🚨 Tizim Xatoliklari (System Errors)", callback_data="admin_error_logs:0")],
             [InlineKeyboardButton("👥 O'yinchilarni Boshqarish (User Manager)", callback_data="admin_users_list:0")],
@@ -3921,26 +3924,50 @@ async def admin_donations_list_callback(update: Update, context: ContextTypes.DE
     async with AsyncSessionLocal() as session:
         requests = await crud.get_donation_requests(session, status=filter_status, limit=limit, offset=offset)
         total_pending = await crud.get_pending_donations_count(session)
+        reqs_cfg = await crud.get_payment_settings(session)
 
     buttons = []
-    # Status filter switcheri
+    # Status filter switcheri (Kutilayotgan / Tasdiqlangan / Rad etilgan)
     filter_row = [
-        InlineKeyboardButton(f"⏳ Kutilmoqda ({total_pending}) {'✅' if filter_status=='pending' else ''}", callback_data="admin_donations_list:0:pending"),
-        InlineKeyboardButton(f"📜 Barchasi {'✅' if filter_status=='' else ''}", callback_data="admin_donations_list:0:"),
+        InlineKeyboardButton(
+            f"⏳ Kutilmoqda ({total_pending}) {'🔹' if filter_status=='pending' else ''}",
+            callback_data="admin_donations_list:0:pending",
+        ),
+        InlineKeyboardButton(
+            f"✅ Tasdiqlangan {'🔹' if filter_status=='approved' else ''}",
+            callback_data="admin_donations_list:0:approved",
+        ),
+        InlineKeyboardButton(
+            f"❌ Rad etilgan {'🔹' if filter_status=='rejected' else ''}",
+            callback_data="admin_donations_list:0:rejected",
+        ),
     ]
     buttons.append(filter_row)
+    buttons.append([
+        InlineKeyboardButton("💳 Karta Rekvizitlarini Sozlash", callback_data="admin_card_settings"),
+    ])
+
+    st_label_map = {
+        "pending": "Kutilayotgan",
+        "approved": "Tasdiqlangan",
+        "rejected": "Rad etilgan",
+        "": "Barcha",
+    }
+    st_title = st_label_map.get(filter_status, filter_status)
 
     if not requests:
         text = (
-            f"💳 **DONAT VA VIP SO'ROVLARI**\n\n"
-            f"Hozirda **{filter_status if filter_status else 'umumiy'}** bo'yicha hech qanday so'rovlar mavjud emas.\n"
-            f"⏳ Kutilayotgan yangi so'rovlar: **{total_pending}** ta"
+            f"💳 **DONAT VA PREMIUM PASS SO'ROVLARI ({st_title})**\n\n"
+            f"🔢 Joriy karta: `{reqs_cfg['card_number']}` (*{escape_md(reqs_cfg['card_holder'])}*)\n"
+            f"⏳ Kutilayotgan yangi so'rovlar: **{total_pending}** ta\n\n"
+            f"Hozirda **{st_title}** bo'limida so'rovlar mavjud emas."
         )
     else:
         text = (
-            f"💳 **DONAT VA VIP SO'ROVLARI (Sahifa {page+1})**\n\n"
-            f"⏳ Kutilayotgan so'rovlar soni: **{total_pending}** ta\n"
-            f"Tafsilotlarini ko'rish yoki darhol tasdiqlash / rad etish:\n"
+            f"💳 **DONAT VA PREMIUM PASS SO'ROVLARI ({st_title} — Sahifa {page+1})**\n\n"
+            f"🔢 Joriy karta: `{reqs_cfg['card_number']}` (*{escape_md(reqs_cfg['card_holder'])}*)\n"
+            f"⏳ Kutilayotgan so'rovlar: **{total_pending}** ta\n"
+            f"Tafsilotlarni ko'rish yoki tasdiqlash / rad etish:\n"
         )
         for req in requests:
             st_icon = "⏳" if req.status == "pending" else ("✅" if req.status == "approved" else "❌")

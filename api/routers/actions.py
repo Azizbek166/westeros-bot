@@ -1072,7 +1072,7 @@ async def send_raven_endpoint(
 
 
 # ============================================================
-# VIP & KOSMETIKA DO'KONI (COSMETICS & ETHICAL MONETIZATION)
+# VIP, DONAT & KOSMETIKA DO'KONI (QO'LDA TASDIQLASH TIZIMI)
 # ============================================================
 
 class EquipCosmeticRequest(BaseModel):
@@ -1081,19 +1081,154 @@ class EquipCosmeticRequest(BaseModel):
 
 class BuyCosmeticRequest(BaseModel):
     item_id: str = Field(..., min_length=2, max_length=50)
-    payment_provider: str = Field("telegram_stars", max_length=30)
+    payment_provider: str = Field("manual_uzs", max_length=30)
     idempotency_key: Optional[str] = Field(None, max_length=100)
 
 
 class GiftCosmeticRequest(BaseModel):
     recipient_telegram_id: int = Field(..., ge=1)
     item_id: str = Field(..., min_length=2, max_length=50)
-    payment_provider: str = Field("telegram_stars", max_length=30)
+    payment_provider: str = Field("manual_uzs", max_length=30)
     idempotency_key: Optional[str] = Field(None, max_length=100)
+
+
+class SubmitDonationReceiptRequest(BaseModel):
+    package_id: str = Field(..., min_length=2, max_length=60, description="Paket kodi: premium_pass, vip_noble, starter_pack yoki kosmetika ID")
+    receipt_image_base64: Optional[str] = Field(None, description="Chek skrinshoti (base64 data URL)")
+    receipt_file_id: Optional[str] = Field(None, description="Telegram file_id (agar bot orqali bo'lsa)")
+
+
+class AdminReviewDonationRequest(BaseModel):
+    request_id: int = Field(..., ge=1)
+    action: str = Field(..., pattern=r"^(approve|reject)$")
+    reason: Optional[str] = Field(None, max_length=250)
+
+
+class AdminUpdatePaymentRequisitesRequest(BaseModel):
+    card_number: str = Field(..., min_length=8, max_length=40)
+    card_holder: str = Field(..., min_length=2, max_length=100)
 
 
 class AdminRefundTransactionRequest(BaseModel):
     tx_id: int = Field(..., ge=1)
+
+
+@router.get("/donate/requisites")
+async def get_donate_requisites_endpoint(
+    auth: Tuple[models.User, Dict[str, Any]] = Depends(get_current_player),
+    session: AsyncSession = Depends(get_db_session),
+) -> Dict[str, Any]:
+    """Karta raqami, karta egasi, paketlar va joriy kutilayotgan so'rovni olish"""
+    user, _ = auth
+    from database import crud
+    data = await services.get_payment_requisites_service(session)
+    pending = await crud.get_user_pending_donation_request(session, telegram_id=user.telegram_id, user_id=user.id)
+    return {
+        "success": True,
+        "requisites": {
+            "card_number": data["card_number"],
+            "card_holder": data["card_holder"],
+            "updated_at": data.get("updated_at"),
+        },
+        "packages": data["packages"],
+        "premium_pass": data["premium_pass"],
+        "pending_request": {
+            "id": pending.id,
+            "package": pending.tier_id,
+            "tier_name": pending.tier_name,
+            "amount": pending.price_uzs,
+            "price_label": pending.price_label,
+            "status": pending.status,
+            "created_at": pending.created_at.strftime("%Y-%m-%d %H:%M") if pending.created_at else "-",
+        } if pending else None,
+    }
+
+
+@router.post("/donate/request")
+async def submit_donation_request_endpoint(
+    req: SubmitDonationReceiptRequest,
+    auth: Tuple[models.User, Dict[str, Any]] = Depends(get_current_player),
+    session: AsyncSession = Depends(get_db_session),
+) -> Dict[str, Any]:
+    """Foydalanuvchi to'lov cheki (skrinshot) yuborib, donat so'rovi yaratishi (Bot bilan bitta funksiya)"""
+    import os
+    import base64
+    from datetime import datetime
+
+    user, _ = auth
+    receipt_ref = (req.receipt_file_id or "").strip()
+    local_photo_path = None
+
+    if req.receipt_image_base64 and req.receipt_image_base64.strip():
+        raw_b64 = req.receipt_image_base64.strip()
+        ext = "jpg"
+        if raw_b64.startswith("data:"):
+            header, _, raw_b64 = raw_b64.partition(",")
+            if "image/png" in header:
+                ext = "png"
+            elif "image/webp" in header:
+                ext = "webp"
+            elif "image/" not in header:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="❌ Faqat rasm (skrinshot) formatidagi fayllar qabul qilinadi!",
+                )
+        try:
+            img_bytes = base64.b64decode(raw_b64, validate=False)
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="❌ Rasm faylini o'qishda xatolik yuz berdi. Boshqa skrinshot tanlang.",
+            )
+
+        if len(img_bytes) < 64:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="❌ Yuborilgan rasm bo'sh yoki yaroqsiz!",
+            )
+        if len(img_bytes) > 8 * 1024 * 1024:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="❌ Rasm hajmi juda katta (maksimal 8 MB).",
+            )
+
+        upload_dir = os.path.join("static", "uploads", "receipts")
+        os.makedirs(upload_dir, exist_ok=True)
+        fname = f"receipt_u{user.id}_{int(datetime.utcnow().timestamp())}.{ext}"
+        local_photo_path = os.path.join(upload_dir, fname)
+        with open(local_photo_path, "wb") as f:
+            f.write(img_bytes)
+        receipt_ref = f"/static/uploads/receipts/{fname}"
+
+    if not receipt_ref:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="❌ To'lov cheki skrinshotini (rasm) yuklash majburiy!",
+        )
+
+    ok, msg, don_req = await services.submit_donation_request_service(
+        session=session,
+        user=user,
+        package_id=req.package_id,
+        receipt_file_id=receipt_ref,
+        local_photo_path=local_photo_path,
+    )
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
+
+    return {
+        "success": True,
+        "message": msg,
+        "request": {
+            "id": don_req.id,
+            "package": don_req.tier_id,
+            "tier_name": don_req.tier_name,
+            "amount": don_req.price_uzs,
+            "price_label": don_req.price_label,
+            "status": don_req.status,
+            "receipt_file_id": don_req.receipt_file_id,
+        } if don_req else None,
+    }
 
 
 @router.get("/donate/hub")
@@ -1187,8 +1322,94 @@ async def get_admin_dashboard_endpoint(
     session: AsyncSession = Depends(get_db_session),
 ) -> Dict[str, Any]:
     """Faqat Bosh Administratorlar uchun o'yin boshqaruv statistikasi"""
+    admin_user, _ = auth
     data = await services.get_admin_dashboard_data(session)
+    _, _, don_data = await services.get_admin_donation_requests_service(
+        session=session,
+        admin_telegram_id=admin_user.telegram_id,
+        status_filter="pending",
+        limit=20,
+    )
+    if isinstance(data, dict):
+        data["payment_requisites"] = don_data.get("payment_requisites", {})
+        data["donation_counts"] = don_data.get("counts", {"pending": 0, "approved": 0, "rejected": 0})
+        data["pending_donations"] = don_data.get("requests", [])
     return {"success": True, "admin_data": data}
+
+
+@router.get("/admin/donations")
+async def get_admin_donations_endpoint(
+    status_filter: str = "pending",
+    limit: int = 30,
+    offset: int = 0,
+    auth: Tuple[models.User, Dict[str, Any]] = Depends(require_admin_player),
+    session: AsyncSession = Depends(get_db_session),
+) -> Dict[str, Any]:
+    """Admin: Donat so'rovlari ro'yxati (pending / approved / rejected)"""
+    admin_user, _ = auth
+    ok, msg, data = await services.get_admin_donation_requests_service(
+        session=session,
+        admin_telegram_id=admin_user.telegram_id,
+        status_filter=status_filter,
+        limit=limit,
+        offset=offset,
+    )
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=msg)
+    return {"success": True, **data}
+
+
+@router.post("/admin/donations/review")
+async def post_admin_review_donation_endpoint(
+    req: AdminReviewDonationRequest,
+    auth: Tuple[models.User, Dict[str, Any]] = Depends(require_admin_player),
+    session: AsyncSession = Depends(get_db_session),
+) -> Dict[str, Any]:
+    """Admin: Donat so'rovini tasdiqlash (approve) yoki rad etish (reject)"""
+    admin_user, _ = auth
+    if req.action == "approve":
+        ok, msg, details = await services.approve_donation_request_service(
+            session=session,
+            request_id=req.request_id,
+            admin_telegram_id=admin_user.telegram_id,
+        )
+        if not ok:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
+        return {"success": True, "message": msg, "details": details}
+    else:
+        ok, msg, don_req = await services.reject_donation_request_service(
+            session=session,
+            request_id=req.request_id,
+            admin_telegram_id=admin_user.telegram_id,
+            reason=req.reason,
+        )
+        if not ok:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
+        return {
+            "success": True,
+            "message": msg,
+            "request_id": req.request_id,
+            "status": don_req.status if don_req else "rejected",
+        }
+
+
+@router.post("/admin/donations/requisites")
+async def post_admin_update_requisites_endpoint(
+    req: AdminUpdatePaymentRequisitesRequest,
+    auth: Tuple[models.User, Dict[str, Any]] = Depends(require_admin_player),
+    session: AsyncSession = Depends(get_db_session),
+) -> Dict[str, Any]:
+    """Admin: Karta raqami va karta egasi ismini yangilash"""
+    admin_user, _ = auth
+    ok, msg, payload = await services.update_payment_requisites_service(
+        session=session,
+        admin_telegram_id=admin_user.telegram_id,
+        card_number=req.card_number,
+        card_holder=req.card_holder,
+    )
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
+    return {"success": True, "message": msg, "requisites": payload}
 
 
 @router.post("/admin/ban-user")

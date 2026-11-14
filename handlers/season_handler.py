@@ -71,6 +71,7 @@ async def show_season_menu(target, user_id: int, is_message: bool = False, is_gr
             return
 
         buttons = [
+            [InlineKeyboardButton("👑 Premium Season Pass Olish (25,000 so'm)", callback_data="donate_pick:premium_pass")],
             [InlineKeyboardButton("🏆 Mavsum G'olibi Batafsil", callback_data="rank_cat:champion:all")],
             [InlineKeyboardButton("🏛️ Shon-sharaf Zali (Hall of Fame)", callback_data="menu_halloffame")],
             [InlineKeyboardButton("🔄 Yangilash", callback_data="menu_season")],
