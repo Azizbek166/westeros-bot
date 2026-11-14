@@ -23,9 +23,12 @@ async def get_raven_hub_data(session: AsyncSession, identifier: int) -> Optional
             "sender_id": r.sender_id,
             "sender_name": sender_name or "Lord",
             "text": r.message or "",
+            "message": r.message or "",
             "gold_attached": r.gold_attached or 0,
+            "attached_gold": r.gold_attached or 0,
             "is_read": getattr(r, "is_read", True),
             "sent_at": r.sent_at.isoformat() if r.sent_at else None,
+            "date": r.sent_at.strftime("%Y-%m-%d %H:%M") if r.sent_at else "",
         })
 
     return {

@@ -613,9 +613,17 @@ async def activate_guild_buff_endpoint(
 # ============================================================
 
 class BattleMarchRequest(BaseModel):
-    territory_id: int = Field(..., ge=1, description="Nishon qal'a ID si")
+    territory_id: Optional[int] = Field(None, ge=1, description="Nishon qal'a ID si")
+    target_territory_id: Optional[int] = Field(None, ge=1, description="Nishon qal'a ID si (muqobil)")
     percent: int = Field(50, ge=10, le=100, description="Yuboriladigan armiya ulushi foizda (10% - 100%)")
-    dragon_tactic: str = Field("none", description="Ajdar taktikasi: none, aerial_support, breach_walls")
+    dragon_tactic: str = Field("none", description="Ajdar taktikasi: none, aerial_support, breach_walls, dracarys")
+    has_dragon: Optional[bool] = Field(None, description="Ajdarni yurishga qo'shish")
+    infantry: Optional[int] = Field(None, ge=0)
+    archers: Optional[int] = Field(None, ge=0)
+    cavalry: Optional[int] = Field(None, ge=0)
+    spearmen: Optional[int] = Field(None, ge=0)
+    catapults: Optional[int] = Field(None, ge=0)
+    siege_towers: Optional[int] = Field(None, ge=0)
 
 
 @router.get("/battle/hub")
@@ -626,7 +634,12 @@ async def get_battle_hub_endpoint(
     """Harbiy amaliyotlar markazi: faol yurishlar, kelayotgan hujumlar va jang hisobotlari"""
     user, _ = auth
     data = await services.get_battle_hub_data(session, user.id)
-    return {"success": True, "battle_hub": data}
+    active_marches = data.get("active_marches", []) if isinstance(data, dict) else []
+    return {
+        "success": True,
+        "battle_hub": data,
+        "active_marches": active_marches,
+    }
 
 
 @router.post("/battle/march")
@@ -637,16 +650,82 @@ async def dispatch_battle_march_endpoint(
 ) -> Dict[str, Any]:
     """Qal'aga harbiy yurish jo'natish (qamal qurollari va ajdar bilan)"""
     user, _ = auth
+    t_id = req.territory_id or req.target_territory_id
+    if not t_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Nishon qal'a tanlanmagan.")
+
+    explicit_troops = None
+    if any(
+        val is not None
+        for val in (req.infantry, req.archers, req.cavalry, req.spearmen, req.catapults, req.siege_towers)
+    ):
+        explicit_troops = {
+            "infantry": req.infantry or 0,
+            "archers": req.archers or 0,
+            "cavalry": req.cavalry or 0,
+            "spearmen": req.spearmen or 0,
+            "catapults": req.catapults or 0,
+            "siege_towers": req.siege_towers or 0,
+        }
+
+    tactic = req.dragon_tactic or "none"
+    if req.has_dragon is False:
+        tactic = "none"
+    elif req.has_dragon is True and tactic == "none":
+        tactic = "aerial_support"
+
     ok, msg, march_data, def_tg_ids = await services.dispatch_march_service(
         session=session,
         identifier=user.id,
-        territory_id=req.territory_id,
+        territory_id=t_id,
         percent=req.percent,
-        dragon_tactic=req.dragon_tactic,
+        dragon_tactic=tactic,
+        explicit_troops=explicit_troops,
     )
     if not ok:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
     return {"success": True, "message": msg, "march": march_data}
+
+
+# ============================================================
+# QURILISH VA INSHOOTLAR (BUILDINGS & FORTIFICATIONS)
+# ============================================================
+
+class UpgradeBuildingRequest(BaseModel):
+    building_type: str = Field(..., description="Inshoot turi: iron_mine, grain_mill, castle_keep")
+    territory_id: Optional[int] = Field(None, ge=1, description="Qal'a ID si (castle_keep uchun)")
+
+
+@router.get("/buildings/hub")
+async def get_buildings_hub_endpoint(
+    auth: Tuple[models.User, Dict[str, Any]] = Depends(get_current_player),
+    session: AsyncSession = Depends(get_db_session),
+) -> Dict[str, Any]:
+    """Barcha qurilish inshootlari (Temir Koni, Don Tegirmoni, Qal'a Istehkomi)"""
+    user, _ = auth
+    data = await services.get_buildings_hub_data(session, user.id)
+    if not data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Qurilish ma'lumotlari topilmadi.")
+    return {"success": True, "buildings_hub": data, **data}
+
+
+@router.post("/buildings/upgrade")
+async def upgrade_building_endpoint(
+    req: UpgradeBuildingRequest,
+    auth: Tuple[models.User, Dict[str, Any]] = Depends(get_current_player),
+    session: AsyncSession = Depends(get_db_session),
+) -> Dict[str, Any]:
+    """Inshoot yoki qal'a istehkomini ko'tarish"""
+    user, _ = auth
+    ok, msg, data = await services.upgrade_building_service(
+        session=session,
+        identifier=user.id,
+        building_type=req.building_type,
+        territory_id=req.territory_id,
+    )
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
+    return {"success": True, "message": msg, "buildings_hub": data}
 
 
 # ============================================================
@@ -672,6 +751,7 @@ async def get_westeros_map_endpoint(
 
 
 @router.get("/map/territory/{territory_id}")
+@router.get("/map/scout/{territory_id}")
 async def get_territory_scout_endpoint(
     territory_id: int,
     auth: Tuple[models.User, Dict[str, Any]] = Depends(get_current_player),
@@ -682,7 +762,7 @@ async def get_territory_scout_endpoint(
     detail = await services.get_territory_scout_detail(session, user.id, territory_id)
     if not detail:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Qal'a topilmadi.")
-    return {"success": True, "scout": detail}
+    return {"success": True, "scout": detail, "scout_report": detail}
 
 
 # ============================================================
@@ -690,7 +770,8 @@ async def get_territory_scout_endpoint(
 # ============================================================
 
 class SpyMissionRequest(BaseModel):
-    territory_id: int = Field(..., ge=1, description="Nishon qal'a ID si")
+    territory_id: Optional[int] = Field(None, ge=1, description="Nishon qal'a ID si")
+    target_territory_id: Optional[int] = Field(None, ge=1, description="Nishon qal'a ID si (muqobil)")
     mission_type: str = Field(..., pattern=r"^(scout|sabotage|open_gates)$", description="Operatsiya turi: scout, sabotage, open_gates")
 
 
@@ -706,6 +787,7 @@ async def get_espionage_hub_endpoint(
 
 
 @router.post("/espionage/mission")
+@router.post("/espionage/execute")
 async def execute_spy_mission_endpoint(
     req: SpyMissionRequest,
     auth: Tuple[models.User, Dict[str, Any]] = Depends(get_current_player),
@@ -713,16 +795,21 @@ async def execute_spy_mission_endpoint(
 ) -> Dict[str, Any]:
     """Dushman qal'asiga josus jo'natish"""
     user, _ = auth
+    t_id = req.territory_id or req.target_territory_id
+    if not t_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Nishon qal'a tanlanmagan.")
     ok, msg, rep_data = await services.execute_spy_mission_service(
         session=session,
         identifier=user.id,
-        territory_id=req.territory_id,
+        territory_id=t_id,
         mission_type=req.mission_type,
     )
     return {
-        "success": ok,
+        "success": True,
+        "mission_success": ok,
         "message": msg,
-        "report": rep_data,
+        "report": msg,
+        "report_data": rep_data,
     }
 
 
@@ -807,7 +894,7 @@ async def deposit_house_treasury_endpoint(
 # ============================================================
 
 class ArtifactActionRequest(BaseModel):
-    artifact_id: int = Field(..., ge=1, description="Artefakt ID si")
+    artifact_id: Optional[int] = Field(None, ge=1, description="Artefakt ID si")
 
 
 @router.get("/hero/hub")
@@ -835,6 +922,7 @@ async def get_hero_hub_endpoint(
 
 
 @router.post("/hero/equip-artifact")
+@router.post("/hero/equip")
 async def equip_artifact_endpoint(
     req: ArtifactActionRequest,
     auth: Tuple[models.User, Dict[str, Any]] = Depends(get_current_player),
@@ -842,6 +930,8 @@ async def equip_artifact_endpoint(
 ) -> Dict[str, Any]:
     """Artefaktni qahramonga taqish"""
     user, _ = auth
+    if not req.artifact_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Artefakt ID ko'rsatilmadi.")
     ok, msg = await services.equip_artifact_service(session, user.id, req.artifact_id)
     if not ok:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
@@ -849,14 +939,16 @@ async def equip_artifact_endpoint(
 
 
 @router.post("/hero/unequip-artifact")
+@router.post("/hero/unequip")
 async def unequip_artifact_endpoint(
-    req: ArtifactActionRequest,
+    req: Optional[ArtifactActionRequest] = None,
     auth: Tuple[models.User, Dict[str, Any]] = Depends(get_current_player),
     session: AsyncSession = Depends(get_db_session),
 ) -> Dict[str, Any]:
     """Artefaktni yechish"""
     user, _ = auth
-    ok, msg = await services.unequip_artifact_service(session, user.id, req.artifact_id)
+    art_id = req.artifact_id if req else None
+    ok, msg = await services.unequip_artifact_service(session, user.id, art_id)
     if not ok:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
     return {"success": True, "message": msg}
@@ -868,6 +960,7 @@ async def unequip_artifact_endpoint(
 
 class ClaimDragonEggRequest(BaseModel):
     name: str = Field(..., min_length=2, max_length=32, description="Ajdar nomi")
+    grade: str = Field("C", description="Ajdar turi (C, B, A, S, SS, SSS yoki Arrax, Syrax, Meleys, Caraxes, Vhagar, Balerion)")
 
 
 class DragonActionRequest(BaseModel):
@@ -891,6 +984,7 @@ async def get_dragon_hub_endpoint(
         "success": True,
         "dragon_hub": data,
         "dragon": first_dragon,
+        "species_catalog": data.get("species_catalog", []) if isinstance(data, dict) else [],
     }
 
 
@@ -900,9 +994,14 @@ async def claim_dragon_egg_endpoint(
     auth: Tuple[models.User, Dict[str, Any]] = Depends(get_current_player),
     session: AsyncSession = Depends(get_db_session),
 ) -> Dict[str, Any]:
-    """Ilk ajdaho tuxumini olish"""
+    """Ajdaho tuxumini olish (narx va bino talablari serverda tekshiriladi)"""
     user, _ = auth
-    ok, msg, d_info = await services.claim_starter_dragon_egg_service(session, user.id, req.name)
+    ok, msg, d_info = await services.claim_starter_dragon_egg_service(
+        session=session,
+        identifier=user.id,
+        custom_name=req.name,
+        grade=req.grade or "C",
+    )
     if not ok:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
     return {"success": True, "message": msg, "dragon": d_info}
@@ -965,10 +1064,12 @@ class CreateTradeLotRequest(BaseModel):
 
 
 class TradeLotActionRequest(BaseModel):
-    trade_id: int = Field(..., ge=1)
+    trade_id: Optional[int] = Field(None, ge=1)
+    lot_id: Optional[int] = Field(None, ge=1)
 
 
 @router.get("/market/hub")
+@router.get("/trade/hub")
 async def get_market_hub_endpoint(
     auth: Tuple[models.User, Dict[str, Any]] = Depends(get_current_player),
     session: AsyncSession = Depends(get_db_session),
@@ -976,10 +1077,18 @@ async def get_market_hub_endpoint(
     """Bozor faol lotlari va karvonlar ro'yxati"""
     user, _ = auth
     data = await services.get_market_hub_data(session, user.id)
-    return {"success": True, "market_hub": data}
+    lots = data.get("lots", []) if isinstance(data, dict) else []
+    caravans = data.get("active_caravans", []) if isinstance(data, dict) else []
+    return {
+        "success": True,
+        "market_hub": data,
+        "lots": lots,
+        "active_caravans": caravans,
+    }
 
 
 @router.post("/market/create-lot")
+@router.post("/trade/create-lot")
 async def create_trade_lot_endpoint(
     req: CreateTradeLotRequest,
     auth: Tuple[models.User, Dict[str, Any]] = Depends(get_current_player),
@@ -1003,6 +1112,7 @@ async def create_trade_lot_endpoint(
 
 
 @router.post("/market/buy-lot")
+@router.post("/trade/buy")
 async def buy_trade_lot_endpoint(
     req: TradeLotActionRequest,
     auth: Tuple[models.User, Dict[str, Any]] = Depends(get_current_player),
@@ -1010,13 +1120,17 @@ async def buy_trade_lot_endpoint(
 ) -> Dict[str, Any]:
     """Bozordan boshqa o'yinchining lotini sotib olish"""
     user, _ = auth
-    ok, msg = await services.buy_trade_lot_service(session, user.id, req.trade_id)
+    t_id = req.trade_id or req.lot_id
+    if not t_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Savdo loti tanlanmagan.")
+    ok, msg = await services.buy_trade_lot_service(session, user.id, t_id)
     if not ok:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
     return {"success": True, "message": msg}
 
 
 @router.post("/market/cancel-lot")
+@router.post("/trade/cancel-lot")
 async def cancel_trade_lot_endpoint(
     req: TradeLotActionRequest,
     auth: Tuple[models.User, Dict[str, Any]] = Depends(get_current_player),
@@ -1024,7 +1138,10 @@ async def cancel_trade_lot_endpoint(
 ) -> Dict[str, Any]:
     """O'z savdo lotini bekor qilish"""
     user, _ = auth
-    ok, msg = await services.cancel_trade_lot_service(session, user.id, req.trade_id)
+    t_id = req.trade_id or req.lot_id
+    if not t_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Savdo loti tanlanmagan.")
+    ok, msg = await services.cancel_trade_lot_service(session, user.id, t_id)
     if not ok:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
     return {"success": True, "message": msg}
@@ -1035,9 +1152,12 @@ async def cancel_trade_lot_endpoint(
 # ============================================================
 
 class SendRavenRequest(BaseModel):
-    recipient: str = Field(..., min_length=1, description="Qabul qiluvchi username yoki Telegram ID si")
-    message: str = Field(..., min_length=2, max_length=500, description="Xabar matni")
+    recipient: Optional[str] = Field(None, description="Qabul qiluvchi username yoki Telegram ID si")
+    receiver_telegram_id: Optional[Any] = Field(None, description="Qabul qiluvchi Telegram ID si (muqobil)")
+    message: Optional[str] = Field(None, max_length=500, description="Xabar matni")
+    message_text: Optional[str] = Field(None, max_length=500, description="Xabar matni (muqobil)")
     gold_attached: int = Field(0, ge=0, description="Biriktirilgan oltin")
+    attached_gold: int = Field(0, ge=0, description="Biriktirilgan oltin (muqobil)")
 
 
 @router.get("/raven/hub")
@@ -1048,7 +1168,12 @@ async def get_raven_hub_endpoint(
     """Qarg'alar pochtasi bosh sahifasi va kelgan xabarlar"""
     user, _ = auth
     data = await services.get_raven_hub_data(session, user.id)
-    return {"success": True, "raven_hub": data}
+    inbox = data.get("inbox", []) if isinstance(data, dict) else []
+    return {
+        "success": True,
+        "raven_hub": data,
+        "inbox": inbox,
+    }
 
 
 @router.post("/raven/send")
@@ -1059,12 +1184,19 @@ async def send_raven_endpoint(
 ) -> Dict[str, Any]:
     """Boshqa Lordga qarg'a orqali xat jo'natish"""
     user, _ = auth
+    recipient_str = str(req.recipient or req.receiver_telegram_id or "").strip()
+    msg_str = str(req.message or req.message_text or "").strip()
+    gold_val = max(req.gold_attached or 0, req.attached_gold or 0)
+    if not recipient_str:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Qabul qiluvchi ID yoki username ko'rsatilmadi.")
+    if len(msg_str) < 2:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Xabar matni juda qisqa.")
     ok, msg = await services.send_raven_service(
         session=session,
         identifier=user.id,
-        recipient_identifier=req.recipient,
-        message_text=req.message,
-        gold_attached=req.gold_attached,
+        recipient_identifier=recipient_str,
+        message_text=msg_str,
+        gold_attached=gold_val,
     )
     if not ok:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
@@ -1305,15 +1437,19 @@ async def gift_cosmetic_endpoint(
 # ============================================================
 
 class AdminBanUserRequest(BaseModel):
-    user_id: int = Field(..., ge=1)
-    is_banned: bool = Field(...)
+    user_id: Optional[int] = Field(None, ge=1)
+    target_telegram_id: Optional[int] = Field(None, ge=1)
+    is_banned: bool = Field(True)
 
 
 class AdminAdjustResourcesRequest(BaseModel):
-    user_id: int = Field(..., ge=1)
+    user_id: Optional[int] = Field(None, ge=1)
+    target_telegram_id: Optional[int] = Field(None, ge=1)
     gold: int = Field(0)
     food: int = Field(0)
     iron: int = Field(0)
+    resource_type: Optional[str] = Field(None, description="gold, food, iron")
+    delta_amount: Optional[int] = Field(None)
 
 
 @router.get("/admin/dashboard")
@@ -1334,7 +1470,8 @@ async def get_admin_dashboard_endpoint(
         data["payment_requisites"] = don_data.get("payment_requisites", {})
         data["donation_counts"] = don_data.get("counts", {"pending": 0, "approved": 0, "rejected": 0})
         data["pending_donations"] = don_data.get("requests", [])
-    return {"success": True, "admin_data": data}
+        data["donation_stats"] = don_data.get("stats", {})
+    return {"success": True, "admin_data": data, "stats": data}
 
 
 @router.get("/admin/donations")
@@ -1413,15 +1550,19 @@ async def post_admin_update_requisites_endpoint(
 
 
 @router.post("/admin/ban-user")
+@router.post("/admin/ban-player")
 async def admin_ban_user_endpoint(
     req: AdminBanUserRequest,
     auth: Tuple[models.User, Dict[str, Any]] = Depends(require_admin_player),
     session: AsyncSession = Depends(get_db_session),
 ) -> Dict[str, Any]:
     """O'yinchini bloklash yoki blokdan chiqarish"""
+    target_id = req.user_id or req.target_telegram_id
+    if not target_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="O'yinchi ID raqami kiritilmadi.")
     ok, msg = await services.admin_set_ban_status_service(
         session=session,
-        target_user_id=req.user_id,
+        target_user_id=target_id,
         is_banned=req.is_banned,
     )
     if not ok:
@@ -1436,12 +1577,28 @@ async def admin_adjust_resources_endpoint(
     session: AsyncSession = Depends(get_db_session),
 ) -> Dict[str, Any]:
     """O'yinchiga resurs berish"""
+    target_id = req.user_id or req.target_telegram_id
+    if not target_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="O'yinchi ID raqami kiritilmadi.")
+
+    g = req.gold or 0
+    f = req.food or 0
+    i = req.iron or 0
+    if req.delta_amount is not None and req.resource_type:
+        rt = req.resource_type.lower().strip()
+        if rt == "gold":
+            g = req.delta_amount
+        elif rt == "food":
+            f = req.delta_amount
+        elif rt == "iron":
+            i = req.delta_amount
+
     ok, msg = await services.admin_adjust_resources_service(
         session=session,
-        target_user_id=req.user_id,
-        gold=req.gold,
-        food=req.food,
-        iron=req.iron,
+        target_user_id=target_id,
+        gold=g,
+        food=f,
+        iron=i,
     )
     if not ok:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)

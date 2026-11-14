@@ -135,28 +135,47 @@ def calculate_battle(
         )
 
     # ============================================================
-    # DRAKARYS VA AJDARLARNING STRATEGIK HUJUMI
+    # DRAKARYS, AJDARLARNING STRATEGIK HUJUMI VA QARSHI TAKTIKA (SCORPION BALLISTA)
     # ============================================================
+    from config import DRAGON_BALANCE_CONFIG
     dragon_details = ""
 
     # Ob-havo ajdarlarga ta'siri
     eff_dragon_power = int(dragon_power * weather_dragon_mult)
     eff_def_dragon_power = int(defender_dragon_power * weather_dragon_mult)
 
+    # Qarshi taktika: Qal'a Chayon Minoralari (Scorpion Ballista) + Nayzador va Kamonchilar
+    # Ajdarsiz o'yinchi ham kuchli mudofaa va merganlar bilan ajdar zarbasini qaytarishi mumkin!
+    est_castle_lvl = max(1, min(5, int(initial_castle_defense // 400) or 1))
+    anti_air_troops = def_troops.get("spearmen", 0) + def_troops.get("archers", 0)
+    scorpion_red = est_castle_lvl * DRAGON_BALANCE_CONFIG.get("scorpion_defense_per_castle_level", 0.08)
+    troops_red = anti_air_troops * DRAGON_BALANCE_CONFIG.get("spearmen_anti_dragon_factor", 0.00015)
+    max_red = DRAGON_BALANCE_CONFIG.get("max_anti_dragon_damage_reduction", 0.60)
+    anti_dragon_reduction = min(max_red, scorpion_red + troops_red)
+
     # Havoda ajdarlar to'qnashuvi (agar har ikki tomonda ajdar bo'lsa)
     eff_att_dragon = eff_dragon_power
     if att_art.get("dragon_bonus", 0.0) > 0:
         eff_att_dragon = int(eff_att_dragon * (1.0 + att_art["dragon_bonus"]))
+
+    if eff_att_dragon > 0 and anti_dragon_reduction > 0:
+        eff_att_dragon = int(eff_att_dragon * (1.0 - anti_dragon_reduction))
+        dragon_details += (
+            f"🏹🦂 **QAL'A CHAYON BALLISTALARI (QARSHI TAKTIKA):**\n"
+            f"Qal'a minoralaridagi Chayon (Scorpion) nayza-otkichlari va {anti_air_troops:,} ta mergan/nayzador osmonga o'q uzib, "
+            f"hujumchi ajdar zarbasini **-{int(anti_dragon_reduction * 100)}%** ga qisqartirdi va uni yarador qildi!\n"
+        )
+
     if eff_dragon_power > 0 and eff_def_dragon_power > 0:
         clash_diff = eff_dragon_power - eff_def_dragon_power
         if clash_diff > 0:
-            eff_att_dragon = int(eff_dragon_power * 0.55)
+            eff_att_dragon = int(eff_att_dragon * 0.55)
             dragon_details += (
                 f"🐉⚔️ **OSMONDA AJDARLAR JANGI!**\n"
                 f"Himoyachi ajdari hujumchiga qattiq qarshilik ko'rsatdi, biroq hujumchi ajdar osmon hukmronligini qo'lga kiritdi!\n"
             )
         else:
-            eff_att_dragon = int(eff_dragon_power * 0.20)
+            eff_att_dragon = int(eff_att_dragon * 0.20)
             dragon_details += (
                 f"🐉🛡️ **OSMONDA AJDARLAR JANGI!**\n"
                 f"Qal'a uzra uchayotgan himoyachi ajdar hujumchining olovli zarbasini jilovladi va qal'ani himoya qildi!\n"
@@ -164,12 +183,12 @@ def calculate_battle(
 
     if eff_att_dragon > 0 and total_def_count > 0:
         total_killed = 0
-        if dragon_tactic == "walls":
+        if dragon_tactic in ("walls", "breach_walls"):
             # 1. Devorlarni eritish taktikasi
-            melt_ratio = random.uniform(0.40, 0.55)
+            melt_ratio = random.uniform(0.40, 0.55) * (1.0 - (anti_dragon_reduction * 0.5))
             castle_defense = max(50, int(castle_defense * (1.0 - melt_ratio)))
-            max_kills = max(5, min(int(total_def_count * 0.10), 50))
-            fire_kills = min(max_kills, int((eff_att_dragon / 25) * random.uniform(0.8, 1.2)))
+            max_kills = max(10, min(int(total_def_count * 0.18), 180))
+            fire_kills = min(max_kills, int((eff_att_dragon / 18) * random.uniform(0.85, 1.2)))
             per_type = max(1, fire_kills // len(troop_types))
             for t in troop_types:
                 k = min(def_troops[t], per_type)
@@ -185,8 +204,8 @@ def calculate_battle(
             # 2. Kamonchi va nayzachilarni nishonga olish
             target_types = ["archers", "spearmen"]
             ranged_total = sum(def_troops[t] for t in target_types)
-            max_kills = max(5, min(int(ranged_total * 0.35), 75)) if ranged_total > 0 else 0
-            fire_kills = min(max_kills, int((eff_att_dragon / 18) * random.uniform(0.9, 1.3)))
+            max_kills = max(10, min(int(ranged_total * 0.40), 220)) if ranged_total > 0 else 0
+            fire_kills = min(max_kills, int((eff_att_dragon / 14) * random.uniform(0.9, 1.3)))
             if target_types and fire_kills > 0:
                 per_t = max(1, fire_kills // len(target_types))
                 for t in target_types:
@@ -204,8 +223,8 @@ def calculate_battle(
             # 3. Piyoda va otliq qismlarni yoqish
             target_types = ["infantry", "cavalry"]
             front_total = sum(def_troops[t] for t in target_types)
-            max_kills = max(5, min(int(front_total * 0.35), 75)) if front_total > 0 else 0
-            fire_kills = min(max_kills, int((eff_att_dragon / 18) * random.uniform(0.9, 1.3)))
+            max_kills = max(10, min(int(front_total * 0.40), 220)) if front_total > 0 else 0
+            fire_kills = min(max_kills, int((eff_att_dragon / 14) * random.uniform(0.9, 1.3)))
             if target_types and fire_kills > 0:
                 per_t = max(1, fire_kills // len(target_types))
                 for t in target_types:
@@ -220,9 +239,9 @@ def calculate_battle(
             )
 
         else:
-            # 4. Balanced / Yalpi zarba
-            max_kills = max(5, min(int(total_def_count * 0.20), 80))
-            fire_kills = min(max_kills, int((eff_att_dragon / 20) * random.uniform(0.8, 1.2)))
+            # 4. Balanced / Yalpi zarba (yoki aerial_support)
+            max_kills = max(10, min(int(total_def_count * 0.28), 250))
+            fire_kills = min(max_kills, int((eff_att_dragon / 15) * random.uniform(0.85, 1.25)))
             per_type = max(1, fire_kills // len(troop_types))
             for t in troop_types:
                 k = min(def_troops[t], per_type)
@@ -407,6 +426,8 @@ def calculate_battle(
         "wildfire_used": wildfire_used,
         "castle_defense_damage": castle_defense_damage,
         "new_castle_defense": castle_defense,
+        "scorpion_dr_pct": int(round(anti_dragon_reduction * 100)),
+        "effective_dragon_power": eff_att_dragon,
         "details": full_details,
     }
 

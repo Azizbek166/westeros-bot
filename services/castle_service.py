@@ -193,3 +193,154 @@ async def get_castle_detail_service(
             "accumulated_gold": int((terr.gold_income or 20) * lvl_mult * max(1, hours)) if hours >= 1 else 0,
         },
     }
+
+
+async def get_buildings_hub_data(session: AsyncSession, identifier: int) -> Optional[Dict[str, Any]]:
+    """
+    O'yinchining barcha qurilish inshootlari (Temir koni, Don tegirmoni, Qal'a istehkomlari & Ajdarlar uyasi).
+    """
+    import config
+    user = await crud.get_user_any(session, identifier)
+    if not user:
+        return None
+
+    castles = await crud.get_user_and_house_castles(session, user)
+    mine_lvl = getattr(user, "iron_mine_level", 1) or 1
+    mill_lvl = getattr(user, "grain_mill_level", 1) or 1
+    max_castle_lvl = max([(getattr(c, "castle_level", 1) or 1) for c in castles], default=1)
+
+    b_cfg = getattr(config, "BUILDINGS_CONFIG", {})
+    mine_cfg = b_cfg.get("iron_mine", {})
+    mill_cfg = b_cfg.get("grain_mill", {})
+    castle_cfg = b_cfg.get("castle_keep", {})
+
+    mine_max = int(mine_cfg.get("max_level", 10))
+    mill_max = int(mill_cfg.get("max_level", 10))
+    castle_max = int(castle_cfg.get("max_level", 5))
+
+    mine_gold_cost = int(mine_cfg.get("gold_per_level", mine_cfg.get("base_gold_cost", 400))) * mine_lvl
+    mine_food_cost = int(mine_cfg.get("food_per_level", mine_cfg.get("base_food_cost", 250))) * mine_lvl
+
+    mill_gold_cost = int(mill_cfg.get("gold_per_level", mill_cfg.get("base_gold_cost", 350))) * mill_lvl
+    mill_iron_cost = int(mill_cfg.get("iron_per_level", mill_cfg.get("base_iron_cost", 200))) * mill_lvl
+
+    castle_buildings = []
+    for c in castles:
+        c_lvl = getattr(c, "castle_level", 1) or 1
+        c_gold, c_iron, c_food = crud.get_castle_upgrade_cost(c_lvl)
+        castle_buildings.append({
+            "territory_id": c.id,
+            "name": c.castle_name or c.name,
+            "region": c.region,
+            "level": c_lvl,
+            "max_level": castle_max,
+            "is_max": c_lvl >= castle_max,
+            "defense": c.defense or 0,
+            "scorpion_dr_pct": min(60, c_lvl * 8),
+            "upgrade_cost": {
+                "gold": c_gold,
+                "iron": c_iron,
+                "food": c_food,
+            },
+            "can_afford": (
+                c_lvl < castle_max
+                and (user.gold or 0) >= c_gold
+                and (user.iron or 0) >= c_iron
+                and (user.food or 0) >= c_food
+            ),
+        })
+
+    buildings = [
+        {
+            "key": "iron_mine",
+            "name": mine_cfg.get("name", "Temir Koni"),
+            "emoji": mine_cfg.get("emoji", "⛏️"),
+            "description": mine_cfg.get("description", "Har soatlik temir qazib olish hajmini oshiradi va yuqori darajali ajdarlar uchun talab qilinadi."),
+            "level": mine_lvl,
+            "max_level": mine_max,
+            "is_max": mine_lvl >= mine_max,
+            "current_Production": mine_lvl * int(mine_cfg.get("hourly_iron_per_level", 15)),
+            "next_production": (mine_lvl + 1) * int(mine_cfg.get("hourly_iron_per_level", 15)),
+            "production_unit": "⛓️ Temir/soat",
+            "upgrade_cost": {
+                "gold": mine_gold_cost,
+                "food": mine_food_cost,
+                "iron": 0,
+            },
+            "can_afford": (
+                mine_lvl < mine_max
+                and (user.gold or 0) >= mine_gold_cost
+                and (user.food or 0) >= mine_food_cost
+            ),
+        },
+        {
+            "key": "grain_mill",
+            "name": mill_cfg.get("name", "Don Tegirmoni"),
+            "emoji": mill_cfg.get("emoji", "🌾"),
+            "description": mill_cfg.get("description", "Har soatlik bug'doy hosildorligini oshiradi va qo'shin hamda ajdarlarni boqish manbai."),
+            "level": mill_lvl,
+            "max_level": mill_max,
+            "is_max": mill_lvl >= mill_max,
+            "current_production": mill_lvl * int(mill_cfg.get("hourly_food_per_level", 25)),
+            "next_production": (mill_lvl + 1) * int(mill_cfg.get("hourly_food_per_level", 25)),
+            "production_unit": "🌾 Bug'doy/soat",
+            "upgrade_cost": {
+                "gold": mill_gold_cost,
+                "food": 0,
+                "iron": mill_iron_cost,
+            },
+            "can_afford": (
+                mill_lvl < mill_max
+                and (user.gold or 0) >= mill_gold_cost
+                and (user.iron or 0) >= mill_iron_cost
+            ),
+        },
+    ]
+
+    return {
+        "user_id": user.id,
+        "resources": {
+            "gold": user.gold or 0,
+            "food": user.food or 0,
+            "iron": user.iron or 0,
+        },
+        "summary": {
+            "iron_mine_level": mine_lvl,
+            "grain_mill_level": mill_lvl,
+            "max_castle_level": max_castle_lvl,
+        },
+        "buildings": buildings,
+        "castle_fortifications": castle_buildings,
+    }
+
+
+async def upgrade_building_service(
+    session: AsyncSession,
+    identifier: int,
+    building_type: str,
+    territory_id: Optional[int] = None,
+) -> Tuple[bool, str, Dict[str, Any]]:
+    """
+    Inshoot yoki qal'a istehkomini ko'tarish (iron_mine, grain_mill, castle_keep).
+    """
+    user = await crud.get_user_any(session, identifier)
+    if not user:
+        return False, "Foydalanuvchi topilmadi.", {}
+
+    b_type = (building_type or "").strip().lower()
+    if b_type in ("iron_mine", "mine"):
+        ok, msg = await crud.upgrade_building(session, user.id, "mine")
+    elif b_type in ("grain_mill", "mill"):
+        ok, msg = await crud.upgrade_building(session, user.id, "mill")
+    elif b_type in ("castle_keep", "castle"):
+        if not territory_id:
+            castles = await crud.get_user_and_house_castles(session, user)
+            if not castles:
+                return False, "Sizda yoki Xonadoningizda qal'a mavjud emas!", {}
+            territory_id = castles[0].id
+        ok, msg = await crud.upgrade_castle_fortification(session, user.id, int(territory_id))
+    else:
+        return False, "Noma'lum inshoot turi.", {}
+
+    hub = await get_buildings_hub_data(session, user.id) if ok else {}
+    return ok, msg, hub or {}

@@ -57,14 +57,14 @@ async def admin_set_ban_status_service(
     is_banned: bool,
 ) -> Tuple[bool, str]:
     """O'yinchini bloklash yoki blokdan chiqarish"""
-    target = await session.get(models.User, target_user_id)
+    target = await crud.get_user_any(session, target_user_id)
     if not target:
         return False, "O'yinchi topilmadi."
 
     target.is_banned = is_banned
     await session.commit()
     status_str = "bloklandi" if is_banned else "blokdan chiqarildi"
-    return True, f"Lord #{target_user_id} ({target.full_name}) muvaffaqiyatli {status_str}."
+    return True, f"Lord #{target.id} ({target.full_name}) muvaffaqiyatli {status_str}."
 
 
 async def admin_adjust_resources_service(
@@ -75,7 +75,7 @@ async def admin_adjust_resources_service(
     iron: int = 0,
 ) -> Tuple[bool, str]:
     """O'yinchiga resurs berish"""
-    target = await session.get(models.User, target_user_id)
+    target = await crud.get_user_any(session, target_user_id)
     if not target:
         return False, "O'yinchi topilmadi."
 
@@ -84,4 +84,4 @@ async def admin_adjust_resources_service(
     target.iron = max(0, (target.iron or 0) + iron)
     await session.commit()
 
-    return True, f"Lord #{target.id} ga resurslar qo'shildi: +{gold:,}🪙, +{food:,}🌾, +{iron:,}⛓️"
+    return True, f"Lord #{target.id} ga resurslar qo'shildi: {gold:+,}🪙, {food:+,}🌾, {iron:+,}⛓️"

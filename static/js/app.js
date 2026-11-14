@@ -20,6 +20,7 @@
     try {
       tg.ready();
       tg.expand();
+      tg.disableVerticalSwipes?.();
       tg.enableClosingConfirmation?.();
       
       // Sync theme header color
@@ -260,7 +261,16 @@
     }
 
     // Scroll to top of viewport
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    const cw = document.querySelector('.content-wrapper');
+    if (cw) {
+      cw.scrollTo({ top: 0, behavior: 'smooth' });
+    } else {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    if (tabId === 'tab-castles') {
+      loadBuildingsHub();
+    }
   }
 
   // 3. Data Fetching
@@ -825,9 +835,131 @@
     });
   }
 
-  // Render Castles Tab (Feature 3)
+  // Render Castles & Buildings Tab (Feature 3 & Qurilish)
+  async function loadBuildingsHub() {
+    const bContainer = document.getElementById('buildings-hub-container');
+    if (!bContainer) return;
+
+    const headers = { 'Content-Type': 'application/json' };
+    if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+
+    try {
+      const resp = await fetch('/api/actions/buildings/hub', { method: 'GET', headers });
+      const res = await resp.json().catch(() => ({}));
+      if (!resp.ok || !res.success) return;
+
+      const hub = res.buildings_hub || res;
+      const bList = hub.buildings || [];
+      const cList = hub.castle_fortifications || [];
+
+      let html = '';
+      bList.forEach(b => {
+        const costParts = [];
+        if (b.upgrade_cost?.gold) costParts.push(`${formatNum(b.upgrade_cost.gold)}🪙`);
+        if (b.upgrade_cost?.iron) costParts.push(`${formatNum(b.upgrade_cost.iron)}⛓️`);
+        if (b.upgrade_cost?.food) costParts.push(`${formatNum(b.upgrade_cost.food)}🌾`);
+        const costStr = costParts.join(' + ');
+
+        html += `
+          <div class="card p-3 mb-2" style="border-left: 3px solid var(--gold-primary);">
+            <div class="d-flex justify-between align-center">
+              <div>
+                <h4 class="font-serif text-gold" style="margin:0; font-size:14px;">${b.emoji || '🏗️'} ${escapeHtml(b.name)} <span class="badge badge-gold" style="font-size:10px;">${b.level}/${b.max_level}-Daraja</span></h4>
+                <p class="text-secondary mt-1" style="font-size:11px;">${escapeHtml(b.description || '')}</p>
+              </div>
+            </div>
+            <div class="d-flex justify-between align-center mt-2 pt-2" style="border-top:1px solid rgba(255,255,255,0.08);">
+              <div style="font-size:11px;">
+                ${b.is_max ? '<span class="text-green">✅ Maksimal daraja</span>' : `Keyingi daraja narxi: <strong class="text-gold">${costStr}</strong>`}
+              </div>
+              ${b.is_max
+                ? `<span class="badge badge-active">MAKS</span>`
+                : `<button class="btn btn-primary py-1 px-3 btn-upgrade-bldg" data-type="${b.key}" style="font-size:11px; min-height:38px;">⬆️ Ko'tarish</button>`
+              }
+            </div>
+          </div>
+        `;
+      });
+
+      if (cList.length > 0) {
+        const fc = cList[0];
+        const fcCost = `${formatNum(fc.upgrade_cost?.gold || 0)}🪙 + ${formatNum(fc.upgrade_cost?.iron || 0)}⛓️ + ${formatNum(fc.upgrade_cost?.food || 0)}🌾`;
+        html += `
+          <div class="card p-3 mb-2" style="border-left: 3px solid #2a9d8f;">
+            <div class="d-flex justify-between align-center">
+              <div>
+                <h4 class="font-serif text-gold" style="margin:0; font-size:14px;">🏰 Qal'a Istehkomi & Chayon Minoralari (${escapeHtml(fc.name)}) <span class="badge badge-gold" style="font-size:10px;">${fc.level}/${fc.max_level}-Daraja</span></h4>
+                <p class="text-secondary mt-1" style="font-size:11px;">Qal'a devorini mustahkamlaydi, soatlik daromadni +25% oshiradi va dushman ajdarlari olovidan himoya qiladi (Chayon: -${fc.scorpion_dr_pct || 8}% ajdar zarari).</p>
+              </div>
+            </div>
+            <div class="d-flex justify-between align-center mt-2 pt-2" style="border-top:1px solid rgba(255,255,255,0.08);">
+              <div style="font-size:11px;">
+                ${fc.is_max ? '<span class="text-green">✅ Maksimal daraja</span>' : `Narxi: <strong class="text-gold">${fcCost}</strong>`}
+              </div>
+              ${fc.is_max
+                ? `<span class="badge badge-active">MAKS</span>`
+                : `<button class="btn btn-primary py-1 px-3 btn-upgrade-bldg" data-type="castle_keep" data-tid="${fc.territory_id}" style="font-size:11px; min-height:38px;">⬆️ Mustahkamlash</button>`
+              }
+            </div>
+          </div>
+        `;
+      }
+
+      bContainer.innerHTML = html || '<div class="card text-center py-2 text-secondary">Inshootlar topilmadi.</div>';
+
+      bContainer.querySelectorAll('.btn-upgrade-bldg').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const bType = btn.getAttribute('data-type');
+          const tId = btn.getAttribute('data-tid') ? parseInt(btn.getAttribute('data-tid')) : null;
+          await handleUpgradeBuilding(bType, tId, btn);
+        });
+      });
+    } catch (e) {
+      console.warn('Buildings hub error:', e);
+    }
+  }
+
+  async function handleUpgradeBuilding(buildingType, territoryId, btnEl) {
+    if (isActionPending || !buildingType) return;
+    isActionPending = true;
+    if (btnEl) {
+      btnEl.disabled = true;
+      btnEl.textContent = '⏳...';
+    }
+    haptic('medium');
+
+    const headers = { 'Content-Type': 'application/json' };
+    if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+
+    try {
+      const resp = await fetch('/api/actions/buildings/upgrade', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ building_type: buildingType, territory_id: territoryId }),
+      });
+      const res = await resp.json().catch(() => ({}));
+      if (!resp.ok || !res.success) {
+        throw new Error(formatErrorMessage(res.detail || res.error || 'Inshootni ko‘tarishda xatolik.'));
+      }
+      showToast(res.message || '🏗️ Inshoot darajasi muvaffaqiyatli ko‘tarildi!', 'success');
+      haptic('heavy');
+      await fetchDashboard();
+      await loadBuildingsHub();
+    } catch (err) {
+      showToast(err.message, 'error');
+      haptic('error');
+      if (btnEl) {
+        btnEl.disabled = false;
+        btnEl.textContent = '⬆️ Ko‘tarish';
+      }
+    } finally {
+      isActionPending = false;
+    }
+  }
+
   function renderCastles(castlesData) {
     if (!castlesData) return;
+    loadBuildingsHub();
 
     const total = castlesData.total_castles || 0;
     const claimableGold = typeof castlesData.total_claimable === 'object'
@@ -2504,7 +2636,15 @@
   }
 
   // --- DRAGON NEST ---
+  let activeDragonId = null;
+  let activeDragonLevel = 1;
+  let activeDragonHunger = 100;
+  let selectedDragonGrade = 'C';
+  let cachedDragonHubData = null;
+  let isViewingDragonCatalog = false;
+
   async function openDragonModal() {
+    isViewingDragonCatalog = false;
     showModal('dragon-modal');
     await loadDragonData();
   }
@@ -2513,9 +2653,55 @@
     hideModal('dragon-modal');
   }
 
-  let activeDragonId = null;
-  let activeDragonLevel = 1;
-  let activeDragonHunger = 100;
+  function renderDragonSpeciesCatalog(catalog) {
+    const listEl = document.getElementById('dragon-species-catalog-list');
+    if (!listEl) return;
+    if (!Array.isArray(catalog) || catalog.length === 0) {
+      listEl.innerHTML = '<div class="text-secondary text-center py-2">Katalog yuklanmoqda...</div>';
+      return;
+    }
+
+    listEl.innerHTML = catalog.map(sp => {
+      const isSelected = sp.grade === selectedDragonGrade;
+      const borderColor = isSelected ? 'var(--gold-primary)' : 'rgba(255,255,255,0.08)';
+      const bg = isSelected ? 'rgba(212,175,55,0.14)' : 'rgba(18,22,30,0.8)';
+      const statusBadge = sp.meets_requirements
+        ? (sp.can_afford ? '<span class="badge badge-active" style="font-size:9px;">Mavjud</span>' : '<span class="badge" style="background:#f39c1233;color:#f39c12;font-size:9px;">Resurs yetmaydi</span>')
+        : '<span class="badge" style="background:#e6394633;color:#e63946;font-size:9px;">Talab bajarilmagan</span>';
+
+      return `
+        <div class="card p-2 dragon-species-card" data-grade="${escapeHtml(sp.grade)}" data-name="${escapeHtml(sp.species_name)}" style="margin-bottom:0; cursor:pointer; border:1.5px solid ${borderColor}; background:${bg};">
+          <div class="d-flex justify-between align-center">
+            <strong class="text-gold font-serif" style="font-size:13px;">${sp.emoji || '🐉'} ${escapeHtml(sp.species_name)} — ${escapeHtml(sp.title)} [${escapeHtml(sp.grade)}]</strong>
+            ${statusBadge}
+          </div>
+          <div class="d-flex justify-between mt-1" style="font-size:11px;">
+            <span>⚔️ ATK: <strong class="text-red">${formatNum(sp.base_attack)}</strong> | 🛡️ DEF: <strong class="text-blue">${formatNum(sp.base_defense)}</strong> | ❤️ HP: <strong class="text-green">${formatNum(sp.base_hp)}</strong></span>
+            <span class="text-gold">🔥 ${formatNum(sp.base_power)}</span>
+          </div>
+          <div class="mt-1" style="font-size:11px;">
+            💰 Narxi: <strong class="text-gold">${formatNum(sp.price?.gold || 0)}🪙 + ${formatNum(sp.price?.iron || 0)}⛓️ + ${formatNum(sp.price?.food || 0)}🌾</strong>
+          </div>
+          <div class="text-secondary mt-1" style="font-size:10px;">
+            🏛️ Talab: Lord ${sp.requirements?.min_user_level || 1}-daraja | ⛏️ Kon ${sp.requirements?.min_iron_mine_level || 1} | 🌾 Tegirmon ${sp.requirements?.min_grain_mill_level || 1}${sp.requirements?.min_castle_level > 1 ? ` | 🏰 Qal'a ${sp.requirements.min_castle_level}` : ''} | ⏳ Ochirish: ${sp.hatch_hours || 2} soat
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    listEl.querySelectorAll('.dragon-species-card').forEach(card => {
+      card.addEventListener('click', () => {
+        haptic('light');
+        selectedDragonGrade = card.getAttribute('data-grade') || 'C';
+        const spName = card.getAttribute('data-name') || 'Arrax';
+        const nameInput = document.getElementById('dragon-claim-name-input');
+        if (nameInput && !nameInput.value.trim()) {
+          nameInput.placeholder = `Masalan: ${spName}`;
+        }
+        renderDragonSpeciesCatalog(catalog);
+      });
+    });
+  }
 
   async function loadDragonData() {
     try {
@@ -2529,15 +2715,57 @@
         throw new Error(formatErrorMessage(errMsg));
       }
 
-      const d = res.dragon || (res.dragon_hub && res.dragon_hub.dragons && res.dragon_hub.dragons[0]) || null;
+      const hub = res.dragon_hub || {};
+      cachedDragonHubData = hub;
+      const dragonsList = hub.dragons || (res.dragon ? [res.dragon] : []);
+      const catalog = res.species_catalog || hub.species_catalog || [];
+      renderDragonSpeciesCatalog(catalog);
+
+      // Render switcher pills if player has multiple dragons
+      const switcherEl = document.getElementById('dragon-switcher-pills');
+      if (switcherEl) {
+        if (dragonsList.length > 1 && !isViewingDragonCatalog) {
+          switcherEl.style.display = 'flex';
+          switcherEl.innerHTML = dragonsList.map(dr => `
+            <button class="btn ${dr.id === activeDragonId ? 'btn-primary' : 'btn-secondary'} flex-1 py-1 px-2 btn-switch-dragon" data-id="${dr.id}" style="font-size:11px; min-height:36px;">
+              🐉 ${escapeHtml(dr.name)} (${dr.level || 1}-d)
+            </button>
+          `).join('');
+          switcherEl.querySelectorAll('.btn-switch-dragon').forEach(b => {
+            b.addEventListener('click', () => {
+              haptic('light');
+              activeDragonId = parseInt(b.getAttribute('data-id'));
+              isViewingDragonCatalog = false;
+              loadDragonData();
+            });
+          });
+        } else if (dragonsList.length > 0 && isViewingDragonCatalog) {
+          switcherEl.style.display = 'flex';
+          switcherEl.innerHTML = `<button class="btn btn-secondary w-100 py-1" id="btn-back-to-my-dragon" style="font-size:11px; min-height:36px;">⬅️ Mening Ajdahomga Qaytish</button>`;
+          document.getElementById('btn-back-to-my-dragon')?.addEventListener('click', () => {
+            isViewingDragonCatalog = false;
+            loadDragonData();
+          });
+        } else {
+          switcherEl.style.display = 'none';
+        }
+      }
+
+      let d = null;
+      if (!isViewingDragonCatalog && dragonsList.length > 0) {
+        d = dragonsList.find(x => x.id === activeDragonId) || dragonsList[0];
+      }
+
       const vUnclaimed = document.getElementById('dragon-view-unclaimed');
       const vEgg = document.getElementById('dragon-view-egg');
       const vActive = document.getElementById('dragon-view-active');
 
-      if (!d) {
-        activeDragonId = null;
-        activeDragonLevel = 1;
-        activeDragonHunger = 100;
+      if (!d || isViewingDragonCatalog) {
+        if (!d) {
+          activeDragonId = null;
+          activeDragonLevel = 1;
+          activeDragonHunger = 100;
+        }
         if (vUnclaimed) vUnclaimed.style.display = 'block';
         if (vEgg) vEgg.style.display = 'none';
         if (vActive) vActive.style.display = 'none';
@@ -2549,7 +2777,11 @@
         if (vEgg) vEgg.style.display = 'block';
         if (vActive) vActive.style.display = 'none';
         const eggNameEl = document.getElementById('dragon-egg-name');
-        if (eggNameEl) eggNameEl.textContent = d.name || 'Valyriya Tuxumi';
+        if (eggNameEl) eggNameEl.textContent = `${d.name || 'Valyriya Tuxumi'} [${d.grade || 'C'}]`;
+        const eggDescEl = document.getElementById('dragon-egg-ritual-desc');
+        if (eggDescEl && d.hatch_ritual_cost) {
+          eggDescEl.textContent = `Olov marosimi xarajati: ${formatNum(d.hatch_ritual_cost.gold || 0)} Oltin + ${formatNum(d.hatch_ritual_cost.food || 0)} Bug'doy (${d.hatch_hours || 2} soat inkubatsiya).`;
+        }
       } else {
         activeDragonId = d.id;
         activeDragonLevel = d.level || 1;
@@ -2558,27 +2790,45 @@
         if (vEgg) vEgg.style.display = 'none';
         if (vActive) vActive.style.display = 'block';
         const dName = document.getElementById('dragon-name');
-        if (dName) dName.textContent = d.name || 'Ajdaho';
+        if (dName) dName.textContent = `${d.name || 'Ajdaho'} [${d.grade || 'C'}]`;
         const dStage = document.getElementById('dragon-stage-lbl');
         const stageName = d.stage_label || (d.stage === 'baby' ? 'Go‘dak Ajdaho' : (d.stage === 'young' ? 'Yosh Ajdaho' : 'Ulg‘aygan Ajdaho'));
-        if (dStage) dStage.textContent = `${stageName} • ${d.level ? `${d.level}-daraja` : '1-daraja'}`;
+        if (dStage) dStage.textContent = `${stageName} • ${d.level ? `${d.level}-daraja` : '1-daraja'} / ${d.max_level || 20}`;
+
+        // Combat Stats (ATK, DEF, HP)
+        const atkEl = document.getElementById('dragon-atk-val');
+        const defEl = document.getElementById('dragon-def-val');
+        const hpEl = document.getElementById('dragon-hp-val');
+        if (atkEl) atkEl.textContent = formatNum(d.attack || 0);
+        if (defEl) defEl.textContent = formatNum(d.defense || 0);
+        if (hpEl) hpEl.textContent = formatNum(d.hp || 0);
+
+        const readyEl = document.getElementById('dragon-ready-status-lbl');
+        if (readyEl) {
+          if (d.is_ready === false) {
+            readyEl.innerHTML = `<span class="text-danger">🔴 Yarador — dam olmoqda (${d.rest_minutes_left || 30} daqiqa qoldi)</span>`;
+          } else {
+            readyEl.innerHTML = `<span class="text-green">🟢 Jangga shay (Dracarys va Havo hujumiga tayyor)</span>`;
+          }
+        }
+
         const dPwr = document.getElementById('dragon-power-val');
         if (dPwr) dPwr.textContent = formatNum(d.power || 0);
         const dPwrBar = document.getElementById('dragon-power-bar');
-        if (dPwrBar) dPwrBar.style.width = `${Math.min(100, Math.floor((d.power || 0) / 50))}%`;
+        if (dPwrBar) dPwrBar.style.width = `${Math.min(100, Math.floor((d.power || 0) / 80))}%`;
 
         // Hunger: in DB 0-100 where 100 is completely full (to'q)
         const hungerPct = Math.min(100, Math.max(0, activeDragonHunger));
         const dHunger = document.getElementById('dragon-hunger-val');
         if (dHunger) {
-          const hungerStatus = hungerPct >= 70 ? "To'q" : (hungerPct >= 30 ? "O'rtacha" : "Och");
+          const hungerStatus = hungerPct >= 70 ? "To'q" : (hungerPct >= 40 ? "O'rtacha" : "Och (Boqish kerak)");
           dHunger.textContent = `${hungerStatus} (${hungerPct}%)`;
-          dHunger.className = hungerPct >= 70 ? 'text-green' : (hungerPct >= 30 ? 'text-gold' : 'text-danger');
+          dHunger.className = hungerPct >= 70 ? 'text-green' : (hungerPct >= 40 ? 'text-gold' : 'text-danger');
         }
         const dHungerBar = document.getElementById('dragon-hunger-bar');
         if (dHungerBar) {
           dHungerBar.style.width = `${hungerPct}%`;
-          dHungerBar.style.background = hungerPct >= 70 ? '#2a9d8f' : (hungerPct >= 30 ? '#e9c46a' : '#e63946');
+          dHungerBar.style.background = hungerPct >= 70 ? '#2a9d8f' : (hungerPct >= 40 ? '#e9c46a' : '#e63946');
         }
 
         const portraitImg = document.getElementById('dragon-portrait-img');
@@ -2587,27 +2837,33 @@
         }
 
         // Dynamic costs on action buttons
-        const feedCost = d.feed_food_cost || (250 + (activeDragonLevel * 40));
+        const feedCost = d.feed_food_cost || (250 + (activeDragonLevel * 45));
         const feedLbl = document.getElementById('dragon-feed-cost-lbl');
         if (feedLbl) feedLbl.textContent = `${formatNum(feedCost)} Bug'doy`;
 
         const trainLbl = document.getElementById('dragon-train-cost-lbl');
         const trainBtn = document.getElementById('btn-train-dragon');
-        if (activeDragonLevel >= 20) {
+        if (activeDragonLevel >= (d.max_level || 20)) {
           if (trainLbl) trainLbl.textContent = 'Maksimal daraja (20/20)';
-          if (trainBtn) {
-            trainBtn.style.opacity = '0.85';
-          }
+          if (trainBtn) trainBtn.style.opacity = '0.85';
         } else {
           if (trainLbl) {
             if (d.upgrade_costs) {
-              trainLbl.textContent = `${formatNum(d.upgrade_costs.gold || 120)} Oltin + ${formatNum(d.upgrade_costs.iron || 180)} Temir`;
+              trainLbl.textContent = `${formatNum(d.upgrade_costs.gold || 0)}🪙 + ${formatNum(d.upgrade_costs.iron || 0)}⛓️ + ${formatNum(d.upgrade_costs.food || 0)}🌾`;
             } else {
-              trainLbl.textContent = `Daraja oshirish`;
+              trainLbl.textContent = 'Daraja oshirish';
             }
           }
-          if (trainBtn) {
-            trainBtn.style.opacity = '1';
+          if (trainBtn) trainBtn.style.opacity = '1';
+        }
+
+        // Show 2nd dragon button if player has < 2 dragons
+        const buySecondBtn = document.getElementById('btn-buy-second-dragon');
+        if (buySecondBtn) {
+          if (hub.can_claim_egg && dragonsList.length < (hub.max_dragons_per_user || 2)) {
+            buySecondBtn.style.display = 'inline-flex';
+          } else {
+            buySecondBtn.style.display = 'none';
           }
         }
       }
@@ -2622,18 +2878,27 @@
     try {
       const headers = { 'Content-Type': 'application/json' };
       if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
+      const nameInput = document.getElementById('dragon-claim-name-input');
+      const customName = (nameInput?.value || '').trim();
+      const catalog = cachedDragonHubData?.species_catalog || [];
+      const chosenSp = catalog.find(x => x.grade === selectedDragonGrade);
+      const finalName = customName.length >= 2 ? customName : (chosenSp?.species_name || 'Arrax');
+
       const resp = await fetch('/api/actions/dragon/claim-egg', {
         method: 'POST',
         headers: headers,
-        body: JSON.stringify({ name: 'Balerion' })
+        body: JSON.stringify({ name: finalName, grade: selectedDragonGrade || 'C' })
       });
       const res = await resp.json().catch(() => ({}));
       if (!resp.ok || !res.success) {
         const errMsg = res.detail || res.error || res.message || 'Tuxumni olib bo‘lmadi.';
         throw new Error(formatErrorMessage(errMsg));
       }
-      showToast('🥚 Valyriya ajdaho tuxumi sandiqingizga qo‘yildi!', 'success');
+      isViewingDragonCatalog = false;
+      if (res.dragon && res.dragon.id) activeDragonId = res.dragon.id;
+      showToast(res.message || '🥚 Valyriya ajdaho tuxumi sandiqingizga qo‘yildi!', 'success');
       haptic('heavy');
+      await fetchDashboard();
       await loadDragonData();
     } catch (e) {
       showToast(e.message, 'error');
@@ -3486,6 +3751,39 @@
   function renderCosmeticsCategory(catKey) {
     const container = document.getElementById('cosmetics-items-container');
     if (!container || !cachedCosmeticsHub) return;
+
+    if (catKey === 'my_requests') {
+      const myReqs = cachedCosmeticsHub.my_requests || [];
+      const vipDays = cachedCosmeticsHub.vip_days_left || 0;
+      let reqHtml = `
+        <div class="card p-2 mb-2" style="background: rgba(212,175,55,0.08); border: 1px solid rgba(212,175,55,0.3); font-size:11px;">
+          👑 <strong>Faol Premium / VIP:</strong> ${cachedCosmeticsHub.is_vip_active ? `<span class="text-green">${vipDays} kun qoldi</span>` : '<span class="text-secondary">Faol emas</span>'}
+        </div>
+      `;
+      if (myReqs.length === 0) {
+        reqHtml += '<div class="text-center text-secondary py-3" style="font-size:12px;">Sizda hali donat so‘rovlari tarixi mavjud emas.</div>';
+      } else {
+        myReqs.forEach(r => {
+          const stColor = r.status === 'pending' ? '#f39c12' : (r.status === 'approved' ? '#2a9d8f' : '#e63946');
+          const stLbl = r.status === 'pending' ? '⏳ Kutilmoqda' : (r.status === 'approved' ? '✅ Tasdiqlandi' : '❌ Rad etildi');
+          reqHtml += `
+            <div class="card p-2 mb-2" style="border-left: 3px solid ${stColor}; font-size:11px;">
+              <div class="d-flex justify-between align-center">
+                <strong class="text-gold">#${r.id} • ${escapeHtml(r.tier_name)}</strong>
+                <span class="badge" style="background:${stColor}33; color:${stColor}; border:1px solid ${stColor}; font-size:10px;">${stLbl}</span>
+              </div>
+              <div class="d-flex justify-between mt-1">
+                <span class="text-secondary">🕒 ${escapeHtml(r.created_at)}</span>
+                <strong class="text-gold">${escapeHtml(r.price_label || (formatNum(r.amount) + " so'm"))}</strong>
+              </div>
+              ${r.admin_notes ? `<div class="text-danger mt-1" style="font-size:10px;">📝 Sabab: ${escapeHtml(r.admin_notes)}</div>` : ''}
+            </div>
+          `;
+        });
+      }
+      container.innerHTML = reqHtml;
+      return;
+    }
 
     const catalog = cachedCosmeticsHub.catalog || {};
     const rawItems = catalog[catKey] ? [...catalog[catKey]] : [];
@@ -4683,15 +4981,37 @@
 
   // 6. Event Listeners Setup
   function setupListeners() {
-    // Bottom Nav Tabs
+    // Bottom Nav Tabs & Modal Shortcuts (Bosh sahifa, Qurilish, Ajdarlar, Urush, Xonadon, Donat)
     document.querySelectorAll('.bottom-nav .nav-item').forEach(btn => {
       btn.addEventListener('click', () => {
+        const modalId = btn.getAttribute('data-modal');
         const tabId = btn.getAttribute('data-tab');
-        if (tabId && tabId !== activeTab) {
-          haptic('light');
-          switchTab(tabId);
+        haptic('light');
+        if (modalId === 'dragon-modal') {
+          openDragonModal();
+        } else if (modalId === 'house-modal') {
+          openHouseModal();
+        } else if (modalId === 'donate-modal') {
+          openDonateModal();
+        } else if (tabId) {
+          if (activeModal) hideModal(activeModal);
+          if (tabId !== activeTab) switchTab(tabId);
         }
       });
+    });
+
+    document.getElementById('btn-open-rankings')?.addEventListener('click', () => {
+      haptic('light');
+      switchTab('tab-rankings');
+    });
+    document.getElementById('btn-open-world')?.addEventListener('click', () => {
+      haptic('light');
+      switchTab('tab-world');
+    });
+    document.getElementById('btn-buy-second-dragon')?.addEventListener('click', () => {
+      haptic('light');
+      isViewingDragonCatalog = true;
+      loadDragonData();
     });
 
     // Ranking Category Filter Chips

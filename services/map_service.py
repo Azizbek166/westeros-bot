@@ -92,18 +92,34 @@ async def get_territory_scout_detail(
 
     can_attack, reason = can_attack_target(user, terr) if user else (False, "Avval kiring")
 
+    g_inf = getattr(terr, "garrison_infantry", 0) or 0
+    g_arc = getattr(terr, "garrison_archers", 0) or 0
+    g_cav = getattr(terr, "garrison_cavalry", 0) or 0
+    g_spe = getattr(terr, "garrison_spearmen", 0) or 0
+    eff_def = (getattr(terr, "defense", 500) or 500) + (g_inf * 2) + (g_arc * 3) + (g_cav * 4) + (g_spe * 3)
+
     return {
         "id": terr.id,
+        "territory_id": terr.id,
         "name": terr.name,
+        "territory_name": terr.name,
         "castle_name": terr.castle_name or terr.name,
-        "region": terr.region,
+        "region": terr.region or "Vesteros",
         "defense": getattr(terr, "defense", 500) or 500,
+        "effective_defense": eff_def,
         "castle_level": getattr(terr, "castle_level", 1) or 1,
+        "owner_house_name": h.name if h else "Neytral",
         "owner_house": {
             "id": h.id if h else None,
             "name": h.name if h else "Neytral",
             "emoji": h.emoji if h else "⚔️",
         },
+        "garrison_infantry": g_inf,
+        "garrison_archers": g_arc,
+        "garrison_cavalry": g_cav,
+        "garrison_spearmen": g_spe,
+        "wildfire_traps": bool((getattr(terr, "wildfire_count", 0) or 0) > 0),
+        "gates_compromised": bool(getattr(terr, "gates_compromised", False)),
         "is_peace_shielded": is_shielded,
         "shield_hours_left": hours_shield,
         "can_attack": can_attack,

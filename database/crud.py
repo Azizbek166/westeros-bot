@@ -2870,25 +2870,51 @@ async def get_user_dragon(session: AsyncSession, user_id: int, dragon_id: Option
     return dragons[0]
 
 
-def get_base_dragon_power_for_level(level: int, stage: str = "adult") -> int:
-    """Ajdar darajasi va bosqichiga mos asosiy quvvat"""
-    level = max(1, min(20, level or 1))
+def get_dragon_species_config(name_or_grade: Optional[str] = None, fallback_grade: str = "C") -> Dict[str, Any]:
+    """config.DRAGON_SPECIES_CONFIG dan ajdar turi sozlamalarini olish"""
+    from config import DRAGON_SPECIES_CONFIG
+    if name_or_grade:
+        clean = str(name_or_grade).replace(" Nasli", "").strip()
+        for k, v in DRAGON_SPECIES_CONFIG.items():
+            if k.lower() == clean.lower():
+                return v
+    grade_map = {
+        "S": "Balerion",
+        "A+": "Vhagar",
+        "A": "Caraxes",
+        "B+": "Meleys",
+        "B": "Syrax",
+        "C": "Arrax",
+        "COMMON": "Arrax",
+    }
+    mapped_name = grade_map.get(str(fallback_grade or "C").upper(), "Arrax")
+    return DRAGON_SPECIES_CONFIG.get(mapped_name, DRAGON_SPECIES_CONFIG["Arrax"])
+
+
+def get_base_dragon_power_for_level(level: int, stage: str = "adult", name: Optional[str] = None, grade: str = "C") -> int:
+    """Ajdar darajasi, turi va bosqichiga mos asosiy quvvat (config asosida)"""
+    from config import DRAGON_BALANCE_CONFIG
+    max_lvl = DRAGON_BALANCE_CONFIG.get("max_level", 20)
+    level = max(1, min(max_lvl, level or 1))
+    spec = get_dragon_species_config(name, grade)
+    base_p = spec.get("base_power", 1200)
+    max_p = spec.get("max_level_power", 5200)
     if stage == "egg":
-        return 150
+        return max(150, int(base_p * 0.25))
+    growth_per_lvl = (max_p - base_p) / float(max(1, max_lvl - 1))
+    curr = int(base_p + (level - 1) * growth_per_lvl)
     if stage == "baby":
-        return 200 + (level * 60)
-    base = 400
-    for lvl in range(2, level + 1):
-        base += 120 + (lvl * 25)
-    return base
+        return int(curr * 0.85)
+    return curr
 
 
-def get_max_dragon_power(level: int, stage: str = "adult", artifact_code: Optional[str] = None) -> int:
-    """Ajdar darajasiga ko'ra ruxsat etilgan maksimal jangovar quvvat (balansli va me'yordagi chegara)"""
-    level = max(1, min(20, level or 1))
-    base = get_base_dragon_power_for_level(level, stage)
-    # Boqish, parvarish va jang tajribasi orqali olinadigan qo'shimcha quvvat
-    care_bonus = level * 120
+def get_max_dragon_power(level: int, stage: str = "adult", artifact_code: Optional[str] = None, name: Optional[str] = None, grade: str = "C") -> int:
+    """Ajdar darajasiga ko'ra ruxsat etilgan maksimal jangovar quvvat"""
+    from config import DRAGON_BALANCE_CONFIG
+    max_lvl = DRAGON_BALANCE_CONFIG.get("max_level", 20)
+    level = max(1, min(max_lvl, level or 1))
+    base = get_base_dragon_power_for_level(level, stage, name=name, grade=grade)
+    care_bonus = level * 150
     total = base + care_bonus
 
     if artifact_code:
@@ -2901,45 +2927,141 @@ def get_max_dragon_power(level: int, stage: str = "adult", artifact_code: Option
     return total
 
 
-async def claim_dragon_egg(session: AsyncSession, user_id: int, name: str, grade: str = "B") -> Tuple[bool, str, Optional[models.Dragon]]:
-    """Yangi ajdar tuxumini xarid qilish (Maksimal 3 ta ajdar)"""
+def get_dragon_combat_stats(dragon: models.Dragon) -> Dict[str, Any]:
+    """Ajdarning jangovar ko'rsatkichlari: Hujum (ATK), Himoya (DEF), Jon (HP), Quvvat va Yaradorlik holati"""
+    from config import DRAGON_BALANCE_CONFIG
+    spec = get_dragon_species_config(dragon.name, getattr(dragon, "grade", "C"))
+    lvl = max(1, min(20, dragon.level or 1))
+    stage = getattr(dragon, "stage", "adult") or "adult"
+    hunger = getattr(dragon, "hunger", 100) if getattr(dragon, "hunger", None) is not None else 100
+
+    # Darajaga qarab ATK, DEF, HP o'sishi (har darajada +8% o'sish)
+    lvl_mult = 1.0 + ((lvl - 1) * 0.08)
+    stage_mult = 0.25 if stage == "egg" else (0.80 if stage == "baby" else 1.0)
+    atk = int(spec["attack"] * lvl_mult * stage_mult)
+    dfn = int(spec["defense"] * lvl_mult * stage_mult)
+    max_hp = int(spec["hp"] * lvl_mult * stage_mult)
+
+    min_battle_hunger = DRAGON_BALANCE_CONFIG.get("min_hunger_for_battle", 30)
+    is_wounded = (hunger < min_battle_hunger) or (stage == "egg")
+    current_hp = int(max_hp * max(0.15, min(1.0, hunger / 100.0)))
+
+    return {
+        "species_name": spec["name"],
+        "species_title": spec["title"],
+        "grade": spec["grade"],
+        "attack": atk,
+        "defense": dfn,
+        "hp": current_hp,
+        "max_hp": max_hp,
+        "power": dragon.power or get_base_dragon_power_for_level(lvl, stage, dragon.name, dragon.grade),
+        "max_power": get_max_dragon_power(lvl, stage, dragon.artifact_code, dragon.name, dragon.grade),
+        "is_wounded": is_wounded,
+        "recovery_status": "⚠️ Yarador / Och (Jangga kirish uchun boqing!)" if (hunger < min_battle_hunger and stage != "egg") else "✅ Jangga tayyor",
+    }
+
+
+async def get_user_max_castle_level(session: AsyncSession, user: models.User) -> int:
+    """Foydalanuvchi yoki uning xonadoniga tegishli eng yuqori Qal'a (Ajdarlar uyasi) darajasini aniqlash"""
+    max_lvl = 1
+    if user.house_id:
+        res = await session.execute(
+            select(models.Territory).where(models.Territory.owner_house_id == user.house_id)
+        )
+        terrs = res.scalars().all()
+        for t in terrs:
+            c_lvl = getattr(t, "castle_level", 1) or 1
+            if c_lvl > max_lvl:
+                max_lvl = c_lvl
+    res_conq = await session.execute(
+        select(models.Territory).where(models.Territory.conquered_by_user_id == user.id)
+    )
+    for t in res_conq.scalars().all():
+        c_lvl = getattr(t, "castle_level", 1) or 1
+        if c_lvl > max_lvl:
+            max_lvl = c_lvl
+    return max_lvl
+
+
+async def claim_dragon_egg(session: AsyncSession, user_id: int, name: str, grade: str = "C") -> Tuple[bool, str, Optional[models.Dragon]]:
+    """Yangi ajdar tuxumini xarid qilish (config.DRAGON_SPECIES_CONFIG narxlari va shartlari asosida)"""
+    from config import DRAGON_SPECIES_CONFIG, DRAGON_BALANCE_CONFIG
+
     user = await get_user_any(session, user_id)
     if not user:
         return False, "Foydalanuvchi topilmadi.", None
 
     existing = await get_user_dragons(session, user.id)
-    if len(existing) >= 3:
-        return False, "Sizda allaqachon maksimal 3 ta ajdar mavjud!", None
+    max_buy = DRAGON_BALANCE_CONFIG.get("max_dragons_per_player", 2)
+    if len(existing) >= max_buy:
+        return False, f"❌ Do'kondan maksimal {max_buy} ta ajdar xarid qilish mumkin! (3-ajdarni faqat 10-darajali ulg'aygan ajdardan nasl olish orqali ko'paytirish mumkin).", None
 
-    costs = {
-        "A": {"gold": 2000, "iron": 1000},
-        "B": {"gold": 1400, "iron": 700},
-        "C": {"gold": 800, "iron": 400},
-    }
-    cost = costs.get(grade, {"gold": 1400, "iron": 700})
-    if user.gold < cost["gold"] or user.iron < cost["iron"]:
-        return False, f"Ajdar tuxumini xarid qilish uchun {cost['gold']:,}🪙 oltin va {cost['iron']:,}⛓️ temir kerak!\nSizda: {user.gold:,}🪙 oltin, {user.iron:,}⛓️ temir bor.", None
+    spec = get_dragon_species_config(name, grade)
+    actual_name = spec["name"]
+    actual_grade = spec["grade"]
 
-    user.gold -= cost["gold"]
-    user.iron -= cost["iron"]
+    # 1. Shartlarni tekshirish: Lord darajasi, Qal'a (Ajdarlar uyasi), Temir koni va Don tegirmoni
+    user_lvl = getattr(user, "level", 1) or 1
+    iron_mine_lvl = getattr(user, "iron_mine_level", 1) or 1
+    grain_mill_lvl = getattr(user, "grain_mill_level", 1) or 1
+    castle_lvl = await get_user_max_castle_level(session, user)
+
+    missing_reqs = []
+    if user_lvl < spec["req_player_level"]:
+        missing_reqs.append(f"• 👤 Lord darajasi: **{spec['req_player_level']}** (sizda: {user_lvl})")
+    if castle_lvl < spec["req_castle_level"]:
+        missing_reqs.append(f"• 🏰 Qal'a (Ajdarlar uyasi): **{spec['req_castle_level']}-daraja** (sizda: {castle_lvl})")
+    if iron_mine_lvl < spec["req_iron_mine_level"]:
+        missing_reqs.append(f"• ⛏️ Temir koni: **{spec['req_iron_mine_level']}-daraja** (sizda: {iron_mine_lvl})")
+    if grain_mill_lvl < spec["req_grain_mill_level"]:
+        missing_reqs.append(f"• 🌾 Don tegirmoni: **{spec['req_grain_mill_level']}-daraja** (sizda: {grain_mill_lvl})")
+
+    if missing_reqs:
+        reqs_text = "\n".join(missing_reqs)
+        return False, (
+            f"❌ **{spec['title']}** tuxumini olish uchun quyidagi shartlar bajarilishi kerak:\n\n"
+            f"{reqs_text}\n\n"
+            f"💡 Avval **Qurilish** bo'limidan binolaringizni va darajangizni oshiring!"
+        ), None
+
+    # 2. Narxni tekshirish (Oltin, Temir, Bug'doy)
+    cost_gold = spec["price_gold"]
+    cost_iron = spec["price_iron"]
+    cost_food = spec["price_food"]
+
+    if (user.gold or 0) < cost_gold or (user.iron or 0) < cost_iron or (user.food or 0) < cost_food:
+        return False, (
+            f"❌ **{spec['title']}** tuxumini xarid qilish uchun resurslar yetarli emas!\n\n"
+            f"Talab etiladi:\n"
+            f"• 🪙 Oltin: **{cost_gold:,}** (sizda: {user.gold or 0:,})\n"
+            f"• ⛓️ Temir: **{cost_iron:,}** (sizda: {user.iron or 0:,})\n"
+            f"• 🌾 Bug'doy: **{cost_food:,}** (sizda: {user.food or 0:,})"
+        ), None
+
+    user.gold -= cost_gold
+    user.iron -= cost_iron
+    user.food -= cost_food
 
     dragon = models.Dragon(
         user_id=user.id,
-        name=name,
-        grade=grade,
+        name=actual_name,
+        grade=actual_grade,
         stage="egg",
         level=1,
-        hunger=50,
-        power=60 if grade == "C" else (90 if grade == "B" else 120),
+        hunger=80,
+        power=get_base_dragon_power_for_level(1, "egg", actual_name, actual_grade),
         last_fed=datetime.utcnow(),
     )
     session.add(dragon)
     await session.commit()
-    return True, f"🎉 Siz {name} ({grade} Toifa) ajdari tuxumini xarid qildingiz!", dragon
+    return True, (
+        f"🎉 Tabriklaymiz! Siz **{spec['title']}** tuxumini xarid qildingiz!\n"
+        f"⏳ Tuxum ochilish vaqti: {spec['hatch_hours']} soat (yoki Olovli Marosim orqali ochirishingiz mumkin)."
+    ), dragon
 
 
 async def hatch_dragon(session: AsyncSession, user_id: int, dragon_id: Optional[int] = None) -> Tuple[bool, str]:
-    """Ajdar tuxumini ochirish"""
+    """Ajdar tuxumini ochirish (config.DRAGON_SPECIES_CONFIG asosida)"""
     user = await get_user_any(session, user_id)
     if not user:
         return False, "Foydalanuvchi topilmadi."
@@ -2951,29 +3073,45 @@ async def hatch_dragon(session: AsyncSession, user_id: int, dragon_id: Optional[
     if dragon.stage != "egg":
         return False, "Ushbu ajdar allaqachon tuxumdan chiqqan!"
 
-    if user.food < 1500 or user.iron < 1000 or user.gold < 600:
+    spec = get_dragon_species_config(dragon.name, dragon.grade)
+    h_gold = spec.get("hatch_cost_gold", 3000)
+    h_iron = spec.get("hatch_cost_iron", 2500)
+    h_food = spec.get("hatch_cost_food", 5000)
+
+    if (user.food or 0) < h_food or (user.iron or 0) < h_iron or (user.gold or 0) < h_gold:
         return False, (
-            f"Tuxumni isitib ochirish marosimi uchun quyidagi resurslar kerak:\n"
-            f"• 🌾 Oziq-ovqat: 1,500 (sizda: {user.food:,})\n"
-            f"• ⛓️ Temir: 1,000 (sizda: {user.iron:,})\n"
-            f"• 🪙 Oltin: 600 (sizda: {user.gold:,})"
+            f"🔥 **{dragon.name}** tuxumini olovda isitib ochirish marosimi uchun quyidagi resurslar kerak:\n"
+            f"• 🪙 Oltin: **{h_gold:,}** (sizda: {user.gold or 0:,})\n"
+            f"• ⛓️ Temir: **{h_iron:,}** (sizda: {user.iron or 0:,})\n"
+            f"• 🌾 Bug'doy: **{h_food:,}** (sizda: {user.food or 0:,})"
         )
 
-    user.food -= 1500
-    user.iron -= 1000
-    user.gold -= 600
+    user.food -= h_food
+    user.iron -= h_iron
+    user.gold -= h_gold
     dragon.stage = "baby"
-    max_pwr = get_max_dragon_power(dragon.level, dragon.stage, dragon.artifact_code)
-    dragon.power = min(max_pwr, (dragon.power or 0) + 80)
-    user.prestige += 37
-    user.xp += 400
+    dragon.hunger = 100
+    dragon.power = spec.get("base_power", 1200)
+    user.prestige = (user.prestige or 0) + 50
+    user.xp = (user.xp or 0) + 500
 
     await session.commit()
-    return True, f"🔥 AJOYIB MO'JIZA! {dragon.name} olov bag'rida tuxumdan chiqdi! (+37 Prestige)"
+    return True, f"🔥 AJOYIB MO'JIZA! {dragon.name} olov bag'rida tuxumdan chiqdi! Jangovar quvvati: {dragon.power:,} (+50 Prestige)"
+
+
+def get_dragon_feed_cost(dragon: models.Dragon) -> int:
+    """Ajdarni boqish narxi (config.DRAGON_BALANCE_CONFIG asosida)"""
+    from config import DRAGON_BALANCE_CONFIG
+    lvl = max(1, dragon.level or 1)
+    base_f = DRAGON_BALANCE_CONFIG.get("feed_base_food", 600)
+    per_lvl = DRAGON_BALANCE_CONFIG.get("feed_food_per_level", 150)
+    return base_f + (lvl * per_lvl)
 
 
 async def feed_dragon(session: AsyncSession, user_id: int, dragon_id: Optional[int] = None) -> Tuple[bool, str]:
-    """Ajdarni boqish (350 oziq-ovqat talab etiladi)"""
+    """Ajdarni boqish, yaradorlikdan tiklash va quvvatini oshirish"""
+    from config import DRAGON_BALANCE_CONFIG
+
     user = await get_user_any(session, user_id)
     if not user:
         return False, "Foydalanuvchi topilmadi."
@@ -2985,35 +3123,50 @@ async def feed_dragon(session: AsyncSession, user_id: int, dragon_id: Optional[i
     if dragon.stage == "egg":
         return False, "Tuxumni boqib bo'lmaydi, avval uni ochiring!"
 
-    if user.food < 350:
-        return False, "Ajdarni to'ydirish uchun kamida 350🌾 oziq-ovqat kerak!"
+    feed_cost = get_dragon_feed_cost(dragon)
+    if (user.food or 0) < feed_cost:
+        return False, f"❌ {dragon.name}ni to'ydirish va tiklash uchun {feed_cost:,}🌾 bug'doy kerak! (Sizda: {user.food or 0:,}🌾)"
 
-    feed_cost = 250 + (dragon.level * 40)
-    if user.food < feed_cost:
-        return False, f"❌ Ajdarni to'ydirish uchun kamida {feed_cost:,}🌾 oziq-ovqat kerak!"
-
+    was_wounded = (dragon.hunger or 0) < DRAGON_BALANCE_CONFIG.get("min_hunger_for_battle", 30)
     user.food -= feed_cost
-    dragon.hunger = min(100, dragon.hunger + 30)
-    max_pwr = get_max_dragon_power(dragon.level, dragon.stage, dragon.artifact_code)
-    dragon.power = min(max_pwr, (dragon.power or 0) + 15)
+    restore_amt = DRAGON_BALANCE_CONFIG.get("feed_hunger_restore", 35)
+    dragon.hunger = min(100, (dragon.hunger or 0) + restore_amt)
+
+    pwr_gain = DRAGON_BALANCE_CONFIG.get("feed_power_gain_base", 40) + ((dragon.level or 1) * DRAGON_BALANCE_CONFIG.get("feed_power_gain_per_level", 10))
+    max_pwr = get_max_dragon_power(dragon.level, dragon.stage, dragon.artifact_code, dragon.name, dragon.grade)
+    dragon.power = min(max_pwr, (dragon.power or 0) + pwr_gain)
     dragon.last_fed = datetime.utcnow()
     await session.commit()
-    return True, f"🍗 {dragon.name} to'yib ovqatlandi! Quvvat: {dragon.power:,} (To'qlik: {dragon.hunger}%)"
+
+    heal_note = " ❤️ Yaradorlikdan to'liq tiklandi!" if was_wounded and dragon.hunger >= 30 else ""
+    return True, f"🍗 {dragon.name} to'yib oziqlandi! Quvvat: {dragon.power:,} (To'qlik: {dragon.hunger}%){heal_note}"
 
 
 def get_dragon_upgrade_cost(dragon: models.Dragon) -> Dict[str, int]:
-    """Ajdar darajasini ko'tarish uchun kerakli resurslar (qiyin va afsonaviy balans)"""
-    lvl = dragon.level
+    """Ajdar darajasini ko'tarish uchun kerakli resurslar (config.DRAGON_BALANCE_CONFIG asosida)"""
+    from config import DRAGON_BALANCE_CONFIG
+    lvl = max(1, dragon.level or 1)
+    spec = get_dragon_species_config(dragon.name, getattr(dragon, "grade", "C"))
+    # Yuqori toifali ajdarlarni mashq qildirish ham ulushiga yarasha qimmatroq
+    grade_mult_map = {"C": 1.0, "B": 1.25, "B+": 1.5, "A": 1.85, "A+": 2.25, "S": 2.8}
+    g_mult = grade_mult_map.get(spec["grade"], 1.0)
+
+    base_gold = DRAGON_BALANCE_CONFIG.get("train_base_gold", 1200) + (lvl * DRAGON_BALANCE_CONFIG.get("train_gold_per_level", 650))
+    base_iron = DRAGON_BALANCE_CONFIG.get("train_base_iron", 900) + (lvl * DRAGON_BALANCE_CONFIG.get("train_iron_per_level", 500))
+    base_food = DRAGON_BALANCE_CONFIG.get("train_base_food", 1500) + (lvl * DRAGON_BALANCE_CONFIG.get("train_food_per_level", 800))
+
     return {
-        "food": 300 + (lvl * 250),
-        "iron": 180 + (lvl * 180),
-        "gold": 120 + (lvl * 150),
-        "min_hunger": 30,
+        "food": int(base_food * g_mult),
+        "iron": int(base_iron * g_mult),
+        "gold": int(base_gold * g_mult),
+        "min_hunger": DRAGON_BALANCE_CONFIG.get("min_hunger_for_train", 40),
     }
 
 
 async def train_dragon(session: AsyncSession, user_id: int, dragon_id: Optional[int] = None) -> Tuple[bool, str]:
-    """Ajdarni parvoz va olovga mashq qildirish (Maksimal 20-daraja, qiyin va qimmat)"""
+    """Ajdarni parvoz va olovga mashq qildirish (Maksimal 20-daraja)"""
+    from config import DRAGON_BALANCE_CONFIG
+
     user = await get_user_any(session, user_id)
     if not user:
         return False, "Foydalanuvchi topilmadi."
@@ -3025,41 +3178,47 @@ async def train_dragon(session: AsyncSession, user_id: int, dragon_id: Optional[
     if dragon.stage == "egg":
         return False, "Tuxumni mashq qildirib bo'lmaydi! Avval uni ochiring."
 
-    if dragon.level >= 20:
-        return False, f"❌ {dragon.name} maksimal 20-darajaga yetgan! U o'zining cho'qqisida turibdi."
+    max_lvl = DRAGON_BALANCE_CONFIG.get("max_level", 20)
+    if (dragon.level or 1) >= max_lvl:
+        return False, f"👑 {dragon.name} maksimal {max_lvl}-darajaga yetgan! U o'zining eng yuqori cho'qqisida turibdi."
 
     costs = get_dragon_upgrade_cost(dragon)
-    if dragon.hunger < costs["min_hunger"]:
-        return False, f"❌ {dragon.name} och (to'qlik: {dragon.hunger}%). Uni avval boqing (kamida {costs['min_hunger']}% kerak)!"
+    if (dragon.hunger or 0) < costs["min_hunger"]:
+        return False, f"❌ {dragon.name} och yoki charchagan (to'qlik: {dragon.hunger}%). Mashq uchun kamida {costs['min_hunger']}% to'qlik kerak — avval uni boqing!"
 
-    if user.food < costs["food"] or user.iron < costs["iron"] or user.gold < costs["gold"]:
+    if (user.food or 0) < costs["food"] or (user.iron or 0) < costs["iron"] or (user.gold or 0) < costs["gold"]:
         return False, (
-            f"❌ Ajdarni {dragon.level+1}-darajaga ko'tarish uchun resurslar yetarli emas!\n\n"
-            f"Kerak:\n"
-            f"• 🌾 Oziq: {costs['food']:,} (sizda: {user.food:,})\n"
-            f"• ⛓️ Temir: {costs['iron']:,} (sizda: {user.iron:,})\n"
-            f"• 🪙 Oltin: {costs['gold']:,} (sizda: {user.gold:,})\n"
-            f"• 🍗 To'qlik: {costs['min_hunger']}%+"
+            f"❌ {dragon.name}ni {dragon.level+1}-darajaga ko'tarish uchun resurslar yetarli emas!\n\n"
+            f"Talab etiladi:\n"
+            f"• 🪙 Oltin: **{costs['gold']:,}** (sizda: {user.gold or 0:,})\n"
+            f"• ⛓️ Temir: **{costs['iron']:,}** (sizda: {user.iron or 0:,})\n"
+            f"• 🌾 Bug'doy: **{costs['food']:,}** (sizda: {user.food or 0:,})\n"
+            f"• 🍗 To'qlik: **{costs['min_hunger']}%+**"
         )
 
     user.food -= costs["food"]
     user.iron -= costs["iron"]
     user.gold -= costs["gold"]
-    dragon.hunger = max(0, dragon.hunger - 20)
-    dragon.level += 1
-    pwr_gain = 35 + (dragon.level * 5)
+    hunger_cost = DRAGON_BALANCE_CONFIG.get("train_hunger_cost", 25)
+    dragon.hunger = max(0, (dragon.hunger or 0) - hunger_cost)
+    dragon.level = (dragon.level or 1) + 1
+
     if dragon.level >= 5 and dragon.stage == "baby":
         dragon.stage = "adult"
-    max_pwr = get_max_dragon_power(dragon.level, dragon.stage, dragon.artifact_code)
-    dragon.power = min(max_pwr, (dragon.power or 0) + pwr_gain)
-    user.xp += 150 + (dragon.level * 10)
+
+    new_base = get_base_dragon_power_for_level(dragon.level, dragon.stage, dragon.name, dragon.grade)
+    max_pwr = get_max_dragon_power(dragon.level, dragon.stage, dragon.artifact_code, dragon.name, dragon.grade)
+    old_pwr = dragon.power or 0
+    dragon.power = min(max_pwr, max(new_base, old_pwr + int((new_base - old_pwr) * 0.75) + 250))
+    pwr_gain = max(50, dragon.power - old_pwr)
+    user.xp = (user.xp or 0) + 150 + (dragon.level * 15)
 
     if dragon.stage == "adult" and dragon.level == 5:
         await session.commit()
         return True, f"🦅 TABRIKLAYMIZ! {dragon.name} balog'atga yetib, bahaybat jangovar ajdarga aylandi! (Daraja: {dragon.level}, Quvvat: {dragon.power:,})"
 
     await session.commit()
-    return True, f"🔥 Dracarys! {dragon.name} kuchaytirildi: Daraja {dragon.level}/20, Jang Quvvati: +{pwr_gain} ({dragon.power:,})!"
+    return True, f"🔥 Dracarys! {dragon.name} kuchaytirildi: Daraja {dragon.level}/{max_lvl}, Jang Quvvati: +{pwr_gain:,} ({dragon.power:,})!"
 
 
 async def dragon_lay_egg(session: AsyncSession, user_id: int, dragon_id: int) -> Tuple[bool, str]:
@@ -4802,31 +4961,45 @@ async def upgrade_grain_mill(session: AsyncSession, user_id: int) -> Tuple[bool,
     return True, f"🎉 TABRIKLAYMIZ! Don tegirmoni {next_lvl}-darajaga ko'tarildi! (+{next_lvl*75}🌾 oziq-ovqat/soat ishlab chiqariladi)"
 
 
+def get_castle_upgrade_cost(current_lvl: int) -> Tuple[int, int, int]:
+    """Qal'a istehkomini ko'tarish narxini config'dan qaytaradi: (gold, iron, food)"""
+    import config
+    c_cfg = getattr(config, "BUILDINGS_CONFIG", {}).get("castle_keep", {})
+    lvl = max(1, int(current_lvl or 1))
+    gold_cost = lvl * int(c_cfg.get("gold_per_level", 1000))
+    iron_cost = lvl * int(c_cfg.get("iron_per_level", 750))
+    food_cost = lvl * int(c_cfg.get("food_per_level", 0))
+    return gold_cost, iron_cost, food_cost
+
+
 async def upgrade_castle_keep(session: AsyncSession, user_id: int, territory_id: int) -> Tuple[bool, str]:
     """Qal'a qasrini (Keep Tier) 1 dan 5 gacha ko'tarish"""
+    import config
     user = await get_user_any(session, user_id)
     territory = await session.get(models.Territory, territory_id)
     if not user or not territory:
         return False, "Foydalanuvchi yoki qal'a topilmadi."
 
-    if territory.owner_house_id != user.house_id:
-        return False, "❌ Siz faqat o'z xonadoningizga tegishli qal'alarni kengaytira olasiz!"
+    if territory.owner_house_id != user.house_id and territory.conquered_by_user_id != user.id:
+        return False, "❌ Siz faqat o'z xonadoningizga yoki o'zingizga tegishli qal'alarni kengaytira olasiz!"
 
+    c_cfg = getattr(config, "BUILDINGS_CONFIG", {}).get("castle_keep", {})
+    max_lvl = int(c_cfg.get("max_level", 5))
     current_lvl = getattr(territory, "castle_level", 1) or 1
-    if current_lvl >= 5:
-        return False, "❌ Qal'a maksimal 5-darajaga (Afsonaviy Istehkom) yetgan!"
+    if current_lvl >= max_lvl:
+        return False, f"❌ Qal'a maksimal {max_lvl}-darajaga (Afsonaviy Istehkom) yetgan!"
 
     next_lvl = current_lvl + 1
-    gold_cost = current_lvl * 1000
-    iron_cost = current_lvl * 750
+    gold_cost, iron_cost, food_cost = get_castle_upgrade_cost(current_lvl)
 
-    if (user.gold or 0) < gold_cost or (user.iron or 0) < iron_cost:
+    if (user.gold or 0) < gold_cost or (user.iron or 0) < iron_cost or (user.food or 0) < food_cost:
         return False, f"❌ Qal'ani {next_lvl}-bosqichga ko'tarish uchun {gold_cost:,}🪙 oltin va {iron_cost:,}⛓️ temir kerak! (Sizda: {user.gold:,}🪙 / {user.iron:,}⛓️)"
 
     user.gold -= gold_cost
     user.iron -= iron_cost
+    user.food = max(0, (user.food or 0) - food_cost)
     territory.castle_level = next_lvl
-    territory.defense = (territory.defense or 0) + 300
+    territory.defense = (territory.defense or 0) + int(c_cfg.get("defense_per_level", 300))
     
     # Baza daromadlarini map_data kanoniga muvofiq saqlash (ustiga qayta ko'paytirilmaydi)
     from data.map_data import TERRITORIES_DATA
@@ -4860,6 +5033,21 @@ async def upgrade_castle_keep(session: AsyncSession, user_id: int, territory_id:
 
     await session.commit()
     return True, f"🏰 TABRIKLAYMIZ! {territory.name} qal'asi {next_lvl}-bosqichga (Tier {next_lvl}) ko'tarildi!\n🛡️ Mudofaa: +300\n💰 Soatlik daromad: +25%"
+
+
+async def upgrade_castle_fortification(session: AsyncSession, user_id: int, territory_id: int) -> Tuple[bool, str]:
+    """Qal'a istehkomini ko'tarish (upgrade_castle_keep uchun alias)"""
+    return await upgrade_castle_keep(session, user_id, territory_id)
+
+
+async def upgrade_building(session: AsyncSession, user_id: int, building_type: str) -> Tuple[bool, str]:
+    """Inshoot darajasini ko'tarish (mine / mill)"""
+    b_key = (building_type or "").strip().lower()
+    if b_key in ("mine", "iron_mine"):
+        return await upgrade_iron_mine(session, user_id)
+    if b_key in ("mill", "grain_mill"):
+        return await upgrade_grain_mill(session, user_id)
+    return False, "Noma'lum inshoot turi."
 
 
 async def release_user_dragon(session: AsyncSession, user_id: int, dragon_id: int) -> Tuple[bool, str]:
@@ -8290,7 +8478,7 @@ async def apply_donate_rewards(session: AsyncSession, telegram_id: int, tier_id:
     - Season Pass faollashtirish (retroaktiv mukofotlar bilan)
     - Kosmetika, ramka va faxriy unvon
     """
-    from config import DONATE_TIERS
+    from config import DONATE_TIERS, DONATE_BONUSES_CONFIG
     from core.cosmetics import get_cosmetic_item, grant_cosmetic_item
 
     user = await get_user_with_relations(session, telegram_id)
@@ -8324,13 +8512,37 @@ async def apply_donate_rewards(session: AsyncSession, telegram_id: int, tier_id:
     if not tier:
         return False, f"Bunday to'plam topilmadi: {tier_id}", {}
 
+    base_gold = tier.get("gold", 0)
+    base_food = tier.get("food", 0)
+    base_iron = tier.get("iron", 0)
+    first_donate_bonus_applied = False
+
+    # Birinchi donatga qo'shimcha bonus (faqat resurs va speedup paketlarida)
+    if tier_id in ("knight", "lord", "dragonlord", "sovereign", "speedup_pack"):
+        prev_app_res = await session.execute(
+            select(func.count(models.DonationRequest.id)).where(
+                models.DonationRequest.telegram_id == user.telegram_id,
+                models.DonationRequest.status == "approved",
+            )
+        )
+        prev_approved_cnt = prev_app_res.scalar() or 0
+        # Eslatma: approve_donation_request_service statusni oldin yoki keyin o'zgartirishi mumkin, <= 1 tekshiramiz
+        if prev_approved_cnt <= 1:
+            bonus_pct = DONATE_BONUSES_CONFIG.get("first_donate_bonus_pct", 20)
+            if bonus_pct > 0:
+                mult = 1.0 + (bonus_pct / 100.0)
+                base_gold = int(base_gold * mult)
+                base_food = int(base_food * mult)
+                base_iron = int(base_iron * mult)
+                first_donate_bonus_applied = True
+
     applied_details = {
         "tier_id": tier_id,
         "tier_name": tier["name"],
         "price_label": tier["price_label"],
-        "gold": tier.get("gold", 0),
-        "food": tier.get("food", 0),
-        "iron": tier.get("iron", 0),
+        "gold": base_gold,
+        "food": base_food,
+        "iron": base_iron,
         "prestige": tier.get("prestige", 0),
         "troops": {},
         "dragon": None,
@@ -8340,15 +8552,17 @@ async def apply_donate_rewards(session: AsyncSession, telegram_id: int, tier_id:
         "daily_bonus_gold": tier.get("daily_bonus_gold", 0),
         "daily_bonus_food": tier.get("daily_bonus_food", 0),
         "daily_bonus_iron": tier.get("daily_bonus_iron", 0),
+        "first_donate_bonus_applied": first_donate_bonus_applied,
+        "bulk_bonus_pct": tier.get("bulk_bonus_pct", 0),
     }
 
     # 1. Resurslar va nufuz
-    user.gold = (user.gold or 0) + tier.get("gold", 0)
-    user.food = (user.food or 0) + tier.get("food", 0)
-    user.iron = (user.iron or 0) + tier.get("iron", 0)
+    user.gold = (user.gold or 0) + base_gold
+    user.food = (user.food or 0) + base_food
+    user.iron = (user.iron or 0) + base_iron
     user.prestige = (user.prestige or 0) + tier.get("prestige", 0)
 
-    # 2. Armiya
+    # 2. Armiya (faqat maxsus ko'rsatilgan bo'lsa)
     army = getattr(user, "army", None)
     if not army:
         army = await get_user_army(session, user.id)
@@ -8403,6 +8617,11 @@ async def apply_donate_rewards(session: AsyncSession, telegram_id: int, tier_id:
             await grant_cosmetic_item(session, user, tier_id)
         except Exception:
             pass
+    if tier.get("avatar_frame"):
+        try:
+            await grant_cosmetic_item(session, user, tier["avatar_frame"])
+        except Exception:
+            pass
 
     # 5. Wildfire
     wf_amount = tier.get("wildfire", 0)
@@ -8418,27 +8637,21 @@ async def apply_donate_rewards(session: AsyncSession, telegram_id: int, tier_id:
             applied_details["wildfire_castle"] = terr.name
             applied_details["wildfire_count"] = terr.wildfire_count
 
-    # 6. Ajdaho
-    dragon_data = tier.get("dragon")
-    if dragon_data:
+    # 6. Tezlashtirish (Speedup): Mavjud ajdarlarning tuxumini ochirish yoki charchog'ini/to'qligini 100% tiklash
+    # ESLATMA: Donat orqali yangi ajdar to'g'ridan-to'g'ri berilmaydi!
+    if tier.get("instant_dragon_heal") or tier.get("instant_egg_hatch_boost"):
         dragons = await get_user_dragons(session, user.id)
-        if len(dragons) < 3:
-            new_dragon = models.Dragon(
-                user_id=user.id,
-                name=dragon_data["name"],
-                grade=dragon_data["grade"],
-                stage=dragon_data["stage"],
-                level=dragon_data["level"],
-                power=dragon_data["power"],
-                hunger=dragon_data["hunger"],
-            )
-            session.add(new_dragon)
-            applied_details["dragon"] = f"{new_dragon.name} ({new_dragon.level}-daraja, {new_dragon.power:,} quvvat)"
-        else:
-            top_dragon = max(dragons, key=lambda d: d.power)
-            top_dragon.power += dragon_data["power"]
-            top_dragon.hunger = 100
-            applied_details["dragon_boost"] = f"{top_dragon.name} quvvati +{dragon_data['power']:,} ga oshirildi!"
+        healed_names = []
+        for d in dragons:
+            if tier.get("instant_egg_hatch_boost") and d.stage == "egg":
+                spec = get_dragon_species_config(d.name, d.grade)
+                d.stage = "baby"
+                d.power = max(d.power or 0, spec.get("base_power", 1200))
+            d.hunger = 100
+            d.last_fed = datetime.utcnow()
+            healed_names.append(d.name)
+        if healed_names:
+            applied_details["dragon_boost"] = f"⚡ Tezlashtirish qo'llandi ({', '.join(healed_names)}: 100% to'qlik va tayyorlik)!"
 
     # 7. VIP Darajasini va Muddatini (masalan 30 kun) biriktirish
     duration_days = tier.get("duration_days", 0)

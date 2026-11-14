@@ -23,7 +23,10 @@ from services.donate_service import (
     submit_donation_request_service,
     approve_donation_request_service,
     reject_donation_request_service,
+    get_user_donation_history_service,
+    get_admin_donation_stats_service,
 )
+from core.cosmetics import COSMETICS_CATALOG
 from keyboards.menus import back_to_main_keyboard
 
 
@@ -47,7 +50,7 @@ def calc_troops(troop_type: str, amount_uzs: int) -> int:
 
 
 def donate_menu_keyboard() -> InlineKeyboardMarkup:
-    """VIP to'plamlar, Premium Pass va Kosmetika do'koni klaviaturasi"""
+    """To'liq Donat do'koni klaviaturasi: Premium Pass, Resurs paketlari, Tezlashtirish, Kosmetika va Mening so'rovlarim"""
     buttons = [
         [
             InlineKeyboardButton(
@@ -57,19 +60,55 @@ def donate_menu_keyboard() -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(
-                "👑 Noble VIP (30 kun) — 15,000 so'm",
+                "💎 Noble VIP (30 kun) — 15,000 so'm",
                 callback_data="donate_pick:vip_noble",
             ),
-        ],
-        [
             InlineKeyboardButton(
-                "🎁 Starter Pack (Boshlang'ich) — 5,000 so'm",
+                "🎁 Starter Pack — 5,000 so'm",
                 callback_data="donate_pick:starter_pack",
             ),
         ],
         [
             InlineKeyboardButton(
-                "📱 Mini App Do'koni (Kosmetika & Pass) 💎",
+                "📦 Kichik Resurs — 10,000 so'm",
+                callback_data="donate_pick:knight",
+            ),
+            InlineKeyboardButton(
+                "🧰 O'rta Resurs (+10%) — 25,000 so'm",
+                callback_data="donate_pick:lord",
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                "🏛️ Katta Resurs (+15%) — 50,000 so'm",
+                callback_data="donate_pick:dragonlord",
+            ),
+            InlineKeyboardButton(
+                "👑 Maksimal Xazina (+25%) — 99,000 so'm",
+                callback_data="donate_pick:sovereign",
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                "⚡ Tezlashtirish Paketi (Qurilish/Parvarish) — 15,000 so'm",
+                callback_data="donate_pick:speedup_pack",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "🎨 Kosmetika (Ramka, Unvon, Ajdar Terisi)",
+                callback_data="donate_cosmetics_menu",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "📋 Mening so'rovlarim (Tarix va Premium muddat)",
+                callback_data="donate_my_requests",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "📱 Mini App Donat Do'koni 💎",
                 web_app=WebAppInfo(url=get_miniapp_url("donate")),
             )
         ],
@@ -760,10 +799,126 @@ async def handle_admin_card_settings_text(update: Update, context: ContextTypes.
         await update.message.reply_text(f"❌ {msg}", reply_markup=kb)
 
 
+async def donate_cosmetics_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Bot ichida Kosmetika (Ramkalar, Unvonlar, Ajdar Terilari, Qal'alar) tanlash menyusi"""
+    query = update.callback_query
+    await query.answer()
+
+    buttons = []
+    for item_id, item in COSMETICS_CATALOG.items():
+        if item_id in ("vip_noble", "starter_pack"):
+            continue
+        p_uzs = item.get("price_uzs", 15000)
+        icon = item.get("icon", "✨")
+        name = item.get("name", item_id)
+        buttons.append([
+            InlineKeyboardButton(
+                f"{icon} {name} — {p_uzs:,} so'm",
+                callback_data=f"donate_pick:{item_id}",
+            )
+        ])
+    buttons.append([InlineKeyboardButton("🔙 Donat Do'koniga Qaytish", callback_data="menu_donate")])
+
+    text = (
+        "🎨 **VALYRIYA KOSMETIKA DO'KONI**\n\n"
+        "Profil ramkalari, faxriy unvonlar, ajdar terilari va qal'a ko'rinishlarini tanlang.\n"
+        "Barcha kosmetik buyumlar to'lov cheki (skrinshot) tasdiqlangach taqdim etiladi:"
+    )
+    try:
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+    except Exception:
+        await query.message.reply_text(text.replace("*", ""), reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def donate_my_requests_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Foydalanuvchining donat so'rovlari tarixi va faol Premium qolgan kunlari ('Mening so'rovlarim')"""
+    query = update.callback_query
+    await query.answer()
+    tg_id = query.from_user.id
+
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_any(session, tg_id)
+        history = await get_user_donation_history_service(session, user, limit=10) if user else []
+
+    now = datetime.utcnow()
+    vip_status_str = "❌ Faol emas"
+    if user and user.vip_until and user.vip_until > now:
+        days_left = max(1, int((user.vip_until - now).total_seconds() // 86400) + 1)
+        vip_status_str = f"✅ **Faol ({days_left} kun qoldi — {user.vip_until.strftime('%Y-%m-%d')} gacha)**"
+
+    status_map = {
+        "pending": "⏳ Ko'rib chiqilmoqda",
+        "approved": "✅ Tasdiqlangan",
+        "rejected": "❌ Rad etilgan",
+    }
+
+    lines = [
+        "📋 **MENING DONAT SO'ROVLARIM VA PREMIUM HOLATIM**\n",
+        f"👑 **Premium / VIP Holati:** {vip_status_str}",
+        "━━━━━━━━━━━━━━━━━━━━",
+    ]
+    if not history:
+        lines.append("Sizda hali yuborilgan donat so'rovlari yo'q.")
+    else:
+        for r in history:
+            st_lbl = status_map.get(r["status"], r["status"])
+            note_str = f"\n   📝 _Sabab: {escape_md(r['admin_notes'])}_" if r.get("admin_notes") and r["status"] == "rejected" else ""
+            lines.append(
+                f"• **#{r['id']}** — {escape_md(r['tier_name'])} ({r['price_label']})\n"
+                f"   Holati: {st_lbl} | 📅 {r['created_at']}{note_str}"
+            )
+
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔄 Yangilash", callback_data="donate_my_requests")],
+        [InlineKeyboardButton("🔙 Donat Do'koni", callback_data="menu_donate")],
+    ])
+    text = "\n".join(lines)
+    try:
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=kb)
+    except Exception:
+        await query.message.reply_text(text.replace("*", "").replace("_", ""), reply_markup=kb)
+
+
+async def admin_donate_stats_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Adminga kunlik, haftalik va umumiy donat statistikasini ko'rsatish"""
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        await query.answer("❌ Ruxsat yo'q!", show_alert=True)
+        return
+
+    async with AsyncSessionLocal() as session:
+        stats = await get_admin_donation_stats_service(session)
+
+    text = (
+        f"📊 <b>DONAT STATISTIKASI (KUNLIK / HAFTALIK)</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"📅 <b>Bugun (oxirgi 24 soat):</b>\n"
+        f"• Tasdiqlangan: <b>{stats['daily_approved_count']} ta</b>\n"
+        f"• Tushum: <b>{stats['daily_approved_uzs']:,} so'm</b>\n\n"
+        f"🗓️ <b>Oxirgi 7 kun (Haftalik):</b>\n"
+        f"• Tasdiqlangan: <b>{stats['weekly_approved_count']} ta</b>\n"
+        f"• Tushum: <b>{stats['weekly_approved_uzs']:,} so'm</b>\n\n"
+        f"🏛️ <b>Jami tasdiqlangan:</b>\n"
+        f"• Soni: <b>{stats['total_approved_count']} ta</b>\n"
+        f"• Jami summa: <b>{stats['total_approved_uzs']:,} so'm</b>"
+    )
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔙 Donat So'rovlariga Qaytish", callback_data="admin_donations_list:0:pending")],
+        [InlineKeyboardButton("⚙️ Admin Panel", callback_data="admin_panel")],
+    ])
+    try:
+        await query.edit_message_text(text=text, parse_mode="HTML", reply_markup=kb)
+    except Exception:
+        await query.message.reply_text(text=text, parse_mode="HTML", reply_markup=kb)
+
+
 def register_donate_handlers(app):
     """Donate handlerlarini ro'yxatdan o'tkazish"""
     app.add_handler(CommandHandler(["donate", "vip", "donat", "homiylik", "stars", "shop"], donate_command))
     app.add_handler(CallbackQueryHandler(donate_menu_callback, pattern="^menu_donate$"))
+    app.add_handler(CallbackQueryHandler(donate_cosmetics_menu_callback, pattern="^donate_cosmetics_menu$"))
+    app.add_handler(CallbackQueryHandler(donate_my_requests_callback, pattern="^donate_my_requests$"))
     app.add_handler(CallbackQueryHandler(donate_troops_menu_callback, pattern="^donate_troops_menu$"))
     app.add_handler(CallbackQueryHandler(donate_pick_callback, pattern="^donate_pick:"))
     app.add_handler(CallbackQueryHandler(donate_submit_callback, pattern="^donate_submit:"))
@@ -772,5 +927,6 @@ def register_donate_handlers(app):
     app.add_handler(CallbackQueryHandler(admin_donate_reject_callback, pattern="^(admin_donate_reject:|adm_don_no_)"))
     app.add_handler(CallbackQueryHandler(admin_card_settings_callback, pattern="^admin_card_settings$"))
     app.add_handler(CallbackQueryHandler(admin_card_edit_start_callback, pattern="^admin_card_edit_start$"))
+    app.add_handler(CallbackQueryHandler(admin_donate_stats_callback, pattern="^admin_donate_stats$"))
     app.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL, donate_receipt_receiver), group=1)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_donate_text_WhenAwaitingReceipt), group=2)

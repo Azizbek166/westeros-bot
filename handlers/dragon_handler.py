@@ -4,17 +4,12 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CommandHandler, CallbackQueryHandler, ContextTypes
 from database import AsyncSessionLocal, crud, models
 from keyboards.menus import back_to_main_keyboard
-from config import escape_md
+from config import escape_md, DRAGON_SPECIES_CONFIG, DRAGON_BALANCE_CONFIG
 
 
 DRAGON_PRESETS = [
-    ("Balerion", "A", "🖤 Qora Qo'rqinch — eng bahaybat va qora olov purkovchi afsona"),
-    ("Drogon", "A", "🖤 Qora va qizil qanotli qudratli ajdar"),
-    ("Rhaegal", "B", "💚 Zumrad yashil va bronza olovli jangovar ajdar"),
-    ("Viserion", "C", "💛 Oltin va oq rangli ulug'vor ajdar"),
-    ("Caraxes", "A", "🩸 Qonli Bo'ron — Daemon Targaryenning shafqatsiz ajdari"),
-    ("Vhagar", "A", "⚡ Qadimgi Urushlar Afsonasi — eng ulkan qanotlar"),
-    ("Syrax", "B", "💛 Oltin rangli chaqqon malika ajdari"),
+    (sp["name"], sp["grade"], sp["title"])
+    for sp in DRAGON_SPECIES_CONFIG.values()
 ]
 
 
@@ -33,7 +28,7 @@ async def dragon_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def show_dragon_hub(target, user_id: int, is_message: bool):
-    """Ajdarlar markazi (Maksimal 2 ta ajdar, 20-daraja, tuxum qo'yish tizimi)"""
+    """Ajdarlar markazi (config.DRAGON_SPECIES_CONFIG va DRAGON_BALANCE_CONFIG bilan)"""
     async with AsyncSessionLocal() as session:
         user = await crud.get_user_with_relations(session, user_id)
         if not user:
@@ -45,22 +40,34 @@ async def show_dragon_hub(target, user_id: int, is_message: bool):
             return
 
         dragons = await crud.get_user_dragons(session, user.id)
+        max_castle_lvl = await crud.get_user_max_castle_level(session, user)
 
         if not dragons:
-            # Ajdar tuxumini tanlash (narxlar bilan)
             buttons = []
-            prices = {"A": "3,000🪙 1,500⛓️", "B": "2,000🪙 1,000⛓️", "C": "1,200🪙 600⛓️"}
-            for name, grade, desc in DRAGON_PRESETS:
-                p = prices.get(grade, "2,000🪙 1,000⛓️")
-                buttons.append([InlineKeyboardButton(f"🥚 {name} ({grade} Toifa — {p})", callback_data=f"dragon_claim:{name}:{grade}")])
+            catalog_lines = []
+            for sp in DRAGON_SPECIES_CONFIG.values():
+                p_str = f"{sp['price_gold']:,}🪙 {sp['price_iron']:,}⛓️ {sp['price_food']:,}🌾"
+                buttons.append([
+                    InlineKeyboardButton(
+                        f"🥚 {sp['name']} ({sp['grade']} — {p_str})",
+                        callback_data=f"dragon_claim:{sp['name']}:{sp['grade']}",
+                    )
+                ])
+                catalog_lines.append(
+                    f"**{sp['title']} ({sp['grade']} Toifa)**\n"
+                    f"• 💰 Narx: {sp['price_gold']:,}🪙 | {sp['price_iron']:,}⛓️ | {sp['price_food']:,}🌾\n"
+                    f"• ⚔️ Hujum: {sp['attack']:,} | 🛡️ Himoya: {sp['defense']:,} | ❤️ Jon: {sp['hp']:,}\n"
+                    f"• 📋 Shart: Lord {sp['req_player_level']}-daraja, Qal'a {sp['req_castle_level']}-daraja, Kon {sp['req_iron_mine_level']}-daraja"
+                )
             buttons.append([InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")])
 
             text = (
                 f"🐉 **VALYRIA MEROSI — AFSONAVIY AJDARLAR**\n\n"
-                f"Ajdarlar — Vesterosning eng noyob va qudratli maxluqlaridir! "
-                f"Ularni xarid qilish va boqish faqat boy va nufuzli lordlar qo'lidan keladi.\n\n"
-                f"🎒 Sizning zaxirangiz: **{user.gold:,}**🪙 oltin, **{user.iron:,}**⛓️ temir\n\n"
-                f"Tarbiyalash uchun ajdar tuxumini tanlang:"
+                f"Ajdarlar — Vesterosning eng qudratli va eng qimmat yengilmas maxluqlaridir!\n\n"
+                f"🎒 **Sizning holatingiz:**\n"
+                f"• Zaxira: **{user.gold:,}**🪙 | **{user.iron:,}**⛓️ | **{user.food:,}**🌾\n"
+                f"• Darajangiz: **{user.level}** | Qal'a (Uya): **{max_castle_lvl}** | Kon: **{user.iron_mine_level or 1}** | Tegirmon: **{user.grain_mill_level or 1}**\n\n"
+                + "\n\n".join(catalog_lines)
             )
             try:
                 if is_message:
@@ -69,31 +76,25 @@ async def show_dragon_hub(target, user_id: int, is_message: bool):
                     await target.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
             except Exception:
                 if hasattr(target, "message") and target.message:
-                    await target.message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+                    await target.message.reply_text(text.replace("*", ""), reply_markup=InlineKeyboardMarkup(buttons))
             return
 
         stage_names = {
             "egg": "🥚 Ajdar Tuxumi (Ochirilmagan)",
-            "baby": "🐉 Kichik Ajdar (Olov purkay oladi)",
+            "baby": "🐉 Yosh Ajdar (Olov purkay oladi)",
             "adult": "🦅 Bahaybat Jangovar Ajdar (Qal'alarni yondiruvchi)",
         }
-        grade_names = {"A": "🔥 A Toifa", "B": "💚 B Toifa", "C": "💛 C Toifa"}
 
-        count_str = f"({len(dragons)}/3)"
-        desc_header = ""
-        if len(dragons) >= 3:
-            desc_header = "👑 **Siz Vesteros osmonida 3 ta qudratli ajdarga ega afsonaviy hukmdorsiz!**\n\n"
-
-        text = (
-            f"🐉 **SIZNING AFSONAVIY AJDARLARINGIZ {count_str}**\n\n"
-            f"{desc_header}"
-        )
+        max_buy = DRAGON_BALANCE_CONFIG.get("max_dragons_per_player", 2)
+        count_str = f"({len(dragons)}/{max_buy})"
+        text = f"🐉 **SIZNING AFSONAVIY AJDARLARINGIZ {count_str}**\n\n"
 
         buttons = []
         for idx, dragon in enumerate(dragons, 1):
-            hunger_bar = "█" * (dragon.hunger // 10) + "░" * (10 - (dragon.hunger // 10))
+            hunger_bar = "█" * ((dragon.hunger or 0) // 10) + "░" * (10 - ((dragon.hunger or 0) // 10))
             st_name = stage_names.get(dragon.stage, dragon.stage)
-            gr_name = grade_names.get(dragon.grade, dragon.grade)
+            stats = crud.get_dragon_combat_stats(dragon)
+            spec = crud.get_dragon_species_config(dragon.name, dragon.grade)
 
             egg_info = ""
             if dragon.stage == "adult" and dragon.level >= 10:
@@ -111,11 +112,11 @@ async def show_dragon_hub(target, user_id: int, is_message: bool):
                 loc_str = "🏠 Uyada (hujum va mudofaaga tayyor)"
 
             text += (
-                f"**{idx}-Ajdar: {dragon.name}**\n"
-                f"🏷️ Toifa: **{gr_name}** | Holati: **{st_name}**\n"
+                f"**{idx}-Ajdar: {spec['title']} ({stats['grade']} Toifa)**\n"
+                f"🏷️ Holati: **{st_name}** | {stats['recovery_status']}\n"
                 f"📍 Joylashuvi: {loc_str}\n"
-                f"⭐ Daraja: **{dragon.level} / 20**\n"
-                f"⚔️ Jang Quvvati: **{dragon.power:,}**\n"
+                f"⭐ Daraja: **{dragon.level} / 20** | ⚡ Quvvat: **{dragon.power:,}**\n"
+                f"⚔️ Hujum: **{stats['attack']:,}** | 🛡️ Himoya: **{stats['defense']:,}** | ❤️ Jon: **{stats['hp']:,}/{stats['max_hp']:,}**\n"
                 f"🍗 To'qlik: `[{hunger_bar}]` **{dragon.hunger}%**\n"
             )
 
@@ -130,20 +131,23 @@ async def show_dragon_hub(target, user_id: int, is_message: bool):
                 buttons.append([InlineKeyboardButton(f"↩️ {dragon.name}ni Qal'adan Uyaga Qaytarish", callback_data=f"dragon_recall_home:{deploy_st['territory_id']}:{dragon.id}")])
 
             if dragon.stage == "egg":
-                buttons.append([InlineKeyboardButton(f"✨ {dragon.name} Tuxumini Ochirish (1,500🌾 1,000⛓️ 600🪙)", callback_data=f"dragon_hatch_{dragon.id}")])
+                h_gold = spec.get("hatch_cost_gold", 3000)
+                h_iron = spec.get("hatch_cost_iron", 2500)
+                h_food = spec.get("hatch_cost_food", 5000)
+                buttons.append([InlineKeyboardButton(f"✨ {dragon.name} Tuxumini Ochirish ({h_gold:,}🪙 {h_iron:,}⛓️ {h_food:,}🌾)", callback_data=f"dragon_hatch_{dragon.id}")])
             else:
                 costs = crud.get_dragon_upgrade_cost(dragon)
-                feed_cost = 250 + (dragon.level * 40)
+                feed_cost = crud.get_dragon_feed_cost(dragon)
                 if dragon.level < 20:
-                    text += f"📈 **Keyingi {dragon.level+1}-daraja uchun:** 🌾{costs['food']:,} | ⛓️{costs['iron']:,} | 🪙{costs['gold']:,}\n\n"
+                    text += f"📈 **Keyingi {dragon.level+1}-daraja uchun:** 🪙{costs['gold']:,} | ⛓️{costs['iron']:,} | 🌾{costs['food']:,}\n\n"
                 else:
                     text += f"⭐ **Ajdar maksimal cho'qqisiga yetgan!**\n\n"
 
                 row1 = [
-                    InlineKeyboardButton(f"🍗 Boqish (-{feed_cost}🌾)", callback_data=f"dragon_feed_{dragon.id}"),
+                    InlineKeyboardButton(f"🍗 Boqish (-{feed_cost:,}🌾)", callback_data=f"dragon_feed_{dragon.id}"),
                 ]
                 if dragon.level < 20:
-                    row1.append(InlineKeyboardButton(f"🔥 Kuchaytirish ({dragon.level}->{dragon.level+1})", callback_data=f"dragon_train_{dragon.id}"))
+                    row1.append(InlineKeyboardButton(f"🔥 Mashq ({dragon.level}->{dragon.level+1})", callback_data=f"dragon_train_{dragon.id}"))
                 else:
                     row1.append(InlineKeyboardButton("⭐ MAX", callback_data=f"dragon_max_{dragon.id}"))
                 buttons.append(row1)
@@ -155,8 +159,8 @@ async def show_dragon_hub(target, user_id: int, is_message: bool):
 
             buttons.append([InlineKeyboardButton(f"🗑️ {dragon.name}ni Tashlash (Ozod Qilish)", callback_data=f"dragon_release_ask_{dragon.id}")])
 
-        if len(dragons) < 3:
-            buttons.append([InlineKeyboardButton(f"🥚 Yangi Ajdar Xarid Qilish ({len(dragons)}/3)", callback_data="dragon_buy_more")])
+        if len(dragons) < max_buy:
+            buttons.append([InlineKeyboardButton(f"🥚 Yangi Ajdar Xarid Qilish ({len(dragons)}/{max_buy})", callback_data="dragon_buy_more")])
 
         buttons.append([InlineKeyboardButton("🔥 Ajdarlar Dueli va Turniri", callback_data="dragon_duel_menu")])
         buttons.append([InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")])
@@ -168,7 +172,7 @@ async def show_dragon_hub(target, user_id: int, is_message: bool):
                 await target.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
         except Exception:
             if hasattr(target, "message") and target.message:
-                await target.message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+                await target.message.reply_text(text.replace("*", ""), reply_markup=InlineKeyboardMarkup(buttons))
 
 
 async def dragon_claim_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -422,16 +426,20 @@ async def dragon_buy_more_callback(update: Update, context: ContextTypes.DEFAULT
             return
 
         buttons = []
-        prices = {"A": "2,000🪙 1,000⛓️", "B": "1,400🪙 700⛓️", "C": "800🪙 400⛓️"}
-        for name, grade, desc in DRAGON_PRESETS:
-            p = prices.get(grade, "1,400🪙 700⛓️")
-            buttons.append([InlineKeyboardButton(f"🥚 {name} ({grade} Toifa — {p})", callback_data=f"dragon_claim:{name}:{grade}")])
+        for sp in DRAGON_SPECIES_CONFIG.values():
+            p_str = f"{sp['price_gold']:,}🪙 {sp['price_iron']:,}⛓️ {sp['price_food']:,}🌾"
+            buttons.append([
+                InlineKeyboardButton(
+                    f"🥚 {sp['name']} ({sp['grade']} — {p_str})",
+                    callback_data=f"dragon_claim:{sp['name']}:{sp['grade']}",
+                )
+            ])
         buttons.append([InlineKeyboardButton("🔙 Ajdarlar Markaziga Qaytish", callback_data="menu_dragons")])
 
         text = (
-            f"🥚 **YANGI AJDAR TUXUMINI TANLASH (3 tagacha)**\n\n"
-            f"🎒 Sizning zaxirangiz: **{user.gold:,}**🪙 oltin, **{user.iron:,}**⛓️ temir\n\n"
-            f"Quyidagi afsonaviy ajdarlardan birini tanlang:"
+            f"🥚 **YANGI AJDAR TUXUMINI TANLASH**\n\n"
+            f"🎒 Sizning zaxirangiz: **{user.gold:,}**🪙 oltin, **{user.iron:,}**⛓️ temir, **{user.food:,}**🌾 bug'doy\n\n"
+            f"Quyidagi 6 ta afsonaviy ajdarlardan birini tanlang:"
         )
         try:
             await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))

@@ -103,10 +103,13 @@ async def get_payment_requisites_service(session: AsyncSession) -> Dict[str, Any
     """Karta raqami, karta egasi va mavjud donat paketlar ro'yxatini qaytarish."""
     settings = await crud.get_payment_settings(session)
     packages = []
-    for k in ("premium_pass", "vip_noble", "starter_pack", "knight", "lord", "dragonlord", "sovereign"):
+    for k in ("premium_pass", "vip_noble", "starter_pack", "knight", "speedup_pack", "lord", "dragonlord", "sovereign"):
         if k in DONATE_TIERS:
             info = resolve_package_info(k)
             if info:
+                info["category"] = DONATE_TIERS[k].get("category", "resources")
+                info["subtitle"] = DONATE_TIERS[k].get("subtitle", "")
+                info["bulk_bonus_pct"] = DONATE_TIERS[k].get("bulk_bonus_pct", 0)
                 packages.append(info)
     return {
         "card_number": settings["card_number"],
@@ -420,6 +423,74 @@ async def reject_donation_request_service(
     return True, f"So'rov #{request_id} rad etildi.", req
 
 
+async def get_admin_donation_stats_service(session: AsyncSession) -> Dict[str, Any]:
+    """Admin uchun kunlik, haftalik va umumiy donat statistikasi."""
+    now = datetime.utcnow()
+    day_ago = now - timedelta(days=1)
+    week_ago = now - timedelta(days=7)
+
+    daily_cnt = 0
+    daily_sum = 0
+    weekly_cnt = 0
+    weekly_sum = 0
+    total_cnt = 0
+    total_sum = 0
+
+    try:
+        res_all = await session.execute(
+            select(models.DonationRequest).where(models.DonationRequest.status == "approved")
+        )
+        for r in res_all.scalars().all():
+            amt = int(r.price_uzs or 0)
+            total_cnt += 1
+            total_sum += amt
+            dt = r.reviewed_at or r.created_at
+            if dt:
+                if dt >= day_ago:
+                    daily_cnt += 1
+                    daily_sum += amt
+                if dt >= week_ago:
+                    weekly_cnt += 1
+                    weekly_sum += amt
+    except Exception:
+        pass
+
+    return {
+        "daily_approved_count": daily_cnt,
+        "daily_approved_uzs": daily_sum,
+        "weekly_approved_count": weekly_cnt,
+        "weekly_approved_uzs": weekly_sum,
+        "total_approved_count": total_cnt,
+        "total_approved_uzs": total_sum,
+    }
+
+
+async def get_user_donation_history_service(session: AsyncSession, user: models.User, limit: int = 15) -> List[Dict[str, Any]]:
+    """Foydalanuvchining barcha donat so'rovlari tarixi (Mening so'rovlarim)."""
+    if not user:
+        return []
+    res = await session.execute(
+        select(models.DonationRequest)
+        .where(models.DonationRequest.telegram_id == user.telegram_id)
+        .order_by(models.DonationRequest.id.desc())
+        .limit(limit)
+    )
+    history = []
+    for r in res.scalars().all():
+        history.append({
+            "id": r.id,
+            "package": r.tier_id,
+            "tier_name": r.tier_name,
+            "amount": r.price_uzs,
+            "price_label": r.price_label,
+            "status": r.status,
+            "admin_notes": r.admin_notes,
+            "created_at": r.created_at.strftime("%Y-%m-%d %H:%M") if r.created_at else "-",
+            "reviewed_at": r.reviewed_at.strftime("%Y-%m-%d %H:%M") if r.reviewed_at else None,
+        })
+    return history
+
+
 async def get_admin_donation_requests_service(
     session: AsyncSession,
     admin_telegram_id: int,
@@ -446,6 +517,7 @@ async def get_admin_donation_requests_service(
         pass
 
     requisites = await crud.get_payment_settings(session)
+    stats = await get_admin_donation_stats_service(session)
 
     items = []
     for r in reqs:
@@ -472,6 +544,7 @@ async def get_admin_donation_requests_service(
     return True, "OK", {
         "requests": items,
         "counts": counts,
+        "stats": stats,
         "status_filter": norm_status or "all",
         "payment_requisites": requisites,
     }
@@ -504,6 +577,7 @@ async def get_donate_hub_data(session: AsyncSession, identifier: int) -> Optiona
     catalog_grouped = get_all_cosmetics_grouped()
 
     is_vip_active = bool(user.vip_until and user.vip_until > now)
+    vip_days_left = max(0, int((user.vip_until - now).total_seconds() // 86400) + 1) if is_vip_active and user.vip_until else 0
 
     equipped_map = {
         "avatar_frame": user.avatar_frame,
@@ -519,6 +593,7 @@ async def get_donate_hub_data(session: AsyncSession, identifier: int) -> Optiona
         telegram_id=user.telegram_id,
         user_id=user.id,
     )
+    my_requests = await get_user_donation_history_service(session, user, limit=15)
 
     return {
         "user_id": user.id,
@@ -526,6 +601,7 @@ async def get_donate_hub_data(session: AsyncSession, identifier: int) -> Optiona
         "current_vip_tier": user.vip_tier or "free",
         "vip_until": user.vip_until.isoformat() if user.vip_until else None,
         "is_vip_active": is_vip_active,
+        "vip_days_left": vip_days_left,
         "equipped": equipped_map,
         "owned_items": owned_ids,
         "has_starter_pack": bool(getattr(user, "has_starter_pack", False)),
@@ -537,6 +613,7 @@ async def get_donate_hub_data(session: AsyncSession, identifier: int) -> Optiona
             "card_holder": requisites_data["card_holder"],
         },
         "packages": requisites_data["packages"],
+        "my_requests": my_requests,
         "pending_request": {
             "id": pending_req.id,
             "package": pending_req.tier_id,

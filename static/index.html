@@ -281,8 +281,18 @@
             </button>
             <button class="portal-card-btn" id="btn-open-donate">
               <span class="portal-icon">💎</span>
-              <span class="portal-title">VIP & Xayriya</span>
-              <span class="portal-desc">Rutbalar & Imtiyoz</span>
+              <span class="portal-title">Donat Do'koni</span>
+              <span class="portal-desc">Premium & Bonuslar</span>
+            </button>
+            <button class="portal-card-btn" id="btn-open-rankings">
+              <span class="portal-icon">🏆</span>
+              <span class="portal-title">Reyting Jadvali</span>
+              <span class="portal-desc">Top Lordlar</span>
+            </button>
+            <button class="portal-card-btn" id="btn-open-world">
+              <span class="portal-icon">🌍</span>
+              <span class="portal-title">Dunyo & Mavsum</span>
+              <span class="portal-desc">Ob-havo & Shon-sharaf</span>
             </button>
             <button class="portal-card-btn portal-card-admin" id="btn-open-admin" style="display:none;">
               <span class="portal-icon">⚙️</span>
@@ -336,11 +346,11 @@
         </div>
       </section>
 
-      <!-- TAB 3: CASTLES & TERRITORIES -->
+      <!-- TAB 3: BUILDINGS & CASTLES (QURILISH VA QAL'ALAR) -->
       <section id="tab-castles" class="view-panel">
         <div class="card-summary">
           <div class="summary-left">
-            <span class="summary-lbl">Boshqaruvdagi Qal'alar</span>
+            <span class="summary-lbl">Qurilish va Qal'alar</span>
             <h2 class="summary-val" id="castles-total-sum">0 ta Qal'a</h2>
           </div>
           <div class="summary-right text-right">
@@ -349,6 +359,13 @@
           </div>
         </div>
 
+        <!-- Royal Buildings Section (Temir Koni, Don Tegirmoni, Qal'a Istehkomi) -->
+        <h3 class="section-heading mb-2">🏗️ Qirollik Inshootlari (Qurilish)</h3>
+        <div id="buildings-hub-container" class="mb-3">
+          <div class="card text-center py-3 text-secondary">Inshootlar yuklanmoqda...</div>
+        </div>
+
+        <h3 class="section-heading mt-3 mb-2">🏰 Boshqaruvdagi Qal'alar & O'lpon</h3>
         <button class="btn btn-secondary w-100 mb-2" id="btn-castles-open-map">
           🗺️ Vesteros Xaritasi & Barcha 22 Qal'a
         </button>
@@ -447,27 +464,31 @@
 
     </main>
 
-    <!-- BOTTOM FIXED NAVIGATION BAR -->
+    <!-- BOTTOM FIXED NAVIGATION BAR (Bosh sahifa, Qurilish, Ajdarlar, Urush, Xonadon, Donat) -->
     <nav class="bottom-nav">
       <button class="nav-item active" data-tab="tab-profile">
-        <span class="nav-icon">👤</span>
-        <span class="nav-lbl">Profil</span>
+        <span class="nav-icon">🏠</span>
+        <span class="nav-lbl">Bosh sahifa</span>
+      </button>
+      <button class="nav-item" data-tab="tab-castles">
+        <span class="nav-icon">🏗️</span>
+        <span class="nav-lbl">Qurilish</span>
+      </button>
+      <button class="nav-item" id="nav-btn-dragon" data-modal="dragon-modal">
+        <span class="nav-icon">🐉</span>
+        <span class="nav-lbl">Ajdarlar</span>
       </button>
       <button class="nav-item" data-tab="tab-army">
         <span class="nav-icon">⚔️</span>
-        <span class="nav-lbl">Armiya</span>
+        <span class="nav-lbl">Urush</span>
       </button>
-      <button class="nav-item" data-tab="tab-castles">
-        <span class="nav-icon">🏰</span>
-        <span class="nav-lbl">Qal'alar</span>
+      <button class="nav-item" id="nav-btn-house" data-modal="house-modal">
+        <span class="nav-icon">🏛️</span>
+        <span class="nav-lbl">Xonadon</span>
       </button>
-      <button class="nav-item" data-tab="tab-rankings">
-        <span class="nav-icon">🏆</span>
-        <span class="nav-lbl">Reyting</span>
-      </button>
-      <button class="nav-item" data-tab="tab-world">
-        <span class="nav-icon">🌍</span>
-        <span class="nav-lbl">Dunyo</span>
+      <button class="nav-item" id="nav-btn-donate" data-modal="donate-modal">
+        <span class="nav-icon">💎</span>
+        <span class="nav-lbl">Donat</span>
       </button>
     </nav>
 
@@ -1035,29 +1056,47 @@
 
     <!-- 5. DRAGON NEST MODAL -->
     <div id="dragon-modal" class="modal-overlay" style="display:none;">
-      <div class="modal-dialog">
+      <div class="modal-dialog modal-dialog-lg">
         <div class="modal-header">
           <h3 class="modal-title">🐉 Ajdarlar Uyasi (Valyriya)</h3>
           <button class="modal-close" id="modal-dragon-close">✕</button>
         </div>
         <div class="modal-body">
-          <div id="dragon-view-unclaimed" style="display:none;" class="text-center py-3">
-            <div class="dragon-portrait-box mb-2">
-              <img src="assets/dragons/dragon-egg.svg" class="dragon-portrait-img" alt="Valyriya Tuxumi">
+          <div id="dragon-switcher-pills" class="d-flex gap-2 mb-2" style="display:none;"></div>
+
+          <div id="dragon-view-unclaimed" style="display:none;" class="py-2">
+            <div class="text-center mb-2">
+              <div class="dragon-portrait-box mb-1" style="margin: 0 auto;">
+                <img src="assets/dragons/dragon-egg.svg" class="dragon-portrait-img" alt="Valyriya Tuxumi">
+              </div>
+              <h3 class="mt-1 text-gold font-serif">Valyriya Ajdarlar Katalogi (6 Tur)</h3>
+              <p class="text-secondary mt-1" style="font-size:11px;">
+                Ajdar — o'yindagi eng qudratli va qimmat harbiy birlik (Maks: 2 ta ajdar, 20-daraja). Tuxum turini tanlang:
+              </p>
             </div>
-            <h3 class="mt-2 text-gold font-serif">Valyriya Ajdaho Tuxumi</h3>
-            <p class="text-secondary mt-1" style="font-size:12px;">Qadimgi Valyriya qoniga ega bo'lgan Lordlar o'z shaxsiy ajdarlarini voyaga yetkazishlari mumkin.</p>
+
+            <div class="mb-2">
+              <label class="input-lbl" for="dragon-claim-name-input">Ajdaho Nomi (ixtiyoriy):</label>
+              <input type="text" id="dragon-claim-name-input" class="amount-input w-100" placeholder="Masalan: Balerion" maxlength="24">
+            </div>
+
+            <div id="dragon-species-catalog-list" class="d-flex flex-column gap-2 mt-2">
+              <!-- Populated dynamically with all 6 dragon species -->
+            </div>
+
             <button class="btn btn-primary mt-3 w-100 py-2" id="btn-claim-dragon-egg">
-              🥚 Ajdaho Tuxumini Olish
+              🥚 Tanlangan Ajdaho Tuxumini Olish
             </button>
           </div>
 
           <div id="dragon-view-egg" style="display:none;" class="text-center py-3">
-            <div class="dragon-portrait-box mb-2">
+            <div class="dragon-portrait-box mb-2" style="margin: 0 auto;">
               <img src="assets/dragons/dragon-egg.svg" class="dragon-portrait-img pulse-glow" alt="Ajdaho Tuxumi">
             </div>
             <h3 class="mt-2 text-gold font-serif" id="dragon-egg-name">Ajdaho Tuxumi</h3>
-            <p class="text-secondary mt-1" style="font-size:12px;">Tuxum olovli haroratda inkubatsiyaga tayyor. Qadimiy marosimni boshlang!</p>
+            <p class="text-secondary mt-1" style="font-size:12px;" id="dragon-egg-ritual-desc">
+              Tuxum olovli haroratda inkubatsiyaga tayyor. Qadimiy qon va olov marosimini boshlang!
+            </p>
             <button class="btn btn-primary mt-3 w-100 py-2" id="btn-hatch-dragon">
               🔥 Tuxumni Ochirish (Inkubatsiya)
             </button>
@@ -1065,13 +1104,33 @@
 
           <div id="dragon-view-active" style="display:none;">
             <div class="dragon-profile-card card text-center p-3">
-              <div class="dragon-portrait-box mb-2" id="dragon-avatar-box">
+              <div class="dragon-portrait-box mb-2" id="dragon-avatar-box" style="margin: 0 auto;">
                 <img id="dragon-portrait-img" src="assets/dragons/dragon-baby.svg" class="dragon-portrait-img" alt="Ajdaho">
               </div>
-              <h3 class="mt-2 text-gold font-serif" id="dragon-name">Drogon</h3>
-              <p class="text-secondary" style="font-size:11px;" id="dragon-stage-lbl">Yosh Ajdaho • 14 Kunlik</p>
+              <h3 class="mt-2 text-gold font-serif" id="dragon-name">Balerion</h3>
+              <p class="text-secondary" style="font-size:11px;" id="dragon-stage-lbl">Ulg'aygan Ajdaho • 1-daraja</p>
+
+              <!-- Combat Stats Grid (ATK, DEF, HP, Status) -->
+              <div class="stats-grid mt-2" style="grid-template-columns: repeat(3, 1fr); gap: 6px;">
+                <div class="stat-box" style="padding: 6px;">
+                  <span class="stat-lbl" style="font-size:10px;">⚔️ Hujum</span>
+                  <span class="stat-val text-red" style="font-size:13px;" id="dragon-atk-val">0</span>
+                </div>
+                <div class="stat-box" style="padding: 6px;">
+                  <span class="stat-lbl" style="font-size:10px;">🛡️ Mudofaa</span>
+                  <span class="stat-val text-blue" style="font-size:13px;" id="dragon-def-val">0</span>
+                </div>
+                <div class="stat-box" style="padding: 6px;">
+                  <span class="stat-lbl" style="font-size:10px;">❤️ Jon (HP)</span>
+                  <span class="stat-val text-green" style="font-size:13px;" id="dragon-hp-val">0</span>
+                </div>
+              </div>
+
+              <div class="mt-2 text-center" style="font-size:11px;" id="dragon-ready-status-lbl">
+                🟢 Jangga shay
+              </div>
               
-              <div class="mt-3">
+              <div class="mt-2">
                 <div class="d-flex justify-between" style="font-size:11px;">
                   <span>Jangovar Qudrat</span>
                   <span id="dragon-power-val" class="text-gold">1,500</span>
@@ -1083,7 +1142,7 @@
 
               <div class="mt-2">
                 <div class="d-flex justify-between" style="font-size:11px;">
-                  <span>To'qlik Holati</span>
+                  <span>To'qlik Holati (Mashq uchun ≥40%)</span>
                   <span id="dragon-hunger-val" class="text-green">To'q (85%)</span>
                 </div>
                 <div class="xp-track mt-1">
@@ -1092,14 +1151,20 @@
               </div>
             </div>
 
-            <div class="dragon-actions-grid mt-3">
-              <button class="btn btn-secondary py-2 flex-1" id="btn-feed-dragon">
-                🥩 Boqish<br><small class="text-secondary" id="dragon-feed-cost-lbl">350 Oziq-ovqat</small>
+            <div class="dragon-actions-grid mt-3" style="display:grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+              <button class="btn btn-secondary py-2" id="btn-feed-dragon" style="flex-direction:column; min-height:54px;">
+                <span>🥩 Boqish</span>
+                <small class="text-secondary" id="dragon-feed-cost-lbl" style="font-size:10px;">250 Bug'doy</small>
               </button>
-              <button class="btn btn-secondary py-2 flex-1" id="btn-train-dragon">
-                🔥 Mashq<br><small class="text-secondary" id="dragon-train-cost-lbl">Olov & Kuchaytirish</small>
+              <button class="btn btn-secondary py-2" id="btn-train-dragon" style="flex-direction:column; min-height:54px;">
+                <span>🔥 Mashq</span>
+                <small class="text-secondary" id="dragon-train-cost-lbl" style="font-size:10px;">Oltin + Temir + Bug'doy</small>
               </button>
             </div>
+
+            <button class="btn btn-secondary w-100 mt-2 py-2" id="btn-buy-second-dragon" style="display:none; font-size:12px;">
+              ➕ 2-chi Ajdaho Tuxumini Olish (Katalog)
+            </button>
           </div>
         </div>
       </div>
@@ -1333,6 +1398,7 @@
           <!-- Category Navigation Tabs -->
           <div class="shop-tabs d-flex gap-1 mb-3" style="overflow-x: auto; padding-bottom: 4px;">
             <button class="btn btn-secondary py-1 px-2 shop-tab active" data-cat="special_and_vip" style="font-size:11px;">👑 VIP & Paket</button>
+            <button class="btn btn-secondary py-1 px-2 shop-tab" data-cat="my_requests" style="font-size:11px;">📋 So'rovlarim</button>
             <button class="btn btn-secondary py-1 px-2 shop-tab" data-cat="castle_skins" style="font-size:11px;">🏰 Qal'alar</button>
             <button class="btn btn-secondary py-1 px-2 shop-tab" data-cat="dragon_skins" style="font-size:11px;">🐉 Ajdarlar</button>
             <button class="btn btn-secondary py-1 px-2 shop-tab" data-cat="avatar_frames" style="font-size:11px;">⛓️ Ramkalar</button>

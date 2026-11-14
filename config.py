@@ -193,176 +193,26 @@ COMMUNITY_CHANNEL_ID = os.getenv("COMMUNITY_CHANNEL_ID", "@northremembers1")
 COMMUNITY_GROUP_ID = os.getenv("COMMUNITY_GROUP_ID", "@northremember2")
 
 # ============================================================
-# AFSONAVIY DONATE / VIP TARIFLARI
+# DONAT BONUSLARI SOZLAMALARI (Markazlashtirilgan)
+# ============================================================
+DONATE_BONUSES_CONFIG = {
+    "first_donate_bonus_pct": 20,  # Birinchi tasdiqlangan donatga +20% qo'shimcha resurs bonusi
+    "bulk_package_bonus_pct": {
+        "lord": 10,
+        "dragonlord": 15,
+        "sovereign": 25,
+    },
+}
+
+# ============================================================
+# AFSONAVIY DONATE / VIP TARIFLARI (Ajdarsiz, adolatli balans)
 # ============================================================
 DONATE_TIERS = {
-    "knight": {
-        "id": "knight",
-        "name": "🗡️ Ritsar To'plami",
-        "subtitle": "Boshlang'ich jangchi to'plami (Ajoyib start)",
-        "price_uzs": 10000,
-        "price_label": "10,000 so'm",
-        "gold": 10000,
-        "food": 30000,
-        "iron": 15000,
-        "infantry": 500,
-        "archers": 300,
-        "cavalry": 100,
-        "spearmen": 100,
-        "special_troops": 0,
-        "catapults": 0,
-        "siege_towers": 0,
-        "shield_hours": 0,
-        "prestige": 150,
-        "wildfire": 0,
-        "dragon": {
-            "name": "Arrax",
-            "grade": "C",
-            "stage": "baby",
-            "level": 3,
-            "power": 350,
-            "hunger": 100,
-        },
-        "title": "Jasur Ritsar",
-        "description": (
-            "• 🪙 Oltin: +10,000\n"
-            "• 🌾 Oziq-ovqat: +30,000\n"
-            "• ⛓️ Temir: +15,000\n"
-            "• 🛡️ Armiya: +500 Piyoda, +300 Kamonchi, +100 Otliq, +100 Nayzador\n"
-            "• 🐉 Jangovar Ajdaho: «Arrax» (3-daraja, 350 quvvat!)\n"
-            "• 👑 Faxriy unvon: «Jasur Ritsar»\n"
-            "• ⭐ Prestige: +150 shon-sharaf"
-        ),
-    },
-    "lord": {
-        "id": "lord",
-        "name": "🏰 Lordlar Xazinasi",
-        "subtitle": "Hukmdorlar tanlovi (Eng ommabop)",
-        "price_uzs": 25000,
-        "price_label": "25,000 so'm",
-        "gold": 35000,
-        "food": 100000,
-        "iron": 50000,
-        "infantry": 1200,
-        "archers": 800,
-        "cavalry": 500,
-        "spearmen": 500,
-        "special_troops": 100,
-        "catapults": 2,
-        "siege_towers": 1,
-        "shield_hours": 0,
-        "prestige": 400,
-        "wildfire": 3,
-        "dragon": {
-            "name": "Syrax",
-            "grade": "B",
-            "stage": "adult",
-            "level": 8,
-            "power": 1200,
-            "hunger": 100,
-        },
-        "title": "Saxiy Lord",
-        "description": (
-            "• 🪙 Oltin: +35,000\n"
-            "• 🌾 Oziq-ovqat: +100,000\n"
-            "• ⛓️ Temir: +50,000\n"
-            "• 🛡️ Kuchli Armiya: +1,200 Piyoda, +800 Kamonchi, +500 Otliq, +500 Nayzador, +100 Maxsus!\n"
-            "• 🏹 Qamal qurollari: +2 Katapulta, +1 Qamal minorasi\n"
-            "• 🐉 Afsonaviy Ajdaho: 8-darajali (1,200 quvvat!)\n"
-            "• 💚 Yovvoyi Olov (Wildfire): +3 bochka (Qal'a mudofaasiga)\n"
-            "• 👑 Maxsus unvon: «Saxiy Lord»\n"
-            "• 🎥 Profil Videosi: Jonli video yoki dumaloq video xabar qo'yish imkoniyati\n"
-            "• ⭐ Prestige: +400 shon-sharaf"
-        ),
-    },
-    "dragonlord": {
-        "id": "dragonlord",
-        "name": "🐉 Valyriya Merosi",
-        "subtitle": "Ajdaho Hukmdori (Kuchli Imperiya)",
-        "price_uzs": 50000,
-        "price_label": "50,000 so'm",
-        "gold": 100000,
-        "food": 300000,
-        "iron": 150000,
-        "infantry": 3000,
-        "archers": 2000,
-        "cavalry": 1500,
-        "spearmen": 1500,
-        "special_troops": 500,
-        "catapults": 10,
-        "siege_towers": 5,
-        "shield_hours": 0,
-        "prestige": 1000,
-        "wildfire": 5,
-        "dragon": {
-            "name": "Drogon",
-            "grade": "A",
-            "stage": "adult",
-            "level": 12,
-            "power": 2500,
-            "hunger": 100,
-        },
-        "title": "Ajdaho Hukmdori",
-        "description": (
-            "• 🪙 Oltin: +100,000\n"
-            "• 🌾 Oziq-ovqat: +300,000\n"
-            "• ⛓️ Temir: +150,000\n"
-            "• 🛡️ Qudratli Armiya: +3,000 Piyoda, +2,000 Kamonchi, +1,500 Otliq, +1,500 Nayzador, +500 Maxsus!\n"
-            "• 🏹 Qamal qurollari: +10 Katapulta, +5 Qamal minorasi\n"
-            "• 🐉 Qora Ajdaho: Drogon 12-darajali (2,500 quvvat!)\n"
-            "• 💚 Yovvoyi Olov (Wildfire): +5 bochka (Maksimal)\n"
-            "• 👑 Maxsus unvon: «Ajdaho Hukmdori»\n"
-            "• 🎥 Profil Videosi: Jonli video yoki dumaloq video xabar qo'yish imkoniyati\n"
-            "• ⭐ Prestige: +1,000 shon-sharaf"
-        ),
-    },
-    "sovereign": {
-        "id": "sovereign",
-        "name": "👑 Temir Taxt Sohibi",
-        "subtitle": "Vesteros Imperatori (Mutlaq Hukmronlik)",
-        "price_uzs": 99000,
-        "price_label": "99,000 so'm",
-        "gold": 300000,
-        "food": 1000000,
-        "iron": 500000,
-        "infantry": 8000,
-        "archers": 5000,
-        "cavalry": 3000,
-        "spearmen": 3000,
-        "special_troops": 1500,
-        "catapults": 20,
-        "siege_towers": 10,
-        "shield_hours": 0,
-        "prestige": 3000,
-        "wildfire": 5,
-        "dragon": {
-            "name": "Balerion",
-            "grade": "A",
-            "stage": "adult",
-            "level": 15,
-            "power": 5000,
-            "hunger": 100,
-        },
-        "title": "Vesteros Himoyachisi",
-        "broadcast": True,
-        "description": (
-            "• 🪙 Oltin: +300,000\n"
-            "• 🌾 Oziq-ovqat: +1000,000 (1 Million!)\n"
-            "• ⛓️ Temir: +500,000\n"
-            "• 🛡️ Bahaybat Armiya: +8,000 Piyoda, +5,000 Kamonchi, +3,000 Otliq, +3,000 Nayzador, +1,500 Maxsus!\n"
-            "• 🏹 Qamal qurollari: +20 Katapulta (Maks), +10 Qamal minorasi (Maks)!\n"
-            "• 🐉 Afsonaviy Qora Ajdar: Balerion (5,000 quvvat!)\n"
-            "• 💚 Yovvoyi Olov (Wildfire): +5 bochka (Maksimal)\n"
-            "• 👑 Maxsus unvon: «Vesteros Himoyachisi»\n"
-            "• 🎥 Profil Videosi: Jonli video yoki dumaloq video xabar qo'yish imkoniyati\n"
-            "• ⭐ Prestige: +3,000 shon-sharaf\n"
-            "• 📣 Butun Vesteros bo'ylab Qirollik tantanali e'loni!"
-        ),
-    },
     "premium_pass": {
         "id": "premium_pass",
         "name": "👑 Premium Season Pass (30 kun)",
         "subtitle": "Mavsumiy Premium Chipta + Yoqimli Resurs va Kunlik Bonuslar",
+        "category": "vip_pass",
         "price_uzs": 25000,
         "price_label": "25,000 so'm",
         "gold": 2500,
@@ -397,6 +247,7 @@ DONATE_TIERS = {
         "id": "vip_noble",
         "name": "💎 Noble VIP (30 kun)",
         "subtitle": "Zodagonlar imtiyozi va kunlik qulayliklar",
+        "category": "vip_pass",
         "price_uzs": 15000,
         "price_label": "15,000 so'm",
         "gold": 1500,
@@ -430,6 +281,7 @@ DONATE_TIERS = {
         "id": "starter_pack",
         "name": "🎁 Starter Pack (Boshlang'ich)",
         "subtitle": "Yangi Lordlar uchun foydali start va 7 kunlik VIP",
+        "category": "resources",
         "price_uzs": 5000,
         "price_label": "5,000 so'm",
         "gold": 1000,
@@ -459,12 +311,372 @@ DONATE_TIERS = {
             "• 🖼️ **Eksklyuziv Kosmetika:** «Valyriya Po'lati» ramkasi va «Valyriya Ritsari» unvoni"
         ),
     },
+    "knight": {
+        "id": "knight",
+        "name": "📦 Kichik Resurs Paketi (Ritsar Xazinasi)",
+        "subtitle": "Qurilish va iqtisodiyot uchun tezkor resurs zaxirasi",
+        "category": "resources",
+        "price_uzs": 10000,
+        "price_label": "10,000 so'm",
+        "gold": 8000,
+        "food": 20000,
+        "iron": 6000,
+        "infantry": 0,
+        "archers": 0,
+        "cavalry": 0,
+        "spearmen": 0,
+        "special_troops": 0,
+        "catapults": 0,
+        "siege_towers": 0,
+        "shield_hours": 0,
+        "prestige": 80,
+        "wildfire": 0,
+        "title": "Jasur Ritsar",
+        "description": (
+            "• 🪙 Oltin: +8,000\n"
+            "• 🌾 Bug'doy: +20,000\n"
+            "• ⛓️ Temir: +6,000\n"
+            "• 👑 Faxriy unvon: «Jasur Ritsar»\n"
+            "• ⭐ Prestige: +80 shon-sharaf\n"
+            "• 🎁 Birinchi donat uchun +20% qo'shimcha resurs bonusi!"
+        ),
+    },
+    "speedup_pack": {
+        "id": "speedup_pack",
+        "name": "⚡ Tezlashtirish Paketi (Qurilish va Parvarish)",
+        "subtitle": "Qurilish, tuxum ochirish va ajdar tiklanishini tezlashtirish",
+        "category": "speedup",
+        "price_uzs": 15000,
+        "price_label": "15,000 so'm",
+        "gold": 6000,
+        "food": 18000,
+        "iron": 8000,
+        "infantry": 0,
+        "archers": 0,
+        "cavalry": 0,
+        "spearmen": 0,
+        "special_troops": 0,
+        "catapults": 0,
+        "siege_towers": 0,
+        "shield_hours": 0,
+        "prestige": 60,
+        "wildfire": 0,
+        "instant_dragon_heal": True,
+        "instant_egg_hatch_boost": True,
+        "description": (
+            "• ⚡ **Ajdar Tezlashtirish:** Tuxumdagi ajdarni darhol ochirish va barcha ajdarlarning to'qlik/charchog'ini 100% tiklash\n"
+            "• 🏗️ **Qurilish Zaxirasi:** +6,000 🪙 Oltin, +8,000 ⛓️ Temir (Kon va Tegirmonni darhol ko'tarish uchun)\n"
+            "• 🥩 **Parvarish Ozuqasi:** +18,000 🌾 Bug'doy\n"
+            "• ⭐ Prestige: +60 shon-sharaf"
+        ),
+    },
+    "lord": {
+        "id": "lord",
+        "name": "🧰 O'rta Resurs Paketi (Lordlar Xazinasi)",
+        "subtitle": "Hukmdorlar tanlovi (+10% katta paket bonusi bilan)",
+        "category": "resources",
+        "price_uzs": 25000,
+        "price_label": "25,000 so'm",
+        "gold": 22000,
+        "food": 55000,
+        "iron": 18000,
+        "infantry": 0,
+        "archers": 0,
+        "cavalry": 0,
+        "spearmen": 0,
+        "special_troops": 0,
+        "catapults": 0,
+        "siege_towers": 0,
+        "shield_hours": 0,
+        "prestige": 200,
+        "wildfire": 2,
+        "bulk_bonus_pct": 10,
+        "title": "Saxiy Lord",
+        "description": (
+            "• 🪙 Oltin: +22,000 (+10% katta paket bonusi)\n"
+            "• 🌾 Bug'doy: +55,000\n"
+            "• ⛓️ Temir: +18,000\n"
+            "• 💚 Yovvoyi Olov (Wildfire): +2 bochka (Qal'a mudofaasiga)\n"
+            "• 👑 Maxsus unvon: «Saxiy Lord»\n"
+            "• ⭐ Prestige: +200 shon-sharaf"
+        ),
+    },
+    "dragonlord": {
+        "id": "dragonlord",
+        "name": "🏛️ Katta Resurs Paketi (Valyriya Xazinasi)",
+        "subtitle": "Kuchli iqtisodiyot va kosmetika (+15% bonus bilan)",
+        "category": "resources",
+        "price_uzs": 50000,
+        "price_label": "50,000 so'm",
+        "gold": 50000,
+        "food": 120000,
+        "iron": 40000,
+        "infantry": 0,
+        "archers": 0,
+        "cavalry": 0,
+        "spearmen": 0,
+        "special_troops": 0,
+        "catapults": 0,
+        "siege_towers": 0,
+        "shield_hours": 0,
+        "prestige": 450,
+        "wildfire": 3,
+        "bulk_bonus_pct": 15,
+        "avatar_frame": "frame_dragonfire",
+        "instant_dragon_heal": True,
+        "title": "Valyriya Homiyi",
+        "description": (
+            "• 🪙 Oltin: +50,000 (+15% katta paket bonusi)\n"
+            "• 🌾 Bug'doy: +120,000\n"
+            "• ⛓️ Temir: +40,000\n"
+            "• 🖼️ Eksklyuziv Ramka: «Ajdar Olovi» (Dragonfire)\n"
+            "• ⚡ Ajdarlar to'qligi va quvvatini 100% tiklash\n"
+            "• 👑 Maxsus unvon: «Valyriya Homiyi»\n"
+            "• ⭐ Prestige: +450 shon-sharaf\n"
+            "• ℹ️ Eslatma: Ajdarlar faqat o'yin ichida mehnat va binolar orqali olinadi!"
+        ),
+    },
+    "sovereign": {
+        "id": "sovereign",
+        "name": "👑 Qirollik Homiyi Paketi (Maksimal Xazina)",
+        "subtitle": "Katta resurs zaxirasi, VIP va eksklyuziv kosmetika (+25% bonus)",
+        "category": "resources",
+        "price_uzs": 99000,
+        "price_label": "99,000 so'm",
+        "gold": 110000,
+        "food": 250000,
+        "iron": 90000,
+        "infantry": 0,
+        "archers": 0,
+        "cavalry": 0,
+        "spearmen": 0,
+        "special_troops": 0,
+        "catapults": 0,
+        "siege_towers": 0,
+        "shield_hours": 0,
+        "prestige": 1000,
+        "wildfire": 5,
+        "bulk_bonus_pct": 25,
+        "duration_days": 30,
+        "daily_bonus_gold": 300,
+        "daily_bonus_food": 600,
+        "daily_bonus_iron": 200,
+        "vip_tier": "noble",
+        "avatar_frame": "frame_iron_throne",
+        "is_season_pass": True,
+        "instant_dragon_heal": True,
+        "title": "Vesteros Himoyachisi",
+        "broadcast": True,
+        "description": (
+            "• 🪙 Oltin: +110,000 (+25% katta paket bonusi)\n"
+            "• 🌾 Bug'doy: +250,000\n"
+            "• ⛓️ Temir: +90,000\n"
+            "• 👑 **30 kunlik Premium Pass + Noble VIP** to'liq imtiyozlari\n"
+            "• 🖼️ Eksklyuziv Ramka: «Temir Taxt Toji» va «Vesteros Himoyachisi» unvoni\n"
+            "• 💚 Yovvoyi Olov (Wildfire): +5 bochka\n"
+            "• ⭐ Prestige: +1,000 shon-sharaf va Qirollik e'loni!\n"
+            "• ℹ️ Eslatma: O'yin balansini saqlash uchun ajdarlar to'g'ridan-to'g'ri sotilmaydi."
+        ),
+    },
 }
 
 # ============================================================
 # MARKAZLASHTIRILGAN PREMIUM PASS MUKOFOTLARI SOZLAMASI
 # ============================================================
 PREMIUM_PASS_CONFIG = DONATE_TIERS["premium_pass"]
+
+# ============================================================
+# 5-QADAM: AJDARLAR KONFIGURATSIYASI (6 XIL AJDAR VA BALANS)
+# ============================================================
+DRAGON_SPECIES_CONFIG = {
+    "Arrax": {
+        "name": "Arrax",
+        "grade": "C",
+        "title": "🤍 Arrax — Marvarid Chaqqon Ajdar",
+        "lore": "Yosh va chaqqon osmon razvedkachisi, yuqori tezlikda olov purkaydi.",
+        "price_gold": 15000,
+        "price_iron": 10000,
+        "price_food": 20000,
+        "attack": 650,
+        "defense": 450,
+        "hp": 2500,
+        "base_power": 1200,
+        "max_level_power": 5200,
+        "req_player_level": 3,
+        "req_castle_level": 2,      # Qal'a (Ajdarlar uyasi) 2-daraja
+        "req_iron_mine_level": 2,
+        "req_grain_mill_level": 2,
+        "hatch_hours": 2,
+        "hatch_cost_gold": 3000,
+        "hatch_cost_iron": 2500,
+        "hatch_cost_food": 5000,
+    },
+    "Syrax": {
+        "name": "Syrax",
+        "grade": "B",
+        "title": "💛 Syrax — Oltin Qirollik Ajdari",
+        "lore": "Qirolicha Reyniraning zarhal qanotli, intizomli va sodiq jangovar ajdari.",
+        "price_gold": 30000,
+        "price_iron": 20000,
+        "price_food": 40000,
+        "attack": 1100,
+        "defense": 800,
+        "hp": 4200,
+        "base_power": 2000,
+        "max_level_power": 7800,
+        "req_player_level": 5,
+        "req_castle_level": 3,      # Qal'a (Ajdarlar uyasi) 3-daraja
+        "req_iron_mine_level": 3,
+        "req_grain_mill_level": 3,
+        "hatch_hours": 4,
+        "hatch_cost_gold": 5000,
+        "hatch_cost_iron": 4000,
+        "hatch_cost_food": 8000,
+    },
+    "Meleys": {
+        "name": "Meleys",
+        "grade": "B+",
+        "title": "❤️ Meleys — Qizil Qirolicha",
+        "lore": "Vesteros osmonidagi eng tezkor va shiddatli olov bo'roni.",
+        "price_gold": 50000,
+        "price_iron": 35000,
+        "price_food": 65000,
+        "attack": 1650,
+        "defense": 1200,
+        "hp": 6000,
+        "base_power": 3000,
+        "max_level_power": 10500,
+        "req_player_level": 7,
+        "req_castle_level": 3,      # Qal'a (Ajdarlar uyasi) 3-daraja
+        "req_iron_mine_level": 4,
+        "req_grain_mill_level": 4,
+        "hatch_hours": 6,
+        "hatch_cost_gold": 8000,
+        "hatch_cost_iron": 6500,
+        "hatch_cost_food": 12000,
+    },
+    "Caraxes": {
+        "name": "Caraxes",
+        "grade": "A",
+        "title": "🩸 Caraxes — Qonli Bo'ron",
+        "lore": "Shahzoda Deymonning janglarda chiniqqan, shafqatsiz va tajovuzkor ajdari.",
+        "price_gold": 80000,
+        "price_iron": 55000,
+        "price_food": 100000,
+        "attack": 2400,
+        "defense": 1750,
+        "hp": 8500,
+        "base_power": 4400,
+        "max_level_power": 14000,
+        "req_player_level": 10,
+        "req_castle_level": 4,      # Qal'a (Ajdarlar uyasi) 4-daraja
+        "req_iron_mine_level": 5,
+        "req_grain_mill_level": 5,
+        "hatch_hours": 8,
+        "hatch_cost_gold": 12000,
+        "hatch_cost_iron": 10000,
+        "hatch_cost_food": 18000,
+    },
+    "Vhagar": {
+        "name": "Vhagar",
+        "grade": "A+",
+        "title": "⚡ Vhagar — Qadimgi Urushlar Afsonasi",
+        "lore": "Yuzlab janglarni ko'rgan ulkan qanotli qal'a yemiruvchi ajdar.",
+        "price_gold": 120000,
+        "price_iron": 85000,
+        "price_food": 150000,
+        "attack": 3300,
+        "defense": 2500,
+        "hp": 12000,
+        "base_power": 6200,
+        "max_level_power": 18500,
+        "req_player_level": 12,
+        "req_castle_level": 4,      # Qal'a (Ajdarlar uyasi) 4-daraja
+        "req_iron_mine_level": 6,
+        "req_grain_mill_level": 6,
+        "hatch_hours": 12,
+        "hatch_cost_gold": 18000,
+        "hatch_cost_iron": 15000,
+        "hatch_cost_food": 28000,
+    },
+    "Balerion": {
+        "name": "Balerion",
+        "grade": "S",
+        "title": "🖤 Balerion — Qora Qo'rqinch",
+        "lore": "Eygon Fotihning qora olov purkovchi, Vesteros tarixidagi eng bahaybat ajdari.",
+        "price_gold": 180000,
+        "price_iron": 130000,
+        "price_food": 220000,
+        "attack": 4500,
+        "defense": 3500,
+        "hp": 16000,
+        "base_power": 8500,
+        "max_level_power": 25000,
+        "req_player_level": 15,
+        "req_castle_level": 5,      # Qal'a (Ajdarlar uyasi) 5-daraja
+        "req_iron_mine_level": 8,
+        "req_grain_mill_level": 8,
+        "hatch_hours": 24,
+        "hatch_cost_gold": 25000,
+        "hatch_cost_iron": 20000,
+        "hatch_cost_food": 40000,
+    },
+}
+
+DRAGON_BALANCE_CONFIG = {
+    "max_dragons_per_player": 2,        # Oddiy xarid orqali maksimal 2 ta (nasl bilan 3 ta)
+    "max_dragons_with_breeding": 3,
+    "max_level": 20,
+    "min_hunger_for_battle": 30,        # 30% dan past bo'lsa yarador/och hisoblanadi, jangga kirmaydi
+    "min_hunger_for_train": 40,         # Mashq uchun kamida 40% to'qlik kerak
+    "battle_fatigue_hunger_loss": 25,   # Har bir urushdan so'ng -25% to'qlik/quvvat yo'qotadi
+    "feed_base_food": 600,
+    "feed_food_per_level": 150,
+    "feed_hunger_restore": 35,
+    "feed_power_gain_base": 40,
+    "feed_power_gain_per_level": 10,
+    "train_base_gold": 1200,
+    "train_gold_per_level": 650,
+    "train_base_iron": 900,
+    "train_iron_per_level": 500,
+    "train_base_food": 1500,
+    "train_food_per_level": 800,
+    "train_hunger_cost": 25,
+    # Ajdarsiz o'yinchilar uchun qarshi taktika (Qal'a Chayonlari / Scorpion Ballista + Nayzador/Kamonchi):
+    "scorpion_defense_per_castle_level": 0.08,   # Qal'a har darajasi ajdar zararini 8% kamaytiradi (5-darajada -40%)
+    "spearmen_anti_dragon_factor": 0.00015,      # Har 1000 nayzador/kamonchi ajdar zararini qo'shimcha -15% qisqartiradi
+    "max_anti_dragon_damage_reduction": 0.60,    # Maksimal 60% gacha ajdar zarbasini qaytarish mumkin!
+}
+
+BUILDINGS_CONFIG = {
+    "iron_mine": {
+        "id": "iron_mine",
+        "name": "⛏️ Temir Koni",
+        "max_level": 10,
+        "gold_per_level": 400,
+        "food_per_level": 250,
+        "hourly_iron_per_level": 50,
+        "description": "Soatlik temir qazib olishni oshiradi va yuqori toifali ajdarlarni ochadi.",
+    },
+    "grain_mill": {
+        "id": "grain_mill",
+        "name": "🌾 Don Tegirmoni",
+        "max_level": 10,
+        "gold_per_level": 350,
+        "iron_per_level": 200,
+        "hourly_food_per_level": 75,
+        "description": "Soatlik bug'doy hosilini oshiradi va qo'shin/ajdarlarni oziqlantiradi.",
+    },
+    "castle_keep": {
+        "id": "castle_keep",
+        "name": "🏰 Qal'a Istehkomi, Ajdarlar Uyasi va Chayon Minoralari",
+        "max_level": 5,
+        "gold_per_level": 1000,
+        "iron_per_level": 750,
+        "defense_per_level": 300,
+        "description": "Qal'a mudofaasini (+300), Ajdarlar uyasi sig'imini va ajdarga qarshi Chayon (Scorpion) ballistalarini kuchaytiradi (-8% ajdar zarari/daraja).",
+    },
+}
 
 # ============================================================
 # AI ASSISTANT ("KENGASH MASLAHATCHISI") CONFIGURATION

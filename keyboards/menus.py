@@ -20,7 +20,7 @@ def legacy_main_menu_keyboard(user_id: int = None) -> InlineKeyboardMarkup:
         ])
     buttons.extend([
         [
-            InlineKeyboardButton("💎 VIP & Donate", callback_data="menu_donate"),
+            InlineKeyboardButton("💎 Donat do'koni", callback_data="menu_donate"),
             InlineKeyboardButton("📢 Rasmiy Kanal & Guruh", callback_data="menu_community"),
         ],
         [
@@ -104,7 +104,7 @@ def start_primary_keyboard(user_id: int = None) -> InlineKeyboardMarkup:
             InlineKeyboardButton("🔄 Yangilash", callback_data="menu_refresh_primary"),
         ],
         [
-            InlineKeyboardButton("💎 VIP & Donate", callback_data="menu_donate"),
+            InlineKeyboardButton("💎 Donat do'koni", callback_data="menu_donate"),
             InlineKeyboardButton("📢 Rasmiy Guruh & Kanal", callback_data="menu_community"),
         ],
         [

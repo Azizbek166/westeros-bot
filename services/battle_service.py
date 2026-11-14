@@ -42,9 +42,14 @@ async def get_battle_hub_data(session: AsyncSession, identifier: int) -> Optiona
             "march_id": m.id,
             "target_territory_id": m.target_territory_id,
             "target_name": terr.name if terr else "Qal'a",
+            "target_territory_name": terr.name if terr else "Qal'a",
             "target_castle_name": terr.castle_name if terr else "Qal'a",
             "seconds_remaining": rem_sec,
             "total_troops": tot_troops,
+            "infantry": m.infantry or 0,
+            "archers": m.archers or 0,
+            "cavalry": m.cavalry or 0,
+            "spearmen": m.spearmen or 0,
             "has_dragon": m.has_dragon,
             "dragon_tactic": m.dragon_tactic,
             "arrival_time": m.arrival_time.isoformat() if m.arrival_time else None,
@@ -112,6 +117,7 @@ async def get_battle_hub_data(session: AsyncSession, identifier: int) -> Optiona
 
     return {
         "user_id": user.id,
+        "active_marches": outbound,
         "active_outbound_marches": outbound,
         "incoming_attacks": incoming,
         "recent_reports": reports,
@@ -164,7 +170,9 @@ async def dispatch_march_service(
     identifier: int,
     territory_id: int,
     percent: int = 50,
-    dragon_tactic: str = "none"
+    dragon_tactic: str = "none",
+    explicit_troops: Optional[Dict[str, int]] = None,
+    has_dragon_flag: Optional[bool] = None,
 ) -> Tuple[bool, str, Optional[Dict[str, Any]], Set[int]]:
     """
     Harbiy yurishni jo'natish xizmati.
@@ -184,18 +192,27 @@ async def dispatch_march_service(
     if not is_valid:
         return False, err_msg, None, set()
 
-    ratio = max(0.1, min(1.0, percent / 100.0))
     user_army = await crud.get_user_army(session, user.id)
     if not user_army:
         return False, "Sizda armiya mavjud emas.", None, set()
 
-    infantry = int((user_army.infantry or 0) * ratio)
-    archers = int((user_army.archers or 0) * ratio)
-    cavalry = int((user_army.cavalry or 0) * ratio)
-    spearmen = int((user_army.spearmen or 0) * ratio)
-    special = int((user_army.special_troops or 0) * ratio)
-    catapults = int((getattr(user_army, "catapults", 0) or 0) * ratio)
-    siege_towers = int((getattr(user_army, "siege_towers", 0) or 0) * ratio)
+    if explicit_troops is not None and sum(max(0, int(v or 0)) for v in explicit_troops.values()) > 0:
+        infantry = min(user_army.infantry or 0, max(0, int(explicit_troops.get("infantry", 0) or 0)))
+        archers = min(user_army.archers or 0, max(0, int(explicit_troops.get("archers", 0) or 0)))
+        cavalry = min(user_army.cavalry or 0, max(0, int(explicit_troops.get("cavalry", 0) or 0)))
+        spearmen = min(user_army.spearmen or 0, max(0, int(explicit_troops.get("spearmen", 0) or 0)))
+        special = min(user_army.special_troops or 0, max(0, int(explicit_troops.get("special_troops", 0) or 0)))
+        catapults = min(getattr(user_army, "catapults", 0) or 0, max(0, int(explicit_troops.get("catapults", 0) or 0)))
+        siege_towers = min(getattr(user_army, "siege_towers", 0) or 0, max(0, int(explicit_troops.get("siege_towers", 0) or 0)))
+    else:
+        ratio = max(0.1, min(1.0, (percent or 50) / 100.0))
+        infantry = int((user_army.infantry or 0) * ratio)
+        archers = int((user_army.archers or 0) * ratio)
+        cavalry = int((user_army.cavalry or 0) * ratio)
+        spearmen = int((user_army.spearmen or 0) * ratio)
+        special = int((user_army.special_troops or 0) * ratio)
+        catapults = int((getattr(user_army, "catapults", 0) or 0) * ratio)
+        siege_towers = int((getattr(user_army, "siege_towers", 0) or 0) * ratio)
 
     total_sent = infantry + archers + cavalry + spearmen + special
     if total_sent <= 0:
@@ -204,10 +221,17 @@ async def dispatch_march_service(
     # O'z tinchlik qalqonini bekor qilish
     user.peace_shield_until = None
 
-    has_dragon = (dragon_tactic != "none")
+    has_dragon = bool(has_dragon_flag) if has_dragon_flag is not None else (dragon_tactic != "none")
+    if has_dragon and dragon_tactic == "none":
+        dragon_tactic = "balanced"
     dragon_id_to_send = None
     if has_dragon:
-        free_dragons = await crud.get_user_available_dragons(session, user.id)
+        from config import DRAGON_BALANCE_CONFIG
+        min_hunger = DRAGON_BALANCE_CONFIG.get("min_hunger_for_battle", 30)
+        free_dragons = [
+            d for d in await crud.get_user_available_dragons(session, user.id)
+            if (getattr(d, "hunger", 100) or 0) >= min_hunger and getattr(d, "stage", "") != "egg"
+        ]
         if free_dragons:
             dragon_id_to_send = free_dragons[0].id
         else:
@@ -261,4 +285,5 @@ async def dispatch_march_service(
         "has_dragon": has_dragon,
         "arrival_time": march.arrival_time.isoformat() if march.arrival_time else None,
         "duration_minutes": BASE_MARCH_MINUTES,
+        "travel_seconds": BASE_MARCH_MINUTES * 60,
     }, defender_tg_ids
