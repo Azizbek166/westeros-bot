@@ -2513,6 +2513,8 @@
   }
 
   let activeDragonId = null;
+  let activeDragonLevel = 1;
+  let activeDragonHunger = 100;
 
   async function loadDragonData() {
     try {
@@ -2520,8 +2522,11 @@
       if (currentInitData) headers['Authorization'] = `tma ${currentInitData}`;
 
       const resp = await fetch('/api/actions/dragon/status', { method: 'GET', headers: headers });
-      const res = await resp.json();
-      if (!resp.ok || !res.success) throw new Error(formatErrorMessage(res.detail || 'Ajdaho ma‘lumotini yuklab bo‘lmadi.'));
+      const res = await resp.json().catch(() => ({}));
+      if (!resp.ok || !res.success) {
+        const errMsg = res.detail || res.error || res.message || 'Ajdaho ma‘lumotini yuklab bo‘lmadi.';
+        throw new Error(formatErrorMessage(errMsg));
+      }
 
       const d = res.dragon || (res.dragon_hub && res.dragon_hub.dragons && res.dragon_hub.dragons[0]) || null;
       const vUnclaimed = document.getElementById('dragon-view-unclaimed');
@@ -2530,11 +2535,15 @@
 
       if (!d) {
         activeDragonId = null;
+        activeDragonLevel = 1;
+        activeDragonHunger = 100;
         if (vUnclaimed) vUnclaimed.style.display = 'block';
         if (vEgg) vEgg.style.display = 'none';
         if (vActive) vActive.style.display = 'none';
       } else if (d.is_egg || d.stage === 'egg') {
         activeDragonId = d.id;
+        activeDragonLevel = 1;
+        activeDragonHunger = 100;
         if (vUnclaimed) vUnclaimed.style.display = 'none';
         if (vEgg) vEgg.style.display = 'block';
         if (vActive) vActive.style.display = 'none';
@@ -2542,6 +2551,8 @@
         if (eggNameEl) eggNameEl.textContent = d.name || 'Valyriya Tuxumi';
       } else {
         activeDragonId = d.id;
+        activeDragonLevel = d.level || 1;
+        activeDragonHunger = d.hunger !== undefined ? d.hunger : 100;
         if (vUnclaimed) vUnclaimed.style.display = 'none';
         if (vEgg) vEgg.style.display = 'none';
         if (vActive) vActive.style.display = 'block';
@@ -2556,7 +2567,7 @@
         if (dPwrBar) dPwrBar.style.width = `${Math.min(100, Math.floor((d.power || 0) / 50))}%`;
 
         // Hunger: in DB 0-100 where 100 is completely full (to'q)
-        const hungerPct = Math.min(100, Math.max(0, d.hunger !== undefined ? d.hunger : 50));
+        const hungerPct = Math.min(100, Math.max(0, activeDragonHunger));
         const dHunger = document.getElementById('dragon-hunger-val');
         if (dHunger) {
           const hungerStatus = hungerPct >= 70 ? "To'q" : (hungerPct >= 30 ? "O'rtacha" : "Och");
@@ -2575,16 +2586,27 @@
         }
 
         // Dynamic costs on action buttons
-        const feedCost = d.feed_food_cost || (250 + ((d.level || 1) * 40));
+        const feedCost = d.feed_food_cost || (250 + (activeDragonLevel * 40));
         const feedLbl = document.getElementById('dragon-feed-cost-lbl');
         if (feedLbl) feedLbl.textContent = `${formatNum(feedCost)} Bug'doy`;
 
         const trainLbl = document.getElementById('dragon-train-cost-lbl');
-        if (trainLbl) {
-          if (d.upgrade_costs) {
-            trainLbl.textContent = `${formatNum(d.upgrade_costs.gold || 120)} Oltin + ${formatNum(d.upgrade_costs.iron || 180)} Temir`;
-          } else {
-            trainLbl.textContent = `Daraja oshirish`;
+        const trainBtn = document.getElementById('btn-train-dragon');
+        if (activeDragonLevel >= 20) {
+          if (trainLbl) trainLbl.textContent = 'Maksimal daraja (20/20)';
+          if (trainBtn) {
+            trainBtn.style.opacity = '0.85';
+          }
+        } else {
+          if (trainLbl) {
+            if (d.upgrade_costs) {
+              trainLbl.textContent = `${formatNum(d.upgrade_costs.gold || 120)} Oltin + ${formatNum(d.upgrade_costs.iron || 180)} Temir`;
+            } else {
+              trainLbl.textContent = `Daraja oshirish`;
+            }
+          }
+          if (trainBtn) {
+            trainBtn.style.opacity = '1';
           }
         }
       }
@@ -2604,8 +2626,11 @@
         headers: headers,
         body: JSON.stringify({ name: 'Balerion' })
       });
-      const res = await resp.json();
-      if (!resp.ok || !res.success) throw new Error(formatErrorMessage(res.detail || 'Tuxumni olib bo‘lmadi.'));
+      const res = await resp.json().catch(() => ({}));
+      if (!resp.ok || !res.success) {
+        const errMsg = res.detail || res.error || res.message || 'Tuxumni olib bo‘lmadi.';
+        throw new Error(formatErrorMessage(errMsg));
+      }
       showToast('🥚 Valyriya ajdaho tuxumi sandiqingizga qo‘yildi!', 'success');
       haptic('heavy');
       await loadDragonData();
@@ -2627,8 +2652,11 @@
         headers: headers,
         body: JSON.stringify({ dragon_id: activeDragonId || null })
       });
-      const res = await resp.json();
-      if (!resp.ok || !res.success) throw new Error(formatErrorMessage(res.detail || 'Ajdahoni ochirib bo‘lmadi.'));
+      const res = await resp.json().catch(() => ({}));
+      if (!resp.ok || !res.success) {
+        const errMsg = res.detail || res.error || res.message || 'Ajdahoni ochirib bo‘lmadi.';
+        throw new Error(formatErrorMessage(errMsg));
+      }
       showToast('🔥 Ajdaho tuxumdan chiqdi! U Vesteros osmonini zabt etadi!', 'success');
       haptic('heavy');
       await loadDragonData();
@@ -2650,8 +2678,11 @@
         headers: headers,
         body: JSON.stringify({ dragon_id: activeDragonId || null, food_amount: 50 }),
       });
-      const res = await resp.json();
-      if (!resp.ok || !res.success) throw new Error(formatErrorMessage(res.detail || 'Boqishda xatolik.'));
+      const res = await resp.json().catch(() => ({}));
+      if (!resp.ok || !res.success) {
+        const errMsg = res.detail || res.error || res.message || 'Boqishda xatolik yuz berdi.';
+        throw new Error(formatErrorMessage(errMsg));
+      }
       showToast(res.message || '🥩 Ajdaho to‘yib oziqlandi! Qudrati ortmoqda.', 'success');
       haptic('medium');
       await fetchDashboard();
@@ -2664,6 +2695,10 @@
   }
 
   async function handleTrainDragon() {
+    if (activeDragonLevel >= 20) {
+      showToast('👑 Balerion allaqachon maksimal 20-darajaga yetgan! U o‘zining eng cho‘qqisida.', 'info');
+      return;
+    }
     if (isActionPending) return;
     isActionPending = true;
     try {
@@ -2674,8 +2709,11 @@
         headers: headers,
         body: JSON.stringify({ dragon_id: activeDragonId || null })
       });
-      const res = await resp.json();
-      if (!resp.ok || !res.success) throw new Error(formatErrorMessage(res.detail || 'Mashg‘ulotda xatolik.'));
+      const res = await resp.json().catch(() => ({}));
+      if (!resp.ok || !res.success) {
+        const errMsg = res.detail || res.error || res.message || 'Mashg‘ulotda xatolik yuz berdi.';
+        throw new Error(formatErrorMessage(errMsg));
+      }
       showToast(res.message || '🔥 Ajdaho olov bilan jangga tayyorlandi!', 'success');
       haptic('heavy');
       await fetchDashboard();

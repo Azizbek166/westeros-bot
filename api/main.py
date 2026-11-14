@@ -65,6 +65,8 @@ async def request_logging_and_security_middleware(request: Request, call_next):
             content={
                 "success": False,
                 "error": http_exc.detail,
+                "detail": http_exc.detail,
+                "message": http_exc.detail,
                 "status_code": http_exc.status_code,
                 "duration_ms": round(process_time, 2),
             },
