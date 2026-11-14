@@ -52,6 +52,20 @@ async def ai_advisor_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     # Foydalanuvchi yozgan savol matnini ajratish
     args = context.args
     user_query = " ".join(args).strip() if args else ""
+    if not user_query and update.effective_message and update.effective_message.text:
+        parts = update.effective_message.text.strip().split(None, 1)
+        if len(parts) > 1 and not parts[0].lower().startswith("/start"):
+            user_query = parts[1].strip()
+
+    # Foydalanuvchi < > yoki « » yoki qo'shtirnoq ichida yozgan bo'lsa tozalash
+    if user_query.startswith("<") and user_query.endswith(">") and len(user_query) > 2:
+        user_query = user_query[1:-1].strip()
+    elif user_query.startswith("«") and user_query.endswith("»") and len(user_query) > 2:
+        user_query = user_query[1:-1].strip()
+    elif user_query.startswith('"') and user_query.endswith('"') and len(user_query) > 2:
+        user_query = user_query[1:-1].strip()
+    elif user_query.startswith("'") and user_query.endswith("'") and len(user_query) > 2:
+        user_query = user_query[1:-1].strip()
 
     chat_id = update.effective_chat.id if update.effective_chat else user_tg.id
 
@@ -99,7 +113,7 @@ async def ai_advisor_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
             f"👤 Maqomingiz: *{vip_badge}*\n"
             f"📊 Bugungi savollar limitingiz: *{rem}/{limit} ta qoldi*\n\n"
             "Savolingizni to'g'ridan-to'g'ri quyidagicha yuborishingiz mumkin:\n"
-            "👉 `/maslahat <savolingiz>` (masalan: `/maslahat Hozir nima qilay?`)\n\n"
+            "👉 `/maslahat savolingiz` (masalan: `/maslahat Ajdahoni qanday kuchaytiraman?`)\n\n"
             "Yoki quyidagi tayyor mavzulardan birini tanlang:"
         )
 
@@ -109,6 +123,20 @@ async def ai_advisor_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         elif update.callback_query:
             await update.callback_query.answer()
             await update.callback_query.edit_message_text(text, parse_mode="Markdown", reply_markup=kb)
+
+
+async def ai_advisor_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Foydalanuvchi xabarda maslahat yoki maslaxat so'raganda javob berish"""
+    msg = update.effective_message
+    if not msg or not msg.text:
+        return
+    text = msg.text.strip()
+    parts = text.split(None, 1)
+    if len(parts) > 1:
+        context.args = parts[1].strip().split()
+    else:
+        context.args = []
+    await ai_advisor_command(update, context)
 
 
 async def ai_topic_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -156,6 +184,20 @@ async def ai_topic_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def register_ai_handlers(app):
     """AI Maslahatchi handlerlarini Telegram bot ilovasiga ulash"""
-    app.add_handler(CommandHandler(["maslahat", "ai", "advisor"], ai_advisor_command))
+    from telegram.ext import MessageHandler, filters
+
+    ai_cmds = [
+        "maslahat", "maslaxat",
+        "ai", "advisor",
+        "meyster", "meystr",
+        "kengash", "savol",
+    ]
+    app.add_handler(CommandHandler(ai_cmds, ai_advisor_command))
     app.add_handler(CallbackQueryHandler(ai_advisor_command, pattern="^menu_ai_advisor$"))
     app.add_handler(CallbackQueryHandler(ai_topic_callback, pattern="^ai_prompt_"))
+    app.add_handler(
+        MessageHandler(
+            filters.Regex("^(?i)[/!]?(maslahat|maslaxat|meyster|meystr|kengash)(\\s+.*)?$") & filters.ChatType.PRIVATE,
+            ai_advisor_text_handler,
+        )
+    )

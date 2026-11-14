@@ -181,6 +181,15 @@ async def ask_council_advisor(
     Qaytaradi: (ok, answer, metadata)
     """
     clean_q = (query or "").strip()
+    if clean_q.startswith("<") and clean_q.endswith(">") and len(clean_q) > 2:
+        clean_q = clean_q[1:-1].strip()
+    elif clean_q.startswith("«") and clean_q.endswith("»") and len(clean_q) > 2:
+        clean_q = clean_q[1:-1].strip()
+    elif clean_q.startswith('"') and clean_q.endswith('"') and len(clean_q) > 2:
+        clean_q = clean_q[1:-1].strip()
+    elif clean_q.startswith("'") and clean_q.endswith("'") and len(clean_q) > 2:
+        clean_q = clean_q[1:-1].strip()
+
     if not clean_q:
         return False, "Lordim, maslahatchiga bermoqchi bo'lgan savolingizni yozing.", {}
 

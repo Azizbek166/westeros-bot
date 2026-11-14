@@ -227,6 +227,8 @@ async def on_startup(app: Application):
             BotCommand("daily", "🎁 Kunlik Tuhfalar"),
             BotCommand("quests", "📜 Vazifalar & Topshiriqlar"),
             BotCommand("duel", "⚔️ 1v1 Duellar"),
+            BotCommand("maslahat", "🧙‍♂️ Meyster Maslahati (AI)"),
+            BotCommand("ai", "🧙‍♂️ Kengash Maslahatchisi"),
             BotCommand("support", "✍️ Adminlarga Murojaat"),
             BotCommand("bank", "🏦 Braavos Temir Banki"),
             BotCommand("rank", "🏆 Qirollik Reytingi"),

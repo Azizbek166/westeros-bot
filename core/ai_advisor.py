@@ -218,15 +218,16 @@ def generate_heuristic_advice(query: str, player_state: Dict[str, Any]) -> str:
             "💡 *Maslahat: Hech qachon faqat bitta turdagi askar bilan jangga kirmang, muvozanatli qo'shin tuzing.*"
         )
 
-    # 3. AJDAHO STRATEGIYASI
-    if any(k in q for k in ["ajdaho", "dragon", "drogon", "reyd", "tuxum", "oziq"]):
+    # 3. AJDAHO STRATEGIYASI VA KUCHAYTIRISH
+    if any(k in q for k in ["ajdaho", "ajdar", "jdar", "dragon", "drogon", "reyd", "tuxum", "oziq", "boqish", "parvarish", "kuchaytir"]):
         return (
-            "🐉 **Ajdaholar Parvarishi & Jangovar Kuchi:**\n"
-            "Valyriyaning eng dahshatli quroli — ajdahodir:\n\n"
-            "1. **Tuxumni yorish:** Ajdaho uyasida issiqlik berish orqali tuxumni oching.\n"
-            "2. **Oziqlantirish:** Ajdahoni muntazam go'sht bilan boqing. Och ajdaho (Ochlik > 80%) jangga uchmaydi!\n"
-            "3. **Mashq (Training):** Mashq qildirib, uning Olov Quvvati (Firepower) va Qalqonini oshiring.\n"
-            "4. **Hujum taktikasi:** Qal'a qamalida ajdaho dushman devorlarini eritib, qo'shiningizga yirik ustunlik beradi."
+            "🐉 **Ajdahoni Boqish, Parvarishlash va Kuchaytirish Sirlari:**\n"
+            "Valyriyaning eng dahshatli va qudratli kuchi — bu sizning Ajdahongizdir!\n\n"
+            "1. 🥚 **Tuxum ochish:** Mini App yoki botdagi «🐉 Ajdaho Uyasi» bo'limiga kiring. Tuxumga olov/issiqlik berib, uni yorib chiqing.\n"
+            "2. 🍖 **Muntazam Boqish (Oziqlantirish):** Ajdahoni muntazam go'sht (oziq-ovqat) bilan boqing. Ochlik darajasini 0% ga yaqin tuting. Och qolgan ajdaho (Ochlik > 80%) jangga uchmaydi va kuchsizlanadi!\n"
+            "3. ⚡ **Kuchaytirish & Mashq (Training):** Har kuni mashg'ulot o'tkazing — uning Olov Quvvati (Firepower), Darajasi (Level) va Qalqoni muttasil o'sib boradi.\n"
+            "4. 🗡️ **Valyriya Artefakti:** Ajdahongizga noyob Valyriya artefaktini taqing, bu unga maxsus afsonaviy jangovar bufflar beradi.\n"
+            "5. 🏰 **Qal'alar Urushi (21:00):** Qal'a qamaliga ajdahoni qo'shing. U dushman devorlarini eritib, dushman garnizonini yakson qiladi!"
         )
 
     # 4. IQTISOD, BANK VA BOZOR
