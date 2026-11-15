@@ -279,5 +279,5 @@ def register_promo_handlers(app: Application):
     app.add_handler(CallbackQueryHandler(admin_promo_toggle_callback, pattern="^admin_promo_toggle:[0-9]+$"))
     app.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, promo_text_input_handler),
-        group=1,
+        group=3,
     )

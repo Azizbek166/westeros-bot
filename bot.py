@@ -445,6 +445,7 @@ async def main_async():
 
     # 5. Telegram Bot pollingni va Uvicorn serverni BITTA yagona asinxron event loop'da ishga tushirish
     await app.initialize()
+    await on_startup(app)
     await app.start()
     await app.updater.start_polling(drop_pending_updates=True)
 

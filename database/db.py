@@ -157,6 +157,7 @@ async def init_db():
                 "ALTER TABLE users ADD COLUMN weekly_prestige_earned INTEGER DEFAULT 0",
                 "ALTER TABLE users ADD COLUMN weekly_limit_date VARCHAR(10) DEFAULT ''",
                 "ALTER TABLE users ADD COLUMN custom_video_file_id VARCHAR(255)",
+                "ALTER TABLE users ADD COLUMN referred_by_id INTEGER",
                 "ALTER TABLE territories ADD COLUMN castle_tier INTEGER DEFAULT 2",
                 "ALTER TABLE donation_requests ADD COLUMN request_type VARCHAR(50) DEFAULT 'tier'",
                 "ALTER TABLE donation_requests ADD COLUMN troop_type VARCHAR(50)",
@@ -293,6 +294,7 @@ async def init_db():
                 "ALTER TABLE hall_of_fame ADD COLUMN IF NOT EXISTS top_guild_name VARCHAR(100)",
                 "ALTER TABLE hall_of_fame ADD COLUMN IF NOT EXISTS snapshot_json TEXT DEFAULT '{}'",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_ai_requests_count INTEGER DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by_id INTEGER",
             ]:
                 try:
                     await conn.execute(text(pg_alter))
