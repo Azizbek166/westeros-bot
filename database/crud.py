@@ -5238,7 +5238,7 @@ async def reset_entire_game(session: AsyncSession) -> None:
         except Exception as te:
             logger.warning(f"reset_entire_game delete warning on {tm.__tablename__}: {te}")
 
-    # O'yinchilarning akkaunti va xonadoni saqlanadi; resurslar, VIP va limitlar 0 ga tushiriladi
+    # O'yinchilarning akkaunti va xonadoni saqlanadi; resurslar, VIP, binolar va limitlar 0 ga tushiriladi
     await session.execute(
         update(models.User).values(
             gold=250,
@@ -5249,6 +5249,12 @@ async def reset_entire_game(session: AsyncSession) -> None:
             level=1,
             vip_tier=None,
             vip_until=None,
+            has_starter_pack=False,
+            iron_mine_level=1,
+            grain_mill_level=1,
+            peace_shield_until=None,
+            equipped_artifact_id=None,
+            streak_count=0,
             title=None,
             custom_status=None,
             daily_quiz_count=0,
@@ -5263,12 +5269,19 @@ async def reset_entire_game(session: AsyncSession) -> None:
             daily_duel_count=0,
             daily_recruit_count=0,
             daily_caravan_send_count=0,
+            daily_ai_requests_count=0,
         )
     )
 
     if custom_house_ids:
         try:
             async with session.begin_nested():
+                await session.execute(
+                    update(models.User)
+                    .where(models.User.house_id.in_(custom_house_ids))
+                    .values(house_id=None)
+                )
+                await session.execute(delete(models.Territory).where(models.Territory.owner_house_id.in_(custom_house_ids)))
                 await session.execute(delete(models.House).where(models.House.id.in_(custom_house_ids)))
         except Exception as he:
             logger.warning(f"reset_entire_game custom house delete warning: {he}")
