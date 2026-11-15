@@ -23,17 +23,17 @@ async def achievements_menu_callback(update: Update, context: ContextTypes.DEFAU
     progress_bar = "🟩" * (pct // 10) + "⬜" * (10 - (pct // 10))
 
     lines = [
-        f"🏅 **QIROLLIK SHON-SHARAF YUTUQLARI**\n",
-        f"🏆 Jarayon: **{unlocked_cnt}/{total}** ({pct}%)\n{progress_bar}\n",
+        f"🏅 *QIROLLIK SHON-SHARAF YUTUQLARI*\n",
+        f"🏆 Jarayon: *{unlocked_cnt}/{total}* ({pct}%)\n{progress_bar}\n",
         f"━━━━━━━━━━━━━━━━━━━━\n",
     ]
 
     for item in data.get("achievements", []):
         if item["is_unlocked"]:
-            lines.append(f"✅ **{item['title']}**\n   _{item['desc']}_\n   📅 _Ochilgan: {item['unlocked_at']}_\n")
+            lines.append(f"✅ *{item['title']}*\n   _{item['desc']}_\n   📅 _Ochilgan: {item['unlocked_at']}_\n")
         else:
             reward_txt = f"+{item['gold']:,}🪙 +{item['iron']:,}⛓️ +{item['prestige']}⭐"
-            lines.append(f"🔒 **{item['title']}**\n   _{item['desc']}_\n   🎁 Mukofot: {reward_txt}\n")
+            lines.append(f"🔒 *{item['title']}*\n   _{item['desc']}_\n   🎁 Mukofot: {reward_txt}\n")
 
     text = "\n".join(lines)
     kb = InlineKeyboardMarkup([
@@ -44,7 +44,10 @@ async def achievements_menu_callback(update: Update, context: ContextTypes.DEFAU
     try:
         await query.edit_message_text(text, parse_mode="Markdown", reply_markup=kb)
     except Exception:
-        await query.message.reply_text(text, parse_mode="Markdown", reply_markup=kb)
+        try:
+            await query.message.reply_text(text, parse_mode="Markdown", reply_markup=kb)
+        except Exception:
+            await query.message.reply_text(text.replace("*", "").replace("_", ""), reply_markup=kb)
 
 
 async def achievements_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -59,14 +62,14 @@ async def achievements_command(update: Update, context: ContextTypes.DEFAULT_TYP
     pct = data.get("progress_pct", 0)
 
     lines = [
-        f"🏅 **QIROLLIK SHON-SHARAF YUTUQLARI**\n",
-        f"🏆 Jarayon: **{unlocked_cnt}/{total}** ({pct}%)\n",
+        f"🏅 *QIROLLIK SHON-SHARAF YUTUQLARI*\n",
+        f"🏆 Jarayon: *{unlocked_cnt}/{total}* ({pct}%)\n",
         f"━━━━━━━━━━━━━━━━━━━━\n",
     ]
 
     for item in data.get("achievements", []):
         status_icon = "✅" if item["is_unlocked"] else "🔒"
-        lines.append(f"{status_icon} **{item['title']}** — _{item['desc']}_")
+        lines.append(f"{status_icon} *{item['title']}* — _{item['desc']}_")
 
     text = "\n".join(lines)
     kb = InlineKeyboardMarkup([
@@ -74,7 +77,10 @@ async def achievements_command(update: Update, context: ContextTypes.DEFAULT_TYP
         [InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")],
     ])
 
-    await update.message.reply_text(text, parse_mode="Markdown", reply_markup=kb)
+    try:
+        await update.message.reply_text(text, parse_mode="Markdown", reply_markup=kb)
+    except Exception:
+        await update.message.reply_text(text.replace("*", "").replace("_", ""), reply_markup=kb)
 
 
 def register_achievement_handlers(app: Application):

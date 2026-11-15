@@ -11,6 +11,7 @@ from telegram import (
     BotCommand,
     BotCommandScopeAllPrivateChats,
     BotCommandScopeAllGroupChats,
+    MenuButtonCommands,
 )
 from telegram.ext import Application, ContextTypes, TypeHandler, ApplicationHandlerStop
 from config import BOT_TOKEN, ADMIN_IDS, OWNER_ID, escape_md
@@ -249,6 +250,14 @@ async def on_startup(app: Application):
         except Exception:
             await app.bot.set_my_commands(private_commands)
             logger.info("✅ Telegram umumiy buyruqlar menyusi o'rnatildi.")
+
+        try:
+            from config import ENABLE_MINIAPP
+            if not ENABLE_MINIAPP:
+                await app.bot.set_chat_menu_button(menu_button=MenuButtonCommands())
+                logger.info("✅ Mini App 'O'yinni ochish' tugmasi o'chirildi (MenuButtonCommands o'rnatildi).")
+        except Exception as mb_err:
+            logger.warning(f"set_chat_menu_button xatosi: {mb_err}")
     except Exception as e:
         logger.warning(f"set_my_commands xatosi: {e}")
 

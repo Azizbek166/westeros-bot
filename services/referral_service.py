@@ -86,9 +86,11 @@ async def award_referral_reward_after_house_selection(
     # Yutuqni tekshirish
     try:
         from services.achievement_service import unlock_achievement
-        await unlock_achievement(session, referrer.id, "referral_pioneer", bot_app=bot_app)
+        await unlock_achievement(session, referrer.id, "referral_pioneer", bot_app=bot_app, auto_commit=False)
     except Exception:
         pass
+
+    await session.commit()
 
     # Xabarnoma yuborish
     if bot_app and referrer.telegram_id:

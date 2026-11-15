@@ -209,6 +209,12 @@ async def dragon_hatch_callback(update: Update, context: ContextTypes.DEFAULT_TY
         if not user:
             return
         ok, msg = await crud.hatch_dragon(session, user.id, dragon_id)
+        if ok:
+            try:
+                from services.achievement_service import unlock_achievement
+                await unlock_achievement(session, user.id, "dragon_hatch", bot_app=context.application)
+            except Exception:
+                pass
 
     await query.answer(msg, show_alert=True)
     await show_dragon_hub(query, user_id, is_message=False)

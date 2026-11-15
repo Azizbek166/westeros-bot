@@ -14,6 +14,7 @@ async def unlock_achievement(
     user_id: int,
     achievement_code: str,
     bot_app=None,
+    auto_commit: bool = True,
 ) -> Tuple[bool, str, Optional[models.UserAchievement]]:
     """
     Yutuqni ochish va mukofotni berish (idempotent, bir yutuq faqat 1 marta ochiladi).
@@ -62,6 +63,9 @@ async def unlock_achievement(
     user.iron = (user.iron or 0) + cfg.get("iron", 0)
     user.food = (user.food or 0) + cfg.get("food", 0)
     user.prestige = (user.prestige or 0) + cfg.get("prestige", 0)
+
+    if auto_commit:
+        await session.commit()
 
     # Xabarnoma yuborish
     if bot_app and user.telegram_id:

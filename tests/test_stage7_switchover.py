@@ -35,28 +35,29 @@ def run_tests():
     print("=" * 60)
 
     # -------------------------------------------------------------
-    # TEST 1: Primary Keyboard Structure (Mini App As Primary)
+    # TEST 1: Primary Keyboard Structure
     # -------------------------------------------------------------
     primary_kb = start_primary_keyboard(user_id=7689627859)
-    top_btn = primary_kb.inline_keyboard[0][0]
-    assert top_btn.web_app is not None, "Top button must be WebApp button!"
-    assert "TAXTGA CHIQISH" in top_btn.text
-    assert top_btn.web_app.url == get_miniapp_url()
-
-    # Second row must provide Fallback Bot Menu and Refresh
-    second_row = primary_kb.inline_keyboard[1]
-    callbacks_r2 = [b.callback_data for b in second_row]
-    assert "menu_bot_fallback" in callbacks_r2, "Fallback bot menu button missing from primary keyboard!"
-    assert "menu_refresh_primary" in callbacks_r2, "Refresh button missing from primary keyboard!"
+    all_callbacks = [b.callback_data for row in primary_kb.inline_keyboard for b in row if b.callback_data]
+    if config.ENABLE_MINIAPP:
+        top_btn = primary_kb.inline_keyboard[0][0]
+        assert top_btn.web_app is not None, "Top button must be WebApp button!"
+        assert "TAXTGA CHIQISH" in top_btn.text
+        assert top_btn.web_app.url == get_miniapp_url()
+        second_row = primary_kb.inline_keyboard[1]
+        callbacks_r2 = [b.callback_data for b in second_row]
+        assert "menu_bot_fallback" in callbacks_r2
+        assert "menu_refresh_primary" in callbacks_r2
+    else:
+        assert all(b.web_app is None for row in primary_kb.inline_keyboard for b in row)
 
     # Secondary rows must provide VIP and Community
-    all_callbacks = [b.callback_data for row in primary_kb.inline_keyboard for b in row if b.callback_data]
     assert "menu_donate" in all_callbacks
     assert "menu_community" in all_callbacks
     assert "menu_support" in all_callbacks
     # Admin button for admin
     assert "admin_panel" in all_callbacks
-    print("[OK] Test 1: Primary Keyboard (Mini App Primary + Fallback Links) -> Verified")
+    print("[OK] Test 1: Primary Keyboard -> Verified")
 
     # -------------------------------------------------------------
     # TEST 2: Non-Admin Primary Keyboard
@@ -70,10 +71,12 @@ def run_tests():
     # TEST 3: Fallback Keyboard Integrity (100% Feature Access)
     # -------------------------------------------------------------
     fb_kb = bot_fallback_keyboard(user_id=7689627859)
-    # Row 0 must have button returning to Mini App
-    top_fb_row = fb_kb.inline_keyboard[0]
-    assert top_fb_row[0].callback_data == "menu_miniapp_primary", "Top button must lead back to Mini App!"
-    assert top_fb_row[1].web_app is not None, "Mini App direct button present on fallback top row!"
+    if config.ENABLE_MINIAPP:
+        top_fb_row = fb_kb.inline_keyboard[0]
+        assert top_fb_row[0].callback_data == "menu_miniapp_primary", "Top button must lead back to Mini App!"
+        assert top_fb_row[1].web_app is not None, "Mini App direct button present on fallback top row!"
+    else:
+        assert all(b.web_app is None for row in fb_kb.inline_keyboard for b in row)
 
     # Must contain full spectrum of legacy RPG functions
     fb_callbacks = [b.callback_data for row in fb_kb.inline_keyboard for b in row if b.callback_data]

@@ -378,6 +378,12 @@ async def guild_wizard_create_do(update: Update, context: ContextTypes.DEFAULT_T
             banner=banner,
             recruiting_type=rec_type
         )
+        if ok:
+            try:
+                from services.achievement_service import unlock_achievement
+                await unlock_achievement(session, user_id, "guild_brother", bot_app=context.application)
+            except Exception:
+                pass
 
     await query.answer(msg[:150], show_alert=True)
     await show_guild_hub(query, context, user_id, is_message=False)

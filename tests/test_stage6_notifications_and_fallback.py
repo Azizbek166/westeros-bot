@@ -49,68 +49,85 @@ def run_tests():
     # TEST 2: Attack Alert Notification Keyboard
     # -------------------------------------------------------------
     atk_kb = attack_alert_keyboard(territory_id=5)
-    # Check top row is WebApp button
-    top_btn = atk_kb.inline_keyboard[0][0]
-    assert top_btn.web_app is not None, "Top button must be a WebApp button"
-    assert "startapp=castles" in top_btn.web_app.url
+    if config.ENABLE_MINIAPP:
+        top_btn = atk_kb.inline_keyboard[0][0]
+        assert top_btn.web_app is not None, "Top button must be a WebApp button"
+        assert "startapp=castles" in top_btn.web_app.url
+    else:
+        assert all(b.web_app is None for row in atk_kb.inline_keyboard for b in row)
     # Check fallback buttons
     all_callbacks = [b.callback_data for row in atk_kb.inline_keyboard for b in row if b.callback_data]
     assert any("def_rf_menu:5" in c for c in all_callbacks)
     assert any("def_sos:5" in c for c in all_callbacks)
-    print("[OK] Test 2: Attack Alert Keyboard -> WebApp Deep-Link + Fallback Buttons Verified")
+    print("[OK] Test 2: Attack Alert Keyboard -> Verified")
 
     # -------------------------------------------------------------
     # TEST 3: Duel Challenge Notification Keyboard
     # -------------------------------------------------------------
     duel_kb = duel_challenge_keyboard(duel_id=42)
-    top_btn = duel_kb.inline_keyboard[0][0]
-    assert top_btn.web_app is not None
-    assert "startapp=duel" in top_btn.web_app.url
+    if config.ENABLE_MINIAPP:
+        top_btn = duel_kb.inline_keyboard[0][0]
+        assert top_btn.web_app is not None
+        assert "startapp=duel" in top_btn.web_app.url
+    else:
+        assert all(b.web_app is None for row in duel_kb.inline_keyboard for b in row)
     all_callbacks = [b.callback_data for row in duel_kb.inline_keyboard for b in row if b.callback_data]
     assert any("pvp_acc:42" in c for c in all_callbacks)
     assert any("pvp_rej:42" in c for c in all_callbacks)
-    print("[OK] Test 3: Duel Challenge Keyboard -> WebApp Deep-Link + Fallback Buttons Verified")
+    print("[OK] Test 3: Duel Challenge Keyboard -> Verified")
 
     # -------------------------------------------------------------
     # TEST 4: Daily Reward Ready Notification Keyboard
     # -------------------------------------------------------------
     daily_kb = daily_reward_ready_keyboard()
-    top_btn = daily_kb.inline_keyboard[0][0]
-    assert top_btn.web_app is not None
-    assert "startapp=profile" in top_btn.web_app.url
+    if config.ENABLE_MINIAPP:
+        top_btn = daily_kb.inline_keyboard[0][0]
+        assert top_btn.web_app is not None
+        assert "startapp=profile" in top_btn.web_app.url
+    else:
+        assert all(b.web_app is None for row in daily_kb.inline_keyboard for b in row)
     all_callbacks = [b.callback_data for row in daily_kb.inline_keyboard for b in row if b.callback_data]
     assert "claim_daily_bonus" in all_callbacks
-    print("[OK] Test 4: Daily Reward Keyboard -> WebApp Deep-Link + Fallback Buttons Verified")
+    print("[OK] Test 4: Daily Reward Keyboard -> Verified")
 
     # -------------------------------------------------------------
     # TEST 5: Quiz Reminder Notification Keyboard
     # -------------------------------------------------------------
     quiz_kb = quiz_reminder_keyboard()
-    top_btn = quiz_kb.inline_keyboard[0][0]
-    assert top_btn.web_app is not None
-    assert "startapp=quiz" in top_btn.web_app.url
+    if config.ENABLE_MINIAPP:
+        top_btn = quiz_kb.inline_keyboard[0][0]
+        assert top_btn.web_app is not None
+        assert "startapp=quiz" in top_btn.web_app.url
+    else:
+        assert all(b.web_app is None for row in quiz_kb.inline_keyboard for b in row)
     all_callbacks = [b.callback_data for row in quiz_kb.inline_keyboard for b in row if b.callback_data]
     assert "menu_citadel" in all_callbacks
-    print("[OK] Test 5: Quiz Reminder Keyboard -> WebApp Deep-Link + Fallback Buttons Verified")
+    print("[OK] Test 5: Quiz Reminder Keyboard -> Verified")
 
     # -------------------------------------------------------------
     # TEST 6: Bank Interest Ready Notification Keyboard
     # -------------------------------------------------------------
     bank_kb = bank_interest_ready_keyboard()
-    top_btn = bank_kb.inline_keyboard[0][0]
-    assert top_btn.web_app is not None
-    assert "startapp=bank" in top_btn.web_app.url
+    if config.ENABLE_MINIAPP:
+        top_btn = bank_kb.inline_keyboard[0][0]
+        assert top_btn.web_app is not None
+        assert "startapp=bank" in top_btn.web_app.url
+    else:
+        assert all(b.web_app is None for row in bank_kb.inline_keyboard for b in row)
     all_callbacks = [b.callback_data for row in bank_kb.inline_keyboard for b in row if b.callback_data]
     assert "menu_bank" in all_callbacks
-    print("[OK] Test 6: Bank Interest Keyboard -> WebApp Deep-Link + Fallback Buttons Verified")
+    print("[OK] Test 6: Bank Interest Keyboard -> Verified")
 
     # -------------------------------------------------------------
     # TEST 7: Guild Event Notification Keyboard
     # -------------------------------------------------------------
     guild_kb = guild_event_keyboard()
-    top_btn = guild_kb.inline_keyboard[0][0]
-    assert top_btn.web_app is not None
-    assert "startapp=guild" in top_btn.web_app.url
+    if config.ENABLE_MINIAPP:
+        top_btn = guild_kb.inline_keyboard[0][0]
+        assert top_btn.web_app is not None
+        assert "startapp=guild" in top_btn.web_app.url
+    else:
+        assert all(b.web_app is None for row in guild_kb.inline_keyboard for b in row)
     all_callbacks = [b.callback_data for row in guild_kb.inline_keyboard for b in row if b.callback_data]
     assert "menu_guild" in all_callbacks
     print("[OK] Test 7: Guild Event Keyboard -> WebApp Deep-Link + Fallback Buttons Verified")

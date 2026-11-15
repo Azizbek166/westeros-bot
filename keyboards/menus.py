@@ -97,9 +97,11 @@ def legacy_main_menu_keyboard(user_id: int = None) -> InlineKeyboardMarkup:
 def start_primary_keyboard(user_id: int = None) -> InlineKeyboardMarkup:
     """
     Stage 7: Telegram Mini App asosiy boshqaruv klaviaturasi.
-    Mini App birinchi darajali interfeys qilib o'rnatilgan, bot esa yordamchi va zaxira (fallback) vazifasini bajaradi.
+    ENABLE_MINIAPP=False bo'lganda sof Telegram bot menyusini qaytaradi.
     """
-    from config import ADMIN_IDS, get_miniapp_url
+    from config import ADMIN_IDS, get_miniapp_url, ENABLE_MINIAPP
+    if not ENABLE_MINIAPP:
+        return legacy_main_menu_keyboard(user_id)
     buttons = [
         [
             InlineKeyboardButton("📱 TAXTGA CHIQISH (MINI APP) ⚔️", web_app=WebAppInfo(url=get_miniapp_url()))
@@ -128,9 +130,11 @@ def start_primary_keyboard(user_id: int = None) -> InlineKeyboardMarkup:
 def bot_fallback_keyboard(user_id: int = None) -> InlineKeyboardMarkup:
     """
     Stage 7: Bot zaxira (fallback) klaviaturasi.
-    Tepasida '« 🔙 Mini App'ga Qaytish' tugmasi bilan barcha klassik inline tugmalarni taqdim etadi.
+    ENABLE_MINIAPP=False bo'lganda sof Telegram bot menyusini qaytaradi.
     """
-    from config import get_miniapp_url
+    from config import get_miniapp_url, ENABLE_MINIAPP
+    if not ENABLE_MINIAPP:
+        return legacy_main_menu_keyboard(user_id)
     buttons = [
         [
             InlineKeyboardButton("« 🔙 Mini App'ga Qaytish 📱", callback_data="menu_miniapp_primary"),

@@ -657,6 +657,7 @@ async def handle_custom_name_input(update: Update, context: ContextTypes.DEFAULT
                     elif user.referred_by_id:
                         from services.referral_service import award_referral_reward_after_house_selection
                         await award_referral_reward_after_house_selection(session, user.id, bot_app=context.application)
+                    await session.commit()
                 except Exception as ref_err:
                     logger.warning(f"Referral hook error (custom house): {ref_err}")
             except ValueError as ve:
@@ -844,6 +845,7 @@ async def handle_custom_name_input(update: Update, context: ContextTypes.DEFAULT
                 elif user.referred_by_id:
                     from services.referral_service import award_referral_reward_after_house_selection
                     await award_referral_reward_after_house_selection(session, user.id, bot_app=context.application)
+                await session.commit()
             except Exception as ref_err:
                 logger.warning(f"Referral hook error (standard house): {ref_err}")
         except ValueError as ve:

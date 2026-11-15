@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 def get_advisor_menu_keyboard(remaining: int, daily_limit: int) -> InlineKeyboardMarkup:
     """Kengash maslahatchisi interaktiv inline tugmalari"""
+    from config import ENABLE_MINIAPP
     buttons = [
         [
             InlineKeyboardButton("🎯 Hozir nima qilay?", callback_data="ai_prompt_todo"),
@@ -29,13 +30,14 @@ def get_advisor_menu_keyboard(remaining: int, daily_limit: int) -> InlineKeyboar
         [
             InlineKeyboardButton("🌟 Season & Pass qoidalari", callback_data="ai_prompt_season"),
         ],
-        [
-            InlineKeyboardButton("👑 Mini App'da Meyster bilan Suhbat", callback_data="menu_open_miniapp"),
-        ],
-        [
-            InlineKeyboardButton("🔙 Bosh Menyu", callback_data="main_menu"),
-        ],
     ]
+    if ENABLE_MINIAPP:
+        buttons.append([
+            InlineKeyboardButton("👑 Mini App'da Meyster bilan Suhbat", callback_data="menu_open_miniapp"),
+        ])
+    buttons.append([
+        InlineKeyboardButton("🔙 Bosh Menyu", callback_data="menu_main"),
+    ])
     return InlineKeyboardMarkup(buttons)
 
 
