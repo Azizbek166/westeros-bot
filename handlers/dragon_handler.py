@@ -43,6 +43,11 @@ async def show_dragon_hub(target, user_id: int, is_message: bool):
             return
 
         dragons = await crud.get_user_dragons(session, user.id)
+        try:
+            from services.section_media_service import send_section_media_if_any
+            await send_section_media_if_any(target.message, session, user, "dragon")
+        except Exception:
+            pass
         max_castle_lvl = await crud.get_user_max_castle_level(session, user)
 
         if not dragons:

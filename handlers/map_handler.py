@@ -607,6 +607,11 @@ async def show_my_castle_detail(query, user_id: int, terr_id: int):
             user = await crud.get_user_with_relations(session, user_id)
             if not terr or not user:
                 return
+            try:
+                from services.section_media_service import send_section_media_if_any
+                await send_section_media_if_any(query.message, session, user, "castle")
+            except Exception:
+                pass
 
             hours, rem_min = crud.get_user_castle_tax_hours(user, terr, now)
 

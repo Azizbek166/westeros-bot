@@ -1242,6 +1242,65 @@ class UserProfileExtra(Base):
     updated_at = Column(DateTime, default=datetime.utcnow)
 
 
+# ============================================================
+# 44. USER SECTION MEDIA (VIP BO'LIMLAR MEDIA: AJDAR, QAL'A, ARMIYA, XONADON)
+# ============================================================
+class UserSectionMedia(Base):
+    __tablename__ = "user_section_media"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    section_key = Column(String(32), nullable=False, index=True)  # dragon, castle, army, house
+    media_type = Column(String(16), nullable=False)  # photo, video, animation
+    file_id = Column(String(256), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "section_key", name="uq_user_section_media"),
+    )
+
+
+# ============================================================
+# 45. NAVAL FLEETS & BATTLES (DENGIZ JANGLARI VA FLOT)
+# ============================================================
+class UserFleet(Base):
+    __tablename__ = "user_fleets"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False, index=True)
+    sloops = Column(Integer, default=0)
+    galleys = Column(Integer, default=0)
+    warships = Column(Integer, default=0)
+    flagships = Column(Integer, default=0)
+    naval_wins = Column(Integer, default=0)
+    naval_losses = Column(Integer, default=0)
+    pirate_wins = Column(Integer, default=0)
+    sea_plunder_gold = Column(BigInteger, default=0)
+    daily_pve_date = Column(String(16), default="")
+    daily_pve_count = Column(Integer, default=0)
+    daily_pvp_date = Column(String(16), default="")
+    daily_pvp_count = Column(Integer, default=0)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+
+class NavalBattleReport(Base):
+    __tablename__ = "naval_battle_reports"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    attacker_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    defender_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    sea_zone = Column(String(64), nullable=False)
+    battle_type = Column(String(16), default="pve")  # pve | pvp
+    outcome = Column(String(16), nullable=False)  # win | loss
+    gold_looted = Column(Integer, default=0)
+    food_looted = Column(Integer, default=0)
+    iron_looted = Column(Integer, default=0)
+    ships_lost_json = Column(Text, default="{}")
+    summary = Column(Text, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 
 
 

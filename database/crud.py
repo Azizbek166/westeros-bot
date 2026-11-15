@@ -5240,6 +5240,8 @@ async def reset_entire_game(session: AsyncSession) -> None:
         models.IronBank,
         models.MissionClaim,
         models.MissionProgress,
+        models.NavalBattleReport,
+        models.UserFleet,
     ]
     for tm in table_models:
         try:

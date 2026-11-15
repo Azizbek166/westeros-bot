@@ -1,0 +1,101 @@
+"""
+Dengiz Janglari va Flot ma'lumotlari (kemalar, dengiz hududlari, limitlar).
+"""
+
+DAILY_NAVAL_PVE_LIMIT = 5
+DAILY_NAVAL_PVP_LIMIT = 5
+
+SHIP_TYPES = {
+    "sloops": {
+        "key": "sloops",
+        "name": "Yelkanli Qayiq",
+        "icon": "⛵",
+        "gold": 150,
+        "iron": 80,
+        "food": 100,
+        "power": 25,
+        "defense": 15,
+        "desc": "Tez va arzon razvedka hamda reyd qayig'i.",
+    },
+    "galleys": {
+        "key": "galleys",
+        "name": "Jangovar Galera",
+        "icon": "🚣",
+        "gold": 400,
+        "iron": 220,
+        "food": 250,
+        "power": 75,
+        "defense": 55,
+        "desc": "Asosiy zarbdor jangovar kema.",
+    },
+    "warships": {
+        "key": "warships",
+        "name": "Katta Harbiy Kema",
+        "icon": "⛴️",
+        "gold": 950,
+        "iron": 550,
+        "food": 500,
+        "power": 190,
+        "defense": 160,
+        "desc": "Og'ir zirhli va kuchli to'plar bilan jihozlangan kema.",
+    },
+    "flagships": {
+        "key": "flagships",
+        "name": "Qirollik Flagmani",
+        "icon": "🚢",
+        "gold": 2400,
+        "iron": 1400,
+        "food": 1000,
+        "power": 520,
+        "defense": 420,
+        "desc": "Admiral kemasi — flotingiz kuchiga +15% jangovar ruh beradi.",
+    },
+}
+
+SEA_ZONES = {
+    "narrow_sea": {
+        "key": "narrow_sea",
+        "name": "🌊 Tor Dengiz (Narrow Sea)",
+        "enemy_name": "Qaroqchi Qayiqlari",
+        "min_power": 50,
+        "enemy_power": 90,
+        "gold_min": 450,
+        "gold_max": 750,
+        "food_min": 900,
+        "food_max": 1400,
+        "iron_min": 250,
+        "iron_max": 450,
+        "xp": 45,
+        "prestige": 6,
+    },
+    "summer_sea": {
+        "key": "summer_sea",
+        "name": "☀️ Yozgi Dengiz (Summer Sea)",
+        "enemy_name": "Ozod Shaharlar Kontrabandachilari",
+        "min_power": 250,
+        "enemy_power": 380,
+        "gold_min": 1100,
+        "gold_max": 1700,
+        "food_min": 2200,
+        "food_max": 3200,
+        "iron_min": 650,
+        "iron_max": 1050,
+        "xp": 90,
+        "prestige": 14,
+    },
+    "sunset_sea": {
+        "key": "sunset_sea",
+        "name": "🐙 Temir Orollar Suvlari",
+        "enemy_name": "Temir Tug'ilganlar Floti",
+        "min_power": 750,
+        "enemy_power": 1100,
+        "gold_min": 2400,
+        "gold_max": 3600,
+        "food_min": 4500,
+        "food_max": 6500,
+        "iron_min": 1400,
+        "iron_max": 2200,
+        "xp": 170,
+        "prestige": 28,
+    },
+}

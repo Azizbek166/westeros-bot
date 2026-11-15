@@ -46,6 +46,12 @@ async def show_house(target, user_id: int, is_message: bool):
                 await target.edit_message_text(msg)
             return
 
+        try:
+            from services.section_media_service import send_section_media_if_any
+            await send_section_media_if_any(target.message, session, user, "house")
+        except Exception:
+            pass
+
         members_count = await crud.get_house_members_count(session, house.id)
         territories = await crud.get_house_territories(session, house.id)
 

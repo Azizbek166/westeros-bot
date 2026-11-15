@@ -37,6 +37,9 @@ def legacy_main_menu_keyboard(user_id: int = None) -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton("🛡️ Harbiy Yurish", callback_data="menu_battle"),
+            InlineKeyboardButton("🌊 Dengiz Janglari", callback_data="menu_naval"),
+        ],
+        [
             InlineKeyboardButton("📜 Vazifalar", callback_data="menu_quests"),
         ],
         [

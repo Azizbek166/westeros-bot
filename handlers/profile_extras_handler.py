@@ -20,6 +20,12 @@ from services.profile_extras_service import (
     admin_get_user_profile_extras,
     admin_clear_user_profile_text,
 )
+from services.section_media_service import (
+    SECTION_MEDIA_CONFIG,
+    get_all_user_section_media,
+    set_user_section_media,
+    clear_user_section_media,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +57,10 @@ async def _render_extras_studio(tg_id: int):
         "Quyidan kerakli bezakni tanlang:"
     )
 
-    buttons = [[InlineKeyboardButton("🎨 Profil Temasini Tanlash", callback_data="pfx_themes")]]
+    buttons = [
+        [InlineKeyboardButton("🎨 Profil Temasini Tanlash", callback_data="pfx_themes")],
+        [InlineKeyboardButton("🖼️ Bo'limlar Mediasi (Ajdar, Qal'a...)", callback_data="pfx_sec_menu")],
+    ]
     if has_min_vip_tier(user, "lord"):
         buttons.append([InlineKeyboardButton("🛡️ Gerb Emoji Tanlash", callback_data="pfx_crests")])
     if has_min_vip_tier(user, "dragonlord"):
@@ -249,6 +258,101 @@ async def pfx_admin_clear_callback(update: Update, context: ContextTypes.DEFAULT
     await pfx_admin_mod_callback(update, context)
 
 
+async def pfx_sec_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_by_telegram_id(session, query.from_user.id)
+        if not user or get_active_vip_tier(user) == "free":
+            await query.edit_message_text(
+                "❌ Bo'limlarga rasm/video qo'yish faqat faol VIP Homiy egalari uchundir!",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("💎 VIP Paketlar", callback_data="menu_donate")]]),
+            )
+            return
+        media_map = await get_all_user_section_media(session, user)
+
+    lines = [
+        "🖼️ *BO'LIMLAR MEDIASI (VIP)*",
+        "Har bir bo'limni ochganingizda ko'rinadigan shaxsiy rasm (Noble+) yoki video/GIF (Lord+) o'rnating:\n",
+    ]
+    buttons = []
+    for key, cfg in SECTION_MEDIA_CONFIG.items():
+        cur = media_map.get(key)
+        status = f"✅ ({cur['media_type']})" if cur else "⚪ O'rnatilmagan"
+        lines.append(f"• *{cfg['name']}:* {status}")
+        buttons.append([InlineKeyboardButton(f"{cfg['name']} — {status}", callback_data=f"pfx_sec_pick:{key}")])
+    buttons.append([InlineKeyboardButton("🔙 Orqaga", callback_data="pfx_studio")])
+    text = "\n".join(lines)
+    try:
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+    except Exception:
+        await query.edit_message_text(text.replace("*", ""), parse_mode=None, reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def pfx_sec_pick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    key = (query.data or "").split(":", 1)[1] if ":" in (query.data or "") else ""
+    cfg = SECTION_MEDIA_CONFIG.get(key)
+    if not cfg:
+        return
+    context.user_data["pfx_awaiting_sec_media"] = key
+    text = (
+        f"🖼️ *{cfg['name'].upper()}*\n\n"
+        f"{cfg['desc']}\n\n"
+        "📤 Endi menga **Rasm** (Noble+) yoki **Video / GIF** (Lord+) yuboring.\n"
+        "_(Yoki pastdagi tugma orqali o'chirib tashlashingiz mumkin)_"
+    )
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🗑️ Mediani O'chirish", callback_data=f"pfx_sec_clear:{key}")],
+        [InlineKeyboardButton("🔙 Bo'limlar Ro'yxati", callback_data="pfx_sec_menu")],
+    ])
+    try:
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=kb)
+    except Exception:
+        await query.edit_message_text(text.replace("*", ""), parse_mode=None, reply_markup=kb)
+
+
+async def pfx_sec_clear_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    key = (query.data or "").split(":", 1)[1] if ":" in (query.data or "") else ""
+    context.user_data.pop("pfx_awaiting_sec_media", None)
+    async with AsyncSessionLocal() as session:
+        ok, msg = await clear_user_section_media(session, query.from_user.id, key)
+    await query.answer(msg, show_alert=True)
+    await pfx_sec_menu_callback(update, context)
+
+
+async def pfx_sec_media_input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    sec_key = context.user_data.get("pfx_awaiting_sec_media")
+    if not sec_key or not update.message:
+        return
+    media_type = None
+    file_id = None
+    if update.message.photo:
+        media_type = "photo"
+        file_id = update.message.photo[-1].file_id
+    elif update.message.video:
+        media_type = "video"
+        file_id = update.message.video.file_id
+    elif update.message.animation:
+        media_type = "animation"
+        file_id = update.message.animation.file_id
+    if not media_type or not file_id:
+        return
+
+    async with AsyncSessionLocal() as session:
+        ok, msg = await set_user_section_media(
+            session, update.effective_user.id, sec_key, media_type, file_id
+        )
+    if ok:
+        context.user_data.pop("pfx_awaiting_sec_media", None)
+    await update.message.reply_text(
+        msg,
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🖼️ Bo'limlar Mediasi", callback_data="pfx_sec_menu")]]),
+    )
+
+
 def register_profile_extras_handlers(app: Application):
     app.add_handler(CallbackQueryHandler(pfx_studio_callback, pattern="^pfx_studio$"))
     app.add_handler(CallbackQueryHandler(pfx_themes_callback, pattern="^pfx_themes$"))
@@ -257,9 +361,19 @@ def register_profile_extras_handlers(app: Application):
     app.add_handler(CallbackQueryHandler(pfx_crest_set_callback, pattern="^pfx_crest:"))
     app.add_handler(CallbackQueryHandler(pfx_prompt_callback, pattern="^pfx_(castle|victory)_ask$"))
     app.add_handler(CallbackQueryHandler(pfx_clear_callback, pattern="^pfx_clear:"))
+    app.add_handler(CallbackQueryHandler(pfx_sec_menu_callback, pattern="^pfx_sec_menu$"))
+    app.add_handler(CallbackQueryHandler(pfx_sec_pick_callback, pattern="^pfx_sec_pick:"))
+    app.add_handler(CallbackQueryHandler(pfx_sec_clear_callback, pattern="^pfx_sec_clear:"))
     app.add_handler(CallbackQueryHandler(pfx_admin_mod_callback, pattern="^pfx_adm_mod:"))
     app.add_handler(CallbackQueryHandler(pfx_admin_clear_callback, pattern="^pfx_adm_clr:"))
     app.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, pfx_text_input_handler),
+        group=4,
+    )
+    app.add_handler(
+        MessageHandler(
+            (filters.PHOTO | filters.VIDEO | filters.ANIMATION) & filters.ChatType.PRIVATE,
+            pfx_sec_media_input_handler,
+        ),
         group=4,
     )
