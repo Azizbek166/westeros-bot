@@ -5163,7 +5163,8 @@ async def reset_entire_game(session: AsyncSession) -> None:
     await session.execute(update(models.Tournament).values(winner_user_id=None))
     await session.execute(update(models.DonationRequest).values(user_id=None))
     try:
-        await session.execute(update(models.PaymentTransaction).values(user_id=None))
+        async with session.begin_nested():
+            await session.execute(update(models.PaymentTransaction).values(user_id=None))
     except Exception:
         pass
 
@@ -5179,7 +5180,8 @@ async def reset_entire_game(session: AsyncSession) -> None:
                 "ALTER TABLE tournaments DROP CONSTRAINT IF EXISTS tournaments_winner_user_id_fkey;",
             ]:
                 try:
-                    await session.execute(text(drop_sql))
+                    async with session.begin_nested():
+                        await session.execute(text(drop_sql))
                 except Exception:
                     pass
     except Exception as e:
@@ -5231,7 +5233,8 @@ async def reset_entire_game(session: AsyncSession) -> None:
     ]
     for tm in table_models:
         try:
-            await session.execute(delete(tm))
+            async with session.begin_nested():
+                await session.execute(delete(tm))
         except Exception as te:
             logger.warning(f"reset_entire_game delete warning on {tm.__tablename__}: {te}")
 
@@ -5265,7 +5268,8 @@ async def reset_entire_game(session: AsyncSession) -> None:
 
     if custom_house_ids:
         try:
-            await session.execute(delete(models.House).where(models.House.id.in_(custom_house_ids)))
+            async with session.begin_nested():
+                await session.execute(delete(models.House).where(models.House.id.in_(custom_house_ids)))
         except Exception as he:
             logger.warning(f"reset_entire_game custom house delete warning: {he}")
 

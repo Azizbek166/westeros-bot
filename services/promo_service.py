@@ -136,11 +136,24 @@ async def redeem_promo_code_service(
     if promo.reward_vip_days:
         rewards_list.append(f"+{promo.reward_vip_days} kunlik 👑 VIP statusi")
 
-    return True, f"🎉 Promo-kod qabul qilindi!\n\n🎁 **Mukofotlar:**\n• " + "\n• ".join(rewards_list), {
+    rewards_block = "• " + "\n• ".join(rewards_list) if rewards_list else "• Resurslar o'zgarishsiz"
+    return True, (
+        f"🎉 *Promo-kod qabul qilindi va hisobingizga qo'shildi!*\n\n"
+        f"🎁 *Qo'shilgan mukofotlar:*\n{rewards_block}\n\n"
+        f"💰 *Joriy balansingiz:*\n"
+        f"• 🪙 Oltin: *{user.gold:,}*\n"
+        f"• 🌾 Bug'doy: *{user.food:,}*\n"
+        f"• ⛓️ Temir: *{user.iron:,}*\n"
+        f"• ⭐ Nufuz: *{user.prestige:,}*"
+    ), {
         "gold": promo.reward_gold,
         "food": promo.reward_food,
         "iron": promo.reward_iron,
         "prestige": promo.reward_prestige,
+        "new_gold": user.gold,
+        "new_food": user.food,
+        "new_iron": user.iron,
+        "new_prestige": user.prestige,
     }
 
 
