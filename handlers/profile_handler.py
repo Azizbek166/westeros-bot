@@ -177,94 +177,76 @@ async def format_user_profile_card(user: models.User, session, is_group: bool = 
     vip = user.vip_tier
 
     # 1. TEMIR TAXT SOHIBI (SOVEREIGN) - Mutlaq Oliy Imperatorlik Dizayni
+    # Mobil ekranga mos tartibli va qatorlar orasida bo'sh joyli profil dizayni
+    sep = "━━━━━━━━━━━━━━"
     if vip == "sovereign":
-        status_line = f"📜 Imperator Shiori: «*{escape_md(user.custom_status)}*»\n" if user.custom_status else ""
-        audio_line = f"🎵 Qirollik Gimni: 🎶 *{escape_md(user.custom_audio_title or 'Westeros Imperatorlik Gimni')}*\n" if (user.custom_audio_file_id or user.custom_audio_title) else ""
-        decree_cnt = getattr(user, "royal_decree_count", 0) or 0
-
-        text = (
-            f"👑════════════════════════════👑\n"
-            f"   ⚔️  **TEMIR TAXT HUKMDORI**  ⚔️\n"
-            f"👑════════════════════════════👑\n\n"
-            f"⚡ Buyuk Imperator: **{user_display_name}**{username_str} | {house_str}\n"
-            f"{status_line}"
-            f"👑 Oliy Titul: «**{escape_md(user.title or 'Vesteros Himoyachisi')}**»\n"
-            f"{audio_line}"
-            f"🎖️ {user.rank.title()} | ⭐ Lv.{lvl}/30 ({lvl_title}) | 🏆 {user.prestige:,} Prestige\n"
-            f"📈 `[{prog_bar}]` {user.xp:,}/{next_req:,} XP ({int(progress)}%)\n"
-            f"{art_str}"
-            f"🔰 Qalqon: {shield_str}\n\n"
-            f"📊 **Xazina:** 🪙**{user.gold:,}** (+{income['gold']}/s) | 🌾**{user.food:,}** ({net_food_str}/s) | ⛓️**{user.iron:,}** (+{income['iron']}/s)\n"
-            f"⚔️ **Qo'shin:** 🛡️{inf_cnt:,} | 🏹{arc_cnt:,} | 🐎{cav_cnt:,} | 🗡️{spm_cnt:,} | 🔥{spc_cnt:,}\n"
-            f"{dragon_line}"
-            f"👑 **Qirollik Homiy Imtiyozlari:**\n"
-            f"• 📜 Qirollik Farmoni: **{decree_cnt} ta** huquq mavjud\n\n"
-            f"👑✨🌟⚡🌟✨👑"
-        )
-
-    # 2. VALYRIYA MEROSI (DRAGONLORD) - Olovli Afsonaviy Dizayn
+        header_line = "👑 **TEMIR TAXT HUKMDORI** 👑"
+        role_label = "⚡ Buyuk Imperator"
+        default_title = "Vesteros Himoyachisi"
+        default_audio = "Westeros Imperatorlik Gimni"
+        audio_label = "🎵 Qirollik Gimni"
+        footer_line = "👑✨🌟⚡🌟✨👑"
     elif vip == "dragonlord":
-        status_line = f"📜 Shior: «*{escape_md(user.custom_status)}*»\n" if user.custom_status else ""
-        audio_line = f"🎵 Fon Musiqasi: 🎶 *{escape_md(user.custom_audio_title or 'Valyriya Kuylari')}*\n" if (user.custom_audio_file_id or user.custom_audio_title) else ""
-
-        text = (
-            f"⚜️════════════════════════════⚜️\n"
-            f"   🐉  **VALYRIYA OLOVLI MEROSI**  🐉\n"
-            f"⚜️════════════════════════════⚜️\n\n"
-            f"🔥 Lord: **{user_display_name}**{username_str} | {house_str}\n"
-            f"{status_line}"
-            f"🎖️ Sharafli Unvon: «**{escape_md(user.title or 'Ajdaho Hukmdori')}**»\n"
-            f"{audio_line}"
-            f"🎖️ {user.rank.title()} | ⭐ Lv.{lvl}/30 ({lvl_title}) | 🏆 {user.prestige:,} Prestige\n"
-            f"📈 `[{prog_bar}]` {user.xp:,}/{next_req:,} XP ({int(progress)}%)\n"
-            f"{art_str}"
-            f"🔰 Qalqon: {shield_str}\n\n"
-            f"📊 **Xazina:** 🪙**{user.gold:,}** (+{income['gold']}/s) | 🌾**{user.food:,}** ({net_food_str}/s) | ⛓️**{user.iron:,}** (+{income['iron']}/s)\n"
-            f"⚔️ **Qo'shin:** 🛡️{inf_cnt:,} | 🏹{arc_cnt:,} | 🐎{cav_cnt:,} | 🗡️{spm_cnt:,} | 🔥{spc_cnt:,}\n"
-            f"{dragon_line}\n"
-            f"⚜️🌌✨ _Valyriya xazinasi va olovi barhayotdir_ ✨🌌⚜️"
-        )
-
-    # 3. LORDLAR XAZINASI (LORD) - Yaltiroq Olmosli Dizayn
+        header_line = "🐉 **VALYRIYA OLOVLI MEROSI** 🐉"
+        role_label = "🔥 Lord"
+        default_title = "Ajdaho Hukmdori"
+        default_audio = "Valyriya Kuylari"
+        audio_label = "🎵 Fon Musiqasi"
+        footer_line = "⚜️ _Valyriya xazinasi va olovi barhayotdir_ ⚜️"
     elif vip == "lord":
-        status_line = f"📜 Shior: «*{escape_md(user.custom_status)}*»\n" if user.custom_status else ""
-        audio_line = f"🎵 Fon Musiqasi: 🎶 *{escape_md(user.custom_audio_title or 'Lord Gimni')}*\n" if (user.custom_audio_file_id or user.custom_audio_title) else ""
-
-        text = (
-            f"✨════════════════════════════✨\n"
-            f"   🏰  **LORDLAR XAZINASI SOVUTI**  🏰\n"
-            f"✨════════════════════════════✨\n\n"
-            f"🌟 Lord: **{user_display_name}**{username_str} | {house_str}\n"
-            f"{status_line}"
-            f"🎖️ Sharafli Unvon: «**{escape_md(user.title or 'Saxiy Lord')}**»\n"
-            f"{audio_line}"
-            f"🎖️ {user.rank.title()} | ⭐ Lv.{lvl}/30 ({lvl_title}) | 🏆 {user.prestige:,} Prestige\n"
-            f"📈 `[{prog_bar}]` {user.xp:,}/{next_req:,} XP ({int(progress)}%)\n"
-            f"{art_str}"
-            f"🔰 Qalqon: {shield_str}\n\n"
-            f"📊 **Xazina:** 🪙**{user.gold:,}** (+{income['gold']}/s) | 🌾**{user.food:,}** ({net_food_str}/s) | ⛓️**{user.iron:,}** (+{income['iron']}/s)\n"
-            f"⚔️ **Qo'shin:** 🛡️{inf_cnt:,} | 🏹{arc_cnt:,} | 🐎{cav_cnt:,} | 🗡️{spm_cnt:,} | 🔥{spc_cnt:,}\n"
-            f"{dragon_line}\n"
-            f"✨💎✨ _Lordlar Xazinasi bilan qurollangan_ ✨💎✨"
-        )
-
-    # 4. STANDART LORD PROFILI (KNIGHT / BEPUL)
+        header_line = "🏰 **LORDLAR XAZINASI SOVUTI** 🏰"
+        role_label = "🌟 Lord"
+        default_title = "Saxiy Lord"
+        default_audio = "Lord Gimni"
+        audio_label = "🎵 Fon Musiqasi"
+        footer_line = "✨ _Lordlar Xazinasi bilan qurollangan_ ✨"
     else:
-        title_badge = f"🎖️ Sharafli Unvon: **{escape_md(user.title)}**\n" if getattr(user, "title", None) else ""
-        status_line = f"📜 Shior: «*{escape_md(user.custom_status)}*»\n" if user.custom_status else ""
-        text = (
-            f"👤 **LORD PROFILI**\n\n"
-            f"👑 **{user_display_name}**{username_str} | {house_str}\n"
-            f"{title_badge}"
-            f"{status_line}"
-            f"🎖️ {user.rank.title()} | ⭐ Lv.{lvl}/30 ({lvl_title}) | 🏆 {user.prestige:,} Prestige\n"
-            f"📈 `[{prog_bar}]` {user.xp:,}/{next_req:,} XP ({int(progress)}%)\n"
-            f"{art_str}"
-            f"🔰 Qalqon: {shield_str}\n\n"
-            f"📊 **Xazina:** 🪙**{user.gold:,}** (+{income['gold']}/s) | 🌾**{user.food:,}** ({net_food_str}/s) | ⛓️**{user.iron:,}** (+{income['iron']}/s)\n"
-            f"⚔️ **Qo'shin:** 🛡️{inf_cnt:,} | 🏹{arc_cnt:,} | 🐎{cav_cnt:,} | 🗡️{spm_cnt:,} | 🔥{spc_cnt:,}\n"
-            f"{dragon_line}"
+        header_line = "👤 **LORD PROFILI**"
+        role_label = "👑 Lord"
+        default_title = None
+        default_audio = None
+        audio_label = None
+        footer_line = ""
+
+    title_val = getattr(user, "title", None) or default_title
+    title_line = f"👑 Titul: «**{escape_md(title_val)}**»\n" if title_val else ""
+    status_line = f"📜 Shior: «*{escape_md(user.custom_status)}*»\n" if user.custom_status else ""
+    audio_line = (
+        f"{audio_label}: 🎶 *{escape_md(user.custom_audio_title or default_audio)}*\n"
+        if (audio_label and (user.custom_audio_file_id or user.custom_audio_title))
+        else ""
+    )
+
+    vip_block = ""
+    if vip == "sovereign":
+        decree_cnt = getattr(user, "royal_decree_count", 0) or 0
+        vip_block = (
+            f"\n👑 **Qirollik Homiy Imtiyozlari:**\n"
+            f"• 📜 Qirollik Farmoni: **{decree_cnt} ta** huquq mavjud\n"
         )
+
+    text = (
+        f"{header_line}\n"
+        f"{sep}\n\n"
+        f"{role_label}: **{user_display_name}**{username_str}\n"
+        f"🏛️ Xonadon: {house_str}\n"
+        f"{title_line}"
+        f"{status_line}"
+        f"{audio_line}\n"
+        f"🎖️ Daraja: **{user.rank.title()}** | ⭐ Lv.{lvl}/30 ({lvl_title})\n"
+        f"🏆 Nufuz: **{user.prestige:,} Prestige**\n"
+        f"📈 `[{prog_bar}]` {user.xp:,}/{next_req:,} XP ({int(progress)}%)\n"
+        f"{art_str}"
+        f"🔰 Qalqon: {shield_str}\n\n"
+        f"📊 **Xazina:**\n"
+        f"• 🪙 Oltin: **{user.gold:,}** (+{income['gold']}/s)\n"
+        f"• 🌾 Bug'doy: **{user.food:,}** ({net_food_str}/s)\n"
+        f"• ⛓️ Temir: **{user.iron:,}** (+{income['iron']}/s)\n\n"
+        f"⚔️ **Qo'shin:**\n"
+        f"🛡️ {inf_cnt:,}  |  🏹 {arc_cnt:,}  |  🐎 {cav_cnt:,}  |  🗡️ {spm_cnt:,}  |  🔥 {spc_cnt:,}\n"
+        f"{dragon_line}"
+        f"{vip_block}"
+    ).rstrip()
 
     try:
         from services.profile_extras_service import get_profile_extras_view
@@ -277,12 +259,16 @@ async def format_user_profile_card(user: models.User, session, is_group: bool = 
         if ex_view.get("badges"):
             extra_lines.append(f"🏅 Nishonlar: {', '.join(ex_view['badges'])}")
         if extra_lines:
-            text = f"{text}\n" + "\n".join(extra_lines)
+            text = f"{text}\n\n" + "\n".join(extra_lines)
         if ex_view.get("theme"):
             b = ex_view["theme"]["border"]
             text = f"{b}\n{text}\n{b}"
+        elif footer_line:
+            text = f"{text}\n\n{footer_line}"
     except Exception as pfx_err:
         logger.warning(f"Profile extras hook error: {pfx_err}")
+        if footer_line:
+            text = f"{text}\n\n{footer_line}"
 
     photo_id = user.custom_photo_file_id if vip in ["noble", "knight", "lord", "dragonlord", "sovereign"] else None
     video_id = user.custom_video_file_id if vip in ["lord", "dragonlord", "sovereign"] else None
