@@ -5,7 +5,7 @@ Barcha yutuqlar, mukofotlar va tekshiruvlar markazlashtirilgan.
 from typing import Optional, Tuple, Dict, Any, List
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from database import models
+from database import models, crud
 from config import ACHIEVEMENTS_CONFIG
 
 
@@ -24,10 +24,7 @@ async def unlock_achievement(
     if not cfg:
         return False, "Noma'lum yutuq kodi.", None
 
-    user = await session.get(models.User, user_id)
-    if not user:
-        res_u = await session.execute(select(models.User).where(models.User.telegram_id == user_id))
-        user = res_u.scalar_one_or_none()
+    user = await crud.get_user_any(session, user_id, load_relations=False)
 
     if not user:
         return False, "Foydalanuvchi topilmadi.", None
@@ -88,17 +85,15 @@ async def get_user_achievements(
     user_id: int,
 ) -> Dict[str, Any]:
     """Foydalanuvchining barcha yutuqlari holati (ochilgan va qulflangan)"""
-    user = await session.get(models.User, user_id)
-    if not user:
-        res_u = await session.execute(select(models.User).where(models.User.telegram_id == user_id))
-        user = res_u.scalar_one_or_none()
+    user = await crud.get_user_any(session, user_id, load_relations=False)
 
-    real_user_id = user.id if user else user_id
-
-    res = await session.execute(
-        select(models.UserAchievement).where(models.UserAchievement.user_id == real_user_id)
-    )
-    unlocked = {a.achievement_code: a for a in res.scalars().all()}
+    if user:
+        res = await session.execute(
+            select(models.UserAchievement).where(models.UserAchievement.user_id == user.id)
+        )
+        unlocked = {a.achievement_code: a for a in res.scalars().all()}
+    else:
+        unlocked = {}
 
     achievements_list = []
     total_unlocked = len(unlocked)

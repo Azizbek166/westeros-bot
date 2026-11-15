@@ -7,7 +7,7 @@ Mukofot taklif etilgan o'yinchi xonadon tanlagandan KEYIN tranzaksiyada beriladi
 from typing import Optional, Tuple, Dict, Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from database import models
+from database import models, crud
 from config import REFERRAL_REWARD_REFERRER, REFERRAL_REWARD_NEW_PLAYER
 
 
@@ -43,10 +43,7 @@ async def award_referral_reward_after_house_selection(
     """
     Yangi o'yinchi xonadon tanlagandan keyin taklif qiluvchiga va yangi o'yinchiga mukofot berish.
     """
-    user = await session.get(models.User, user_id)
-    if not user:
-        res_u = await session.execute(select(models.User).where(models.User.telegram_id == user_id))
-        user = res_u.scalar_one_or_none()
+    user = await crud.get_user_any(session, user_id, load_relations=False)
 
     if not user or not user.referred_by_id:
         return False, "Referral mavjud emas.", {}
@@ -118,10 +115,7 @@ async def award_referral_reward_after_house_selection(
 
 async def get_referral_info(session: AsyncSession, user_id: int) -> Dict[str, Any]:
     """O'yinchining referal statistikasi va taklif havolasi"""
-    user = await session.get(models.User, user_id)
-    if not user:
-        res_u = await session.execute(select(models.User).where(models.User.telegram_id == user_id))
-        user = res_u.scalar_one_or_none()
+    user = await crud.get_user_any(session, user_id, load_relations=False)
 
     if not user:
         return {}

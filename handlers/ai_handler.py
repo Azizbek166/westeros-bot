@@ -41,6 +41,38 @@ def get_advisor_menu_keyboard(remaining: int, daily_limit: int) -> InlineKeyboar
     return InlineKeyboardMarkup(buttons)
 
 
+async def _send_or_edit_ai_reply(update: Update, text: str, kb: InlineKeyboardMarkup, edit: bool = False) -> None:
+    """AI javobini Markdown xatolarisiz xavfsiz yuborish yoki tahrirlash"""
+    safe_text = text[:4000] + "..." if len(text) > 4000 else text
+    plain_text = safe_text.replace("*", "").replace("_", "").replace("`", "")
+
+    if edit and update.callback_query:
+        query = update.callback_query
+        try:
+            await query.edit_message_text(safe_text, parse_mode="Markdown", reply_markup=kb)
+            return
+        except Exception:
+            try:
+                await query.edit_message_text(plain_text, parse_mode=None, reply_markup=kb)
+                return
+            except Exception:
+                pass
+        if query.message:
+            try:
+                await query.message.reply_text(safe_text, parse_mode="Markdown", reply_markup=kb)
+                return
+            except Exception:
+                await query.message.reply_text(plain_text, parse_mode=None, reply_markup=kb)
+        return
+
+    msg = update.effective_message
+    if msg:
+        try:
+            await msg.reply_text(safe_text, parse_mode="Markdown", reply_markup=kb)
+        except Exception:
+            await msg.reply_text(plain_text, parse_mode=None, reply_markup=kb)
+
+
 async def ai_advisor_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     /maslahat, /ai, /advisor buyruqlari.
@@ -74,10 +106,11 @@ async def ai_advisor_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     async with AsyncSessionLocal() as session:
         user = await crud.get_user_by_telegram_id(session, user_tg.id)
         if not user:
-            if update.message:
-                await update.message.reply_text(
-                    "❌ Siz hali ro'yxatdan o'tmagansiz. Avval /start buyrug'ini yuboring."
-                )
+            err_msg = "❌ Siz hali ro'yxatdan o'tmagansiz. Avval /start buyrug'ini yuboring."
+            if update.callback_query:
+                await update.callback_query.answer(err_msg, show_alert=True)
+            elif update.message:
+                await update.message.reply_text(err_msg)
             return
 
         # 1. Agar foydalanuvchi aniq savol yozgan bo'lsa
@@ -91,12 +124,12 @@ async def ai_advisor_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
             footer = f"\n\n──────────────\n📊 *Kunlik savollar limitingiz:* {rem} ta qoldi."
             full_reply = f"{answer}{footer}"
 
-            if update.message:
-                await update.message.reply_text(
-                    full_reply,
-                    parse_mode="Markdown",
-                    reply_markup=get_advisor_menu_keyboard(rem, meta.get("daily_limit", 10)),
-                )
+            await _send_or_edit_ai_reply(
+                update,
+                full_reply,
+                get_advisor_menu_keyboard(rem, meta.get("daily_limit", 10)),
+                edit=False,
+            )
             return
 
         # 2. Agar argument bo'lmasa, umumiy Kengash menyusini ko'rsatish
@@ -120,11 +153,11 @@ async def ai_advisor_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
 
         kb = get_advisor_menu_keyboard(rem, limit)
-        if update.message:
-            await update.message.reply_text(text, parse_mode="Markdown", reply_markup=kb)
-        elif update.callback_query:
+        if update.callback_query:
             await update.callback_query.answer()
-            await update.callback_query.edit_message_text(text, parse_mode="Markdown", reply_markup=kb)
+            await _send_or_edit_ai_reply(update, text, kb, edit=True)
+        elif update.message:
+            await _send_or_edit_ai_reply(update, text, kb, edit=False)
 
 
 async def ai_advisor_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -177,10 +210,11 @@ async def ai_topic_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         footer = f"\n\n──────────────\n📊 *Kunlik limitingiz:* {rem}/{limit} ta qoldi."
         full_reply = f"{answer}{footer}"
 
-        await query.edit_message_text(
+        await _send_or_edit_ai_reply(
+            update,
             full_reply,
-            parse_mode="Markdown",
-            reply_markup=get_advisor_menu_keyboard(rem, limit),
+            get_advisor_menu_keyboard(rem, limit),
+            edit=True,
         )
 
 

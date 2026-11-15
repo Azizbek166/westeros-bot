@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Optional, Tuple, Dict, Any, List
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from database import models
+from database import models, crud
 
 
 async def create_promo_code_service(
@@ -63,10 +63,7 @@ async def redeem_promo_code_service(
     if not clean_code:
         return False, "Promo-kodni kiriting.", {}
 
-    user = await session.get(models.User, user_id)
-    if not user:
-        res_u = await session.execute(select(models.User).where(models.User.telegram_id == user_id))
-        user = res_u.scalar_one_or_none()
+    user = await crud.get_user_any(session, user_id, load_relations=False)
 
     if not user:
         return False, "Foydalanuvchi topilmadi.", {}
