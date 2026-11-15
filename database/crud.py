@@ -4546,23 +4546,25 @@ async def claim_daily_bonus(session: AsyncSession, user_id: int) -> Tuple[bool, 
     track_user_gold_gain(user, reward["gold"])
     track_user_prestige_gain(user, reward["prestige"])
 
-    # Premium Pass / VIP faol muddat davomida qo'shimcha kunlik bonus
+    # VIP faol muddat davomida qo'shimcha kunlik VIP resurs sovg'asi (0 Pay-To-Win)
     premium_bonus_msg = ""
     has_active_premium = bool(
         (user.vip_until and user.vip_until > now_utc)
-        or user.vip_tier in ("noble", "knight", "lord", "dragonlord", "sovereign")
+        or (user.vip_until is None and user.vip_tier in ("noble", "knight", "lord", "dragonlord", "sovereign"))
     )
     if has_active_premium:
-        from config import PREMIUM_PASS_CONFIG
-        p_gold = PREMIUM_PASS_CONFIG.get("daily_bonus_gold", 300)
-        p_food = PREMIUM_PASS_CONFIG.get("daily_bonus_food", 600)
-        p_iron = PREMIUM_PASS_CONFIG.get("daily_bonus_iron", 200)
+        from config import DONATE_TIERS, PREMIUM_PASS_CONFIG
+        tier_cfg = DONATE_TIERS.get(user.vip_tier or "", {})
+        p_gold = int(tier_cfg.get("daily_bonus_gold") or PREMIUM_PASS_CONFIG.get("daily_bonus_gold", 300))
+        p_food = int(tier_cfg.get("daily_bonus_food") or PREMIUM_PASS_CONFIG.get("daily_bonus_food", 600))
+        p_iron = int(tier_cfg.get("daily_bonus_iron") or PREMIUM_PASS_CONFIG.get("daily_bonus_iron", 200))
+        tier_label = tier_cfg.get("name", "VIP Homiy")
         user.gold = (user.gold or 0) + p_gold
         user.food = (user.food or 0) + p_food
         user.iron = (user.iron or 0) + p_iron
         track_user_gold_gain(user, p_gold)
         premium_bonus_msg = (
-            f"\n👑 **Premium Qo'shimcha Kunlik Bonus:** "
+            f"\n👑 **{tier_label} — Kunlik VIP Sovg'asi:** "
             f"+{p_gold:,} 🪙 Oltin, +{p_food:,} 🌾 Bug'doy, +{p_iron:,} ⛓️ Temir"
         )
 

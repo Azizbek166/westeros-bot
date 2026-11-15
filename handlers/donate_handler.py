@@ -108,33 +108,43 @@ def donate_troop_amount_keyboard(troop_type: str) -> InlineKeyboardMarkup:
 
 
 async def _build_donate_intro_text() -> str:
+    from config import ACTIVE_DONATE_TIERS
     async with AsyncSessionLocal() as session:
         reqs = await crud.get_payment_settings(session)
     card_num = reqs["card_number"]
     card_holder = reqs["card_holder"]
     card_display = f"`{card_num}`" if card_num else "_(Admin Panelda o'rnatilmagan)_"
     holder_display = f"*{escape_md(card_holder)}*" if card_holder else "_(Admin Panelda o'rnatilmagan)_"
-    return (
-        "💎 **VESTEROS PREMIUM PASS & RESURS DO'KONI**\n\n"
-        "Hurmatli Lord! Barcha paketlar **qo'lda tasdiqlash** orqali xavfsiz faollashtiriladi (ajdarlar va askarlar sotilmaydi):\n\n"
-        "📦 **Sotuvdagi Rasmiy Paketlar:**\n"
-        "• 🎁 **Starter Pack (5,000 so'm / 7 kun VIP):**\n"
-        "  — «Valyriya Ritsari» unvoni + Maxsus ramka\n"
-        "  — Darhol bonus: **+1,000 Oltin, +2,000 Bug'doy, +500 Temir, +20 Nufuz**\n"
-        "  — 7 kunlik qo'shimcha kunlik bonuslar\n\n"
-        "• 📦 **Kichik Resurs Paketi (10,000 so'm):**\n"
-        "  — Iqtisodiyot va bino qurilishi uchun tezkor resurslar\n"
-        "  — Darhol bonus: **+8,000 Oltin, +20,000 Bug'doy, +6,000 Temir, +80 Nufuz**\n\n"
-        "• 👑 **Premium Season Pass (20,000 so'm / 30 kun):**\n"
-        "  — Premium belgi, Valiriya ramkasi va «Mavsum Aslzodasi» unvoni\n"
-        "  — Darhol yoqimli bonus: **+2,500 Oltin, +5,000 Bug'doy, +1,500 Temir, +50 Nufuz**\n"
-        "  — 30 kun davomida har kuni qo'shimcha kunlik bonus (**+300 Oltin, +600 Bug'doy, +200 Temir**)\n"
-        "  — Mavsumning barcha 20 ta Premium mukofot yo'laklarini ochish huquqi!\n\n"
-        "💳 **To'lov Karta Rekvizitlari:**\n"
-        f"• Karta raqami: {card_display}\n"
-        f"• Karta egasi: {holder_display}\n\n"
-        "👇 *Kerakli paketni tanlang, to'lov qiling va chek skrinshotini yuboring:*"
-    )
+
+    lines = [
+        "💎 **VESTEROS HOMIYLAR XAZINASI & VIP STUDIYA**",
+        "",
+        "Hurmatli Lord! Barcha paketlar **0 Pay-To-Win** qoidasi asosida ishlaydi — askar, ajdaho yoki nufuz sotilmaydi. Buning o'rniga siz **umrbod eksklyuziv kosmetika**, **30 kunlik VIP Studiya**, **darhol xazina** va **30 kunlik kunlik VIP sovg'a** olasiz:",
+        "",
+        "📦 **Sotuvdagi 5 ta Rasmiy Homiy Paketi (30 kun):**",
+    ]
+    for tid in ACTIVE_DONATE_TIERS:
+        t = DONATE_TIERS.get(tid)
+        if not t:
+            continue
+        dg = int(t.get("daily_bonus_gold", 0) or 0)
+        df = int(t.get("daily_bonus_food", 0) or 0)
+        di = int(t.get("daily_bonus_iron", 0) or 0)
+        lines.append(
+            f"• **{t['name']} — {t['price_label']}**\n"
+            f"  _{t.get('subtitle', '')}_\n"
+            f"  🎁 Darhol: +{t.get('gold', 0):,}🪙, +{t.get('food', 0):,}🌾, +{t.get('iron', 0):,}⛓️ | "
+            f"📅 Kuniga: +{dg:,}🪙, +{df:,}🌾, +{di:,}⛓️"
+        )
+    lines.extend([
+        "",
+        "💳 **To'lov Karta Rekvizitlari:**",
+        f"• Karta raqami: {card_display}",
+        f"• Karta egasi: {holder_display}",
+        "",
+        "👇 *Kerakli paketni tanlang, to'lov qiling va chek skrinshotini yuboring:*",
+    ])
+    return "\n".join(lines)
 
 
 async def donate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
