@@ -132,8 +132,13 @@ class HealthHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass  # Render loglarini to'ldirmaslik uchun
 
-def start_health_server():
-    pass
+def start_health_server(port: int):
+    """Render.com Web Service port healthcheck uchun yengil HTTP server (Mini App / Uvicorn o'chirilganda)"""
+    server = HTTPServer(("0.0.0.0", port), HealthHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    logger.info(f"💓 Render Healthcheck HTTP server 0.0.0.0:{port} da ishga tushdi.")
+    return server
 
 
 async def render_keepalive_job(context: ContextTypes.DEFAULT_TYPE):
@@ -456,6 +461,8 @@ async def main_async():
             pass
     else:
         logger.info("🤖 Faqat Telegram Bot rejimi ishlamoqda (ENABLE_MINIAPP=false). Uvicorn/FastAPI o'chirilgan.")
+        if port > 0:
+            start_health_server(port)
         try:
             while True:
                 await asyncio.sleep(3600)
