@@ -286,6 +286,11 @@ async def citadel_answer_callback(update: Update, context: ContextTypes.DEFAULT_
             user.iron += 35
             user.xp += 40
             crud.track_user_gold_gain(user, 60)
+            try:
+                from services.achievement_service import unlock_achievement
+                await unlock_achievement(session, user.id, "citadel_scholar", bot_app=context.application)
+            except Exception:
+                pass
             await session.commit()
             text = (
                 "✅ **TO'G'RI JAVOB!**\n\n"

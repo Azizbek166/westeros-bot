@@ -93,22 +93,25 @@ def run_tests():
     # -------------------------------------------------------------
     # TEST 4: Instant Rollback Toggle (MINIAPP_PRIMARY_INTERFACE)
     # -------------------------------------------------------------
-    # When True (cutover state):
-    config.MINIAPP_PRIMARY_INTERFACE = True
-    active_kb = main_menu_keyboard(user_id=7689627859)
-    active_callbacks = [b.callback_data for row in active_kb.inline_keyboard for b in row if b.callback_data]
-    assert "menu_bot_fallback" in active_callbacks, "Active cutover keyboard should be start_primary_keyboard!"
+    orig_em = getattr(config, "ENABLE_MINIAPP", True)
+    orig_mpi = getattr(config, "MINIAPP_PRIMARY_INTERFACE", True)
+    try:
+        config.ENABLE_MINIAPP = True
+        config.MINIAPP_PRIMARY_INTERFACE = True
+        active_kb = main_menu_keyboard(user_id=7689627859)
+        active_callbacks = [b.callback_data for row in active_kb.inline_keyboard for b in row if b.callback_data]
+        assert "menu_bot_fallback" in active_callbacks, "Active cutover keyboard should be start_primary_keyboard!"
 
-    # When False (rollback state):
-    config.MINIAPP_PRIMARY_INTERFACE = False
-    rolled_back_kb = main_menu_keyboard(user_id=7689627859)
-    rb_callbacks = [b.callback_data for row in rolled_back_kb.inline_keyboard for b in row if b.callback_data]
-    assert "menu_profile" in rb_callbacks, "Rollback keyboard should return legacy 20+ bot buttons directly!"
-    assert "menu_bot_fallback" not in rb_callbacks, "Rollback keyboard should be the classic layout!"
-
-    # Restore to True
-    config.MINIAPP_PRIMARY_INTERFACE = True
-    print("[OK] Test 4: Instant Rollback Toggle -> Verified (Zero-downtime switch in <10ms)")
+        # When False (rollback state):
+        config.MINIAPP_PRIMARY_INTERFACE = False
+        rolled_back_kb = main_menu_keyboard(user_id=7689627859)
+        rb_callbacks = [b.callback_data for row in rolled_back_kb.inline_keyboard for b in row if b.callback_data]
+        assert "menu_profile" in rb_callbacks, "Rollback keyboard should return legacy 20+ bot buttons directly!"
+        assert "menu_bot_fallback" not in rb_callbacks, "Rollback keyboard should be the classic layout!"
+        print("[OK] Test 4: Instant Rollback Toggle -> Verified (Zero-downtime switch in <10ms)")
+    finally:
+        config.ENABLE_MINIAPP = orig_em
+        config.MINIAPP_PRIMARY_INTERFACE = orig_mpi
 
     # -------------------------------------------------------------
     # TEST 5: Back-Navigation Keyboards

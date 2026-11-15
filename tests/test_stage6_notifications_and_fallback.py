@@ -9,6 +9,7 @@ import os
 # Ensure project root is in sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+import config
 from config import get_miniapp_url, MINI_APP_URL
 from keyboards.notification_keyboards import (
     attack_alert_keyboard,
@@ -119,10 +120,11 @@ def run_tests():
     # -------------------------------------------------------------
     from keyboards.menus import bot_fallback_keyboard, legacy_main_menu_keyboard
     main_kb = main_menu_keyboard(user_id=7689627859)
-    # Check top row has WebApp button
-    top_btn = main_kb.inline_keyboard[0][0]
-    assert top_btn.web_app is not None
-    assert top_btn.web_app.url.startswith(MINI_APP_URL.rstrip("/"))
+    # Check top row has WebApp button if Mini App is enabled
+    if getattr(config, "ENABLE_MINIAPP", True) and getattr(config, "MINIAPP_PRIMARY_INTERFACE", True):
+        top_btn = main_kb.inline_keyboard[0][0]
+        assert top_btn.web_app is not None
+        assert top_btn.web_app.url.startswith(MINI_APP_URL.rstrip("/"))
     # Check fallback keyboard contains all critical legacy menus
     fb_kb = bot_fallback_keyboard(user_id=7689627859)
     all_callbacks = [b.callback_data for row in fb_kb.inline_keyboard for b in row if b.callback_data]

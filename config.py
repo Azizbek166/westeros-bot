@@ -39,11 +39,23 @@ if "asyncpg" in DATABASE_URL:
     if "?channel_binding=require" in DATABASE_URL:
         DATABASE_URL = DATABASE_URL.replace("?channel_binding=require", "")
 
-# Bosh Administrator / Bot Egasi Telegram ID si
+# Bosh Administrator / Bot Egasi Telegram ID si (o'zgarmas)
 OWNER_ID = 7689627859
 
-# Admin Telegram ID lari (Admin panelga kirish huquqi)
-ADMIN_IDS = [7689627859]
+# Admin Telegram ID lari - .env dagi ADMIN_IDS dan o'qiladi (config.py ga qayta yozilmaydi)
+def _load_admin_ids_from_env() -> list:
+    raw = os.getenv("ADMIN_IDS", "")
+    ids = [int(OWNER_ID)]
+    if raw:
+        for part in raw.split(","):
+            part = part.strip()
+            if part.isdigit():
+                val = int(part)
+                if val not in ids:
+                    ids.append(val)
+    return ids
+
+ADMIN_IDS = _load_admin_ids_from_env()
 
 
 def is_admin(user_id: Optional[int]) -> bool:
@@ -71,8 +83,11 @@ if _raw_error_chat:
 MINI_APP_URL = os.getenv("MINI_APP_URL", os.getenv("RENDER_EXTERNAL_URL", "https://westeros-bot.onrender.com"))
 API_HOST = os.getenv("API_HOST", "0.0.0.0")
 API_PORT = int(os.getenv("PORT", os.getenv("API_PORT", "8000")))
-# Mini App asosiy interfeys holati (True bo'lsa /start to'g'ridan-to'g'ri Mini App taklif qiladi, bot menyusi esa fallback bo'ladi)
-MINIAPP_PRIMARY_INTERFACE = os.getenv("MINIAPP_PRIMARY_INTERFACE", "true").lower() in ("true", "1", "yes")
+# 2-QADAM: Mini App yoqilganlik bayrog'i (False bo'lsa uvicorn ishga tushmaydi, menyuda faqat bot tugmalari chiqadi)
+ENABLE_MINIAPP = os.getenv("ENABLE_MINIAPP", "false").strip().lower() in ("true", "1", "yes")
+
+# Mini App asosiy interfeys holati (Agar ENABLE_MINIAPP=False bo'lsa qat'iy False)
+MINIAPP_PRIMARY_INTERFACE = False if not ENABLE_MINIAPP else (os.getenv("MINIAPP_PRIMARY_INTERFACE", "true").lower() in ("true", "1", "yes"))
 
 
 def get_miniapp_url(startapp: Optional[str] = None) -> str:
@@ -99,15 +114,21 @@ def remove_admin_id(telegram_id: int):
 
 
 def _persist_admins():
-    """ADMIN_IDS ni config.py fayliga yozib saqlash"""
+    """ADMIN_IDS ni .env fayliga xavfsiz saqlash (config.py fayliga qayta yozilmaydi)"""
     try:
-        cfg_file = BASE_DIR / "config.py"
-        text = cfg_file.read_text(encoding="utf-8")
-        import re
-        new_text = re.sub(r"ADMIN_IDS\s*=\s*\[.*?\]", f"ADMIN_IDS = {ADMIN_IDS}", text)
-        cfg_file.write_text(new_text, encoding="utf-8")
+        env_file = BASE_DIR / ".env"
+        admin_str = ",".join(str(x) for x in ADMIN_IDS)
+        if env_file.exists():
+            text = env_file.read_text(encoding="utf-8")
+            import re
+            if re.search(r"^ADMIN_IDS=", text, flags=re.MULTILINE):
+                new_text = re.sub(r"^ADMIN_IDS=.*", f"ADMIN_IDS={admin_str}", text, flags=re.MULTILINE)
+            else:
+                new_text = text.rstrip() + f"\nADMIN_IDS={admin_str}\n"
+            env_file.write_text(new_text, encoding="utf-8")
+        os.environ["ADMIN_IDS"] = admin_str
     except Exception as e:
-        print(f"Error persisting admins: {e}")
+        print(f"Error persisting admins to .env: {e}")
 
 # ============================================================
 # KUNLIK LIMITLAR & BALANS (core/balance.py orqali markazlashtirilgan)
@@ -180,9 +201,10 @@ def escape_md(text: str) -> str:
 
 # ============================================================
 # DONATE & VIP TIZIMI REKVIZITLARI
+# Standart qiymatlar olib tashlandi: faqat .env yoki Admin Panel sozlamasidan o'qiladi
 # ============================================================
-DONATE_CARD_NUMBER = os.getenv("DONATE_CARD_NUMBER", "5614688804228251")
-DONATE_CARD_HOLDER = os.getenv("DONATE_CARD_HOLDER", "Shavkatov Azizbek")
+DONATE_CARD_NUMBER = os.getenv("DONATE_CARD_NUMBER", "")
+DONATE_CARD_HOLDER = os.getenv("DONATE_CARD_HOLDER", "")
 
 # ============================================================
 # RASMIY HAMJAMIYAT (KANAL & GURUH)
@@ -207,14 +229,16 @@ DONATE_BONUSES_CONFIG = {
 # ============================================================
 # AFSONAVIY DONATE / VIP TARIFLARI (Ajdarsiz, adolatli balans)
 # ============================================================
+ACTIVE_DONATE_TIERS = ["starter_pack", "knight", "premium_pass"]
+
 DONATE_TIERS = {
     "premium_pass": {
         "id": "premium_pass",
         "name": "👑 Premium Season Pass (30 kun)",
         "subtitle": "Mavsumiy Premium Chipta + Yoqimli Resurs va Kunlik Bonuslar",
         "category": "vip_pass",
-        "price_uzs": 25000,
-        "price_label": "25,000 so'm",
+        "price_uzs": 20000,
+        "price_label": "20,000 so'm",
         "gold": 2500,
         "food": 5000,
         "iron": 1500,
@@ -688,6 +712,116 @@ AI_VIP_DAILY_LIMIT = int(os.getenv("AI_VIP_DAILY_LIMIT", "20"))
 AI_GLOBAL_DAILY_LIMIT = int(os.getenv("AI_GLOBAL_DAILY_LIMIT", "500"))
 AI_MAX_RESPONSE_TOKENS = int(os.getenv("AI_MAX_RESPONSE_TOKENS", "450"))
 AI_CACHE_TTL_SECONDS = int(os.getenv("AI_CACHE_TTL_SECONDS", "3600"))
+
+# ============================================================
+# 5-QADAM: REFERRAL CONFIGURATION
+# ============================================================
+REFERRAL_REWARD_REFERRER = {
+    "gold": 1000,
+    "food": 2000,
+    "iron": 500,
+    "prestige": 50,
+}
+REFERRAL_REWARD_NEW_PLAYER = {
+    "gold": 500,
+    "food": 1000,
+    "iron": 250,
+    "prestige": 20,
+}
+
+# ============================================================
+# 5-QADAM: ACHIEVEMENTS CONFIGURATION (YUTUQLAR)
+# ============================================================
+ACHIEVEMENTS_CONFIG = {
+    "first_win": {
+        "code": "first_win",
+        "title": "⚔️ Birinchi Qon",
+        "desc": "Jang maydonida ilk bor dushmanni mag'lub eting",
+        "gold": 500,
+        "food": 1000,
+        "iron": 200,
+        "prestige": 30,
+    },
+    "dragon_hatch": {
+        "code": "dragon_hatch",
+        "title": "🐉 Ajdarlar Parvarishchisi",
+        "desc": "Ilk bor ajdar tuxumini muvaffaqiyatli oching",
+        "gold": 2000,
+        "food": 3000,
+        "iron": 1000,
+        "prestige": 100,
+    },
+    "castle_lord": {
+        "code": "castle_lord",
+        "title": "🏰 Qal'a Hukmdori",
+        "desc": "Westeros xaritasidagi birinchi qal'ani zabt eting",
+        "gold": 1500,
+        "food": 2500,
+        "iron": 800,
+        "prestige": 60,
+    },
+    "citadel_scholar": {
+        "code": "citadel_scholar",
+        "title": "📜 Sitadel Allomasi",
+        "desc": "Viktorina savollariga 10 marta to'g'ri javob bering",
+        "gold": 600,
+        "food": 1000,
+        "iron": 300,
+        "prestige": 40,
+    },
+    "iron_banker": {
+        "code": "iron_banker",
+        "title": "🏦 Temir Sarmoyador",
+        "desc": "Temir Bankka 1,000 dan ortiq oltin omonat qo'ying",
+        "gold": 800,
+        "food": 1200,
+        "iron": 400,
+        "prestige": 35,
+    },
+    "duel_master": {
+        "code": "duel_master",
+        "title": "🤺 Qilichbozlik Chempioni",
+        "desc": "1v1 duellarda 5 marta g'alabaga erishing",
+        "gold": 1200,
+        "food": 1500,
+        "iron": 600,
+        "prestige": 70,
+    },
+    "guild_brother": {
+        "code": "guild_brother",
+        "title": "🛡️ Qardoshlik Qasamyodi",
+        "desc": "Gildiyaga qo'shiling yoki yangi ittifoq tuzing",
+        "gold": 500,
+        "food": 1000,
+        "iron": 250,
+        "prestige": 25,
+    },
+    "referral_pioneer": {
+        "code": "referral_pioneer",
+        "title": "👥 Shonli Sarkarda",
+        "desc": "Kamida bitta do'stingizni jangga taklif qiling",
+        "gold": 1000,
+        "food": 2000,
+        "iron": 500,
+        "prestige": 50,
+    },
+}
+
+# ============================================================
+# 6-QADAM: 1-MAVSUM G'OLIBLARI VA 2-MAVSUM SOZLAMALARI
+# ============================================================
+SEASON_1_LEGACY_WINNERS = {
+    "winner_house_id": 15,
+    "winner_house_name": "🐉 House Blackfyre",
+    "king_name": "Liar (@NiclausMikaelson)",
+    "top_warrior_name": "kozmunchoq 🐾 (@shaxnoza_0901)",
+    "top_warrior_prestige": 62514,
+    "top3": [
+        {"rank": 1, "telegram_id": 5381961263, "name": "Liar (@NiclausMikaelson)", "house": "House Blackfyre", "prestige": 62514, "level": 10},
+        {"rank": 2, "telegram_id": 8838680114, "name": "Bexruz (@Bexruz)", "house": "House Stark", "prestige": 750, "level": 5},
+        {"rank": 3, "telegram_id": 8161647993, "name": "Abdulloh Askarov (@Abdulloh_askarov6)", "house": "House Bolton", "prestige": 457, "level": 6},
+    ]
+}
 
 
 

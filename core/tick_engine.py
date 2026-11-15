@@ -409,6 +409,9 @@ async def process_due_marches(bot_app=None):
                         try:
                             from services.season_service import record_season_activity
                             await record_season_activity(session, attacker.id, "march_win")
+                            from services.achievement_service import unlock_achievement
+                            await unlock_achievement(session, attacker.id, "first_win", bot_app=bot_app)
+                            await unlock_achievement(session, attacker.id, "castle_lord", bot_app=bot_app)
                         except Exception:
                             pass
                         # Zabt etilgan qal'a mudofaa devorlari shikastlangan

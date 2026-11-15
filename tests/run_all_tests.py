@@ -27,6 +27,10 @@ TEST_SCRIPTS = [
     "tests/test_cosmetics_and_monetization.py",
     "tests/test_season_and_pass.py",
     "tests/test_ai_assistant.py",
+    "tests/test_step1_security.py",
+    "tests/test_step2_miniapp_toggle.py",
+    "tests/test_step3_donate_simplification.py",
+    "tests/test_step5_new_features.py",
 ]
 
 

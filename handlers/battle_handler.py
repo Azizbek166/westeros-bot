@@ -10,7 +10,7 @@ from database import AsyncSessionLocal, crud, models
 from sqlalchemy import select, desc
 from core.anti_cheat import can_attack_target
 from keyboards.menus import back_to_main_keyboard
-from config import BASE_MARCH_MINUTES, escape_md, get_miniapp_url
+from config import BASE_MARCH_MINUTES, escape_md, get_miniapp_url, ENABLE_MINIAPP
 
 
 async def battle_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -945,13 +945,15 @@ async def send_custom_march_callback(update: Update, context: ContextTypes.DEFAU
                         defender_tg_ids.add(mid)
 
                 dragon_text = " 🔥 va BAHAYBAT AJDAR 🐉" if has_dragon else ""
-                def_buttons = [
-                    [InlineKeyboardButton("🏰 Mini App'da Qal'ani Mudofaa Qilish 🛡️", web_app=WebAppInfo(url=get_miniapp_url("castles")))],
+                def_buttons = []
+                if ENABLE_MINIAPP:
+                    def_buttons.append([InlineKeyboardButton("🏰 Mini App'da Qal'ani Mudofaa Qilish 🛡️", web_app=WebAppInfo(url=get_miniapp_url("castles")))])
+                def_buttons.extend([
                     [InlineKeyboardButton("⚔️ Harbiy Markaz (Himoyalanish)", callback_data="menu_battle")],
                     [InlineKeyboardButton("🛡️ Qal'aga Shoshilinch Askar Qo'shish", callback_data=f"def_rf_menu:{terr.id}")],
                     [InlineKeyboardButton("🐉 Ajdarni Mudofaaga Joylashtirish", callback_data=f"def_station_dragon:{terr.id}")],
                     [InlineKeyboardButton("🤝 Ittifoqchilarni Chaqirish (SOS)", callback_data=f"def_sos:{terr.id}")],
-                ]
+                ])
                 att_house_title = f"{user.house.emoji} {user.house.name}" if user.house else "Dushman"
                 def_alert_text = (
                     f"🚨 **QARG'A OGOHLANTIRISHI! QAL'ANGIZGA HUJUM BOSHLANDI!**\n\n"
@@ -1157,13 +1159,15 @@ async def send_march_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
                         defender_tg_ids.add(mid)
 
                 dragon_text = " 🔥 va BAHAYBAT AJDAR 🐉" if has_dragon else ""
-                def_buttons = [
-                    [InlineKeyboardButton("🏰 Mini App'da Qal'ani Mudofaa Qilish 🛡️", web_app=WebAppInfo(url=get_miniapp_url("castles")))],
+                def_buttons = []
+                if ENABLE_MINIAPP:
+                    def_buttons.append([InlineKeyboardButton("🏰 Mini App'da Qal'ani Mudofaa Qilish 🛡️", web_app=WebAppInfo(url=get_miniapp_url("castles")))])
+                def_buttons.extend([
                     [InlineKeyboardButton("⚔️ Harbiy Markaz (Himoyalanish)", callback_data="menu_battle")],
                     [InlineKeyboardButton("🛡️ Qal'aga Shoshilinch Askar Qo'shish", callback_data=f"def_rf_menu:{terr.id}")],
                     [InlineKeyboardButton("🐉 Ajdarni Mudofaaga Joylashtirish", callback_data=f"def_station_dragon:{terr.id}")],
                     [InlineKeyboardButton("🤝 Ittifoqchilarni Chaqirish (SOS)", callback_data=f"def_sos:{terr.id}")],
-                ]
+                ])
                 att_house_title = f"{user.house.emoji} {user.house.name}" if user.house else "Dushman"
                 def_alert_text = (
                     f"🚨 **QARG'A OGOHLANTIRISHI! QAL'ANGIZGA HUJUM BOSHLANDI!**\n\n"

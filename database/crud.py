@@ -833,7 +833,9 @@ async def recruit_troops(
     army_res = await session.execute(select(models.Army).where(models.Army.user_id == user_id))
     army = army_res.scalar_one_or_none()
     if not army:
-        return False
+        army = models.Army(user_id=user_id, infantry=0, archers=0, cavalry=0, spearmen=0, special_troops=0)
+        session.add(army)
+        await session.flush()
 
     # Resurslarni yechish
     user.gold -= gold_cost
@@ -5226,13 +5228,40 @@ async def reset_entire_game(session: AsyncSession) -> None:
         models.Army,
         models.HouseMember,
         models.IronBank,
-        models.User,
     ]
     for tm in table_models:
         try:
             await session.execute(delete(tm))
         except Exception as te:
             logger.warning(f"reset_entire_game delete warning on {tm.__tablename__}: {te}")
+
+    # O'yinchilarning akkaunti va xonadoni saqlanadi; resurslar, VIP va limitlar 0 ga tushiriladi
+    await session.execute(
+        update(models.User).values(
+            gold=250,
+            food=500,
+            iron=125,
+            prestige=0,
+            xp=0,
+            level=1,
+            vip_tier=None,
+            vip_until=None,
+            title=None,
+            custom_status=None,
+            daily_quiz_count=0,
+            daily_council_count=0,
+            daily_secret_quest_count=0,
+            daily_donation_count=0,
+            daily_story_quest_count=0,
+            daily_rank_quest_count=0,
+            daily_ww_attack_count=0,
+            daily_bandit_count=0,
+            daily_plague_count=0,
+            daily_duel_count=0,
+            daily_recruit_count=0,
+            daily_caravan_send_count=0,
+        )
+    )
 
     if custom_house_ids:
         try:
@@ -6494,19 +6523,35 @@ async def get_season_status_summary(session: AsyncSession) -> Dict[str, Any]:
     rem_hours = (rem_seconds % 86400) // 3600
     rem_mins = (rem_seconds % 3600) // 60
 
-    # Avval haqiqiy o'yinchilarni (telegram_id >= 100000000) olish; test bazada bo'lmasa barcha o'yinchilarga qaytish
-    real_users_res = await session.execute(
-        select(models.User)
-        .options(
-            selectinload(models.User.characters),
-            selectinload(models.User.house),
-            selectinload(models.User.army),
+    # Mavsum bo'yicha eng yaxshi o'yinchilarni aniqlash
+    # 1. Avval joriy mavsumdagi SeasonPlayerState (SO ochkosi bo'yicha) tekshiriladi
+    top_players = []
+    if season:
+        pss_res = await session.execute(
+            select(models.SeasonPlayerState)
+            .where(
+                models.SeasonPlayerState.season_number == season.season_number,
+                models.SeasonPlayerState.season_points > 0,
+            )
+            .order_by(models.SeasonPlayerState.season_points.desc())
+            .limit(3)
         )
-        .where(models.User.telegram_id >= 100000000, models.User.telegram_id != 9594457048)
-        .order_by(models.User.prestige.desc(), models.User.level.desc(), models.User.gold.desc())
-        .limit(3)
-    )
-    top_players = list(real_users_res.scalars().all())
+        pss_list = pss_res.scalars().all()
+        for pss in pss_list:
+            u_res = await session.execute(
+                select(models.User)
+                .options(
+                    selectinload(models.User.characters),
+                    selectinload(models.User.house),
+                    selectinload(models.User.army),
+                )
+                .where(models.User.id == pss.user_id)
+            )
+            u = u_res.scalar_one_or_none()
+            if u:
+                top_players.append(u)
+
+    # 2. Agar mavsumiy holat bo'lmasa, umumiy User reytingi (prestige, level, gold) bo'yicha olinadi
     if not top_players:
         top_users_res = await session.execute(
             select(models.User)
@@ -6570,28 +6615,18 @@ async def get_season_status_summary(session: AsyncSession) -> Dict[str, Any]:
             "level": p.level or 1,
         })
 
-    # Haqiqiy yakunlangan mavsumlar sonini tekshirish
-    real_bonus_seasons_res = await session.execute(
-        select(func.count(func.distinct(models.SeasonTopBonus.season_number))).where(
-            models.SeasonTopBonus.telegram_id >= 100000000
-        )
-    )
-    real_concluded_seasons = real_bonus_seasons_res.scalar() or 0
-    effective_season_num = real_concluded_seasons + 1
+    season_num = season.season_number if season else 1
 
-    if effective_season_num == 1:
-        winner_house_id = 15
-        winner_house_name = "House Blackfyre"
+    if season_num == 1:
+        from config import SEASON_1_LEGACY_WINNERS
+        winner_house_id = SEASON_1_LEGACY_WINNERS["winner_house_id"]
+        winner_house_name = SEASON_1_LEGACY_WINNERS["winner_house_name"]
         winner_house_emoji = "🐉"
-        king_name = "Liar (@NiclausMikaelson)"
-        top3_list = [
-            {"rank": 1, "telegram_id": 5381961263, "name": "Liar (@NiclausMikaelson)", "house": "House Blackfyre", "prestige": 62514, "level": 10},
-            {"rank": 2, "telegram_id": 8838680114, "name": "Bexruz (@Bexruz)", "house": "House Stark", "prestige": 750, "level": 5},
-            {"rank": 3, "telegram_id": 8161647993, "name": "Abdulloh Askarov (@Abdulloh_askarov6)", "house": "House Bolton", "prestige": 457, "level": 6},
-        ]
+        king_name = SEASON_1_LEGACY_WINNERS["king_name"]
+        top3_list = SEASON_1_LEGACY_WINNERS["top3"]
 
     return {
-        "season_number": effective_season_num,
+        "season_number": season_num,
         "start_date": season.start_date if season else now,
         "end_date": season.end_date if season else now,
         "rem_days": rem_days,
@@ -6660,40 +6695,36 @@ async def admin_conclude_and_restart_season(session: AsyncSession, bot_app=None)
         await session.flush()
 
     if current_season_num == 1:
-        winner_house_name = "🐉 House Blackfyre"
-        winner_house_id = 15
-        overall_winner_name = "Liar (@NiclausMikaelson)"
-        top_warrior_name = "kozmunchoq 🐾 (@shaxnoza_0901)"
-        top_warrior_prestige = 62514
+        from config import SEASON_1_LEGACY_WINNERS
+        winner_house_name = SEASON_1_LEGACY_WINNERS["winner_house_name"]
+        winner_house_id = SEASON_1_LEGACY_WINNERS["winner_house_id"]
+        overall_winner_name = SEASON_1_LEGACY_WINNERS["king_name"]
+        top_warrior_name = SEASON_1_LEGACY_WINNERS["top_warrior_name"]
+        top_warrior_prestige = SEASON_1_LEGACY_WINNERS["top_warrior_prestige"]
 
         # 1. Shon-sharaf zaliga yozish (faqat o'yinni yutgan shaxs va xonadon)
         hof_entry = models.HallOfFame(
             season_number=1,
-            winner_house_id=15,
-            winner_house_name="🐉 House Blackfyre",
+            winner_house_id=winner_house_id,
+            winner_house_name=winner_house_name,
             king_user_id=None,
-            king_name="Liar (@NiclausMikaelson)",
-            top_warrior_name="kozmunchoq 🐾 (@shaxnoza_0901)",
-            top_warrior_prestige=62514,
+            king_name=overall_winner_name,
+            top_warrior_name=top_warrior_name,
+            top_warrior_prestige=top_warrior_prestige,
             top_so_user_id=None,
-            top_so_player_name="Liar (@NiclausMikaelson)",
-            top_so_points=62514,
-            top_guild_name="House Blackfyre",
+            top_so_player_name=overall_winner_name,
+            top_so_points=top_warrior_prestige,
+            top_guild_name=winner_house_name,
             snapshot_json=json.dumps([
-                {"rank": 1, "name": "Liar (@NiclausMikaelson)", "house_name": "House Blackfyre", "prestige": 62514},
-                {"rank": 2, "name": "Bexruz (@Bexruz)", "house_name": "House Stark", "prestige": 750},
-                {"rank": 3, "name": "Abdulloh Askarov (@Abdulloh_askarov6)", "house_name": "House Bolton", "prestige": 457},
+                {"rank": item["rank"], "name": item["name"], "house_name": item["house"], "prestige": item["prestige"]}
+                for item in SEASON_1_LEGACY_WINNERS["top3"]
             ]),
             concluded_at=now,
         )
         session.add(hof_entry)
 
         # 2. Yangi mavsum uchun TOP 3 o'yinchilariga bonus yozish
-        top3_custom = [
-            {"rank": 1, "telegram_id": 5381961263, "name": "Liar (@NiclausMikaelson)", "prestige": 62514},
-            {"rank": 2, "telegram_id": 8838680114, "name": "Bexruz (@Bexruz)", "prestige": 750},
-            {"rank": 3, "telegram_id": 8161647993, "name": "Abdulloh Askarov (@Abdulloh_askarov6)", "prestige": 457},
-        ]
+        top3_custom = SEASON_1_LEGACY_WINNERS["top3"]
         top3_details = []
         for item in top3_custom:
             bonus_entry = models.SeasonTopBonus(
@@ -6809,6 +6840,7 @@ async def admin_conclude_and_restart_season(session: AsyncSession, bot_app=None)
         "winner_name": overall_winner_name,
         "winner_house": winner_house_name,
         "top3_players": top3_details,
+        "rewards_granted_count": len(top3_details),
     }
 
 
@@ -6918,11 +6950,13 @@ async def apply_season_top_bonus(session: AsyncSession, user: models.User, bonus
     user.iron = (user.iron or 0) + iron_bonus
     user.prestige = (user.prestige or 0) + prestige_bonus
 
-    if user.army:
-        user.army.infantry = (user.army.infantry or 0) + inf_bonus
-        user.army.archers = (user.army.archers or 0) + arc_bonus
-        user.army.cavalry = (user.army.cavalry or 0) + cav_bonus
-        user.army.spearmen = (user.army.spearmen or 0) + spear_bonus
+    user_army = await get_user_army(session, user.id)
+    if user_army:
+        user_army.infantry = (user_army.infantry or 0) + inf_bonus
+        user_army.archers = (user_army.archers or 0) + arc_bonus
+        user_army.cavalry = (user_army.cavalry or 0) + cav_bonus
+        user_army.spearmen = (user_army.spearmen or 0) + spear_bonus
+        session.add(user_army)
 
     bonus.is_claimed = True
     bonus.claimed_at = datetime.utcnow()

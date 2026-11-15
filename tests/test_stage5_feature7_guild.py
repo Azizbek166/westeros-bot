@@ -126,7 +126,8 @@ def run_tests():
         print(f"[OK] Test 4: Guild Treasury Deposit Processed -> {dep_resp.status_code}")
     else:
         assert dep_resp.status_code == 400
-        assert "emassiz" in dep_resp.json().get("detail", "")
+        err_msg = dep_resp.json().get("error") or dep_resp.json().get("detail", "")
+        assert "emassiz" in err_msg
         print("[OK] Test 4: Non-Member Deposit Blocked -> 400 Bad Request (Properly Rejected)")
 
     # -------------------------------------------------------------

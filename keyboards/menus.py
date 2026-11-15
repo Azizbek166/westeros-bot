@@ -12,9 +12,9 @@ def persistent_reply_keyboard() -> ReplyKeyboardRemove:
 
 def legacy_main_menu_keyboard(user_id: int = None) -> InlineKeyboardMarkup:
     """Klassik / To'liq bot menyusi klaviaturasi (barcha 20+ bo'limlar)"""
-    from config import ADMIN_IDS, MINI_APP_URL, get_miniapp_url
+    from config import ADMIN_IDS, MINI_APP_URL, get_miniapp_url, ENABLE_MINIAPP
     buttons = []
-    if MINI_APP_URL:
+    if ENABLE_MINIAPP and MINI_APP_URL:
         buttons.append([
             InlineKeyboardButton("📱 Mini App'da O'ynash ⚔️", web_app=WebAppInfo(url=get_miniapp_url()))
         ])
@@ -76,6 +76,11 @@ def legacy_main_menu_keyboard(user_id: int = None) -> InlineKeyboardMarkup:
             InlineKeyboardButton("🎁 Kunlik Tuhfalar", callback_data="menu_daily"),
         ],
         [
+            InlineKeyboardButton("🏅 Yutuqlar", callback_data="menu_achievements"),
+            InlineKeyboardButton("👥 Taklif Qilish (Referal)", callback_data="menu_referral"),
+        ],
+        [
+            InlineKeyboardButton("🎟 Promo-kod", callback_data="menu_promo_input"),
             InlineKeyboardButton("🧙‍♂️ Meyster Maslahati (AI)", callback_data="menu_ai_advisor"),
         ],
     ])
@@ -144,11 +149,11 @@ def bot_fallback_keyboard(user_id: int = None) -> InlineKeyboardMarkup:
 def main_menu_keyboard(user_id: int = None) -> InlineKeyboardMarkup:
     """
     Asosiy menyu klaviaturasi.
-    MINIAPP_PRIMARY_INTERFACE=True bo'lsa Mini App'ni asosiy qilib ko'rsatadi,
-    aks holda klassik bot menyusiga fallback qiladi.
+    ENABLE_MINIAPP va MINIAPP_PRIMARY_INTERFACE=True bo'lsa Mini App'ni asosiy qilib ko'rsatadi,
+    aks holda sof Telegram bot menyusini ko'rsatadi (Mini App tugmalari yashiriladi).
     """
-    from config import MINIAPP_PRIMARY_INTERFACE
-    if MINIAPP_PRIMARY_INTERFACE:
+    from config import MINIAPP_PRIMARY_INTERFACE, ENABLE_MINIAPP
+    if ENABLE_MINIAPP and MINIAPP_PRIMARY_INTERFACE:
         return start_primary_keyboard(user_id)
     return legacy_main_menu_keyboard(user_id)
 

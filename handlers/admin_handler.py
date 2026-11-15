@@ -110,6 +110,7 @@ async def show_admin_dashboard(target, is_message: bool):
                 InlineKeyboardButton(f"💳 Donat So'rovlari{donations_badge}", callback_data="admin_donations_list:0:pending"),
                 InlineKeyboardButton("💳 Karta Sozlamasi", callback_data="admin_card_settings"),
             ],
+            [InlineKeyboardButton("🎟 Promo-kodlar Boshqaruvi", callback_data="admin_promos_menu")],
             [InlineKeyboardButton("📜 O'yinchilar Harakatlari Jurnali (Logs)", callback_data="admin_activity_logs:0")],
             [InlineKeyboardButton("🚨 Tizim Xatoliklari (System Errors)", callback_data="admin_error_logs:0")],
             [InlineKeyboardButton("👥 O'yinchilarni Boshqarish (User Manager)", callback_data="admin_users_list:0")],

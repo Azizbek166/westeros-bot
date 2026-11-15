@@ -1324,13 +1324,15 @@ async def submit_donation_request_endpoint(
                 detail="❌ Rasm hajmi juda katta (maksimal 8 MB).",
             )
 
-        upload_dir = os.path.join("static", "uploads", "receipts")
+        # 1-QADAM XAVFSIZLIK: Ochiq static papkaga hech qanday chek rasmi saqlanmaydi!
+        # Faqat yopiq himoyalangan papkaga (data/private_receipts) saqlanadi
+        upload_dir = os.path.join("data", "private_receipts")
         os.makedirs(upload_dir, exist_ok=True)
-        fname = f"receipt_u{user.id}_{int(datetime.utcnow().timestamp())}.{ext}"
+        fname = f"secure_receipt_u{user.id}_{int(datetime.utcnow().timestamp())}.{ext}"
         local_photo_path = os.path.join(upload_dir, fname)
         with open(local_photo_path, "wb") as f:
             f.write(img_bytes)
-        receipt_ref = f"/static/uploads/receipts/{fname}"
+        receipt_ref = f"/private/receipts/{fname}"
 
     if not receipt_ref:
         raise HTTPException(

@@ -1,6 +1,7 @@
 """
 FastAPI application for The Iron Throne RPG Telegram Mini App.
 """
+import os
 import time
 from datetime import datetime
 from contextlib import asynccontextmanager
@@ -31,13 +32,16 @@ async def lifespan(app: FastAPI):
     # 2. Shutdown: Cleanup connections if needed
 
 
+_is_dev = os.getenv("ENVIRONMENT", "production").lower() in ("dev", "development")
+
 app = FastAPI(
     title="The Iron Throne — Mini App API",
     description="Backend API for The Iron Throne: Xonadonlar Urushi Telegram Mini App",
     version="1.0.0",
     lifespan=lifespan,
-    docs_url="/api/docs",
+    docs_url="/api/docs" if _is_dev else None,
     redoc_url=None,
+    openapi_url="/openapi.json" if _is_dev else None,
 )
 
 # CORS sozlamalari (Telegram WebApp va mahalliy testlar uchun)

@@ -2,7 +2,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppI
 from telegram.ext import CommandHandler, CallbackQueryHandler, ContextTypes
 from database import AsyncSessionLocal, crud, models
 from keyboards.menus import back_to_main_keyboard
-from config import escape_md, DAILY_DUEL_LIMIT, get_miniapp_url
+from config import escape_md, DAILY_DUEL_LIMIT, get_miniapp_url, ENABLE_MINIAPP
 from sqlalchemy import select
 import html
 
@@ -375,11 +375,13 @@ async def pvp_send_challenge_callback(update: Update, context: ContextTypes.DEFA
                 f"🪙 Garov: **{bet_txt}**\n\n"
                 f"Qilichingizni sug'urib, jangga kirasizmi?"
             )
-            buttons = [
-                [InlineKeyboardButton("⚔️ Mini App'da Qabul Qilish 🏆", web_app=WebAppInfo(url=get_miniapp_url("duel")))],
+            buttons = []
+            if ENABLE_MINIAPP:
+                buttons.append([InlineKeyboardButton("⚔️ Mini App'da Qabul Qilish 🏆", web_app=WebAppInfo(url=get_miniapp_url("duel")))])
+            buttons.extend([
                 [InlineKeyboardButton("✅ Botda Qabul Qilish", callback_data=f"pvp_accept:{duel.id}")],
                 [InlineKeyboardButton("❌ Rad Etish", callback_data=f"pvp_reject:{duel.id}")],
-            ]
+            ])
             await context.bot.send_message(chat_id=opp_tg_id, text=alert_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
         except Exception:
             pass
@@ -447,11 +449,13 @@ async def pvp_cmd_send_callback(update: Update, context: ContextTypes.DEFAULT_TY
                 f"🪙 Garov: **{bet_txt}**\n\n"
                 f"Qabul qilasizmi?"
             )
-            buttons = [
-                [InlineKeyboardButton("⚔️ Mini App'da Qabul Qilish 🏆", web_app=WebAppInfo(url=get_miniapp_url("duel")))],
+            buttons = []
+            if ENABLE_MINIAPP:
+                buttons.append([InlineKeyboardButton("⚔️ Mini App'da Qabul Qilish 🏆", web_app=WebAppInfo(url=get_miniapp_url("duel")))])
+            buttons.extend([
                 [InlineKeyboardButton("✅ Botda Qabul Qilish", callback_data=f"pvp_accept:{duel.id}")],
                 [InlineKeyboardButton("❌ Rad Etish", callback_data=f"pvp_reject:{duel.id}")],
-            ]
+            ])
             await context.bot.send_message(chat_id=opp_tg_id, text=alert_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
         except Exception:
             pass

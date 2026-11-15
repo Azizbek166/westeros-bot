@@ -50,55 +50,24 @@ def calc_troops(troop_type: str, amount_uzs: int) -> int:
 
 
 def donate_menu_keyboard() -> InlineKeyboardMarkup:
-    """To'liq Donat do'koni klaviaturasi: Premium Pass, Resurs paketlari, Tezlashtirish, Kosmetika va Mening so'rovlarim"""
+    """3-QADAM: Faqat 3 ta rasmiy paket sotuvda: Starter Pack (5,000 so'm), Kichik Resurs (10,000 so'm), Premium Pass (20,000 so'm)"""
+    from config import ENABLE_MINIAPP, get_miniapp_url
     buttons = [
         [
             InlineKeyboardButton(
-                "👑 Premium Season Pass (30 kun) — 25,000 so'm",
+                "👑 Premium Season Pass (30 kun) — 20,000 so'm",
                 callback_data="donate_pick:premium_pass",
             )
         ],
         [
             InlineKeyboardButton(
-                "💎 Noble VIP (30 kun) — 15,000 so'm",
-                callback_data="donate_pick:vip_noble",
-            ),
-            InlineKeyboardButton(
                 "🎁 Starter Pack — 5,000 so'm",
                 callback_data="donate_pick:starter_pack",
             ),
-        ],
-        [
             InlineKeyboardButton(
                 "📦 Kichik Resurs — 10,000 so'm",
                 callback_data="donate_pick:knight",
             ),
-            InlineKeyboardButton(
-                "🧰 O'rta Resurs (+10%) — 25,000 so'm",
-                callback_data="donate_pick:lord",
-            ),
-        ],
-        [
-            InlineKeyboardButton(
-                "🏛️ Katta Resurs (+15%) — 50,000 so'm",
-                callback_data="donate_pick:dragonlord",
-            ),
-            InlineKeyboardButton(
-                "👑 Maksimal Xazina (+25%) — 99,000 so'm",
-                callback_data="donate_pick:sovereign",
-            ),
-        ],
-        [
-            InlineKeyboardButton(
-                "⚡ Tezlashtirish Paketi (Qurilish/Parvarish) — 15,000 so'm",
-                callback_data="donate_pick:speedup_pack",
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "🎨 Kosmetika (Ramka, Unvon, Ajdar Terisi)",
-                callback_data="donate_cosmetics_menu",
-            )
         ],
         [
             InlineKeyboardButton(
@@ -106,16 +75,17 @@ def donate_menu_keyboard() -> InlineKeyboardMarkup:
                 callback_data="donate_my_requests",
             )
         ],
-        [
+    ]
+    if ENABLE_MINIAPP:
+        buttons.append([
             InlineKeyboardButton(
                 "📱 Mini App Donat Do'koni 💎",
                 web_app=WebAppInfo(url=get_miniapp_url("donate")),
             )
-        ],
-        [
-            InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main"),
-        ],
-    ]
+        ])
+    buttons.append([
+        InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main"),
+    ])
     return InlineKeyboardMarkup(buttons)
 
 
@@ -157,24 +127,27 @@ async def _build_donate_intro_text() -> str:
         reqs = await crud.get_payment_settings(session)
     card_num = reqs["card_number"]
     card_holder = reqs["card_holder"]
+    card_display = f"`{card_num}`" if card_num else "_(Admin Panelda o'rnatilmagan)_"
+    holder_display = f"*{escape_md(card_holder)}*" if card_holder else "_(Admin Panelda o'rnatilmagan)_"
     return (
-        "💎 **VESTEROS PREMIUM PASS & VIP DO'KONI**\n\n"
-        "Hurmatli Lord! Barcha paketlar **qo'lda tasdiqlash** orqali xavfsiz faollashtiriladi:\n\n"
-        "📦 **Mavjud Paketlar:**\n"
-        "• 👑 **Premium Season Pass (25,000 so'm / 30 kun):**\n"
-        "  — Premium belgi, Valiriya ramkasi va «Mavsum Aslzodasi» unvoni\n"
-        "  — Darhol beriladigan yoqimli bonus: **+2,500 Oltin, +5,000 Bug'doy, +1,500 Temir, +50 Nufuz**\n"
-        "  — 30 kun davomida har kuni qo'shimcha kunlik bonus (**+300 Oltin, +600 Bug'doy, +200 Temir**)\n"
-        "  — Mavsumning barcha 20 ta Premium mukofot yo'laklari\n"
-        "• 👑 **Noble VIP (15,000 so'm / 30 kun):**\n"
-        "  — 1-bosishda barcha qal'alardan soliq yig'ish, profilga video, VIP nishoni\n"
-        "  — Darhol bonus: **+1,000 Oltin, +2,000 Bug'doy, +500 Temir**\n"
+        "💎 **VESTEROS PREMIUM PASS & RESURS DO'KONI**\n\n"
+        "Hurmatli Lord! Barcha paketlar **qo'lda tasdiqlash** orqali xavfsiz faollashtiriladi (ajdarlar va askarlar sotilmaydi):\n\n"
+        "📦 **Sotuvdagi Rasmiy Paketlar:**\n"
         "• 🎁 **Starter Pack (5,000 so'm / 7 kun VIP):**\n"
-        "  — «Yetti Qirollik Ritsari» unvoni + Po'lat ramka\n"
-        "  — Darhol bonus: **+800 Oltin, +1,500 Bug'doy, +400 Temir**\n\n"
+        "  — «Valyriya Ritsari» unvoni + Maxsus ramka\n"
+        "  — Darhol bonus: **+1,000 Oltin, +2,000 Bug'doy, +500 Temir, +20 Nufuz**\n"
+        "  — 7 kunlik qo'shimcha kunlik bonuslar\n\n"
+        "• 📦 **Kichik Resurs Paketi (10,000 so'm):**\n"
+        "  — Iqtisodiyot va bino qurilishi uchun tezkor resurslar\n"
+        "  — Darhol bonus: **+8,000 Oltin, +20,000 Bug'doy, +6,000 Temir, +80 Nufuz**\n\n"
+        "• 👑 **Premium Season Pass (20,000 so'm / 30 kun):**\n"
+        "  — Premium belgi, Valiriya ramkasi va «Mavsum Aslzodasi» unvoni\n"
+        "  — Darhol yoqimli bonus: **+2,500 Oltin, +5,000 Bug'doy, +1,500 Temir, +50 Nufuz**\n"
+        "  — 30 kun davomida har kuni qo'shimcha kunlik bonus (**+300 Oltin, +600 Bug'doy, +200 Temir**)\n"
+        "  — Mavsumning barcha 20 ta Premium mukofot yo'laklarini ochish huquqi!\n\n"
         "💳 **To'lov Karta Rekvizitlari:**\n"
-        f"• Karta raqami: `{card_num}`\n"
-        f"• Karta egasi: *{escape_md(card_holder)}*\n\n"
+        f"• Karta raqami: {card_display}\n"
+        f"• Karta egasi: {holder_display}\n\n"
         "👇 *Kerakli paketni tanlang, to'lov qiling va chek skrinshotini yuboring:*"
     )
 

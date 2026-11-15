@@ -231,6 +231,12 @@ async def bank_dep_do_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
     async with AsyncSessionLocal() as session:
         ok, msg = await crud.deposit_to_iron_bank(session, user_id, amount)
+        if ok and amount >= 1000:
+            try:
+                from services.achievement_service import unlock_achievement
+                await unlock_achievement(session, user_id, "iron_banker", bot_app=context.application)
+            except Exception:
+                pass
 
     await query.answer(msg[:150], show_alert=True)
     await show_bank_hub(query, user_id, is_message=False)

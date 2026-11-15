@@ -1132,6 +1132,68 @@ class AIModerationLog(Base):
     user = relationship("User", foreign_keys=[user_id])
 
 
+# ============================================================
+# 40. USER ACHIEVEMENTS (YUTUQLAR TIZIMI)
+# ============================================================
+class UserAchievement(Base):
+    __tablename__ = "user_achievements"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    telegram_id = Column(BigInteger, nullable=True, index=True)
+    achievement_code = Column(String(50), nullable=False, index=True)
+    title = Column(String(100), nullable=False)
+    reward_gold = Column(Integer, default=0)
+    reward_iron = Column(Integer, default=0)
+    reward_food = Column(Integer, default=0)
+    reward_prestige = Column(Integer, default=0)
+    unlocked_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "achievement_code", name="uq_user_achievement"),
+    )
+
+    user = relationship("User", foreign_keys=[user_id])
+
+
+# ============================================================
+# 41. PROMO CODES (PROMO-KODLAR TIZIMI)
+# ============================================================
+class PromoCode(Base):
+    __tablename__ = "promo_codes"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    code = Column(String(50), unique=True, nullable=False, index=True)
+    reward_type = Column(String(50), default="resources")  # resources, vip, pass
+    reward_gold = Column(Integer, default=0)
+    reward_food = Column(Integer, default=0)
+    reward_iron = Column(Integer, default=0)
+    reward_prestige = Column(Integer, default=0)
+    reward_vip_days = Column(Integer, default=0)
+    max_uses = Column(Integer, default=100)
+    current_uses = Column(Integer, default=0)
+    expires_at = Column(DateTime, nullable=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class PromoCodeUsage(Base):
+    __tablename__ = "promo_code_usages"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    promo_code_id = Column(Integer, ForeignKey("promo_codes.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    telegram_id = Column(BigInteger, nullable=False, index=True)
+    used_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("promo_code_id", "user_id", name="uq_promo_code_user"),
+    )
+
+    promo = relationship("PromoCode", foreign_keys=[promo_code_id])
+    user = relationship("User", foreign_keys=[user_id])
+
+
 
 
 

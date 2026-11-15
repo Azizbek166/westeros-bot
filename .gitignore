@@ -11,3 +11,4 @@ __pycache__/
 *reports*.py
 list_all_tables.py
 scratch/
+backups/

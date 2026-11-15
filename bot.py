@@ -443,7 +443,9 @@ async def main_async():
     if port <= 0:
         port = int(os.getenv("API_PORT", 0))
 
-    if port > 0:
+    from config import ENABLE_MINIAPP
+
+    if port > 0 and ENABLE_MINIAPP:
         import uvicorn
         logger.info(f"🌐 FastAPI & Telegram Mini App bitta umumiy asinxron loop'da {port}-portda ishga tushmoqda...")
         config = uvicorn.Config("api.main:app", host="0.0.0.0", port=port, log_level="warning")
@@ -453,7 +455,7 @@ async def main_async():
         except asyncio.CancelledError:
             pass
     else:
-        # Port belgilanmagan bo'lsa (lokal faqat bot rejimi), cheksiz kutish
+        logger.info("🤖 Faqat Telegram Bot rejimi ishlamoqda (ENABLE_MINIAPP=false). Uvicorn/FastAPI o'chirilgan.")
         try:
             while True:
                 await asyncio.sleep(3600)

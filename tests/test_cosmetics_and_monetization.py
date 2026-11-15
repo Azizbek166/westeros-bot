@@ -12,6 +12,8 @@ from sqlalchemy import select
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import config
+
 from database.db import AsyncSessionLocal, init_db
 from database import models
 from core.cosmetics import (
@@ -302,7 +304,7 @@ class TestCosmeticsAndMonetization(unittest.IsolatedAsyncioTestCase):
             )
             self.assertTrue(ok_req1)
             self.assertEqual(req1.package, "premium_pass")
-            self.assertEqual(req1.amount, 25000)
+            self.assertEqual(req1.amount, config.DONATE_TIERS["premium_pass"]["price_uzs"])
             self.assertEqual(req1.status, "pending")
 
             # 4) Pending so'rov bor paytda ikkinchi so'rov yuborish (spam) bloklanadi

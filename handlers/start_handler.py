@@ -118,6 +118,15 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     full_name = update.effective_user.full_name
     username = update.effective_user.username
 
+    # Referal havolasidan kelgan bo'lsa (start=ref_<id>)
+    if context.args and len(context.args) > 0:
+        arg = str(context.args[0]).strip()
+        if arg.startswith("ref_"):
+            try:
+                context.user_data["pending_referrer_tg_id"] = int(arg.replace("ref_", ""))
+            except Exception:
+                pass
+
     # 1. Telegram username majburiyligi
     if not username:
         await update.message.reply_text(
@@ -637,6 +646,19 @@ async def handle_custom_name_input(update: Update, context: ContextTypes.DEFAULT
                 pending_bonus = await crud.get_pending_season_bonus(session, user_id)
                 if pending_bonus:
                     await crud.apply_season_top_bonus(session, user, pending_bonus)
+
+                try:
+                    pending_ref_id = context.user_data.get("pending_referrer_tg_id")
+                    if pending_ref_id and not user.referred_by_id:
+                        from services.referral_service import process_referral_on_registration, award_referral_reward_after_house_selection
+                        ok, _ = await process_referral_on_registration(session, user, pending_ref_id)
+                        if ok:
+                            await award_referral_reward_after_house_selection(session, user.id, bot_app=context.application)
+                    elif user.referred_by_id:
+                        from services.referral_service import award_referral_reward_after_house_selection
+                        await award_referral_reward_after_house_selection(session, user.id, bot_app=context.application)
+                except Exception as ref_err:
+                    logger.warning(f"Referral hook error (custom house): {ref_err}")
             except ValueError as ve:
                 await update.effective_message.reply_text(f"❌ {ve}")
                 return
@@ -811,6 +833,19 @@ async def handle_custom_name_input(update: Update, context: ContextTypes.DEFAULT
             season_bonus_msg = ""
             if pending_bonus:
                 _, season_bonus_msg = await crud.apply_season_top_bonus(session, user, pending_bonus)
+
+            try:
+                pending_ref_id = context.user_data.get("pending_referrer_tg_id")
+                if pending_ref_id and not user.referred_by_id:
+                    from services.referral_service import process_referral_on_registration, award_referral_reward_after_house_selection
+                    ok, _ = await process_referral_on_registration(session, user, pending_ref_id)
+                    if ok:
+                        await award_referral_reward_after_house_selection(session, user.id, bot_app=context.application)
+                elif user.referred_by_id:
+                    from services.referral_service import award_referral_reward_after_house_selection
+                    await award_referral_reward_after_house_selection(session, user.id, bot_app=context.application)
+            except Exception as ref_err:
+                logger.warning(f"Referral hook error (standard house): {ref_err}")
         except ValueError as ve:
             await update.effective_message.reply_text(f"❌ {ve}")
             return
