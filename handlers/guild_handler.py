@@ -11,6 +11,7 @@ from telegram.ext import (
     filters,
 )
 from database import AsyncSessionLocal, crud, models
+from sqlalchemy.orm import selectinload
 from keyboards.menus import back_to_main_keyboard
 
 BANNER_PRESETS = ["🛡️", "⚔️", "🦅", "🐺", "🦁", "🐉", "👑", "⚡", "🌊", "🏰", "🏹", "🩸"]

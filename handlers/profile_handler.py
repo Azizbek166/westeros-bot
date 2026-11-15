@@ -11,6 +11,7 @@ from telegram.ext import (
     ContextTypes,
 )
 from database import AsyncSessionLocal, crud, models
+from sqlalchemy import select
 from core.economy_engine import calculate_army_upkeep, calculate_hourly_income
 from keyboards.menus import back_to_main_keyboard
 from config import escape_md, COMMUNITY_CHANNEL_URL, COMMUNITY_GROUP_URL
@@ -193,11 +194,10 @@ async def format_user_profile_card(user: models.User, session, is_group: bool = 
             f"📈 `[{prog_bar}]` {user.xp:,}/{next_req:,} XP ({int(progress)}%)\n"
             f"{art_str}"
             f"🔰 Qalqon: {shield_str}\n\n"
-            f"📊 **Xazina:** 🪙**{user.gold:,}** (+{income['gold']}/s 👑+25%) | 🌾**{user.food:,}** ({net_food_str}/s) | ⛓️**{user.iron:,}** (+{income['iron']}/s)\n"
+            f"📊 **Xazina:** 🪙**{user.gold:,}** (+{income['gold']}/s) | 🌾**{user.food:,}** ({net_food_str}/s) | ⛓️**{user.iron:,}** (+{income['iron']}/s)\n"
             f"⚔️ **Qo'shin:** 🛡️{inf_cnt:,} | 🏹{arc_cnt:,} | 🐎{cav_cnt:,} | 🗡️{spm_cnt:,} | 🔥{spc_cnt:,}\n"
             f"{dragon_line}"
-            f"👑 **Imperatorlik Imtiyozlari:**\n"
-            f"• 💰 Barcha hudud va konlardan +25% doimiy daromad\n"
+            f"👑 **Qirollik Homiy Imtiyozlari:**\n"
             f"• 📜 Qirollik Farmoni: **{decree_cnt} ta** huquq mavjud\n\n"
             f"👑✨🌟⚡🌟✨👑"
         )
@@ -266,7 +266,25 @@ async def format_user_profile_card(user: models.User, session, is_group: bool = 
             f"{dragon_line}"
         )
 
-    photo_id = user.custom_photo_file_id if vip in ["lord", "dragonlord", "sovereign"] else None
+    try:
+        from services.profile_extras_service import get_profile_extras_view
+        ex_view = await get_profile_extras_view(session, user)
+        extra_lines = []
+        if ex_view.get("crest"):
+            extra_lines.append(f"🛡️ Gerb: {ex_view['crest']}")
+        if ex_view.get("castle_name"):
+            extra_lines.append(f"🏰 Qal'a: **{escape_md(ex_view['castle_name'])}**")
+        if ex_view.get("badges"):
+            extra_lines.append(f"🏅 Nishonlar: {', '.join(ex_view['badges'])}")
+        if extra_lines:
+            text = f"{text}\n" + "\n".join(extra_lines)
+        if ex_view.get("theme"):
+            b = ex_view["theme"]["border"]
+            text = f"{b}\n{text}\n{b}"
+    except Exception as pfx_err:
+        logger.warning(f"Profile extras hook error: {pfx_err}")
+
+    photo_id = user.custom_photo_file_id if vip in ["noble", "knight", "lord", "dragonlord", "sovereign"] else None
     video_id = user.custom_video_file_id if vip in ["lord", "dragonlord", "sovereign"] else None
     audio_id = user.custom_audio_file_id if vip in ["lord", "dragonlord", "sovereign"] else None
     audio_title = user.custom_audio_title if vip in ["lord", "dragonlord", "sovereign"] else None
@@ -402,16 +420,6 @@ async def clean_keyboard_command(update: Update, context: ContextTypes.DEFAULT_T
         reply_markup=ReplyKeyboardRemove()
     )
 
-    if audio_id:
-        try:
-            await query.message.reply_audio(
-                audio=audio_id,
-                title=audio_title or "Lord Gimni",
-                performer=user.full_name or "Westeros Lord"
-            )
-        except Exception:
-            pass
-
 
 async def profile_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """menu_profile callback"""
@@ -524,22 +532,22 @@ async def show_profile(target, user_id: int, is_message: bool):
 
 async def show_vip_studio_menu(target, user_id: int, is_message: bool = False):
     """VIP Profil Studiyasi Menyusi (Media va oddiy xabarlarga to'liq xavfsiz)"""
+    from config import DONATE_TIERS
+    from services.profile_extras_service import get_active_vip_tier, has_min_vip_tier
+
     async with AsyncSessionLocal() as session:
         user = await crud.get_user_by_telegram_id(session, user_id)
-        if not user or not user.vip_tier or user.vip_tier == "knight":
-            msg = "❌ Ushbu bo'lim faqat VIP (Lord, Valyriya, Temir Taxt) egalari uchundir!"
+        active_tier = get_active_vip_tier(user)
+        if not user or active_tier == "free":
+            msg = "❌ Ushbu bo'lim faqat faol VIP Homiy egalari uchundir!"
             if hasattr(target, "answer"):
                 await target.answer(msg, show_alert=True)
             else:
                 await safe_send_or_edit_panel(target, msg, is_message=is_message)
             return
 
-        tier_names = {
-            "lord": "🏰 Lordlar Xazinasi",
-            "dragonlord": "🐉 Valyriya Merosi",
-            "sovereign": "👑 Temir Taxt Sohibi"
-        }
-        tier_title = tier_names.get(user.vip_tier, user.vip_tier)
+        tier_title = DONATE_TIERS.get(active_tier, {}).get("name", active_tier)
+        lord_req = DONATE_TIERS.get("lord", {}).get("name", "Lord Homiy")
 
         photo_status = "✅ O'rnatilgan" if user.custom_photo_file_id else "❌ O'rnatilmagan"
         video_status = "✅ O'rnatilgan" if user.custom_video_file_id else "❌ O'rnatilmagan"
@@ -547,42 +555,45 @@ async def show_vip_studio_menu(target, user_id: int, is_message: bool = False):
         audio_status = f"🎶 «{escape_md(user.custom_audio_title)}»" if (user.custom_audio_file_id or user.custom_audio_title) else "❌ O'rnatilmagan"
 
         decree_line = ""
-        if user.vip_tier == "sovereign":
+        if active_tier == "sovereign":
             decree_line = f"• 📜 Qirollik Farmoni huquqi: **{user.royal_decree_count or 0} ta**\n"
 
         text = (
             f"✨👑 **VIP PROFIL SOZLAMALARI STUDIYASI** 👑✨\n\n"
-            f"Sizning VIP maqomingiz: **{tier_title}**\n\n"
+            f"Sizning faol VIP maqomingiz: **{tier_title}**\n\n"
             f"📸 **Profil fotosurati:** {photo_status}\n"
-            f"🎥 **Profil videosi (25,000+ so'm VIP):** {video_status}\n"
-            f"✍️ **Shaxsiy shior / status:** {status_status}\n"
-            f"🎵 **Fon musiqasi / gimn:** {audio_status}\n"
+            f"🎥 **Profil videosi / GIF ({lord_req}+):** {video_status}\n"
+            f"✍️ **Shaxsiy shior / status ({lord_req}+):** {status_status}\n"
+            f"🎵 **Fon musiqasi / gimn ({lord_req}+):** {audio_status}\n"
             f"{decree_line}\n"
             f"Quyidagi tugmalar orqali profilingizni bezating va sozlang:"
         )
 
         buttons = []
 
-        # Rasm (Lord, Valyriya, Sovereign)
+        # Rasm (Noble+)
         buttons.append([InlineKeyboardButton("📸 Profil Rasmini O'rnatish / Yangilash", callback_data="vip_set_photo")])
         if user.custom_photo_file_id:
             buttons.append([InlineKeyboardButton("🗑️ Rasmni Olib Tashlash", callback_data="vip_remove_photo")])
 
-        # Video (25,000+ so'm paketlar: Lord, Dragonlord, Sovereign)
-        if user.vip_tier in ["lord", "dragonlord", "sovereign"]:
+        # Video (Lord+)
+        if has_min_vip_tier(user, "lord"):
             buttons.append([InlineKeyboardButton("🎥 Profil Videosini O'rnatish / Yangilash", callback_data="vip_set_video")])
             if user.custom_video_file_id:
                 buttons.append([InlineKeyboardButton("🗑️ Videoni Olib Tashlash", callback_data="vip_remove_video")])
 
-        # Status & Audio (Lord, Dragonlord, Sovereign)
-        if user.vip_tier in ["lord", "dragonlord", "sovereign"]:
+        # Status & Audio (Lord+)
+        if has_min_vip_tier(user, "lord"):
             buttons.append([InlineKeyboardButton("✍️ Shaxsiy Shior Yozish", callback_data="vip_set_status")])
             if user.custom_status:
                 buttons.append([InlineKeyboardButton("🗑️ Shiorni Olib Tashlash", callback_data="vip_remove_status")])
             buttons.append([InlineKeyboardButton("🎵 Fon Musiqasi / Gimn Tanlash", callback_data="vip_set_audio")])
 
+        # Qo'shimcha bezaklar (Tema, Gerb, Qal'a nomi, G'alaba xabari, Nishonlar)
+        buttons.append([InlineKeyboardButton("🎨 Qo'shimcha Bezaklar (Tema, Gerb, Qal'a)", callback_data="pfx_studio")])
+
         # Qirollik Farmoni (Sovereign)
-        if user.vip_tier == "sovereign":
+        if active_tier == "sovereign":
             buttons.append([InlineKeyboardButton("📢 Butun Vesterosga Qirol Farmoni Chiqarish", callback_data="vip_decree_prompt")])
 
         buttons.append([InlineKeyboardButton("👁️ Yaltiroq Profil Ko'rinishini Sinash", callback_data="vip_preview")])

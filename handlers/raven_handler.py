@@ -143,12 +143,13 @@ async def handle_quick_send_raven(update: Update, context: ContextTypes.DEFAULT_
             await update.message.reply_text("❌ Avval /start bosing.")
             return
 
+        gold = 0
         ok, msg, recipient_tg_id = await crud.send_raven(
             session=session,
             sender_id=sender.id,
             recipient_username_or_id=recipient_target,
             text=message_text,
-            gold=0
+            gold=gold
         )
 
         if not ok:

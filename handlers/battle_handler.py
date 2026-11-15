@@ -1,7 +1,10 @@
+import logging
 import json
 import re
 import asyncio
 import html
+
+logger = logging.getLogger(__name__)
 from datetime import datetime
 from typing import Optional, Dict, Any
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo

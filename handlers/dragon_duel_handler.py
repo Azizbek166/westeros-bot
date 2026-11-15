@@ -1,5 +1,8 @@
+import logging
 from datetime import datetime, timedelta
 import json
+
+logger = logging.getLogger(__name__)
 from typing import Optional
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (

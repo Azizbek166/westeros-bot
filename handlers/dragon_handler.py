@@ -1,5 +1,8 @@
+import logging
 import random
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CommandHandler, CallbackQueryHandler, ContextTypes
 from database import AsyncSessionLocal, crud, models
@@ -234,6 +237,13 @@ async def dragon_feed_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         if not user:
             return
         ok, msg = await crud.feed_dragon(session, user.id, dragon_id)
+        if ok:
+            try:
+                from services.mission_service import track_event
+                await track_event(user.id, "dragon_feed", 1, session=session)
+                await session.commit()
+            except Exception as m_err:
+                logger.warning(f"Mission track_event (dragon_feed) xatosi: {m_err}")
 
     await query.answer(msg, show_alert=True)
     await show_dragon_hub(query, user_id, is_message=False)
@@ -253,6 +263,13 @@ async def dragon_train_callback(update: Update, context: ContextTypes.DEFAULT_TY
         if not user:
             return
         ok, msg = await crud.train_dragon(session, user.id, dragon_id)
+        if ok:
+            try:
+                from services.mission_service import track_event
+                await track_event(user.id, "dragon_train", 1, session=session)
+                await session.commit()
+            except Exception as m_err:
+                logger.warning(f"Mission track_event (dragon_train) xatosi: {m_err}")
 
     await query.answer(msg, show_alert=True)
     await show_dragon_hub(query, user_id, is_message=False)

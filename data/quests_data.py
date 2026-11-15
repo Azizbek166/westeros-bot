@@ -128,3 +128,9 @@ SECRET_QUESTS = [
         ],
     },
 ]
+
+try:
+    from data.quests_extra import SECRET_QUESTS_EXTRA as _SECRET_QUESTS_EXTRA
+    SECRET_QUESTS = SECRET_QUESTS + _SECRET_QUESTS_EXTRA
+except Exception:
+    pass

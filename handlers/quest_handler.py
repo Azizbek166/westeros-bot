@@ -1,5 +1,8 @@
+import logging
 import random
 import time
+
+logger = logging.getLogger(__name__)
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CommandHandler, CallbackQueryHandler, ContextTypes
 from database import AsyncSessionLocal, crud
@@ -190,24 +193,73 @@ async def quest_secret_callback(update: Update, context: ContextTypes.DEFAULT_TY
 async def secret_choice_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Yashirin quest tanlovi natijasi"""
     query = update.callback_query
-    await query.answer()
 
-    choice_idx = int(query.data.split(":")[1])
-    sq = context.user_data.get("current_secret_quest", SECRET_QUESTS[0])
+    try:
+        choice_idx = int((query.data or "").split(":")[1])
+    except (ValueError, IndexError):
+        await query.answer("❌ Noto'g'ri tanlov.", show_alert=True)
+        return
+
+    sq = context.user_data.get("current_secret_quest")
+    if not sq or not isinstance(sq, dict) or choice_idx < 0 or choice_idx >= len(sq.get("choices", [])):
+        await query.answer("⏳ Missiya muddati tugadi, qaytadan oching.", show_alert=True)
+        try:
+            await query.edit_message_text(
+                "⏳ **Missiya muddati tugadi, qaytadan oching.**",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Questlarga Qaytish", callback_data="menu_quests")]]),
+            )
+        except Exception:
+            pass
+        return
+
     chosen = sq["choices"][choice_idx]
+    gold_reward = int(chosen.get("gold_reward", 0))
+    prestige_reward = int(chosen.get("prestige_reward", 0))
 
     user_id = query.from_user.id
     async with AsyncSessionLocal() as session:
         user = await crud.get_user_by_telegram_id(session, user_id)
-        if user:
-            user.daily_secret_quest_count += 1
-            user.gold = max(0, user.gold + chosen["gold_reward"])
-            user.prestige = max(0, user.prestige + chosen["prestige_reward"])
-            user.xp += 100
-            await session.commit()
+        if not user:
+            await query.answer("❌ Foydalanuvchi topilmadi.", show_alert=True)
+            return
 
-    gold_str = f"+{chosen['gold_reward']}" if chosen['gold_reward'] >= 0 else f"{chosen['gold_reward']}"
-    prest_str = f"+{chosen['prestige_reward']}" if chosen['prestige_reward'] >= 0 else f"{chosen['prestige_reward']}"
+        await crud.check_and_reset_daily_limits(session, user)
+
+        if (user.daily_secret_quest_count or 0) >= DAILY_SECRET_QUEST_LIMIT:
+            await query.answer(
+                f"⛔ Bugungi yashirin vazifalar limitingiz ({DAILY_SECRET_QUEST_LIMIT}/{DAILY_SECRET_QUEST_LIMIT}) tugadi!",
+                show_alert=True,
+            )
+            return
+
+        if gold_reward < 0 and (user.gold or 0) < (-gold_reward):
+            await query.answer(
+                f"❌ Xazinangizda yetarli oltin yo'q! Kerak: {-gold_reward:,} 🪙, sizda: {user.gold or 0:,} 🪙.",
+                show_alert=True,
+            )
+            return
+
+        # Tez ikki marta bosishdan himoya: faqat barcha tekshiruvlar o'tgach pop qilamiz
+        popped_sq = context.user_data.pop("current_secret_quest", None)
+        if not popped_sq:
+            await query.answer("⏳ Bu missiya allaqachon yakunlangan.", show_alert=True)
+            return
+
+        user.daily_secret_quest_count = (user.daily_secret_quest_count or 0) + 1
+        user.gold = max(0, (user.gold or 0) + gold_reward)
+        user.prestige = max(0, (user.prestige or 0) + prestige_reward)
+        user.xp = (user.xp or 0) + 100
+        try:
+            from services.mission_service import track_event
+            await track_event(user.id, "secret_quest", 1, session=session)
+        except Exception as m_err:
+            logger.warning(f"Mission track_event (secret_quest) xatosi: {m_err}")
+        await session.commit()
+
+    await query.answer()
+    gold_str = f"+{gold_reward}" if gold_reward >= 0 else f"{gold_reward}"
+    prest_str = f"+{prestige_reward}" if prestige_reward >= 0 else f"{prestige_reward}"
 
     text = (
         f"🕵️ **QUEST NATIJASI**\n\n"
@@ -281,6 +333,11 @@ async def citadel_answer_callback(update: Update, context: ContextTypes.DEFAULT_
             await crud.record_guild_quest_activity(session, user.id, "quiz", 1)
         except Exception:
             pass
+        try:
+            from services.mission_service import track_event
+            await track_event(user.id, "quiz", 1, session=session)
+        except Exception as m_err:
+            logger.warning(f"Mission track_event (quiz) xatosi: {m_err}")
         if user_ans == correct_idx:
             user.gold += 60
             user.iron += 35

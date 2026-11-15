@@ -277,6 +277,9 @@ async def admin_user_detail_callback(update: Update, context: ContextTypes.DEFAU
                 InlineKeyboardButton("⚔️ Armiyasini Boshqarish (Qo'shin berish)", callback_data=f"adm_u_army_menu:{user.id}"),
             ],
             [
+                InlineKeyboardButton("🛡️ Profil Matnlarini Moderatsiya", callback_data=f"pfx_adm_mod:{user.id}"),
+            ],
+            [
                 InlineKeyboardButton("🔄 Kunlik Limitlarni 0 qilish", callback_data=f"adm_act:{user.id}:reset:0"),
                 InlineKeyboardButton("🛡️ +72 soat Qalqon", callback_data=f"adm_act:{user.id}:shield:72"),
             ],
@@ -2236,7 +2239,8 @@ async def admin_set_title_do_callback(update: Update, context: ContextTypes.DEFA
     except Exception:
         pass
 
-    await show_admin_user_detail(query, user_id)
+    query.data = f"adm_u_detail:{user_id}"
+    await admin_user_detail_callback(update, context)
 
 
 async def set_title_command(update: Update, context: ContextTypes.DEFAULT_TYPE):

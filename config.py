@@ -227,11 +227,44 @@ DONATE_BONUSES_CONFIG = {
 }
 
 # ============================================================
-# AFSONAVIY DONATE / VIP TARIFLARI (Ajdarsiz, adolatli balans)
+# AFSONAVIY DONATE / VIP TARIFLARI (0 Pay-To-Win: 5 ta rasmiy Homiy paketi)
 # ============================================================
-ACTIVE_DONATE_TIERS = ["starter_pack", "knight", "premium_pass"]
+ACTIVE_DONATE_TIERS = ["noble", "knight", "lord", "dragonlord", "sovereign"]
 
 DONATE_TIERS = {
+    "noble": {
+        "id": "noble",
+        "name": "🛡️ Noble Homiy (30 kun)",
+        "subtitle": "Profil fotosurati, Noble nishoni va bir martalik resurs",
+        "category": "vip_pass",
+        "price_uzs": 10000,
+        "price_label": "10,000 so'm",
+        "gold": 6000,
+        "food": 15000,
+        "iron": 6000,
+        "infantry": 0,
+        "archers": 0,
+        "cavalry": 0,
+        "spearmen": 0,
+        "special_troops": 0,
+        "catapults": 0,
+        "siege_towers": 0,
+        "shield_hours": 0,
+        "prestige": 0,
+        "wildfire": 0,
+        "duration_days": 30,
+        "vip_tier": "noble",
+        "avatar_frame": "frame_iron",
+        "title": "Qirol Qo'riqchisi",
+        "cosmetics": ["frame_iron", "title_kingsguard"],
+        "studio_perks": ["photo", "badge_noble"],
+        "description": (
+            "• 🛡️ **30 kunlik Noble VIP:** Profil fotosurati va Noble nishoni\n"
+            "• 🖼️ **Kosmetika:** Temir Taxt ramkasi (frame_iron) va unvon (title_kingsguard)\n"
+            "• 🎁 **Bir martalik resurs:** +6,000 🪙 Oltin, +15,000 🌾 Bug'doy, +6,000 ⛓️ Temir\n"
+            "• ⚖️ *0 Pay-To-Win: askar, ajdaho, prestige yoki doimiy daromad bonusi yo'q*"
+        ),
+    },
     "premium_pass": {
         "id": "premium_pass",
         "name": "👑 Premium Season Pass (30 kun)",
@@ -337,14 +370,14 @@ DONATE_TIERS = {
     },
     "knight": {
         "id": "knight",
-        "name": "📦 Kichik Resurs Paketi (Ritsar Xazinasi)",
-        "subtitle": "Qurilish va iqtisodiyot uchun tezkor resurs zaxirasi",
-        "category": "resources",
-        "price_uzs": 10000,
-        "price_label": "10,000 so'm",
-        "gold": 8000,
-        "food": 20000,
-        "iron": 6000,
+        "name": "🗡️ Ritsar Homiy (30 kun)",
+        "subtitle": "Olov temasi, effekt va 1 kunlik resurs zaxirasi",
+        "category": "vip_pass",
+        "price_uzs": 25000,
+        "price_label": "25,000 so'm",
+        "gold": 12000,
+        "food": 30000,
+        "iron": 12000,
         "infantry": 0,
         "archers": 0,
         "cavalry": 0,
@@ -353,16 +386,19 @@ DONATE_TIERS = {
         "catapults": 0,
         "siege_towers": 0,
         "shield_hours": 0,
-        "prestige": 80,
+        "prestige": 0,
         "wildfire": 0,
-        "title": "Jasur Ritsar",
+        "duration_days": 30,
+        "vip_tier": "knight",
+        "avatar_frame": "frame_flame",
+        "title": "Qirol Qo'riqchisi",
+        "cosmetics": ["frame_iron", "title_kingsguard", "frame_flame", "effect_fire"],
+        "studio_perks": ["photo", "badge_noble", "theme_fire"],
         "description": (
-            "• 🪙 Oltin: +8,000\n"
-            "• 🌾 Bug'doy: +20,000\n"
-            "• ⛓️ Temir: +6,000\n"
-            "• 👑 Faxriy unvon: «Jasur Ritsar»\n"
-            "• ⭐ Prestige: +80 shon-sharaf\n"
-            "• 🎁 Birinchi donat uchun +20% qo'shimcha resurs bonusi!"
+            "• 🗡️ **30 kunlik Ritsar VIP:** Noble imtiyozlari + Olov profil temasi\n"
+            "• 🖼️ **Kosmetika:** Olov ramkasi, Olov effekti va oldingi kosmetikalar\n"
+            "• 🎁 **Bir martalik resurs:** +12,000 🪙 Oltin, +30,000 🌾 Bug'doy, +12,000 ⛓️ Temir\n"
+            "• ⚖️ *0 Pay-To-Win: askar, ajdaho, prestige yoki doimiy daromad bonusi yo'q*"
         ),
     },
     "speedup_pack": {
@@ -396,13 +432,13 @@ DONATE_TIERS = {
     },
     "lord": {
         "id": "lord",
-        "name": "🧰 O'rta Resurs Paketi (Lordlar Xazinasi)",
-        "subtitle": "Hukmdorlar tanlovi (+10% katta paket bonusi bilan)",
-        "category": "resources",
-        "price_uzs": 25000,
-        "price_label": "25,000 so'm",
-        "gold": 22000,
-        "food": 55000,
+        "name": "🏰 Lord Homiy (30 kun)",
+        "subtitle": "Video/GIF, shior, gimn, gerb emoji, Muz & Olov temalari",
+        "category": "vip_pass",
+        "price_uzs": 45000,
+        "price_label": "45,000 so'm",
+        "gold": 18000,
+        "food": 45000,
         "iron": 18000,
         "infantry": 0,
         "archers": 0,
@@ -412,29 +448,31 @@ DONATE_TIERS = {
         "catapults": 0,
         "siege_towers": 0,
         "shield_hours": 0,
-        "prestige": 200,
-        "wildfire": 2,
-        "bulk_bonus_pct": 10,
-        "title": "Saxiy Lord",
+        "prestige": 0,
+        "wildfire": 0,
+        "duration_days": 30,
+        "vip_tier": "lord",
+        "avatar_frame": "frame_flame",
+        "title": "Qirol Qo'riqchisi",
+        "cosmetics": ["frame_iron", "title_kingsguard", "frame_flame", "effect_fire", "castle_ice", "effect_ice"],
+        "studio_perks": ["photo", "badge_noble", "theme_fire", "theme_ice", "video", "status", "audio", "crest"],
         "description": (
-            "• 🪙 Oltin: +22,000 (+10% katta paket bonusi)\n"
-            "• 🌾 Bug'doy: +55,000\n"
-            "• ⛓️ Temir: +18,000\n"
-            "• 💚 Yovvoyi Olov (Wildfire): +2 bochka (Qal'a mudofaasiga)\n"
-            "• 👑 Maxsus unvon: «Saxiy Lord»\n"
-            "• ⭐ Prestige: +200 shon-sharaf"
+            "• 🏰 **30 kunlik Lord VIP:** Video/GIF profil, shaxsiy shior, fon musiqasi/gimn, gerb emoji\n"
+            "• 🎨 **Temalar va Kosmetika:** Muz & Olov temalari, Muz Qasri, Muz effekti va oldingi kosmetikalar\n"
+            "• 🎁 **Bir martalik resurs:** +18,000 🪙 Oltin, +45,000 🌾 Bug'doy, +18,000 ⛓️ Temir\n"
+            "• ⚖️ *0 Pay-To-Win: askar, ajdaho, prestige yoki doimiy daromad bonusi yo'q*"
         ),
     },
     "dragonlord": {
         "id": "dragonlord",
-        "name": "🏛️ Katta Resurs Paketi (Valyriya Xazinasi)",
-        "subtitle": "Kuchli iqtisodiyot va kosmetika (+15% bonus bilan)",
-        "category": "resources",
-        "price_uzs": 50000,
-        "price_label": "50,000 so'm",
-        "gold": 50000,
-        "food": 120000,
-        "iron": 40000,
+        "name": "🐉 Valyriya Homiy (30 kun)",
+        "subtitle": "Valyriya temasi, shaxsiy g'alaba xabari va ajdar/qal'a terilari",
+        "category": "vip_pass",
+        "price_uzs": 70000,
+        "price_label": "70,000 so'm",
+        "gold": 24000,
+        "food": 60000,
+        "iron": 24000,
         "infantry": 0,
         "archers": 0,
         "cavalry": 0,
@@ -443,33 +481,34 @@ DONATE_TIERS = {
         "catapults": 0,
         "siege_towers": 0,
         "shield_hours": 0,
-        "prestige": 450,
-        "wildfire": 3,
-        "bulk_bonus_pct": 15,
-        "avatar_frame": "frame_dragonfire",
-        "instant_dragon_heal": True,
-        "title": "Valyriya Homiyi",
+        "prestige": 0,
+        "wildfire": 0,
+        "duration_days": 30,
+        "vip_tier": "dragonlord",
+        "avatar_frame": "frame_flame",
+        "title": "Ajdar Chavandozi",
+        "cosmetics": [
+            "frame_iron", "title_kingsguard", "frame_flame", "effect_fire",
+            "castle_ice", "effect_ice", "dragon_crimson", "castle_valyrian", "title_dragonrider",
+        ],
+        "studio_perks": ["photo", "badge_noble", "theme_fire", "theme_ice", "theme_valyrian", "video", "status", "audio", "crest", "victory_message"],
         "description": (
-            "• 🪙 Oltin: +50,000 (+15% katta paket bonusi)\n"
-            "• 🌾 Bug'doy: +120,000\n"
-            "• ⛓️ Temir: +40,000\n"
-            "• 🖼️ Eksklyuziv Ramka: «Ajdar Olovi» (Dragonfire)\n"
-            "• ⚡ Ajdarlar to'qligi va quvvatini 100% tiklash\n"
-            "• 👑 Maxsus unvon: «Valyriya Homiyi»\n"
-            "• ⭐ Prestige: +450 shon-sharaf\n"
-            "• ℹ️ Eslatma: Ajdarlar faqat o'yin ichida mehnat va binolar orqali olinadi!"
+            "• 🐉 **30 kunlik Valyriya VIP:** Lord imtiyozlari + Valyriya temasi + Shaxsiy g'alaba xabari\n"
+            "• 🖼️ **Kosmetika:** Qonli Ajdar terisi, Valiriya Qora Bazalt qasri, Ajdar Chavandozi unvoni\n"
+            "• 🎁 **Bir martalik resurs:** +24,000 🪙 Oltin, +60,000 🌾 Bug'doy, +24,000 ⛓️ Temir\n"
+            "• ⚖️ *0 Pay-To-Win: askar, ajdaho, prestige yoki doimiy daromad bonusi yo'q*"
         ),
     },
     "sovereign": {
         "id": "sovereign",
-        "name": "👑 Qirollik Homiyi Paketi (Maksimal Xazina)",
-        "subtitle": "Katta resurs zaxirasi, VIP va eksklyuziv kosmetika (+25% bonus)",
-        "category": "resources",
-        "price_uzs": 99000,
-        "price_label": "99,000 so'm",
-        "gold": 110000,
-        "food": 250000,
-        "iron": 90000,
+        "name": "👑 Qirollik Homiy (30 kun)",
+        "subtitle": "Barcha bezaklar, Qal'a nomi, Qirollik Farmoni va doimiy nishon",
+        "category": "vip_pass",
+        "price_uzs": 100000,
+        "price_label": "100,000 so'm",
+        "gold": 36000,
+        "food": 90000,
+        "iron": 36000,
         "infantry": 0,
         "archers": 0,
         "cavalry": 0,
@@ -478,28 +517,28 @@ DONATE_TIERS = {
         "catapults": 0,
         "siege_towers": 0,
         "shield_hours": 0,
-        "prestige": 1000,
-        "wildfire": 5,
-        "bulk_bonus_pct": 25,
+        "prestige": 0,
+        "wildfire": 0,
         "duration_days": 30,
-        "daily_bonus_gold": 300,
-        "daily_bonus_food": 600,
-        "daily_bonus_iron": 200,
-        "vip_tier": "noble",
-        "avatar_frame": "frame_iron_throne",
-        "is_season_pass": True,
-        "instant_dragon_heal": True,
-        "title": "Vesteros Himoyachisi",
-        "broadcast": True,
+        "vip_tier": "sovereign",
+        "avatar_frame": "frame_sovereign",
+        "title": "Temir Taxt Egasi",
+        "cosmetics": [
+            "frame_iron", "title_kingsguard", "frame_flame", "effect_fire",
+            "castle_ice", "effect_ice", "dragon_crimson", "castle_valyrian", "title_dragonrider",
+            "frame_sovereign", "title_ironthrone", "castle_golden", "dragon_golden",
+        ],
+        "permanent_badges": ["royal_patron"],
+        "studio_perks": [
+            "photo", "badge_noble", "theme_fire", "theme_ice", "theme_gold", "theme_shadow", "theme_valyrian",
+            "video", "status", "audio", "crest", "victory_message", "castle_name", "royal_decree",
+        ],
         "description": (
-            "• 🪙 Oltin: +110,000 (+25% katta paket bonusi)\n"
-            "• 🌾 Bug'doy: +250,000\n"
-            "• ⛓️ Temir: +90,000\n"
-            "• 👑 **30 kunlik Premium Pass + Noble VIP** to'liq imtiyozlari\n"
-            "• 🖼️ Eksklyuziv Ramka: «Temir Taxt Toji» va «Vesteros Himoyachisi» unvoni\n"
-            "• 💚 Yovvoyi Olov (Wildfire): +5 bochka\n"
-            "• ⭐ Prestige: +1,000 shon-sharaf va Qirollik e'loni!\n"
-            "• ℹ️ Eslatma: O'yin balansini saqlash uchun ajdarlar to'g'ridan-to'g'ri sotilmaydi."
+            "• 👑 **30 kunlik Qirollik VIP:** Barcha studiya imkoniyatlari, barcha 5 ta tema, Qal'a nomi, Qirollik Farmoni (haftada 1 marta)\n"
+            "• 🏅 **Doimiy Nishon:** «Qirollik Homiysi» nishoni VIP tugagach ham profilida qoladi\n"
+            "• 🖼️ **Barcha Kosmetikalar:** Oltin Saroy, Oltin Ajdar, Sovereign ramkasi va Temir Taxt Egasi unvoni\n"
+            "• 🎁 **Bir martalik resurs:** +36,000 🪙 Oltin, +90,000 🌾 Bug'doy, +36,000 ⛓️ Temir\n"
+            "• ⚖️ *0 Pay-To-Win: askar, ajdaho, prestige yoki doimiy daromad bonusi yo'q*"
         ),
     },
 }

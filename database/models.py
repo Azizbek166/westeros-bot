@@ -1195,6 +1195,54 @@ class PromoCodeUsage(Base):
     user = relationship("User", foreign_keys=[user_id])
 
 
+# ============================================================
+# 42. MISSION CLAIMS & PROGRESS (HAFTALIK VA AJDAHO MISSIYALARI)
+# ============================================================
+class MissionClaim(Base):
+    __tablename__ = "mission_claims"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    mission_code = Column(String(64), nullable=False, index=True)
+    period_key = Column(String(32), nullable=False, index=True)
+    claimed_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "mission_code", "period_key", name="uq_mission_claim_period"),
+    )
+
+
+class MissionProgress(Base):
+    __tablename__ = "mission_progress"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    mission_code = Column(String(64), nullable=False, index=True)
+    period_key = Column(String(32), nullable=False, index=True)
+    progress = Column(Integer, default=0)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "mission_code", "period_key", name="uq_mission_progress_period"),
+    )
+
+
+# ============================================================
+# 43. USER PROFILE EXTRAS (PROFIL STUDIYASI BEZAKLARI)
+# ============================================================
+class UserProfileExtra(Base):
+    __tablename__ = "user_profile_extras"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False, index=True)
+    theme = Column(String(32), nullable=True)
+    crest = Column(String(16), nullable=True)
+    castle_name = Column(String(32), nullable=True)
+    victory_message = Column(String(100), nullable=True)
+    badges = Column(Text, default="[]")
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+
+
 
 
 

@@ -246,6 +246,9 @@ def quests_menu_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton("🎖️ Lavozim Topshiriqlari", callback_data="quest_rank"),
         ],
         [
+            InlineKeyboardButton("🎯 Haftalik Missiyalar", callback_data="msn_menu"),
+        ],
+        [
             InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")
         ],
     ])

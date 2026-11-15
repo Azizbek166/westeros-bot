@@ -43,8 +43,8 @@ class EconomyBalance:
     # Oziq-ovqat tugaganda ochlikdan qochish (desertion) foizi (soatiga)
     starvation_desertion_rate: float = 0.05
 
-    # VIP Sovereign (Imperatorlik) doimiy resurs bonusi
-    sovereign_vip_income_mult: float = 1.25
+    # VIP Sovereign (Qirollik Homiy) doimiy resurs bonusi (Pay-to-Win yo'q: 1.0)
+    sovereign_vip_income_mult: float = 1.0
 
 
 # ============================================================

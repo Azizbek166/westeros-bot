@@ -101,9 +101,10 @@ def resolve_package_info(package_id: str) -> Optional[Dict[str, Any]]:
 
 async def get_payment_requisites_service(session: AsyncSession) -> Dict[str, Any]:
     """Karta raqami, karta egasi va mavjud donat paketlar ro'yxatini qaytarish."""
+    from config import ACTIVE_DONATE_TIERS
     settings = await crud.get_payment_settings(session)
     packages = []
-    for k in ("premium_pass", "vip_noble", "starter_pack", "knight", "speedup_pack", "lord", "dragonlord", "sovereign"):
+    for k in ACTIVE_DONATE_TIERS:
         if k in DONATE_TIERS:
             info = resolve_package_info(k)
             if info:

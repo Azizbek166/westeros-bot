@@ -1412,6 +1412,7 @@ async def execute_daily_2100_war_and_npc_raids(bot_app=None, force: bool = False
                         pass
 
             # 4. NPC Qal'alarga avtomatik bosqinlar to'xtatilgan (Foydalanuvchi talabi)
+            raided_count = 0
             await session.commit()
 
             # Bosh egaga (Owner) hisobot

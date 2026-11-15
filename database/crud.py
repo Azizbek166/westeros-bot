@@ -5,11 +5,12 @@ import random
 logger = logging.getLogger(__name__)
 from datetime import datetime, timedelta
 from typing import Optional, List, Tuple, Dict, Any
-from sqlalchemy import select, update, delete, desc, func, or_
+from sqlalchemy import select, update, delete, desc, func, or_, text
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from database import models
 from config import (
+    escape_md,
     STARTING_GOLD,
     STARTING_FOOD,
     STARTING_IRON,
@@ -854,6 +855,11 @@ async def recruit_troops(
         await record_guild_quest_activity(session, user.id, "recruit", amount)
     except Exception:
         pass
+    try:
+        from services.mission_service import track_event
+        await track_event(user.id, "recruit", amount, session=session)
+    except Exception as m_err:
+        logger.warning(f"Mission track_event (recruit) xatosi: {m_err}")
     quest_completed = False
     if old_cnt < 100 <= user.daily_recruit_count:
         user.gold += 350
@@ -5230,6 +5236,8 @@ async def reset_entire_game(session: AsyncSession) -> None:
         models.Army,
         models.HouseMember,
         models.IronBank,
+        models.MissionClaim,
+        models.MissionProgress,
     ]
     for tm in table_models:
         try:
@@ -8764,8 +8772,8 @@ async def apply_donate_rewards(session: AsyncSession, telegram_id: int, tier_id:
     base_iron = tier.get("iron", 0)
     first_donate_bonus_applied = False
 
-    # Birinchi donatga qo'shimcha bonus (faqat resurs va speedup paketlarida)
-    if tier_id in ("knight", "lord", "dragonlord", "sovereign", "speedup_pack"):
+    # Birinchi donatga qo'shimcha bonus (faqat eski speedup paketida)
+    if tier_id in ("speedup_pack",):
         prev_app_res = await session.execute(
             select(func.count(models.DonationRequest.id)).where(
                 models.DonationRequest.telegram_id == user.telegram_id,
@@ -8917,8 +8925,36 @@ async def apply_donate_rewards(session: AsyncSession, telegram_id: int, tier_id:
     applied_details["vip_tier"] = user.vip_tier
 
     if tier_id == "sovereign":
-        user.royal_decree_count = (user.royal_decree_count or 0) + 1
+        user.royal_decree_count = max(1, (user.royal_decree_count or 0) + 1)
         applied_details["royal_decree_count"] = user.royal_decree_count
+
+    # 7b. Paketga biriktirilgan kosmetika va doimiy nishonlar
+    for cid in tier.get("cosmetics", []):
+        try:
+            await grant_cosmetic_item(session, user, cid)
+        except Exception as c_err:
+            logger.warning(f"apply_donate_rewards cosmetic ({cid}) xatosi: {c_err}")
+
+    perm_badges = tier.get("permanent_badges", [])
+    if perm_badges:
+        try:
+            import json as _json
+            ex_res = await session.execute(
+                select(models.UserProfileExtra).where(models.UserProfileExtra.user_id == user.id)
+            )
+            ex = ex_res.scalar_one_or_none()
+            if not ex:
+                ex = models.UserProfileExtra(user_id=user.id, badges="[]")
+                session.add(ex)
+                await session.flush()
+            cur_badges = _json.loads(ex.badges or "[]")
+            for b in perm_badges:
+                if b not in cur_badges:
+                    cur_badges.append(b)
+            ex.badges = _json.dumps(cur_badges)
+            ex.updated_at = datetime.utcnow()
+        except Exception as b_err:
+            logger.warning(f"apply_donate_rewards permanent_badges xatosi: {b_err}")
 
     # 8. Agar Premium Season Pass bo'lsa, mavsumiy chiptani faollashtirish
     if tier.get("is_season_pass") or tier.get("grants_season_pass") or tier_id == "premium_pass":

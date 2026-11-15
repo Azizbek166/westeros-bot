@@ -50,39 +50,24 @@ def calc_troops(troop_type: str, amount_uzs: int) -> int:
 
 
 def donate_menu_keyboard() -> InlineKeyboardMarkup:
-    """3-QADAM: Faqat 3 ta rasmiy paket sotuvda: Starter Pack (5,000 so'm), Kichik Resurs (10,000 so'm), Premium Pass (20,000 so'm)"""
-    from config import ENABLE_MINIAPP, get_miniapp_url
-    buttons = [
-        [
-            InlineKeyboardButton(
-                "👑 Premium Season Pass (30 kun) — 20,000 so'm",
-                callback_data="donate_pick:premium_pass",
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "🎁 Starter Pack — 5,000 so'm",
-                callback_data="donate_pick:starter_pack",
-            ),
-            InlineKeyboardButton(
-                "📦 Kichik Resurs — 10,000 so'm",
-                callback_data="donate_pick:knight",
-            ),
-        ],
-        [
-            InlineKeyboardButton(
-                "📋 Mening so'rovlarim (Tarix va Premium muddat)",
-                callback_data="donate_my_requests",
-            )
-        ],
-    ]
-    if ENABLE_MINIAPP:
-        buttons.append([
-            InlineKeyboardButton(
-                "📱 Mini App Donat Do'koni 💎",
-                web_app=WebAppInfo(url=get_miniapp_url("donate")),
-            )
-        ])
+    """5 ta rasmiy Homiy paketi (0 Pay-To-Win)"""
+    from config import ACTIVE_DONATE_TIERS
+    buttons = []
+    for tid in ACTIVE_DONATE_TIERS:
+        t = DONATE_TIERS.get(tid)
+        if t:
+            buttons.append([
+                InlineKeyboardButton(
+                    f"{t['name']} — {t['price_label']}",
+                    callback_data=f"donate_pick:{tid}",
+                )
+            ])
+    buttons.append([
+        InlineKeyboardButton(
+            "📋 Mening so'rovlarim (Tarix va VIP muddat)",
+            callback_data="donate_my_requests",
+        )
+    ])
     buttons.append([
         InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main"),
     ])

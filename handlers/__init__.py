@@ -31,6 +31,8 @@ from handlers.ai_handler import register_ai_handlers
 from handlers.referral_handler import register_referral_handlers
 from handlers.achievement_handler import register_achievement_handlers
 from handlers.promo_handler import register_promo_handlers
+from handlers.mission_handler import register_mission_handlers
+from handlers.profile_extras_handler import register_profile_extras_handlers
 
 def register_all_handlers(app):
     """Barcha bot handlerlarini Application ga ro'yxatdan o'tkazish"""
@@ -67,6 +69,8 @@ def register_all_handlers(app):
     register_referral_handlers(app)
     register_achievement_handlers(app)
     register_promo_handlers(app)
+    register_mission_handlers(app)
+    register_profile_extras_handlers(app)
 
 
 
