@@ -5156,18 +5156,6 @@ async def reset_entire_game(session: AsyncSession) -> None:
         )
     )
 
-    # 4. Foydalanuvchilar bilan bog'langan doimiy jadvallar tashqi kalitlarini tozalash
-    await session.execute(update(models.Territory).values(conquered_by_user_id=None, last_tax_collected_at=None, gates_compromised_until=None, reinforcements_json=None, wildfire_count=0, castle_level=1))
-    await session.execute(update(models.House).values(lord_user_id=None, lord_elected_at=None))
-    await session.execute(update(models.HallOfFame).values(king_user_id=None, top_so_user_id=None))
-    await session.execute(update(models.Tournament).values(winner_user_id=None))
-    await session.execute(update(models.DonationRequest).values(user_id=None))
-    try:
-        async with session.begin_nested():
-            await session.execute(update(models.PaymentTransaction).values(user_id=None))
-    except Exception:
-        pass
-
     # PostgreSQL uchun eskirgan cheklovlarni (FK constraints) xavfsiz olib tashlash
     try:
         bind = session.bind
@@ -5186,6 +5174,18 @@ async def reset_entire_game(session: AsyncSession) -> None:
                     pass
     except Exception as e:
         logger.warning(f"FK constraint drop check in reset_entire_game: {e}")
+
+    # 4. Foydalanuvchilar bilan bog'langan doimiy jadvallar tashqi kalitlarini tozalash
+    await session.execute(update(models.Territory).values(conquered_by_user_id=None, last_tax_collected_at=None, gates_compromised_until=None, reinforcements_json=None, wildfire_count=0, castle_level=1))
+    await session.execute(update(models.House).values(lord_user_id=None, lord_elected_at=None))
+    await session.execute(update(models.HallOfFame).values(king_user_id=None, top_so_user_id=None))
+    await session.execute(update(models.Tournament).values(winner_user_id=None))
+    for fk_model in (models.DonationRequest, models.PaymentTransaction):
+        try:
+            async with session.begin_nested():
+                await session.execute(update(fk_model).values(user_id=None))
+        except Exception:
+            pass
 
     await session.flush()
 
@@ -5238,9 +5238,11 @@ async def reset_entire_game(session: AsyncSession) -> None:
         except Exception as te:
             logger.warning(f"reset_entire_game delete warning on {tm.__tablename__}: {te}")
 
-    # O'yinchilarning akkaunti va xonadoni saqlanadi; resurslar, VIP, binolar va limitlar 0 ga tushiriladi
+    # O'yinchilarning akkaunti saqlanadi; xonadon, resurslar, reytinglar, VIP, binolar va limitlar 0 ga tushiriladi
     await session.execute(
         update(models.User).values(
+            house_id=None,
+            rank="member",
             gold=250,
             food=500,
             iron=125,
@@ -5249,12 +5251,24 @@ async def reset_entire_game(session: AsyncSession) -> None:
             level=1,
             vip_tier=None,
             vip_until=None,
+            royal_decree_count=0,
             has_starter_pack=False,
             iron_mine_level=1,
             grain_mill_level=1,
             peace_shield_until=None,
             equipped_artifact_id=None,
             streak_count=0,
+            last_streak_date="",
+            last_daily_bonus=None,
+            daily_chest_date="",
+            daily_quests_claimed_json="{}",
+            castle_taxes_json="{}",
+            daily_limit_date="",
+            weekly_limit_date="",
+            daily_gold_earned=0,
+            daily_prestige_earned=0,
+            weekly_gold_earned=0,
+            weekly_prestige_earned=0,
             title=None,
             custom_status=None,
             daily_quiz_count=0,
@@ -5269,9 +5283,23 @@ async def reset_entire_game(session: AsyncSession) -> None:
             daily_duel_count=0,
             daily_recruit_count=0,
             daily_caravan_send_count=0,
+            daily_caravan_raid_count=0,
+            daily_spy_scout_count=0,
+            daily_spy_sabotage_count=0,
+            daily_spy_gates_count=0,
             daily_ai_requests_count=0,
         )
     )
+
+    try:
+        async with session.begin_nested():
+            await session.execute(
+                delete(models.EventState).where(
+                    models.EventState.event_name.in_(["last_weekly_leaderboard", "last_war_recap"])
+                )
+            )
+    except Exception as ev_err:
+        logger.warning(f"reset_entire_game EventState clear warning: {ev_err}")
 
     if custom_house_ids:
         try:
