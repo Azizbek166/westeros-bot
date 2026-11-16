@@ -220,12 +220,12 @@ async def show_my_guild(target, session, user: models.User, guild: models.Guild,
 async def guild_create_start_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Gildiya yaratishni boshlash (talablar tekshiruvi)"""
     query = update.callback_query
-    await query.answer()
     user_id = query.from_user.id
 
     async with AsyncSessionLocal() as session:
         user = await crud.get_user_by_telegram_id(session, user_id)
         if not user:
+            await query.answer("❌ Iltimos, avval /start ni bosing.", show_alert=True)
             return
 
         if (user.level or 1) < crud.GUILD_CREATION_MIN_LEVEL:
@@ -257,6 +257,7 @@ async def guild_create_start_callback(update: Update, context: ContextTypes.DEFA
             await query.answer(f"❌ Siz allaqachon '{curr_guild.name}' gildiyasi a'zosisiz!", show_alert=True)
             return
 
+    await query.answer()
     # Wizardni boshlash
     context.user_data["guild_wizard"] = {"step": "name"}
 
