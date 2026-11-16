@@ -3366,16 +3366,11 @@ def get_user_castle_tax_hours(user: models.User, territory: models.Territory, no
 
 async def get_user_and_house_castles(session: AsyncSession, user: models.User) -> List[models.Territory]:
     """Foydalanuvchi xonadoniga tegishli yoki shaxsan o'zi zabt etgan barcha qal'alar"""
-    from config import OWNER_ID
     conditions = []
     if user.house_id:
         conditions.append(models.Territory.owner_house_id == user.house_id)
     if user.id:
         conditions.append(models.Territory.conquered_by_user_id == user.id)
-    if user.telegram_id == OWNER_ID:
-        # Bot Egasi uchun King's Landing va Qirollik poytaxt qal'asi doimiy ochiq
-        conditions.append(models.Territory.code == "kings_landing")
-        conditions.append(models.Territory.id == 2)
 
     if not conditions:
         return []
@@ -3399,11 +3394,9 @@ async def collect_castle_tax(session: AsyncSession, user_id: int, territory_id: 
     if not user or not terr:
         return False, "Ma'lumot topilmadi.", {}
 
-    from config import OWNER_ID
     is_own = (
         (user.house_id and terr.owner_house_id == user.house_id)
         or (getattr(terr, 'conquered_by_user_id', None) == user.id)
-        or (user.telegram_id == OWNER_ID and (terr.code == "kings_landing" or terr.id == 2))
     )
     if not is_own:
         return False, "❌ Bu qal'a sizga yoki xonadoningizga tegishli emas!", {}
@@ -3586,24 +3579,14 @@ async def get_user_conquered_castles(session: AsyncSession, user_id: int) -> Lis
 
     h_castles_count = await get_house_castle_count(session, user.house_id) if user.house_id else 0
 
-    from config import ADMIN_IDS, OWNER_ID
-    is_admin_user = (user.telegram_id in [int(x) for x in ADMIN_IDS] or user.telegram_id == int(OWNER_ID))
-
-    if is_admin_user:
-        res = await session.execute(
-            select(models.Territory)
-            .where(or_(models.Territory.conquered_by_user_id.isnot(None), models.Territory.owner_house_id.isnot(None)))
-            .order_by(models.Territory.id)
-        )
-    else:
-        conditions = [models.Territory.conquered_by_user_id == user.id]
-        if user.house_id:
-            conditions.append(models.Territory.owner_house_id == user.house_id)
-        res = await session.execute(
-            select(models.Territory)
-            .where(or_(*conditions))
-            .order_by(models.Territory.id)
-        )
+    conditions = [models.Territory.conquered_by_user_id == user.id]
+    if user.house_id:
+        conditions.append(models.Territory.owner_house_id == user.house_id)
+    res = await session.execute(
+        select(models.Territory)
+        .where(or_(*conditions))
+        .order_by(models.Territory.id)
+    )
 
     terrs = res.scalars().all()
 
@@ -3613,7 +3596,7 @@ async def get_user_conquered_castles(session: AsyncSession, user_id: int) -> Lis
         if t.id in seen_ids:
             continue
 
-        if not is_admin_user and not is_castle_liberable(user, t, user_castles_count=h_castles_count):
+        if not is_castle_liberable(user, t, user_castles_count=h_castles_count):
             continue
 
         seen_ids.add(t.id)
@@ -5242,6 +5225,12 @@ async def reset_entire_game(session: AsyncSession) -> None:
         models.MissionProgress,
         models.NavalBattleReport,
         models.UserFleet,
+        models.UserSectionMedia,
+        models.UserProfileExtra,
+        models.UserAchievement,
+        models.SeasonTopBonus,
+        models.HallOfFame,
+        models.PromoCodeUsage,
     ]
     for tm in table_models:
         try:
@@ -5255,14 +5244,23 @@ async def reset_entire_game(session: AsyncSession) -> None:
         update(models.User).values(
             house_id=None,
             rank="member",
-            gold=250,
-            food=500,
-            iron=125,
+            gold=0,
+            food=0,
+            iron=0,
             prestige=0,
             xp=0,
             level=1,
             vip_tier=None,
             vip_until=None,
+            custom_photo_file_id=None,
+            custom_video_file_id=None,
+            custom_audio_file_id=None,
+            custom_audio_title=None,
+            avatar_frame=None,
+            castle_skin=None,
+            dragon_skin=None,
+            message_effect=None,
+            referred_by_id=None,
             royal_decree_count=0,
             has_starter_pack=False,
             iron_mine_level=1,
