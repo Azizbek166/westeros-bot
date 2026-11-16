@@ -21,6 +21,29 @@ BANNER_PRESETS = ["🛡️", "⚔️", "🦅", "🐺", "🦁", "🐉", "👑", "
 # 1. ASOSIY ENTRY POINT (/guild & menu_guild)
 # ============================================================
 
+async def _send_or_edit_html(target, text: str, markup: InlineKeyboardMarkup, is_message: bool):
+    """Media xabarlarda ham xavfsiz HTML yuborish / tahrirlash"""
+    if is_message:
+        await target.message.reply_text(text, parse_mode="HTML", reply_markup=markup)
+        return
+    msg = getattr(target, "message", None)
+    has_media = bool(
+        msg and (msg.photo or msg.video or msg.animation or msg.audio or msg.document or msg.voice or msg.video_note)
+    )
+    if has_media:
+        try:
+            await msg.delete()
+        except Exception:
+            pass
+        await msg.chat.send_message(text, parse_mode="HTML", reply_markup=markup)
+        return
+    try:
+        await target.edit_message_text(text, parse_mode="HTML", reply_markup=markup)
+    except Exception:
+        if msg and msg.chat:
+            await msg.chat.send_message(text, parse_mode="HTML", reply_markup=markup)
+
+
 async def guild_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/guild yoki /gildiya buyrug'i"""
     user_id = update.effective_user.id
@@ -102,15 +125,7 @@ async def show_guild_portal(target, session, user: models.User, is_message: bool
         [InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")],
     ]
     markup = InlineKeyboardMarkup(buttons)
-
-    if is_message:
-        await target.message.reply_text(text, parse_mode="HTML", reply_markup=markup)
-    else:
-        if hasattr(target, "message") and target.message and target.message.photo:
-            await target.message.delete()
-            await target.message.chat.send_message(text, parse_mode="HTML", reply_markup=markup)
-        else:
-            await target.edit_message_text(text, parse_mode="HTML", reply_markup=markup)
+    await _send_or_edit_html(target, text, markup, is_message)
 
 
 # ============================================================
@@ -195,15 +210,7 @@ async def show_my_guild(target, session, user: models.User, guild: models.Guild,
 
     buttons.append([InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")])
     markup = InlineKeyboardMarkup(buttons)
-
-    if is_message:
-        await target.message.reply_text(text, parse_mode="HTML", reply_markup=markup)
-    else:
-        if hasattr(target, "message") and target.message and target.message.photo:
-            await target.message.delete()
-            await target.message.chat.send_message(text, parse_mode="HTML", reply_markup=markup)
-        else:
-            await target.edit_message_text(text, parse_mode="HTML", reply_markup=markup)
+    await _send_or_edit_html(target, text, markup, is_message)
 
 
 # ============================================================

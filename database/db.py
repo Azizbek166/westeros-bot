@@ -443,7 +443,7 @@ async def init_db():
                 terr.food_income = std["food"]
                 terr.iron_income = std["iron"]
                 terr.castle_tier = std["tier"]
-                terr.defense = std["defense"]
+                terr.defense = max(terr.defense or 0, std["defense"])
 
 
         # Tun Qiroli (White Walkers) global eventini 500,000 HP ga yangilash

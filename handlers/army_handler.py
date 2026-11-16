@@ -404,11 +404,6 @@ async def siege_workshop_menu_callback(update: Update, context: ContextTypes.DEF
             return
 
         army = user.army
-        try:
-            from services.section_media_service import send_section_media_if_any
-            await send_section_media_if_any(target.message, session, user, "army")
-        except Exception:
-            pass
         cats = getattr(army, "catapults", 0) or 0
         twrs = getattr(army, "siege_towers", 0) or 0
 
