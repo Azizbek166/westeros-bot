@@ -587,6 +587,35 @@ async def init_db():
                     t.garrison_spearmen = 50
                     logger.info(f"🏰 Xonadon #{h.id} ({h.name}) ning ortiqcha #{t.id} {t.name} qal'asi egasiz holatga keltirildi.")
 
+        # Eski restartdan qolib ketgan a'zosiz (0 a'zo) yetim gildiyalarni mavsumni buzmasdan tozalash
+        try:
+            active_guild_ids_sub = select(models.GuildMember.guild_id).distinct()
+            orphan_res = await session.execute(
+                select(models.Guild.id).where(~models.Guild.id.in_(active_guild_ids_sub))
+            )
+            orphan_ids = [row[0] for row in orphan_res.all()]
+            if orphan_ids:
+                await session.execute(
+                    update(models.TournamentParticipant)
+                    .where(models.TournamentParticipant.guild_id.in_(orphan_ids))
+                    .values(guild_id=None)
+                )
+                orphan_q_ids = select(models.GuildQuest.id).where(models.GuildQuest.guild_id.in_(orphan_ids))
+                await session.execute(
+                    delete(models.GuildQuestProgress).where(models.GuildQuestProgress.quest_id.in_(orphan_q_ids))
+                )
+                for g_child in (
+                    models.GuildQuest,
+                    models.GuildTreasuryTransaction,
+                    models.GuildApplication,
+                    models.GuildLog,
+                ):
+                    await session.execute(delete(g_child).where(g_child.guild_id.in_(orphan_ids)))
+                await session.execute(delete(models.Guild).where(models.Guild.id.in_(orphan_ids)))
+                logger.info(f"🧹 {len(orphan_ids)} ta a'zosiz eski gildiya tozalandi (faol gildiyalar saqlandi).")
+        except Exception as og_err:
+            logger.warning(f"Orphan guild cleanup warning: {og_err}")
+
         # Tun Qiroli (White Walkers) reytingi, hissalari va hujum sonini 0 ga tushirish (HP: 1,000,000)
         await session.execute(delete(models.NightKingContribution))
         await session.execute(update(models.User).values(daily_ww_attack_count=0))
