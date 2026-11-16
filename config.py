@@ -154,6 +154,7 @@ DAILY_DUEL_LIMIT = int(os.getenv("DAILY_DUEL_LIMIT", str(DAILY_LIMITS.daily_duel
 STARTING_GOLD = ECONOMY.starting_gold
 STARTING_FOOD = ECONOMY.starting_food
 STARTING_IRON = ECONOMY.starting_iron
+START_CASTLES_PER_PLAYER = 1
 
 # Boshlang'ich Tinchlik Qalqoni (soatlarda: 72 soat = 3 kun)
 PEACE_SHIELD_HOURS = PROTECTION.newbie_peace_shield_hours

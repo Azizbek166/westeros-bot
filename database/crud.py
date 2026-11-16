@@ -236,6 +236,99 @@ async def change_character_name(
     return True, clean_name
 
 
+async def assign_starter_castles_to_user(
+    session: AsyncSession,
+    user: models.User,
+) -> List[models.Territory]:
+    """
+    O'yinchi xonadon/hudud tanlaganda boshlang'ich qal'alarni muvozanatli va idempotent tarzda biriktirish:
+    - Faqat o'z xonadoniga tegishli qal'alarni START_CASTLES_PER_PLAYER soniga tenglab beradi.
+    - Agar xonadonda boshlang'ich qal'a bo'lmasa (masalan Free Folk), bo'sh neytral qal'adan 1 ta ajratadi.
+    - Bir o'yinchi uchun ikki marta chaqirilsa ham qo'shimcha yoki dublikat qal'a qo'shmaydi.
+    """
+    from config import START_CASTLES_PER_PLAYER
+    from data.map_data import TERRITORIES_DATA
+
+    if not user or not user.house_id or START_CASTLES_PER_PLAYER <= 0:
+        return []
+
+    target_cnt = int(START_CASTLES_PER_PLAYER)
+
+    # 1. Xonadonning mavjud qal'alarini tekshirish
+    res = await session.execute(
+        select(models.Territory)
+        .where(models.Territory.owner_house_id == user.house_id)
+        .order_by(models.Territory.is_capital.desc(), models.Territory.id.asc())
+    )
+    house_terrs = list(res.scalars().all())
+
+    # Dublikat/split egalikni oldini olish (boshqa o'yinchining conquered_by_user_id si qolgan bo'lsa tozalash)
+    for t in house_terrs:
+        if t.conquered_by_user_id and t.conquered_by_user_id != user.id:
+            t.conquered_by_user_id = None
+
+    if len(house_terrs) >= target_cnt:
+        return house_terrs[:target_cnt]
+
+    # 2. Yetishmayotgan bo'lsa: avval kanonik (TERRITORIES_DATA) xonadon qal'asidan bo'shlarini ulash
+    needed = target_cnt - len(house_terrs)
+    canon_codes = [
+        code for code, info in TERRITORIES_DATA.items()
+        if info.get("initial_owner_id") == user.house_id
+    ]
+    if canon_codes:
+        c_res = await session.execute(
+            select(models.Territory)
+            .where(
+                models.Territory.code.in_(canon_codes),
+                models.Territory.owner_house_id.is_(None),
+            )
+            .order_by(models.Territory.is_capital.desc(), models.Territory.id.asc())
+        )
+        for t in c_res.scalars().all():
+            if needed <= 0:
+                break
+            t.owner_house_id = user.house_id
+            t.conquered_by_user_id = None
+            t.castle_level = 1
+            house_terrs.append(t)
+            needed -= 1
+
+    # 3. Agar xonadonning o'z kanonik qal'asi umuman bo'lmasa (masalan Free Folk id=49),
+    # bo'sh neytral qal'adan (xuddi shu hududdan yoki umumiy neytraldan) ajratish
+    if needed > 0:
+        house = await session.get(models.House, user.house_id)
+        neutral_codes = [
+            code for code, info in TERRITORIES_DATA.items()
+            if info.get("initial_owner_id") is None
+        ]
+        if neutral_codes:
+            n_res = await session.execute(
+                select(models.Territory)
+                .where(
+                    models.Territory.code.in_(neutral_codes),
+                    models.Territory.owner_house_id.is_(None),
+                    models.Territory.conquered_by_user_id.is_(None),
+                )
+                .order_by(models.Territory.id.asc())
+            )
+            neutrals = list(n_res.scalars().all())
+            if house and house.region:
+                neutrals.sort(key=lambda t: (0 if t.region == house.region else 1, t.id))
+            for t in neutrals:
+                if needed <= 0:
+                    break
+                t.owner_house_id = user.house_id
+                t.conquered_by_user_id = None
+                t.is_capital = True
+                t.castle_level = 1
+                house_terrs.append(t)
+                needed -= 1
+
+    await session.flush()
+    return house_terrs[:target_cnt]
+
+
 async def create_user(
     session: AsyncSession,
     telegram_id: int,
@@ -318,6 +411,8 @@ async def create_user(
         rank=user_rank,
     )
     session.add(member)
+
+    await assign_starter_castles_to_user(session, user)
 
     await session.commit()
     await session.refresh(user, ["house", "army", "characters"])
@@ -420,6 +515,8 @@ async def join_house(
             rank=user_rank,
         )
         session.add(hm)
+
+    await assign_starter_castles_to_user(session, user)
 
     await session.commit()
     await session.refresh(user, ["house", "army", "characters"])
@@ -621,6 +718,8 @@ async def create_custom_house_user_and_territory(
             rank="king",
         )
         session.add(hm)
+
+    await assign_starter_castles_to_user(session, user)
 
     await session.commit()
     await session.refresh(user, ["house", "army", "characters"])
@@ -1236,10 +1335,11 @@ async def get_top10_castles(session: AsyncSession) -> List[Dict[str, Any]]:
     terrs_by_user = {}
     terrs_by_house = {}
     for t in territories:
-        if t.conquered_by_user_id:
-            terrs_by_user.setdefault(t.conquered_by_user_id, []).append(t)
+        # Yagona egalik qoidasi: agar qal'a xonadonga biriktirilgan bo'lsa faqat o'sha xonadon egasiga sanaladi (dublikat yo'q)
         if t.owner_house_id:
             terrs_by_house.setdefault(t.owner_house_id, []).append(t)
+        elif t.conquered_by_user_id:
+            terrs_by_user.setdefault(t.conquered_by_user_id, []).append(t)
 
     user_castles = []
 
@@ -11944,3 +12044,142 @@ async def get_tournament_guild_standings(
         return bdata.get("guild_standings", [])
     except Exception:
         return []
+
+
+async def audit_and_fix_castle_distribution(
+    session: AsyncSession,
+    dry_run: bool = True,
+) -> Dict[str, Any]:
+    """
+    Mavjud o'yinchilar va qal'alar egaligini tekshirish va muvozanatlash:
+    - Split/dublikat egalikni tozalaydi (conquered_by_user_id xonadon bilan mos kelmasa).
+    - Har bir faol xonadon egasida START_CASTLES_PER_PLAYER dan ortiqcha bo'lib qolgan
+      boshlang'ich/begona qal'alarni (urushda zabt etilmagan yoki ortiqcha) bo'sh ro'yxatga qaytaradi.
+    - Qal'asi yetmayotgan faol xonadonlarga (masalan Free Folk) o'z xonadonidan/neytraldan biriktiradi.
+    dry_run=True bo'lsa bazaga commit qilmaydi, faqat hisobot qaytaradi.
+    """
+    from config import START_CASTLES_PER_PLAYER
+    from data.map_data import TERRITORIES_DATA
+
+    target_cnt = max(1, int(START_CASTLES_PER_PLAYER))
+    changes: List[str] = []
+
+    users_res = await session.execute(
+        select(models.User).where(models.User.house_id.isnot(None))
+    )
+    users = list(users_res.scalars().all())
+    user_by_id = {u.id: u for u in users}
+
+    terrs_res = await session.execute(select(models.Territory).order_by(models.Territory.id))
+    all_terrs = list(terrs_res.scalars().all())
+
+    # 1. Split/dublikat egalikni aniqlash
+    split_fixed = 0
+    for t in all_terrs:
+        if t.conquered_by_user_id is not None:
+            owner_u = user_by_id.get(t.conquered_by_user_id)
+            if not owner_u or (t.owner_house_id is not None and owner_u.house_id != t.owner_house_id):
+                changes.append(
+                    f"Split egalik tozalandi: #{t.id} {t.name} (owner_house={t.owner_house_id}, conquered_by={t.conquered_by_user_id})"
+                )
+                split_fixed += 1
+                if not dry_run:
+                    t.conquered_by_user_id = None
+
+    # 2. Har bir xonadon bo'yicha qal'alar soni va begona/ortiqcha qal'alarni tekshirish
+    by_house: Dict[int, List[models.Territory]] = {}
+    for t in all_terrs:
+        if t.owner_house_id:
+            by_house.setdefault(t.owner_house_id, []).append(t)
+
+    released_count = 0
+    assigned_count = 0
+
+    for u in users:
+        h_id = u.house_id
+        h_terrs = sorted(
+            by_house.get(h_id, []),
+            key=lambda x: (0 if x.is_capital else 1, x.id),
+        )
+        # Ortiqcha qal'alar (zabt etilmagan yoki limitdan ortiqcha) bo'lsa, kuchaytirish va garnizonni qaytarib bo'shatish
+        non_conquered = [t for t in h_terrs if not t.conquered_by_user_id]
+        if len(non_conquered) > target_cnt:
+            for extra_t in non_conquered[target_cnt:]:
+                t_info = TERRITORIES_DATA.get(extra_t.code, {})
+                init_def = t_info.get("defense", 500)
+                init_inf = t_info.get("garrison_infantry", 200)
+                init_arc = t_info.get("garrison_archers", 100)
+                init_cav = t_info.get("garrison_cavalry", 50)
+                init_sp = t_info.get("garrison_spearmen", 50)
+
+                c_lvl = max(1, getattr(extra_t, "castle_level", 1) or 1)
+                ref_gold = ref_iron = ref_food = 0
+                for lvl_i in range(1, c_lvl):
+                    g_c, i_c, f_c = get_castle_upgrade_cost(lvl_i)
+                    ref_gold += g_c
+                    ref_iron += i_c
+                    ref_food += f_c
+
+                # Devor kuchaytirishlarini qaytarish (har +200 ball = 400🪙, 500⛓️)
+                expected_keep_def = init_def + (c_lvl - 1) * 300
+                extra_wall_def = max(0, (extra_t.defense or 0) - expected_keep_def)
+                wall_upgrades = extra_wall_def // 200
+                ref_gold += wall_upgrades * 400
+                ref_iron += wall_upgrades * 500
+
+                # Garnizondagi ortiqcha askarlarni qaytarish
+                ret_inf = max(0, (extra_t.garrison_infantry or 0) - init_inf)
+                ret_arc = max(0, (extra_t.garrison_archers or 0) - init_arc)
+                ret_cav = max(0, (extra_t.garrison_cavalry or 0) - init_cav)
+                ret_sp = max(0, (extra_t.garrison_spearmen or 0) - init_sp)
+
+                changes.append(
+                    f"Ortiqcha qal'a bo'shatildi: #{extra_t.id} {extra_t.name} (house={h_id} -> None) | "
+                    f"Qaytarildi: +{ref_gold:,}🪙, +{ref_iron:,}⛓️, +{ref_food:,}🌾 | "
+                    f"Askar: +{ret_inf}/{ret_arc}/{ret_cav}/{ret_sp}"
+                )
+                released_count += 1
+                if not dry_run:
+                    u.gold = (u.gold or 0) + ref_gold
+                    u.iron = (u.iron or 0) + ref_iron
+                    u.food = (u.food or 0) + ref_food
+                    if ret_inf + ret_arc + ret_cav + ret_sp > 0:
+                        army = await get_user_army(session, u.id)
+                        if army:
+                            army.infantry = (army.infantry or 0) + ret_inf
+                            army.archers = (army.archers or 0) + ret_arc
+                            army.cavalry = (army.cavalry or 0) + ret_cav
+                            army.spearmen = (army.spearmen or 0) + ret_sp
+                    extra_t.owner_house_id = None
+                    extra_t.conquered_by_user_id = None
+                    extra_t.castle_level = 1
+                    extra_t.defense = init_def
+                    extra_t.wildfire_count = 0
+                    extra_t.garrison_infantry = init_inf
+                    extra_t.garrison_archers = init_arc
+                    extra_t.garrison_cavalry = init_cav
+                    extra_t.garrison_spearmen = init_sp
+                    extra_t.reinforcements_json = "{}"
+
+        # Yetishmayotgan bo'lsa (0 ta qal'a)
+        if len(h_terrs) < target_cnt:
+            changes.append(
+                f"Yetishmayotgan qal'a to'ldiriladi: user={u.id} (house={h_id}, hozir={len(h_terrs)} -> {target_cnt})"
+            )
+            assigned_count += (target_cnt - len(h_terrs))
+            if not dry_run:
+                await assign_starter_castles_to_user(session, u)
+
+    if not dry_run:
+        await session.commit()
+    else:
+        await session.rollback()
+
+    return {
+        "dry_run": dry_run,
+        "start_castles_per_player": target_cnt,
+        "split_fixed": split_fixed,
+        "released_count": released_count,
+        "assigned_count": assigned_count,
+        "changes": changes,
+    }

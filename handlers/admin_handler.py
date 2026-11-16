@@ -120,6 +120,7 @@ async def show_admin_dashboard(target, is_message: bool):
             [InlineKeyboardButton("🏰 Xonadonlar va G'aznalar", callback_data="admin_houses_list")],
             [InlineKeyboardButton("🏯 Qalalar va Mintaqalar (Castles)", callback_data="admin_castles_list:0")],
             [InlineKeyboardButton("🏆 Egallangan Qal'alar (O'yinchilar bo'yicha)", callback_data="admin_player_castles:0")],
+            [InlineKeyboardButton("⚖️ Qal'alar Taqsimotini Tekshirish (Dry-Run)", callback_data="admin_fix_castles_dry")],
             [InlineKeyboardButton("⚔️ Harbiy Holat & Urush Boshqaruvi", callback_data="admin_war_control")],
             [InlineKeyboardButton("🏦 Temir Bank & Qarzlar Boshqaruvi", callback_data="admin_bank_menu")],
             [InlineKeyboardButton("🌦️ Ob-havo Boshqaruvi", callback_data="admin_weather_menu")],
@@ -2528,6 +2529,7 @@ async def admin_castle_set_house_callback(update: Update, context: ContextTypes.
         house = await session.get(models.House, house_id)
         if terr and house:
             terr.owner_house_id = house.id
+            terr.conquered_by_user_id = None
             await session.commit()
             msg = f"{terr.name} qal'asi {house.name} xonadoniga topshirildi!"
 
@@ -4358,7 +4360,41 @@ async def admin_resolve_error_callback(update: Update, context: ContextTypes.DEF
     await admin_error_detail_callback(update, context)
 
 
+async def admin_fix_castles_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Qal'alar taqsimotini dry-run tekshirish yoki qo'llash (faqat adminlar)"""
+    query = update.callback_query
+    if not is_admin(query.from_user.id):
+        await query.answer("❌ Ruxsat yo'q!", show_alert=True)
+        return
+    await query.answer()
+    apply_mode = (query.data == "admin_fix_castles_apply")
+    async with AsyncSessionLocal() as session:
+        res = await crud.audit_and_fix_castle_distribution(session, dry_run=not apply_mode)
+
+    mode_str = "QO'LLANILDI (APPLY)" if apply_mode else "DRY-RUN (TEZ TEKSHIRUV)"
+    lines = [
+        f"⚖️ *QAL'ALAR TAQSIMOTI — {mode_str}*",
+        f"• Boshlang'ich limit: *{res['start_castles_per_player']}* ta/o'yinchi",
+        f"• Split/dublikat egalik: *{res['split_fixed']}*",
+        f"• Bo'shatilgan ortiqcha: *{res['released_count']}*",
+        f"• To'ldirilgan yetishmayotgan: *{res['assigned_count']}*\n",
+    ]
+    if res["changes"]:
+        lines.append("*Tafsilotlar:*")
+        for c in res["changes"][:15]:
+            lines.append(f"• {c}")
+    else:
+        lines.append("✅ Hech qanday nomutanosiblik topilmadi.")
+
+    buttons = []
+    if not apply_mode and res["changes"]:
+        buttons.append([InlineKeyboardButton("✅ Bazaga Qo'llash (Apply)", callback_data="admin_fix_castles_apply")])
+    buttons.append([InlineKeyboardButton("🔙 Admin Panel", callback_data="admin_panel")])
+    await query.edit_message_text("\n".join(lines), parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+
+
 def register_admin_handlers(app):
+    app.add_handler(CallbackQueryHandler(admin_fix_castles_callback, pattern="^admin_fix_castles_(dry|apply)$"))
     app.add_handler(CallbackQueryHandler(admin_error_logs_callback, pattern="^admin_error_logs(:[0-9]+)?$"))
     app.add_handler(CallbackQueryHandler(admin_error_detail_callback, pattern="^adm_err_view:[0-9]+:[0-9]+$"))
     app.add_handler(CallbackQueryHandler(admin_resolve_error_callback, pattern="^adm_err_resolve:[0-9]+:[0-9]+$"))
