@@ -61,11 +61,10 @@ async def _render_extras_studio(tg_id: int):
         [InlineKeyboardButton("🎨 Profil Temasini Tanlash", callback_data="pfx_themes")],
         [InlineKeyboardButton("🖼️ Bo'limlar Mediasi (Ajdar, Qal'a...)", callback_data="pfx_sec_menu")],
     ]
-    if has_min_vip_tier(user, "lord"):
+    if has_min_vip_tier(user, "knight"):
         buttons.append([InlineKeyboardButton("🛡️ Gerb Emoji Tanlash", callback_data="pfx_crests")])
     if has_min_vip_tier(user, "dragonlord"):
         buttons.append([InlineKeyboardButton("⚔️ G'alaba Xabarini Yozish", callback_data="pfx_victory_ask")])
-    if has_min_vip_tier(user, "sovereign"):
         buttons.append([InlineKeyboardButton("🏰 Qal'a Nomini Yozish", callback_data="pfx_castle_ask")])
     buttons.append([InlineKeyboardButton("🔙 VIP Studiyaga Qaytish", callback_data="vip_studio")])
     return text, InlineKeyboardMarkup(buttons)

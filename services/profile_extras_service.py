@@ -67,6 +67,7 @@ PROFILE_THEMES: Dict[str, Dict[str, Any]] = {
 CREST_EMOJIS: List[str] = ["🐺", "🦁", "🐉", "🦅", "🦌", "🐙", "⚔️", "🛡️", "🔥", "❄️", "👑", "🌑"]
 
 PERMANENT_BADGES: Dict[str, str] = {
+    "valyrian_patron": "🐉 Valyriya Homiysi",
     "royal_patron": "👑 Qirollik Homiysi",
 }
 
@@ -193,8 +194,8 @@ async def set_profile_crest(session: AsyncSession, telegram_id: int, crest: Opti
         ex.updated_at = datetime.utcnow()
         await session.commit()
         return True, "✅ Gerb emoji olib tashlandi."
-    if not has_min_vip_tier(user, "lord"):
-        req_name = DONATE_TIERS.get("lord", {}).get("name", "Lord Homiy")
+    if not has_min_vip_tier(user, "knight"):
+        req_name = DONATE_TIERS.get("knight", {}).get("name", "Ritsar Homiy")
         return False, f"❌ Gerb emoji uchun kamida {req_name} kerak."
     if crest not in CREST_EMOJIS:
         return False, "❌ Noto'g'ri gerb emoji."
@@ -215,9 +216,9 @@ async def set_castle_name(session: AsyncSession, telegram_id: int, raw_name: Opt
         ex.updated_at = datetime.utcnow()
         await session.commit()
         return True, "✅ Qal'a nomi olib tashlandi."
-    if not has_min_vip_tier(user, "sovereign"):
-        req_name = DONATE_TIERS.get("sovereign", {}).get("name", "Qirollik Homiy")
-        return False, f"❌ Qal'a nomi uchun {req_name} kerak."
+    if not has_min_vip_tier(user, "dragonlord"):
+        req_name = DONATE_TIERS.get("dragonlord", {}).get("name", "Valyriya Homiy")
+        return False, f"❌ Qal'a nomi uchun kamida {req_name} kerak."
     ok, cleaned_or_err = sanitize_profile_text(raw_name, max_len=24)
     if not ok:
         return False, cleaned_or_err

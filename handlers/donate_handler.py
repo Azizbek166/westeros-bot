@@ -812,7 +812,8 @@ async def donate_my_requests_callback(update: Update, context: ContextTypes.DEFA
     vip_status_str = "❌ Faol emas"
     if user and user.vip_until and user.vip_until > now:
         days_left = max(1, int((user.vip_until - now).total_seconds() // 86400) + 1)
-        vip_status_str = f"✅ **Faol ({days_left} kun qoldi — {user.vip_until.strftime('%Y-%m-%d')} gacha)**"
+        tier_lbl = DONATE_TIERS.get(user.vip_tier or "", {}).get("name", user.vip_tier or "VIP")
+        vip_status_str = f"✅ **{escape_md(tier_lbl)} — {days_left} kun qoldi** ({user.vip_until.strftime('%Y-%m-%d')} gacha)"
 
     status_map = {
         "pending": "⏳ Ko'rib chiqilmoqda",

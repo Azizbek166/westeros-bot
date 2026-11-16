@@ -52,7 +52,8 @@ class TestDonatePacks(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(t.get("duration_days", 0), 30)
             self.assertFalse(t.get("instant_dragon_heal", False))
             self.assertFalse(t.get("instant_egg_hatch_boost", False))
-            self.assertLessEqual(t["gold"], 36000)
+            self.assertLessEqual(t["gold"], 75000)
+            self.assertGreater(t.get("daily_bonus_gold", 0), 0)
 
     async def test_02_legacy_packages_still_resolve(self):
         for old_id in ("premium_pass", "starter_pack", "speedup_pack", "vip_noble"):
@@ -63,6 +64,8 @@ class TestDonatePacks(unittest.IsolatedAsyncioTestCase):
     async def test_03_sovereign_grants_permanent_badge_and_expires_cleanly(self):
         async with AsyncSessionLocal() as session:
             ok, _, details = await crud.apply_donate_rewards(session, self.tg_id, "sovereign")
+            self.assertTrue(ok)
+            self.assertGreaterEqual(details.get("royal_decree_count", 0), 4)
             self.assertTrue(ok)
             self.assertEqual(details["vip_tier"], "sovereign")
 

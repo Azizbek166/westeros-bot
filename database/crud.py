@@ -8927,7 +8927,7 @@ async def apply_donate_rewards(session: AsyncSession, telegram_id: int, tier_id:
     applied_details["vip_tier"] = user.vip_tier
 
     if tier_id == "sovereign":
-        user.royal_decree_count = max(1, (user.royal_decree_count or 0) + 1)
+        user.royal_decree_count = max(4, (user.royal_decree_count or 0) + 4)
         applied_details["royal_decree_count"] = user.royal_decree_count
 
     # 7b. Paketga biriktirilgan kosmetika va doimiy nishonlar

@@ -174,7 +174,8 @@ async def format_user_profile_card(user: models.User, session, is_group: bool = 
         best_d = max(dragons, key=lambda d: d.power)
         dragon_line = f"🐉 **Ajdaho:** {best_d.name} ({best_d.level}-daraja, {best_d.power:,} quvvat)\n"
 
-    vip = user.vip_tier
+    from services.profile_extras_service import get_active_vip_tier
+    vip = get_active_vip_tier(user)
 
     # 1. TEMIR TAXT SOHIBI (SOVEREIGN) - Mutlaq Oliy Imperatorlik Dizayni
     # Mobil ekranga mos tartibli va qatorlar orasida bo'sh joyli profil dizayni
@@ -568,11 +569,13 @@ async def show_vip_studio_menu(target, user_id: int, is_message: bool = False):
             if user.custom_video_file_id:
                 buttons.append([InlineKeyboardButton("🗑️ Videoni Olib Tashlash", callback_data="vip_remove_video")])
 
-        # Status & Audio (Lord+)
+        # Shior (Noble+)
+        buttons.append([InlineKeyboardButton("✍️ Shaxsiy Shior Yozish", callback_data="vip_set_status")])
+        if user.custom_status:
+            buttons.append([InlineKeyboardButton("🗑️ Shiorni Olib Tashlash", callback_data="vip_remove_status")])
+
+        # Audio (Lord+)
         if has_min_vip_tier(user, "lord"):
-            buttons.append([InlineKeyboardButton("✍️ Shaxsiy Shior Yozish", callback_data="vip_set_status")])
-            if user.custom_status:
-                buttons.append([InlineKeyboardButton("🗑️ Shiorni Olib Tashlash", callback_data="vip_remove_status")])
             buttons.append([InlineKeyboardButton("🎵 Fon Musiqasi / Gimn Tanlash", callback_data="vip_set_audio")])
 
         # Qo'shimcha bezaklar (Tema, Gerb, Qal'a nomi, G'alaba xabari, Nishonlar)
@@ -798,8 +801,9 @@ async def vip_decree_prompt_callback(update: Update, context: ContextTypes.DEFAU
     user_id = query.from_user.id
 
     async with AsyncSessionLocal() as session:
+        from services.profile_extras_service import get_active_vip_tier
         user = await crud.get_user_by_telegram_id(session, user_id)
-        if not user or user.vip_tier != "sovereign":
+        if not user or get_active_vip_tier(user) != "sovereign":
             await query.answer("❌ Bu huquq faqat «👑 Temir Taxt Sohibi» imperatorlariga xosdir!", show_alert=True)
             return
 
@@ -1015,8 +1019,9 @@ async def vip_input_receiver(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
         if video_file_id:
             async with AsyncSessionLocal() as session:
+                from services.profile_extras_service import has_min_vip_tier
                 user = await crud.get_user_by_telegram_id(session, user_id)
-                if user and user.vip_tier in ["lord", "dragonlord", "sovereign"]:
+                if user and has_min_vip_tier(user, "lord"):
                     ok, res_msg = await crud.update_user_custom_video(session, user.id, video_file_id)
                 else:
                     ok, res_msg = False, "Foydalanuvchi topilmadi yoki VIP darajangiz yetarli emas."
@@ -1087,8 +1092,9 @@ async def vip_input_receiver(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
         if audio_file_id:
             async with AsyncSessionLocal() as session:
+                from services.profile_extras_service import has_min_vip_tier
                 user = await crud.get_user_by_telegram_id(session, user_id)
-                if user and user.vip_tier in ["lord", "dragonlord", "sovereign"]:
+                if user and has_min_vip_tier(user, "lord"):
                     ok, res_msg = await crud.update_user_custom_audio(session, user.id, audio_file_id, audio_title)
                     u_data.pop("awaiting_vip_audio", None)
                     kb = InlineKeyboardMarkup([
@@ -1119,8 +1125,9 @@ async def vip_input_receiver(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if msg.text and not msg.text.startswith("/"):
             decree_text = msg.text.strip()
             async with AsyncSessionLocal() as session:
+                from services.profile_extras_service import get_active_vip_tier
                 user = await crud.get_user_by_telegram_id(session, user_id)
-                if not user or user.vip_tier != "sovereign" or (user.royal_decree_count or 0) <= 0:
+                if not user or get_active_vip_tier(user) != "sovereign" or (user.royal_decree_count or 0) <= 0:
                     u_data.pop("awaiting_vip_decree", None)
                     await msg.reply_text("❌ Qirollik farmoni chiqarish huquqingiz qolmagan.")
                     return
@@ -1252,8 +1259,9 @@ async def decree_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     decree_text = " ".join(context.args).strip()
     async with AsyncSessionLocal() as session:
+        from services.profile_extras_service import get_active_vip_tier
         user = await crud.get_user_by_telegram_id(session, user_id)
-        if not user or user.vip_tier != "sovereign" or (user.royal_decree_count or 0) <= 0:
+        if not user or get_active_vip_tier(user) != "sovereign" or (user.royal_decree_count or 0) <= 0:
             await update.message.reply_text("❌ Qirollik farmoni chiqarish huquqingiz yo'q yoki limit tugagan (Faqat Sovereign uchun).")
             return
         await crud.use_royal_decree(session, user.id)
