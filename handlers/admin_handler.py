@@ -4733,6 +4733,9 @@ async def admin_take_troops_menu_callback(update: Update, context: ContextTypes.
         [
             InlineKeyboardButton("💥 Barchasi % (Armiya + Garnizon)", callback_data="admin_take_unit:all_pct"),
         ],
+        [
+            InlineKeyboardButton("🎯 Jami Askarni Songa Tushirish (masalan 50000)", callback_data="admin_take_unit:cap_total"),
+        ],
         [InlineKeyboardButton("🔙 Admin Panel", callback_data="admin_panel")],
     ])
     try:
@@ -4750,12 +4753,20 @@ async def admin_take_troops_pick_unit_callback(update: Update, context: ContextT
     await query.answer()
 
     unit_key = query.data.split(":", 1)[1]
-    if unit_key != "all_pct" and unit_key not in _GIVE_TROOP_LABELS:
+    if unit_key not in ("all_pct", "cap_total") and unit_key not in _GIVE_TROOP_LABELS:
         return
 
     context.user_data.pop("admin_awaiting_give_troops_unit", None)
     context.user_data["admin_awaiting_take_troops_unit"] = unit_key
-    if unit_key == "all_pct":
+    if unit_key == "cap_total":
+        text = (
+            "🎯 *JAMI ASKARNI ANIQ SONGA TUSHIRISH (ARMIYA + GARNIZON)*\n\n"
+            "Bitta yoki bir nechta qatorda `@username son` yuboring:\n"
+            "```\n@lilie_n 50000\n@UBTYS 50000\n```\n"
+            "Har bir o'yinchining jami askari (Armiya + Garnizon) mutanosib ravishda shu songa tushiriladi.\n"
+            "_(Bekor qilish uchun `bekor` deb yozing)_"
+        )
+    elif unit_key == "all_pct":
         text = (
             "💥 *ARMIYA VA GARNIZONDAN FOIZDA ASKAR OLISH*\n\n"
             "Endi o'yinchi `@username` (yoki Telegram ID) va necha **foiz (%)** olib tashlashni yozing.\n\n"
@@ -4797,87 +4808,111 @@ async def admin_take_troops_text_handler(update: Update, context: ContextTypes.D
         await update.message.reply_text("❌ Askar olish bekor qilindi.")
         raise ApplicationHandlerStop
 
-    parts = raw_text.split()
-    if len(parts) != 2:
-        await update.message.reply_text(
-            "❌ Format noto'g'ri! `@username son` ko'rinishida yozing (masalan: `@lord_stark 500`).",
-            parse_mode="Markdown"
-        )
-        raise ApplicationHandlerStop
-
-    target_ident = parts[0].strip().lstrip("@")
-    try:
-        amount = int(parts[1].replace("%", "").replace(",", "").replace("_", ""))
-    except ValueError:
-        await update.message.reply_text("❌ Son butun raqam bo'lishi kerak!", parse_mode="Markdown")
-        raise ApplicationHandlerStop
-
-    if unit_key == "all_pct" and (amount < 1 or amount > 100):
-        await update.message.reply_text("❌ Foiz 1 dan 100 gacha bo'lishi kerak!")
-        raise ApplicationHandlerStop
-    if unit_key != "all_pct" and (amount <= 0 or amount > 10_000_000):
-        await update.message.reply_text("❌ Askar soni 1 dan 10,000,000 gacha bo'lishi kerak!")
-        raise ApplicationHandlerStop
-
-    async with AsyncSessionLocal() as session:
-        target_user = None
-        if target_ident.isdigit():
-            target_user = await crud.get_user_by_telegram_id(session, int(target_ident))
-        if not target_user:
-            res = await session.execute(
-                select(models.User).where(func.lower(models.User.username) == target_ident.lower())
-            )
-            target_user = res.scalar_one_or_none()
-
-        if not target_user:
+    lines_in = [ln.strip() for ln in raw_text.splitlines() if ln.strip()]
+    parsed_items = []
+    for ln in lines_in:
+        parts = ln.split()
+        if len(parts) != 2:
             await update.message.reply_text(
-                f"❌ `{target_ident}` nomli o'yinchi bazadan topilmadi! Qaytadan `@username son` kiriting (yoki `bekor` deb yozing).",
+                f"❌ Format noto'g'ri (`{escape_md(ln)}`)! `@username son` ko'rinishida yozing.",
                 parse_mode="Markdown"
             )
             raise ApplicationHandlerStop
+        target_ident = parts[0].strip().lstrip("@")
+        try:
+            amount = int(parts[1].replace("%", "").replace(",", "").replace("_", ""))
+        except ValueError:
+            await update.message.reply_text("❌ Son butun raqam bo'lishi kerak!", parse_mode="Markdown")
+            raise ApplicationHandlerStop
+        if unit_key == "all_pct" and (amount < 1 or amount > 100):
+            await update.message.reply_text("❌ Foiz 1 dan 100 gacha bo'lishi kerak!")
+            raise ApplicationHandlerStop
+        if unit_key != "all_pct" and (amount <= 0 or amount > 10_000_000):
+            await update.message.reply_text("❌ Askar soni 1 dan 10,000,000 gacha bo'lishi kerak!")
+            raise ApplicationHandlerStop
+        parsed_items.append((target_ident, amount))
 
-        t_name = target_user.full_name
-        t_uname = target_user.username or str(target_user.telegram_id)
+    summaries = []
+    async with AsyncSessionLocal() as session:
+        for target_ident, amount in parsed_items:
+            target_user = None
+            if target_ident.isdigit():
+                target_user = await crud.get_user_by_telegram_id(session, int(target_ident))
+            if not target_user:
+                res = await session.execute(
+                    select(models.User).where(func.lower(models.User.username) == target_ident.lower())
+                )
+                target_user = res.scalar_one_or_none()
 
-        if unit_key == "all_pct":
-            keep_ratio = (100 - amount) / 100.0
-            army = await crud.get_user_army(session, target_user.id)
-            a_before = a_after = 0
-            if army:
-                for col in ("infantry", "archers", "cavalry", "spearmen", "special_troops"):
-                    v = getattr(army, col, 0) or 0
-                    a_before += v
-                    nv = int(v * keep_ratio)
-                    a_after += nv
-                    setattr(army, col, nv)
-            t_conds = [models.Territory.conquered_by_user_id == target_user.id]
-            if target_user.house_id:
-                t_conds.append(models.Territory.owner_house_id == target_user.house_id)
-            terrs_res = await session.execute(
-                select(models.Territory).where(or_(*t_conds))
-            )
-            g_before = g_after = 0
-            for t in terrs_res.scalars().all():
-                for col in ("garrison_infantry", "garrison_archers", "garrison_cavalry", "garrison_spearmen"):
-                    v = getattr(t, col, 0) or 0
-                    g_before += v
-                    nv = int(v * keep_ratio)
-                    g_after += nv
-                    setattr(t, col, nv)
-            await session.commit()
-            summary = (
-                f"✅ *{escape_md(t_name)}* (@{escape_md(t_uname)}) dan *-{amount}%* askar olindi:\n"
-                f"• Armiya: {a_before:,} -> *{a_after:,}*\n"
-                f"• Garnizon: {g_before:,} -> *{g_after:,}*"
-            )
-        else:
-            kwargs = {unit_key: -amount, "add_mode": True}
-            ok, msg = await crud.admin_set_user_army(session, target_user.id, **kwargs)
-            unit_label = _GIVE_TROOP_LABELS.get(unit_key, unit_key)
-            summary = (
-                f"✅ *{escape_md(t_name)}* (@{escape_md(t_uname)}) hisobidan *-{amount:,} ta {unit_label}* olindi!"
-                if ok else f"❌ {msg}"
-            )
+            if not target_user:
+                summaries.append(f"❌ `{escape_md(target_ident)}` topilmadi.")
+                continue
+
+            t_name = target_user.full_name
+            t_uname = target_user.username or str(target_user.telegram_id)
+
+            if unit_key in ("all_pct", "cap_total"):
+                army = await crud.get_user_army(session, target_user.id)
+                t_conds = [models.Territory.conquered_by_user_id == target_user.id]
+                if target_user.house_id:
+                    t_conds.append(models.Territory.owner_house_id == target_user.house_id)
+                terrs = (await session.execute(select(models.Territory).where(or_(*t_conds)))).scalars().all()
+
+                a_cols = ("infantry", "archers", "cavalry", "spearmen", "special_troops")
+                g_cols = ("garrison_infantry", "garrison_archers", "garrison_cavalry", "garrison_spearmen")
+
+                a_before = sum((getattr(army, c, 0) or 0) for c in a_cols) if army else 0
+                g_before = sum((getattr(t, c, 0) or 0) for t in terrs for c in g_cols)
+                tot_before = a_before + g_before
+
+                if unit_key == "cap_total":
+                    if tot_before <= amount:
+                        summaries.append(
+                            f"⚪ *{escape_md(t_name)}* (@{escape_md(t_uname)}): jami {tot_before:,} <= {amount:,} (o'zgarmadi)"
+                        )
+                        continue
+                    keep_ratio = amount / float(tot_before)
+                else:
+                    keep_ratio = (100 - amount) / 100.0
+
+                a_after = 0
+                if army:
+                    for c in a_cols:
+                        nv = int((getattr(army, c, 0) or 0) * keep_ratio)
+                        setattr(army, c, nv)
+                        a_after += nv
+                g_after = 0
+                for t in terrs:
+                    for c in g_cols:
+                        nv = int((getattr(t, c, 0) or 0) * keep_ratio)
+                        setattr(t, c, nv)
+                        g_after += nv
+
+                # Yaxlitlash farqini (1-4 askar) exact amount ga moslash
+                if unit_key == "cap_total" and (a_after + g_after) != amount:
+                    diff = amount - (a_after + g_after)
+                    if terrs and diff > 0:
+                        terrs[0].garrison_infantry = (terrs[0].garrison_infantry or 0) + diff
+                        g_after += diff
+                    elif army and diff > 0:
+                        army.infantry = (army.infantry or 0) + diff
+                        a_after += diff
+
+                await session.commit()
+                summaries.append(
+                    f"✅ *{escape_md(t_name)}* (@{escape_md(t_uname)}): {tot_before:,} -> *{a_after + g_after:,}* "
+                    f"(Armiya: {a_after:,}, Garnizon: {g_after:,})"
+                )
+            else:
+                kwargs = {unit_key: -amount, "add_mode": True}
+                ok, msg = await crud.admin_set_user_army(session, target_user.id, **kwargs)
+                unit_label = _GIVE_TROOP_LABELS.get(unit_key, unit_key)
+                summaries.append(
+                    f"✅ *{escape_md(t_name)}* (@{escape_md(t_uname)}) hisobidan *-{amount:,} ta {unit_label}* olindi!"
+                    if ok else f"❌ {msg}"
+                )
+
+    summary = "\n".join(summaries)
 
     context.user_data.pop("admin_awaiting_take_troops_unit", None)
     kb = InlineKeyboardMarkup([
