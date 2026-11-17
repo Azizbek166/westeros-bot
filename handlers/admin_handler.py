@@ -112,6 +112,7 @@ async def show_admin_dashboard(target, is_message: bool):
             ],
             [InlineKeyboardButton("🎟 Promo-kodlar Boshqaruvi", callback_data="admin_promos_menu")],
             [InlineKeyboardButton("⚔️ O'yinchiga Askar Berish (Username)", callback_data="admin_give_troops_menu")],
+            [InlineKeyboardButton("➖ O'yinchidan Askar Olish (Username)", callback_data="admin_take_troops_menu")],
             [InlineKeyboardButton("📜 O'yinchilar Harakatlari Jurnali (Logs)", callback_data="admin_activity_logs:0")],
             [InlineKeyboardButton("🚨 Tizim Xatoliklari (System Errors)", callback_data="admin_error_logs:0")],
             [InlineKeyboardButton("👥 O'yinchilarni Boshqarish (User Manager)", callback_data="admin_users_list:0")],
@@ -4533,9 +4534,15 @@ def register_admin_handlers(app):
     app.add_handler(CallbackQueryHandler(admin_war_action_callback, pattern="^(adm_war_set:|adm_war_add:|adm_war_bcast_now|adm_war_trigger_daily_npc)"))
     app.add_handler(CallbackQueryHandler(admin_give_troops_menu_callback, pattern="^admin_give_troops_menu$"))
     app.add_handler(CallbackQueryHandler(admin_give_troops_pick_unit_callback, pattern="^admin_give_unit:"))
+    app.add_handler(CallbackQueryHandler(admin_take_troops_menu_callback, pattern="^admin_take_troops_menu$"))
+    app.add_handler(CallbackQueryHandler(admin_take_troops_pick_unit_callback, pattern="^admin_take_unit:"))
     from telegram.ext import MessageHandler, filters
     app.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, admin_give_troops_text_handler),
+        group=1,
+    )
+    app.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, admin_take_troops_text_handler),
         group=1,
     )
 
@@ -4695,6 +4702,189 @@ async def admin_give_troops_text_handler(update: Update, context: ContextTypes.D
         parse_mode="Markdown",
         reply_markup=kb
     )
+    raise ApplicationHandlerStop
+
+
+async def admin_take_troops_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin: O'yinchidan askar olish / qisqartirish menyusi"""
+    query = update.callback_query
+    if not is_admin(query.from_user.id):
+        await query.answer("❌ Ruxsat yo'q!", show_alert=True)
+        return
+    await query.answer()
+    context.user_data.pop("admin_awaiting_take_troops_unit", None)
+
+    text = (
+        "➖ *ADMIN: O'YINCHIDAN ASKAR OLISH*\n\n"
+        "Qaysi turdagi qo'shinni olmoqchisiz (yoki foizda qisqartirmoqchisiz)? Tanlang:"
+    )
+    kb = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🗡 Piyoda", callback_data="admin_take_unit:infantry"),
+            InlineKeyboardButton("🏹 Kamonchi", callback_data="admin_take_unit:archers"),
+        ],
+        [
+            InlineKeyboardButton("🐎 Otliq", callback_data="admin_take_unit:cavalry"),
+            InlineKeyboardButton("🔱 Nayzachi", callback_data="admin_take_unit:spearmen"),
+        ],
+        [
+            InlineKeyboardButton("🔥 Maxsus Qo'shin", callback_data="admin_take_unit:special_troops"),
+        ],
+        [
+            InlineKeyboardButton("💥 Barchasi % (Armiya + Garnizon)", callback_data="admin_take_unit:all_pct"),
+        ],
+        [InlineKeyboardButton("🔙 Admin Panel", callback_data="admin_panel")],
+    ])
+    try:
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=kb)
+    except Exception:
+        await query.message.reply_text(text.replace("*", ""), reply_markup=kb)
+
+
+async def admin_take_troops_pick_unit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin: Olinadigan qo'shin turi tanlandi, @username va son/% ni so'rash"""
+    query = update.callback_query
+    if not is_admin(query.from_user.id):
+        await query.answer("❌ Ruxsat yo'q!", show_alert=True)
+        return
+    await query.answer()
+
+    unit_key = query.data.split(":", 1)[1]
+    if unit_key != "all_pct" and unit_key not in _GIVE_TROOP_LABELS:
+        return
+
+    context.user_data.pop("admin_awaiting_give_troops_unit", None)
+    context.user_data["admin_awaiting_take_troops_unit"] = unit_key
+    if unit_key == "all_pct":
+        text = (
+            "💥 *ARMIYA VA GARNIZONDAN FOIZDA ASKAR OLISH*\n\n"
+            "Endi o'yinchi `@username` (yoki Telegram ID) va necha **foiz (%)** olib tashlashni yozing.\n\n"
+            "📌 *Misol:*\n"
+            "`@lord_stark 80` — armiya va qal'a garnizonidagi 80% askarni olib tashlaydi.\n"
+            "_(Bekor qilish uchun `bekor` deb yozing)_"
+        )
+    else:
+        unit_label = _GIVE_TROOP_LABELS[unit_key]
+        text = (
+            f"➖ *QO'SHIN OLISH: {unit_label}*\n\n"
+            f"Endi o'yinchi `@username` (yoki Telegram ID) va olinadigan askar sonini yozib yuboring.\n\n"
+            f"📌 *Misol:*\n"
+            f"`@lord_stark 500`\n"
+            f"yoki `123456789 500`\n\n"
+            f"_(Bekor qilish uchun `bekor` deb yozing)_"
+        )
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Bekor qilish", callback_data="admin_take_troops_menu")]])
+    try:
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=kb)
+    except Exception:
+        await query.message.reply_text(text.replace("*", "").replace("`", ""), reply_markup=kb)
+
+
+async def admin_take_troops_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin '@username son' matnini qabul qilib o'yinchidan askar olish"""
+    if not update.message or not update.message.text:
+        return
+
+    user_id = update.effective_user.id
+    unit_key = context.user_data.get("admin_awaiting_take_troops_unit")
+    if not unit_key or not is_admin(user_id):
+        return
+
+    from telegram.ext import ApplicationHandlerStop
+    raw_text = update.message.text.strip()
+    if raw_text.lower() in ("bekor", "cancel", "otmen"):
+        context.user_data.pop("admin_awaiting_take_troops_unit", None)
+        await update.message.reply_text("❌ Askar olish bekor qilindi.")
+        raise ApplicationHandlerStop
+
+    parts = raw_text.split()
+    if len(parts) != 2:
+        await update.message.reply_text(
+            "❌ Format noto'g'ri! `@username son` ko'rinishida yozing (masalan: `@lord_stark 500`).",
+            parse_mode="Markdown"
+        )
+        raise ApplicationHandlerStop
+
+    target_ident = parts[0].strip().lstrip("@")
+    try:
+        amount = int(parts[1].replace("%", "").replace(",", "").replace("_", ""))
+    except ValueError:
+        await update.message.reply_text("❌ Son butun raqam bo'lishi kerak!", parse_mode="Markdown")
+        raise ApplicationHandlerStop
+
+    if unit_key == "all_pct" and (amount < 1 or amount > 100):
+        await update.message.reply_text("❌ Foiz 1 dan 100 gacha bo'lishi kerak!")
+        raise ApplicationHandlerStop
+    if unit_key != "all_pct" and (amount <= 0 or amount > 10_000_000):
+        await update.message.reply_text("❌ Askar soni 1 dan 10,000,000 gacha bo'lishi kerak!")
+        raise ApplicationHandlerStop
+
+    async with AsyncSessionLocal() as session:
+        target_user = None
+        if target_ident.isdigit():
+            target_user = await crud.get_user_by_telegram_id(session, int(target_ident))
+        if not target_user:
+            res = await session.execute(
+                select(models.User).where(func.lower(models.User.username) == target_ident.lower())
+            )
+            target_user = res.scalar_one_or_none()
+
+        if not target_user:
+            await update.message.reply_text(
+                f"❌ `{target_ident}` nomli o'yinchi bazadan topilmadi! Qaytadan `@username son` kiriting (yoki `bekor` deb yozing).",
+                parse_mode="Markdown"
+            )
+            raise ApplicationHandlerStop
+
+        t_name = target_user.full_name
+        t_uname = target_user.username or str(target_user.telegram_id)
+
+        if unit_key == "all_pct":
+            keep_ratio = (100 - amount) / 100.0
+            army = await crud.get_user_army(session, target_user.id)
+            a_before = a_after = 0
+            if army:
+                for col in ("infantry", "archers", "cavalry", "spearmen", "special_troops"):
+                    v = getattr(army, col, 0) or 0
+                    a_before += v
+                    nv = int(v * keep_ratio)
+                    a_after += nv
+                    setattr(army, col, nv)
+            terrs_res = await session.execute(
+                select(models.Territory).where(
+                    (models.Territory.conquered_by_user_id == target_user.id)
+                    | (models.Territory.owner_house_id == target_user.house_id if target_user.house_id else False)
+                )
+            )
+            g_before = g_after = 0
+            for t in terrs_res.scalars().all():
+                for col in ("garrison_infantry", "garrison_archers", "garrison_cavalry", "garrison_spearmen"):
+                    v = getattr(t, col, 0) or 0
+                    g_before += v
+                    nv = int(v * keep_ratio)
+                    g_after += nv
+                    setattr(t, col, nv)
+            await session.commit()
+            summary = (
+                f"✅ *{escape_md(t_name)}* (@{escape_md(t_uname)}) dan *-{amount}%* askar olindi:\n"
+                f"• Armiya: {a_before:,} -> *{a_after:,}*\n"
+                f"• Garnizon: {g_before:,} -> *{g_after:,}*"
+            )
+        else:
+            kwargs = {unit_key: -amount, "add_mode": True}
+            ok, msg = await crud.admin_set_user_army(session, target_user.id, **kwargs)
+            unit_label = _GIVE_TROOP_LABELS.get(unit_key, unit_key)
+            summary = (
+                f"✅ *{escape_md(t_name)}* (@{escape_md(t_uname)}) hisobidan *-{amount:,} ta {unit_label}* olindi!"
+                if ok else f"❌ {msg}"
+            )
+
+    context.user_data.pop("admin_awaiting_take_troops_unit", None)
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("➖ Yana Askar Olish", callback_data="admin_take_troops_menu")],
+        [InlineKeyboardButton("🔙 Admin Panel", callback_data="admin_panel")],
+    ])
+    await update.message.reply_text(summary, parse_mode="Markdown", reply_markup=kb)
     raise ApplicationHandlerStop
 
 
