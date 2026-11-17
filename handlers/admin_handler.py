@@ -4541,10 +4541,6 @@ def register_admin_handlers(app):
         MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, admin_give_troops_text_handler),
         group=1,
     )
-    app.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, admin_take_troops_text_handler),
-        group=1,
-    )
 
 
 _GIVE_TROOP_LABELS = {
@@ -4619,8 +4615,12 @@ async def admin_give_troops_pick_unit_callback(update: Update, context: ContextT
 
 
 async def admin_give_troops_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Admin '@username 500' matnini qabul qilib askar qo'shish"""
+    """Admin '@username 500' matnini qabul qilib askar qo'shish (yoki olishga yo'naltirish)"""
     if not update.message or not update.message.text:
+        return
+
+    if context.user_data.get("admin_awaiting_take_troops_unit"):
+        await admin_take_troops_text_handler(update, context)
         return
 
     user_id = update.effective_user.id
@@ -4850,11 +4850,11 @@ async def admin_take_troops_text_handler(update: Update, context: ContextTypes.D
                     nv = int(v * keep_ratio)
                     a_after += nv
                     setattr(army, col, nv)
+            t_conds = [models.Territory.conquered_by_user_id == target_user.id]
+            if target_user.house_id:
+                t_conds.append(models.Territory.owner_house_id == target_user.house_id)
             terrs_res = await session.execute(
-                select(models.Territory).where(
-                    (models.Territory.conquered_by_user_id == target_user.id)
-                    | (models.Territory.owner_house_id == target_user.house_id if target_user.house_id else False)
-                )
+                select(models.Territory).where(or_(*t_conds))
             )
             g_before = g_after = 0
             for t in terrs_res.scalars().all():
