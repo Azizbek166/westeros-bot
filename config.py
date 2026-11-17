@@ -42,10 +42,17 @@ if "asyncpg" in DATABASE_URL:
 # Bosh Administrator / Bot Egasi Telegram ID si (o'zgarmas)
 OWNER_ID = 7689627859
 
-# Admin Telegram ID lari - .env dagi ADMIN_IDS dan o'qiladi (config.py ga qayta yozilmaydi)
+DEFAULT_PERMANENT_ADMIN_IDS = [
+    int(OWNER_ID),
+    6431511867,  # Javohir
+    7222673959,  # X.M.N
+    7473691017,  # Muhammadjon
+]
+
+# Admin Telegram ID lari - doimiy ro'yxat + .env dagi ADMIN_IDS dan o'qiladi
 def _load_admin_ids_from_env() -> list:
     raw = os.getenv("ADMIN_IDS", "")
-    ids = [int(OWNER_ID)]
+    ids = list(DEFAULT_PERMANENT_ADMIN_IDS)
     if raw:
         for part in raw.split(","):
             part = part.strip()
