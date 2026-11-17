@@ -121,6 +121,7 @@ async def show_admin_dashboard(target, is_message: bool):
             [InlineKeyboardButton("🏯 Qalalar va Mintaqalar (Castles)", callback_data="admin_castles_list:0")],
             [InlineKeyboardButton("🏆 Egallangan Qal'alar (O'yinchilar bo'yicha)", callback_data="admin_player_castles:0")],
             [InlineKeyboardButton("⚖️ Qal'alar Taqsimotini Tekshirish (Dry-Run)", callback_data="admin_fix_castles_dry")],
+            [InlineKeyboardButton("✂️ >2 Qal'a Non-Donor Askarlar (-80%)", callback_data="admin_trim_troops_dry")],
             [InlineKeyboardButton("⚔️ Harbiy Holat & Urush Boshqaruvi", callback_data="admin_war_control")],
             [InlineKeyboardButton("🏦 Temir Bank & Qarzlar Boshqaruvi", callback_data="admin_bank_menu")],
             [InlineKeyboardButton("🌦️ Ob-havo Boshqaruvi", callback_data="admin_weather_menu")],
@@ -4393,8 +4394,46 @@ async def admin_fix_castles_callback(update: Update, context: ContextTypes.DEFAU
     await query.edit_message_text("\n".join(lines), parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
 
 
+async def admin_trim_troops_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Qal'asi > 2 va donat qilmagan o'yinchilar askarlarini -80% tekshirish/qo'llash"""
+    query = update.callback_query
+    if not is_admin(query.from_user.id):
+        await query.answer("❌ Ruxsat yo'q!", show_alert=True)
+        return
+    await query.answer()
+    apply_mode = (query.data == "admin_trim_troops_apply")
+    async with AsyncSessionLocal() as session:
+        res = await crud.audit_and_trim_non_donor_troops(session, dry_run=not apply_mode)
+
+    mode_str = "QO'LLANILDI (-80%, ZAXIRA SAQLANDI)" if apply_mode else "DRY-RUN (O'ZGARTIRILMADI)"
+    lines = [
+        f"✂️ *>2 QAL'A NON-DONOR ASKARLAR — {mode_str}*",
+        f"• Jami ta'sirlanadigan o'yinchilar: *{res['affected_count']} ta*\n",
+    ]
+    for row in res["affected"][:20]:
+        nm = escape_md(row["name"])
+        lines.append(
+            f"• ID `{row['user_id']}` | *{nm}* | 🏰 {row['castles_count']} ta | Donat: Yo'q\n"
+            f"  └ Armiya: {row['army_before']:,} -> *{row['army_after']:,}* | "
+            f"Garnizon: {row['garrison_before']:,} -> *{row['garrison_after']:,}*"
+        )
+    if not res["affected"]:
+        lines.append("✅ Shartga mos (qal'asi > 2 va donat qilmagan) o'yinchi topilmadi.")
+
+    buttons = []
+    if not apply_mode and res["affected"]:
+        buttons.append([InlineKeyboardButton("✅ Tasdiqlash va -80% Qo'llash", callback_data="admin_trim_troops_apply")])
+    buttons.append([InlineKeyboardButton("🔙 Admin Panel", callback_data="admin_panel")])
+    text = "\n".join(lines)
+    try:
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+    except Exception:
+        await query.edit_message_text(text.replace("*", "").replace("`", ""), parse_mode=None, reply_markup=InlineKeyboardMarkup(buttons))
+
+
 def register_admin_handlers(app):
     app.add_handler(CallbackQueryHandler(admin_fix_castles_callback, pattern="^admin_fix_castles_(dry|apply)$"))
+    app.add_handler(CallbackQueryHandler(admin_trim_troops_callback, pattern="^admin_trim_troops_(dry|apply)$"))
     app.add_handler(CallbackQueryHandler(admin_error_logs_callback, pattern="^admin_error_logs(:[0-9]+)?$"))
     app.add_handler(CallbackQueryHandler(admin_error_detail_callback, pattern="^adm_err_view:[0-9]+:[0-9]+$"))
     app.add_handler(CallbackQueryHandler(admin_resolve_error_callback, pattern="^adm_err_resolve:[0-9]+:[0-9]+$"))

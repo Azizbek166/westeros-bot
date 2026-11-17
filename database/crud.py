@@ -12172,8 +12172,6 @@ async def audit_and_fix_castle_distribution(
 
     if not dry_run:
         await session.commit()
-    else:
-        await session.rollback()
 
     return {
         "dry_run": dry_run,
@@ -12182,4 +12180,142 @@ async def audit_and_fix_castle_distribution(
         "released_count": released_count,
         "assigned_count": assigned_count,
         "changes": changes,
+    }
+
+
+async def audit_and_trim_non_donor_troops(
+    session: AsyncSession,
+    dry_run: bool = True,
+    keep_ratio: float = 0.20,
+) -> Dict[str, Any]:
+    """
+    Qal'alari soni 2 tadan ko'p (> 2) VA hech qachon donat qilmagan o'yinchilarning
+    armiyasi hamda qal'a garnizonlaridagi askarlarining 80% ini olib tashlaydi (20% qoldiradi).
+    - Qal'alari o'chirilmaydi / olib qo'yilmaydi.
+    - Donat qilganlar va qal'alari <= 2 bo'lganlar umuman o'zgartirilmaydi.
+    """
+    users_res = await session.execute(select(models.User).order_by(models.User.id))
+    users = list(users_res.scalars().all())
+    terrs_res = await session.execute(select(models.Territory).order_by(models.Territory.id))
+    terrs = list(terrs_res.scalars().all())
+    armies_res = await session.execute(select(models.Army))
+    army_by_uid = {a.user_id: a for a in armies_res.scalars().all()}
+
+    # Donatorlarni aniqlash (DonationRequest, PaymentTransaction, vip_tier, has_starter_pack)
+    donor_user_ids = set()
+    donor_tg_ids = set()
+    dr_res = await session.execute(
+        select(models.DonationRequest.user_id, models.DonationRequest.telegram_id).where(
+            models.DonationRequest.status == "approved"
+        )
+    )
+    for uid, tgid in dr_res.all():
+        if uid:
+            donor_user_ids.add(uid)
+        if tgid:
+            donor_tg_ids.add(tgid)
+
+    try:
+        pt_res = await session.execute(
+            select(models.PaymentTransaction.user_id, models.PaymentTransaction.telegram_id).where(
+                models.PaymentTransaction.status.in_(["approved", "completed", "paid", "success"])
+            )
+        )
+        for uid, tgid in pt_res.all():
+            if uid:
+                donor_user_ids.add(uid)
+            if tgid:
+                donor_tg_ids.add(tgid)
+    except Exception:
+        pass
+
+    affected: List[Dict[str, Any]] = []
+    trimmed_terr_ids = set()
+    backup_snapshot: List[Dict[str, Any]] = []
+
+    for u in users:
+        is_donor = (
+            (u.id in donor_user_ids)
+            or (u.telegram_id in donor_tg_ids)
+            or bool(getattr(u, "vip_tier", None))
+            or bool(getattr(u, "has_starter_pack", False))
+        )
+        if is_donor:
+            continue
+
+        u_terrs = [
+            t for t in terrs
+            if (u.house_id and t.owner_house_id == u.house_id) or (t.conquered_by_user_id == u.id)
+        ]
+        if len(u_terrs) <= 2:
+            continue
+
+        army = army_by_uid.get(u.id)
+        army_before = 0
+        army_after = 0
+        army_snap = {}
+        if army:
+            for col in ("infantry", "archers", "cavalry", "spearmen", "special_troops"):
+                val = getattr(army, col, 0) or 0
+                army_before += val
+                new_val = int(val * keep_ratio)
+                army_after += new_val
+                army_snap[col] = val
+                if not dry_run:
+                    setattr(army, col, new_val)
+
+        garr_before = 0
+        garr_after = 0
+        garr_snaps = []
+        for t in u_terrs:
+            if t.id in trimmed_terr_ids:
+                continue
+            trimmed_terr_ids.add(t.id)
+            t_snap = {"territory_id": t.id}
+            for col in ("garrison_infantry", "garrison_archers", "garrison_cavalry", "garrison_spearmen"):
+                val = getattr(t, col, 0) or 0
+                garr_before += val
+                new_val = int(val * keep_ratio)
+                garr_after += new_val
+                t_snap[col] = val
+                if not dry_run:
+                    setattr(t, col, new_val)
+            garr_snaps.append(t_snap)
+
+        affected.append({
+            "user_id": u.id,
+            "telegram_id": u.telegram_id,
+            "name": u.full_name or u.username or f"Lord #{u.id}",
+            "castles_count": len(u_terrs),
+            "is_donor": False,
+            "army_before": army_before,
+            "army_after": army_after,
+            "garrison_before": garr_before,
+            "garrison_after": garr_after,
+            "total_before": army_before + garr_before,
+            "total_after": army_after + garr_after,
+        })
+        backup_snapshot.append({
+            "user_id": u.id,
+            "army": army_snap,
+            "garrisons": garr_snaps,
+        })
+
+    if not dry_run:
+        if backup_snapshot:
+            ts_key = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+            session.add(
+                models.EventState(
+                    event_name=f"pre_trim_backup_{ts_key}",
+                    data_json=json.dumps(backup_snapshot),
+                    is_active=False,
+                )
+            )
+        await session.commit()
+
+    return {
+        "dry_run": dry_run,
+        "keep_ratio": keep_ratio,
+        "affected_count": len(affected),
+        "affected": affected,
     }
