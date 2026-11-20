@@ -116,6 +116,7 @@ async def show_admin_dashboard(target, is_message: bool):
             [InlineKeyboardButton("📜 O'yinchilar Harakatlari Jurnali (Logs)", callback_data="admin_activity_logs:0")],
             [InlineKeyboardButton("🚨 Tizim Xatoliklari (System Errors)", callback_data="admin_error_logs:0")],
             [InlineKeyboardButton("👥 O'yinchilarni Boshqarish (User Manager)", callback_data="admin_users_list:0")],
+            [InlineKeyboardButton("📋 Barcha O'yinchilar (Xonadon + Username)", callback_data="admin_all_players_export")],
             [InlineKeyboardButton("👑 Xonadon Lordlarini Tayinlash", callback_data="admin_lords_menu")],
 
             [InlineKeyboardButton("🏰 Xonadonlar va G'aznalar", callback_data="admin_houses_list")],
@@ -4432,9 +4433,57 @@ async def admin_trim_troops_callback(update: Update, context: ContextTypes.DEFAU
         await query.edit_message_text(text.replace("*", "").replace("`", ""), parse_mode=None, reply_markup=InlineKeyboardMarkup(buttons))
 
 
+async def _send_all_players_report(msg_obj, user_id: int):
+    if not is_admin(user_id):
+        await msg_obj.reply_text("❌ Ruxsat yo'q!")
+        return
+    import io
+    from sqlalchemy.orm import selectinload
+    async with AsyncSessionLocal() as session:
+        users = (
+            await session.execute(
+                select(models.User)
+                .options(selectinload(models.User.house))
+                .order_by(models.User.house_id.is_(None), models.User.house_id, models.User.id)
+            )
+        ).scalars().all()
+
+    lines = [f"JAMI O'YINCHILAR: {len(users)} ta\n" + ("=" * 50)]
+    for idx, u in enumerate(users, 1):
+        uname = f"@{u.username}" if u.username else "username yo'q"
+        hname = f"{u.house.emoji} {u.house.name}" if u.house else "Tanlanmagan"
+        lines.append(f"{idx}. {u.full_name} | {uname} | TG:{u.telegram_id} | Xonadon: {hname}")
+
+    content = "\n".join(lines).encode("utf-8")
+    bio = io.BytesIO(content)
+    bio.name = "barcha_oyinchilar.txt"
+    with_house = sum(1 for u in users if u.house_id)
+    await msg_obj.reply_document(
+        document=bio,
+        caption=f"📋 Barcha o'yinchilar ro'yxati: {len(users)} ta (Xonadon tanlagan: {with_house} ta)",
+    )
+
+
+async def admin_all_players_export_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if not is_admin(query.from_user.id):
+        await query.answer("❌ Ruxsat yo'q!", show_alert=True)
+        return
+    await query.answer("📋 Ro'yxat tayyorlanmoqda...")
+    await _send_all_players_report(query.message, query.from_user.id)
+
+
+async def admin_all_players_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message:
+        return
+    await _send_all_players_report(update.message, update.effective_user.id)
+
+
 def register_admin_handlers(app):
     app.add_handler(CallbackQueryHandler(admin_fix_castles_callback, pattern="^admin_fix_castles_(dry|apply)$"))
     app.add_handler(CallbackQueryHandler(admin_trim_troops_callback, pattern="^admin_trim_troops_(dry|apply)$"))
+    app.add_handler(CallbackQueryHandler(admin_all_players_export_callback, pattern="^admin_all_players_export$"))
+    app.add_handler(CommandHandler("allplayers", admin_all_players_command))
     app.add_handler(CallbackQueryHandler(admin_error_logs_callback, pattern="^admin_error_logs(:[0-9]+)?$"))
     app.add_handler(CallbackQueryHandler(admin_error_detail_callback, pattern="^adm_err_view:[0-9]+:[0-9]+$"))
     app.add_handler(CallbackQueryHandler(admin_resolve_error_callback, pattern="^adm_err_resolve:[0-9]+:[0-9]+$"))
