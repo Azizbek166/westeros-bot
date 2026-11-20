@@ -465,7 +465,6 @@ async def guild_list_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def guild_view_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Gildiya tafsilotlarini ko'rish va a'zo bo'lish/ariza yuborish"""
     query = update.callback_query
-    await query.answer()
     user_id = query.from_user.id
 
     parts = query.data.split(":")
@@ -475,10 +474,11 @@ async def guild_view_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     async with AsyncSessionLocal() as session:
         user = await crud.get_user_by_telegram_id(session, user_id)
         guild = await crud.get_guild_by_id(session, guild_id)
-        if not guild:
+        if not user or not guild:
             await query.answer("❌ Ushbu gildiya topilmadi.", show_alert=True)
             return
 
+        await query.answer()
         user_guild, user_mem = await crud.get_user_guild_membership(session, user.id)
         leader_name = guild.leader.full_name if guild.leader else "Noma'lum"
         m_cnt = len(guild.members or [])
@@ -545,7 +545,6 @@ async def guild_join_do_callback(update: Update, context: ContextTypes.DEFAULT_T
 async def guild_members_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Gildiya a'zolari ro'yxati"""
     query = update.callback_query
-    await query.answer()
     user_id = query.from_user.id
 
     try:
@@ -558,12 +557,13 @@ async def guild_members_callback(update: Update, context: ContextTypes.DEFAULT_T
 
     async with AsyncSessionLocal() as session:
         user = await crud.get_user_by_telegram_id(session, user_id)
-        guild, viewer_mem = await crud.get_user_guild_membership(session, user.id)
+        guild, viewer_mem = await crud.get_user_guild_membership(session, user.id) if user else (None, None)
         if not guild or not viewer_mem:
             await query.answer("❌ Siz gildiya a'zosi emassiz.", show_alert=True)
             await show_guild_hub(query, context, user_id, is_message=False)
             return
 
+        await query.answer()
         all_members = list(guild.members or [])
         # Tartib: master, deputy, officer, member, joined_at
         all_members.sort(key=lambda m: crud.ROLE_HIERARCHY.get(m.role, 0), reverse=True)
@@ -606,7 +606,6 @@ async def guild_members_callback(update: Update, context: ContextTypes.DEFAULT_T
 async def guild_member_manage_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """A'zo ustidan boshqaruv (Lavozim berish, Haydash)"""
     query = update.callback_query
-    await query.answer()
     user_id = query.from_user.id
 
     parts = query.data.split(":")
@@ -615,7 +614,7 @@ async def guild_member_manage_callback(update: Update, context: ContextTypes.DEF
 
     async with AsyncSessionLocal() as session:
         actor = await crud.get_user_by_telegram_id(session, user_id)
-        guild, actor_mem = await crud.get_user_guild_membership(session, actor.id)
+        guild, actor_mem = await crud.get_user_guild_membership(session, actor.id) if actor else (None, None)
         if not guild or not actor_mem or actor_mem.role not in ["master", "deputy", "officer"]:
             await query.answer("❌ Sizda bu a'zoni boshqarish huquqi yo'q.", show_alert=True)
             return
@@ -625,6 +624,7 @@ async def guild_member_manage_callback(update: Update, context: ContextTypes.DEF
             await query.answer("❌ Ushbu a'zo topilmadi.", show_alert=True)
             return
 
+        await query.answer()
         target_user = await session.get(models.User, target_mem.user_id)
         t_name = target_user.full_name if target_user else "A'zo"
         role_label = crud.ROLE_LABELS.get(target_mem.role, target_mem.role)

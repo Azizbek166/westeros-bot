@@ -8874,8 +8874,8 @@ async def apply_donate_rewards(session: AsyncSession, telegram_id: int, tier_id:
     base_iron = tier.get("iron", 0)
     first_donate_bonus_applied = False
 
-    # Birinchi donatga qo'shimcha bonus (faqat eski speedup paketida)
-    if tier_id in ("speedup_pack",):
+    # Birinchi tasdiqlangan donatga +25% qo'shimcha resurs bonusi
+    if tier_id in ("noble", "knight", "lord", "dragonlord", "sovereign", "speedup_pack"):
         prev_app_res = await session.execute(
             select(func.count(models.DonationRequest.id)).where(
                 models.DonationRequest.telegram_id == user.telegram_id,

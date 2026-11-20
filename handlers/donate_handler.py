@@ -63,6 +63,9 @@ def donate_menu_keyboard() -> InlineKeyboardMarkup:
                 )
             ])
     buttons.append([
+        InlineKeyboardButton("🏆 Saxiy Homiylar Taxtasi", callback_data="donate_patrons"),
+    ])
+    buttons.append([
         InlineKeyboardButton(
             "📋 Mening so'rovlarim (Tarix va VIP muddat)",
             callback_data="donate_my_requests",
@@ -119,7 +122,8 @@ async def _build_donate_intro_text() -> str:
     lines = [
         "💎 **VESTEROS HOMIYLAR XAZINASI & VIP STUDIYA**",
         "",
-        "Hurmatli Lord! Barcha paketlar **0 Pay-To-Win** qoidasi asosida ishlaydi — askar, ajdaho yoki nufuz sotilmaydi. Buning o'rniga siz **umrbod eksklyuziv kosmetika**, **30 kunlik VIP Studiya**, **darhol xazina** va **30 kunlik kunlik VIP sovg'a** olasiz:",
+        "Hurmatli Lord! Barcha paketlar **0 Pay-To-Win** qoidasi asosida ishlaydi — askar, ajdaho yoki nufuz sotilmaydi. Buning o'rniga siz **umrbod eksklyuziv kosmetika**, **30 kunlik VIP Studiya**, **katta xazina** va **30 kunlik kunlik VIP sovg'a** olasiz:",
+        "🔥 *Birinchi donatingizga darhol xazinadan +25% qo'shimcha resurs bonusi! (Faol VIP ustiga +30 kun qo'shiladi)*",
         "",
         "📦 **Sotuvdagi 5 ta Rasmiy Homiy Paketi (30 kun):**",
     ]
@@ -882,10 +886,46 @@ async def admin_donate_stats_callback(update: Update, context: ContextTypes.DEFA
         await query.message.reply_text(text=text, parse_mode="HTML", reply_markup=kb)
 
 
+async def donate_patrons_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Saxiy Homiylar Taxtasi (Tasdiqlangan donatorlar TOP-10 ro'yxati)"""
+    query = update.callback_query
+    await query.answer()
+    from sqlalchemy import select, func, desc
+    async with AsyncSessionLocal() as session:
+        res = await session.execute(
+            select(
+                models.DonationRequest.telegram_id,
+                func.sum(models.DonationRequest.amount_uzs).label("total_uzs"),
+                func.count(models.DonationRequest.id).label("cnt"),
+            )
+            .where(models.DonationRequest.status == "approved")
+            .group_by(models.DonationRequest.telegram_id)
+            .order_by(desc("total_uzs"))
+            .limit(10)
+        )
+        rows = res.all()
+        lines = ["🏆 **VESTEROS SAXIY HOMIYLAR TAXTASI**\n"]
+        if not rows:
+            lines.append("Hozircha tasdiqlangan homiylar yo'q. Birinchi bo'lib shon-sharaf taxtasidan joy oling!")
+        else:
+            for idx, (tg_id, tot_uzs, cnt) in enumerate(rows, 1):
+                u = await crud.get_user_any(session, tg_id)
+                name = escape_md(u.full_name) if u else f"Lord #{tg_id}"
+                medal = "🥇" if idx == 1 else ("🥈" if idx == 2 else ("🥉" if idx == 3 else f"{idx}."))
+                lines.append(f"{medal} *{name}* — {int(tot_uzs or 0):,} so'm ({cnt} ta paket)")
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Donat Do'koni", callback_data="menu_donate")]])
+    text = "\n".join(lines)
+    try:
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=kb)
+    except Exception:
+        await query.message.reply_text(text.replace("*", ""), reply_markup=kb)
+
+
 def register_donate_handlers(app):
     """Donate handlerlarini ro'yxatdan o'tkazish"""
     app.add_handler(CommandHandler(["donate", "vip", "donat", "homiylik", "stars", "shop"], donate_command))
     app.add_handler(CallbackQueryHandler(donate_menu_callback, pattern="^menu_donate$"))
+    app.add_handler(CallbackQueryHandler(donate_patrons_callback, pattern="^donate_patrons$"))
     app.add_handler(CallbackQueryHandler(donate_cosmetics_menu_callback, pattern="^donate_cosmetics_menu$"))
     app.add_handler(CallbackQueryHandler(donate_my_requests_callback, pattern="^donate_my_requests$"))
     app.add_handler(CallbackQueryHandler(donate_troops_menu_callback, pattern="^donate_troops_menu$"))

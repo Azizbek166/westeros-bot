@@ -226,7 +226,7 @@ COMMUNITY_GROUP_ID = os.getenv("COMMUNITY_GROUP_ID", "@northremember2")
 # DONAT BONUSLARI SOZLAMALARI (Markazlashtirilgan)
 # ============================================================
 DONATE_BONUSES_CONFIG = {
-    "first_donate_bonus_pct": 20,  # Birinchi tasdiqlangan donatga +20% qo'shimcha resurs bonusi
+    "first_donate_bonus_pct": 25,  # Birinchi tasdiqlangan donatga +25% qo'shimcha resurs bonusi
     "bulk_package_bonus_pct": {
         "lord": 10,
         "dragonlord": 15,
@@ -247,9 +247,9 @@ DONATE_TIERS = {
         "category": "vip_pass",
         "price_uzs": 10000,
         "price_label": "10,000 so'm",
-        "gold": 10000,
-        "food": 25000,
-        "iron": 10000,
+        "gold": 15000,
+        "food": 35000,
+        "iron": 15000,
         "infantry": 0,
         "archers": 0,
         "cavalry": 0,
@@ -261,9 +261,9 @@ DONATE_TIERS = {
         "prestige": 0,
         "wildfire": 0,
         "duration_days": 30,
-        "daily_bonus_gold": 600,
-        "daily_bonus_food": 1500,
-        "daily_bonus_iron": 500,
+        "daily_bonus_gold": 1000,
+        "daily_bonus_food": 2500,
+        "daily_bonus_iron": 800,
         "vip_tier": "noble",
         "avatar_frame": "frame_iron",
         "title": "Qirol Qo'riqchisi",
@@ -272,8 +272,8 @@ DONATE_TIERS = {
         "description": (
             "• 🛡️ **30 kunlik Noble VIP:** Profil va bo'limlar (Ajdar, Qal'a, Armiya, Xonadon) fotosurati, Shaxsiy Shior, Noble nishoni\n"
             "• 🖼️ **Umrbod kosmetika:** Temir Taxt ramkasi va Qirol Qo'riqchisi unvoni\n"
-            "• 🎁 **Darhol xazina:** +10,000 🪙 Oltin, +25,000 🌾 Bug'doy, +10,000 ⛓️ Temir\n"
-            "• 📅 **30 kunlik Kunlik VIP Sovg'a:** Har kuni +600 🪙, +1,500 🌾, +500 ⛓️\n"
+            "• 🎁 **Darhol xazina:** +15,000 🪙 Oltin, +35,000 🌾 Bug'doy, +15,000 ⛓️ Temir\n"
+            "• 📅 **30 kunlik Kunlik VIP Sovg'a:** Har kuni +1,000 🪙, +2,500 🌾, +800 ⛓️\n"
             "• ⚖️ *0 Pay-To-Win: askar, ajdaho, prestige yoki doimiy daromad bonusi yo'q*"
         ),
     },
@@ -387,9 +387,9 @@ DONATE_TIERS = {
         "category": "vip_pass",
         "price_uzs": 25000,
         "price_label": "25,000 so'm",
-        "gold": 20000,
-        "food": 50000,
-        "iron": 20000,
+        "gold": 35000,
+        "food": 80000,
+        "iron": 35000,
         "infantry": 0,
         "archers": 0,
         "cavalry": 0,
@@ -401,9 +401,9 @@ DONATE_TIERS = {
         "prestige": 0,
         "wildfire": 0,
         "duration_days": 30,
-        "daily_bonus_gold": 1200,
-        "daily_bonus_food": 3000,
-        "daily_bonus_iron": 1000,
+        "daily_bonus_gold": 2000,
+        "daily_bonus_food": 5000,
+        "daily_bonus_iron": 1600,
         "vip_tier": "knight",
         "avatar_frame": "frame_flame",
         "title": "Qirol Qo'riqchisi",
@@ -412,8 +412,8 @@ DONATE_TIERS = {
         "description": (
             "• 🗡️ **30 kunlik Ritsar VIP:** Noble imtiyozlari + Gerb Emoji + Olov profil temasi\n"
             "• 🖼️ **Umrbod kosmetika:** Olov ramkasi, Olov effekti va oldingi kosmetikalar\n"
-            "• 🎁 **Darhol xazina:** +20,000 🪙 Oltin, +50,000 🌾 Bug'doy, +20,000 ⛓️ Temir\n"
-            "• 📅 **30 kunlik Kunlik VIP Sovg'a:** Har kuni +1,200 🪙, +3,000 🌾, +1,000 ⛓️\n"
+            "• 🎁 **Darhol xazina:** +35,000 🪙 Oltin, +80,000 🌾 Bug'doy, +35,000 ⛓️ Temir\n"
+            "• 📅 **30 kunlik Kunlik VIP Sovg'a:** Har kuni +2,000 🪙, +5,000 🌾, +1,600 ⛓️\n"
             "• ⚖️ *0 Pay-To-Win: askar, ajdaho, prestige yoki doimiy daromad bonusi yo'q*"
         ),
     },
@@ -453,9 +453,9 @@ DONATE_TIERS = {
         "category": "vip_pass",
         "price_uzs": 45000,
         "price_label": "45,000 so'm",
-        "gold": 32000,
-        "food": 80000,
-        "iron": 32000,
+        "gold": 60000,
+        "food": 140000,
+        "iron": 60000,
         "infantry": 0,
         "archers": 0,
         "cavalry": 0,
@@ -467,9 +467,9 @@ DONATE_TIERS = {
         "prestige": 0,
         "wildfire": 0,
         "duration_days": 30,
-        "daily_bonus_gold": 2000,
-        "daily_bonus_food": 5000,
-        "daily_bonus_iron": 1600,
+        "daily_bonus_gold": 3200,
+        "daily_bonus_food": 8000,
+        "daily_bonus_iron": 2500,
         "vip_tier": "lord",
         "avatar_frame": "frame_flame",
         "title": "Qirol Qo'riqchisi",
@@ -478,8 +478,8 @@ DONATE_TIERS = {
         "description": (
             "• 🏰 **30 kunlik Lord VIP:** Profil va bo'limlarga Video/GIF, fon musiqasi/gimn, Muz & Olov temalari\n"
             "• 🎨 **Umrbod kosmetika:** Muz Qasri, Muz effekti va oldingi kosmetikalar\n"
-            "• 🎁 **Darhol xazina:** +32,000 🪙 Oltin, +80,000 🌾 Bug'doy, +32,000 ⛓️ Temir\n"
-            "• 📅 **30 kunlik Kunlik VIP Sovg'a:** Har kuni +2,000 🪙, +5,000 🌾, +1,600 ⛓️\n"
+            "• 🎁 **Darhol xazina:** +60,000 🪙 Oltin, +140,000 🌾 Bug'doy, +60,000 ⛓️ Temir\n"
+            "• 📅 **30 kunlik Kunlik VIP Sovg'a:** Har kuni +3,200 🪙, +8,000 🌾, +2,500 ⛓️\n"
             "• ⚖️ *0 Pay-To-Win: askar, ajdaho, prestige yoki doimiy daromad bonusi yo'q*"
         ),
     },
@@ -490,9 +490,9 @@ DONATE_TIERS = {
         "category": "vip_pass",
         "price_uzs": 70000,
         "price_label": "70,000 so'm",
-        "gold": 48000,
-        "food": 120000,
-        "iron": 48000,
+        "gold": 95000,
+        "food": 220000,
+        "iron": 95000,
         "infantry": 0,
         "archers": 0,
         "cavalry": 0,
@@ -504,9 +504,9 @@ DONATE_TIERS = {
         "prestige": 0,
         "wildfire": 0,
         "duration_days": 30,
-        "daily_bonus_gold": 3000,
-        "daily_bonus_food": 7500,
-        "daily_bonus_iron": 2400,
+        "daily_bonus_gold": 4500,
+        "daily_bonus_food": 11500,
+        "daily_bonus_iron": 3600,
         "vip_tier": "dragonlord",
         "avatar_frame": "frame_flame",
         "title": "Ajdar Chavandozi",
@@ -520,8 +520,8 @@ DONATE_TIERS = {
             "• 🐉 **30 kunlik Valyriya VIP:** Lord imtiyozlari + Valyriya temasi + Shaxsiy g'alaba xabari + Qal'a nomi\n"
             "• 🏅 **Doimiy Nishon:** «Valyriya Homiysi» nishoni VIP tugagach ham qoladi\n"
             "• 🖼️ **Umrbod kosmetika:** Qonli Ajdar terisi, Valiriya Qora Bazalt qasri, Ajdar Chavandozi unvoni\n"
-            "• 🎁 **Darhol xazina:** +48,000 🪙 Oltin, +120,000 🌾 Bug'doy, +48,000 ⛓️ Temir\n"
-            "• 📅 **30 kunlik Kunlik VIP Sovg'a:** Har kuni +3,000 🪙, +7,500 🌾, +2,400 ⛓️\n"
+            "• 🎁 **Darhol xazina:** +95,000 🪙 Oltin, +220,000 🌾 Bug'doy, +95,000 ⛓️ Temir\n"
+            "• 📅 **30 kunlik Kunlik VIP Sovg'a:** Har kuni +4,500 🪙, +11,500 🌾, +3,600 ⛓️\n"
             "• ⚖️ *0 Pay-To-Win: askar, ajdaho, prestige yoki doimiy daromad bonusi yo'q*"
         ),
     },
@@ -532,9 +532,9 @@ DONATE_TIERS = {
         "category": "vip_pass",
         "price_uzs": 100000,
         "price_label": "100,000 so'm",
-        "gold": 75000,
-        "food": 180000,
-        "iron": 75000,
+        "gold": 150000,
+        "food": 350000,
+        "iron": 150000,
         "infantry": 0,
         "archers": 0,
         "cavalry": 0,
@@ -546,9 +546,9 @@ DONATE_TIERS = {
         "prestige": 0,
         "wildfire": 0,
         "duration_days": 30,
-        "daily_bonus_gold": 4500,
-        "daily_bonus_food": 11000,
-        "daily_bonus_iron": 3600,
+        "daily_bonus_gold": 7000,
+        "daily_bonus_food": 17500,
+        "daily_bonus_iron": 5500,
         "vip_tier": "sovereign",
         "avatar_frame": "frame_sovereign",
         "title": "Temir Taxt Egasi",
@@ -566,8 +566,8 @@ DONATE_TIERS = {
             "• 👑 **30 kunlik Qirollik VIP:** Barcha studiya & bo'lim mediasi, barcha 5 ta tema, Qal'a nomi, **4 ta Qirollik Farmoni**\n"
             "• 🏅 **Doimiy Nishonlar:** «Valyriya Homiysi» va «Qirollik Homiysi» nishonlari VIP tugagach ham qoladi\n"
             "• 🖼️ **Barcha Umrbod Kosmetikalar:** Oltin Saroy, Oltin Ajdar, Sovereign ramkasi va Temir Taxt Egasi unvoni\n"
-            "• 🎁 **Darhol xazina:** +75,000 🪙 Oltin, +180,000 🌾 Bug'doy, +75,000 ⛓️ Temir\n"
-            "• 📅 **30 kunlik Kunlik VIP Sovg'a:** Har kuni +4,500 🪙, +11,000 🌾, +3,600 ⛓️\n"
+            "• 🎁 **Darhol xazina:** +150,000 🪙 Oltin, +350,000 🌾 Bug'doy, +150,000 ⛓️ Temir\n"
+            "• 📅 **30 kunlik Kunlik VIP Sovg'a:** Har kuni +7,000 🪙, +17,500 🌾, +5,500 ⛓️\n"
             "• ⚖️ *0 Pay-To-Win: askar, ajdaho, prestige yoki doimiy daromad bonusi yo'q*"
         ),
     },
