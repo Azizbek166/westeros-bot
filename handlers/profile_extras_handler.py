@@ -66,7 +66,7 @@ async def _render_extras_studio(tg_id: int):
     if has_min_vip_tier(user, "dragonlord"):
         buttons.append([InlineKeyboardButton("⚔️ G'alaba Xabarini Yozish", callback_data="pfx_victory_ask")])
         buttons.append([InlineKeyboardButton("🏰 Qal'a Nomini Yozish", callback_data="pfx_castle_ask")])
-    buttons.append([InlineKeyboardButton("🔙 VIP Studiyaga Qaytish", callback_data="vip_studio")])
+    buttons.append([InlineKeyboardButton("🔙 VIP Studiyaga Qaytish", callback_data="menu_vip_custom")])
     return text, InlineKeyboardMarkup(buttons)
 
 
@@ -295,6 +295,12 @@ async def pfx_sec_pick_callback(update: Update, context: ContextTypes.DEFAULT_TY
     cfg = SECTION_MEDIA_CONFIG.get(key)
     if not cfg:
         return
+    context.user_data.pop("awaiting_vip_photo", None)
+    context.user_data.pop("awaiting_vip_video", None)
+    context.user_data.pop("awaiting_vip_audio", None)
+    context.user_data.pop("awaiting_vip_status", None)
+    context.user_data.pop("awaiting_vip_decree", None)
+    context.user_data.pop("pfx_awaiting", None)
     context.user_data["pfx_awaiting_sec_media"] = key
     text = (
         f"🖼️ *{cfg['name'].upper()}*\n\n"
@@ -337,6 +343,14 @@ async def pfx_sec_media_input_handler(update: Update, context: ContextTypes.DEFA
     elif update.message.animation:
         media_type = "animation"
         file_id = update.message.animation.file_id
+    elif update.message.document:
+        mime = (update.message.document.mime_type or "").lower()
+        if mime.startswith("image/"):
+            media_type = "photo"
+            file_id = update.message.document.file_id
+        elif mime.startswith("video/"):
+            media_type = "video"
+            file_id = update.message.document.file_id
     if not media_type or not file_id:
         return
 
@@ -371,7 +385,8 @@ def register_profile_extras_handlers(app: Application):
     )
     app.add_handler(
         MessageHandler(
-            (filters.PHOTO | filters.VIDEO | filters.ANIMATION) & filters.ChatType.PRIVATE,
+            (filters.PHOTO | filters.VIDEO | filters.ANIMATION | filters.Document.IMAGE | filters.Document.VIDEO)
+            & filters.ChatType.PRIVATE,
             pfx_sec_media_input_handler,
         ),
         group=4,

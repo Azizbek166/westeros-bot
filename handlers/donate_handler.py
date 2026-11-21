@@ -78,12 +78,18 @@ def donate_menu_keyboard() -> InlineKeyboardMarkup:
 
 
 def donate_tier_keyboard(tier_id: str) -> InlineKeyboardMarkup:
-    """Tanlangan paket uchun 'To'lov qildim' (chek yuborish) klaviaturasi"""
+    """Tanlangan paket uchun 'To'lov qildim' va 'Do'stga Sovg'a' klaviaturasi"""
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton(
                 "✅ To'lov qildim (Chek skrinshotini yuborish)",
                 callback_data=f"donate_submit:{tier_id}",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "🎁 Do'stga Sovg'a Qilish",
+                callback_data=f"donate_gift:{tier_id}",
             )
         ],
         [
@@ -339,6 +345,8 @@ async def donate_cancel_callback(update: Update, context: ContextTypes.DEFAULT_T
     await query.answer("Chek yuborish bekor qilindi.")
     context.user_data.pop("awaiting_receipt_tier", None)
     context.user_data.pop("awaiting_receipt_is_troops", None)
+    context.user_data.pop("awaiting_donate_gift_target", None)
+    context.user_data.pop("donate_gift_to_tg_id", None)
     context.user_data.pop("donate_troop_type", None)
     context.user_data.pop("donate_troop_amount", None)
     context.user_data.pop("donate_troop_count", None)
@@ -375,6 +383,8 @@ async def donate_receipt_receiver(update: Update, context: ContextTypes.DEFAULT_
 
     context.user_data.pop("awaiting_receipt_tier", None)
     context.user_data.pop("awaiting_receipt_is_troops", None)
+    context.user_data.pop("awaiting_donate_gift_target", None)
+    context.user_data.pop("donate_gift_to_tg_id", None)
 
     async with AsyncSessionLocal() as session:
         user_db = await crud.get_user_with_relations(session, user.id)
@@ -400,18 +410,42 @@ async def donate_receipt_receiver(update: Update, context: ContextTypes.DEFAULT_
                 custom_tier_name=f"{troop_count:,} ta {t_info['name']}",
             )
         else:
+            gift_to_tg_id = context.user_data.pop("donate_gift_to_tg_id", None)
             ok, msg, req = await submit_donation_request_service(
                 session=session,
                 user=user_db,
                 package_id=tier_id,
                 receipt_file_id=photo_file_id,
                 bot=context.bot,
+                gift_to_tg_id=gift_to_tg_id,
             )
 
     await update.message.reply_text(
         msg,
         reply_markup=back_to_main_keyboard(),
     )
+
+
+async def donate_gift_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Do'stga VIP sovg'a qilish: qabul qiluvchi @username yoki ID so'rash"""
+    query = update.callback_query
+    await query.answer()
+    tier_id = (query.data or "").split(":", 1)[1] if ":" in (query.data or "") else ""
+    if not tier_id:
+        return
+    context.user_data.pop("awaiting_receipt_tier", None)
+    context.user_data.pop("donate_gift_to_tg_id", None)
+    context.user_data["awaiting_donate_gift_target"] = tier_id
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("❌ Bekor qilish", callback_data="donate_cancel_receipt")]])
+    text = (
+        "🎁 **DO'STGA VIP SOVG'A QILISH**\n\n"
+        "Sovg'ani qabul qiluvchi o'yinchining `@username` ini yoki Telegram ID sini yozib yuboring:\n"
+        "_(Masalan: `@lord_stark` yoki `123456789`)_"
+    )
+    try:
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=kb)
+    except Exception:
+        await query.message.reply_text(text.replace("*", "").replace("`", ""), reply_markup=kb)
 
 
 async def handle_donate_text_WhenAwaitingReceipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -421,6 +455,38 @@ async def handle_donate_text_WhenAwaitingReceipt(update: Update, context: Contex
         return
     if context.user_data.get("awaiting_admin_card_input"):
         await handle_admin_card_settings_text(update, context)
+        return
+    gift_tier = context.user_data.get("awaiting_donate_gift_target")
+    if gift_tier and update.message and update.message.text and not update.message.text.startswith("/"):
+        ident = update.message.text.strip().lstrip("@")
+        if ident.lower() in ("bekor", "cancel"):
+            context.user_data.pop("awaiting_donate_gift_target", None)
+            await update.message.reply_text("❌ Sovg'a bekor qilindi.", reply_markup=back_to_main_keyboard())
+            return
+        from sqlalchemy import select, func
+        async with AsyncSessionLocal() as session:
+            target_u = None
+            if ident.isdigit():
+                target_u = await crud.get_user_by_telegram_id(session, int(ident))
+            if not target_u:
+                res = await session.execute(select(models.User).where(func.lower(models.User.username) == ident.lower()))
+                target_u = res.scalar_one_or_none()
+            reqs = await crud.get_payment_settings(session)
+        if not target_u:
+            await update.message.reply_text("❌ Bunday o'yinchi topilmadi! Qaytadan `@username` yoki ID yuboring (yoki `bekor` deng).", parse_mode="Markdown")
+            return
+        context.user_data.pop("awaiting_donate_gift_target", None)
+        context.user_data["awaiting_receipt_tier"] = gift_tier
+        context.user_data["donate_gift_to_tg_id"] = target_u.telegram_id
+        tier_obj = DONATE_TIERS.get(gift_tier, {})
+        await update.message.reply_text(
+            f"🎁 Sovg'a oluvchi: **{escape_md(target_u.full_name)}** (`{target_u.telegram_id}`)\n"
+            f"📦 Paket: **{tier_obj.get('name', gift_tier)}** ({tier_obj.get('price_label', '')})\n"
+            f"💳 Karta: `{reqs['card_number']}` (*{escape_md(reqs['card_holder'])}*)\n\n"
+            f"📸 Endi to'lov cheki skrinshotini (rasm) yuboring:",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Bekor qilish", callback_data="donate_cancel_receipt")]]),
+        )
         return
     if not context.user_data.get("awaiting_receipt_tier") and not context.user_data.get("awaiting_receipt_is_troops"):
         return
@@ -930,6 +996,7 @@ def register_donate_handlers(app):
     app.add_handler(CallbackQueryHandler(donate_my_requests_callback, pattern="^donate_my_requests$"))
     app.add_handler(CallbackQueryHandler(donate_troops_menu_callback, pattern="^donate_troops_menu$"))
     app.add_handler(CallbackQueryHandler(donate_pick_callback, pattern="^donate_pick:"))
+    app.add_handler(CallbackQueryHandler(donate_gift_callback, pattern="^donate_gift:"))
     app.add_handler(CallbackQueryHandler(donate_submit_callback, pattern="^donate_submit:"))
     app.add_handler(CallbackQueryHandler(donate_cancel_callback, pattern="^donate_cancel_receipt$"))
     app.add_handler(CallbackQueryHandler(admin_donate_approve_callback, pattern="^(admin_donate_approve:|adm_don_ok_)"))

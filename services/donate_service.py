@@ -252,6 +252,7 @@ async def submit_donation_request_service(
     custom_price_uzs: Optional[int] = None,
     custom_tier_name: Optional[str] = None,
     local_photo_path: Optional[str] = None,
+    gift_to_tg_id: Optional[int] = None,
 ) -> Tuple[bool, str, Optional[models.DonationRequest]]:
     """
     Foydalanuvchi tomonidan yangi to'lov cheki (skrinshot) bilan donat so'rovi yaratish.
@@ -305,6 +306,10 @@ async def submit_donation_request_service(
     )
     if not req:
         return False, "❌ So'rovni bazaga saqlashda xatolik yuz berdi.", None
+
+    if gift_to_tg_id:
+        req.admin_notes = f"GIFT_TO:{gift_to_tg_id}"
+        await session.commit()
 
     await _notify_admins_new_donation(req, bot=bot, local_photo_path=local_photo_path)
 
@@ -385,6 +390,23 @@ async def approve_donation_request_service(
             f"Vesteros ravnaqi yo'lidagi hissangiz uchun rahmat!"
         )
 
+    gift_recipient = details.get("gift_recipient_tg_id")
+    if gift_recipient and gift_recipient != target_tg_id:
+        await _notify_user_donation_result(
+            gift_recipient,
+            f"🎁 <b>SIZGA VIP SOVG'A KELDI!</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"👤 <b>Kimdan:</b> {req.user_full_name}\n"
+            f"📦 <b>Paket:</b> {details.get('tier_name')}\n"
+            f"💎 Resurslar va VIP imtiyozlar hisobingizga qo'shildi!",
+            bot=bot,
+        )
+        user_notif = (
+            f"🎁 <b>SOVG'A YETKAZILDI! (So'rov #{request_id})</b>\n"
+            f"📦 <b>Paket:</b> {details.get('tier_name')}\n"
+            f"🆔 <b>Qabul qiluvchi ID:</b> <code>{gift_recipient}</code>\n"
+            f"Saxiyligingiz uchun rahmat, Oliy hazratlari!"
+        )
     await _notify_user_donation_result(target_tg_id, user_notif, bot=bot)
     return True, msg, details
 

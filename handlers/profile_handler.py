@@ -433,7 +433,8 @@ async def show_profile(target, user_id: int, is_message: bool):
 
     buttons = []
     # VIP bo'lsa profil studiyasi tugmasi chiqadi
-    if getattr(user, "vip_tier", None) in ["lord", "dragonlord", "sovereign"]:
+    from services.profile_extras_service import has_min_vip_tier
+    if has_min_vip_tier(user, "lord"):
         buttons.append([InlineKeyboardButton("✨ VIP Profil Studiyasi", callback_data="menu_vip_custom")])
 
     buttons.append([InlineKeyboardButton("✏️ Ismni O'zgartirish", callback_data="profile_change_name")])
@@ -579,6 +580,7 @@ async def show_vip_studio_menu(target, user_id: int, is_message: bool = False):
             buttons.append([InlineKeyboardButton("🎵 Fon Musiqasi / Gimn Tanlash", callback_data="vip_set_audio")])
 
         # Qo'shimcha bezaklar (Tema, Gerb, Qal'a nomi, G'alaba xabari, Nishonlar)
+        buttons.append([InlineKeyboardButton("⚡ VIP Tezkor Yig'im (Kunlik + O'lpon)", callback_data="vip_quick_collect")])
         buttons.append([InlineKeyboardButton("🎨 Qo'shimcha Bezaklar (Tema, Gerb, Qal'a)", callback_data="pfx_studio")])
 
         # Qirollik Farmoni (Sovereign)
@@ -1735,6 +1737,39 @@ async def unequip_artifact_callback(update: Update, context: ContextTypes.DEFAUL
     await show_artifacts_menu(query, user_id, is_message=False, page=page)
 
 
+async def vip_quick_collect_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """VIP qulaylik (0 P2W): 1-bosishda Kunlik Bonus + barcha tayyor Qal'a o'lponlarini yig'ish"""
+    query = update.callback_query
+    user_id = query.from_user.id
+    from services.profile_extras_service import get_active_vip_tier
+
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_by_telegram_id(session, user_id)
+        if not user or get_active_vip_tier(user) == "free":
+            await query.answer("❌ Faqat faol VIP Homiy egalari uchun!", show_alert=True)
+            return
+
+        parts = []
+        ok_d, d_msg = await crud.claim_daily_bonus(session, user.id)
+        if ok_d:
+            parts.append("🎁 Kunlik bonus olindi")
+        castles = await crud.get_user_and_house_castles(session, user)
+        tax_cnt = 0
+        tot_g = tot_f = tot_i = 0
+        for c in castles:
+            ok_t, _, t_res = await crud.collect_castle_tax(session, user.id, c.id)
+            if ok_t:
+                tax_cnt += 1
+                tot_g += t_res.get("gold", 0)
+                tot_f += t_res.get("food", 0)
+                tot_i += t_res.get("iron", 0)
+        if tax_cnt > 0:
+            parts.append(f"🏰 {tax_cnt} ta qal'a o'lponi: +{tot_g:,}🪙 +{tot_f:,}🌾 +{tot_i:,}⛓️")
+
+    alert = " | ".join(parts) if parts else "⏳ Hozircha yig'ishga tayyor kunlik bonus yoki o'lpon yo'q."
+    await query.answer(alert[:195], show_alert=True)
+
+
 def register_profile_handlers(app):
     # Buyruqlar (Guruh va Shaxsiy)
     app.add_handler(CommandHandler(["profile", "profil", "me"], profile_command))
@@ -1766,6 +1801,7 @@ def register_profile_handlers(app):
     app.add_handler(CallbackQueryHandler(vip_audio_remove_callback, pattern="^vip_audio_remove$"))
     app.add_handler(CallbackQueryHandler(vip_decree_prompt_callback, pattern="^vip_decree_prompt$"))
     app.add_handler(CallbackQueryHandler(vip_preview_callback, pattern="^vip_preview$"))
+    app.add_handler(CallbackQueryHandler(vip_quick_collect_callback, pattern="^vip_quick_collect$"))
 
     # Qurolxona va Kon callbacklari
     app.add_handler(CallbackQueryHandler(artifacts_menu_callback, pattern="^menu_artifacts$"))

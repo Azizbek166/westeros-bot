@@ -9476,9 +9476,20 @@ async def approve_donation_request(
         }
         return True, f"+{t_count:,} ta {troop_names.get(t_type, t_type)} armiyaga muvaffaqiyatli qo'shildi!", details
 
-    ok, msg, details = await apply_donate_rewards(session, req.telegram_id, req.tier_id)
+    reward_tg_id = req.telegram_id
+    if getattr(req, "admin_notes", None) and str(req.admin_notes).startswith("GIFT_TO:"):
+        try:
+            gift_part = str(req.admin_notes).split(":", 1)[1].strip()
+            if gift_part.isdigit():
+                reward_tg_id = int(gift_part)
+        except Exception:
+            pass
+
+    ok, msg, details = await apply_donate_rewards(session, reward_tg_id, req.tier_id)
     if not ok:
         return False, msg, {}
+    if reward_tg_id != req.telegram_id:
+        details["gift_recipient_tg_id"] = reward_tg_id
 
     req.status = "approved"
     req.reviewed_by_admin_id = admin_telegram_id
