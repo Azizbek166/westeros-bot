@@ -114,7 +114,7 @@ async def show_events_hub(target, user_id: int, is_message: bool, last_report: s
                 nk_res = await session.execute(
                     select(models.NightKingContribution).where(models.NightKingContribution.user_id == user.id)
                 )
-                my_dmg = sum((r.total_damage or 0) for r in nk_res.scalars().all())
+                my_dmg = sum((r.damage_dealt or 0) for r in nk_res.scalars().all())
                 dragons = await crud.get_user_dragons(session, user.id)
                 has_adult_dragon = any(d.stage == "adult" for d in dragons)
 
