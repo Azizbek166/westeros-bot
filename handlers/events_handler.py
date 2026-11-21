@@ -1,6 +1,9 @@
 import json
+import logging
 import random
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CommandHandler, CallbackQueryHandler, ContextTypes
 from database import AsyncSessionLocal, crud, models
@@ -12,7 +15,7 @@ from sqlalchemy import select
 async def get_or_create_event_state(session, event_name: str, default_data: dict) -> models.EventState:
     """EventState ni olish yoki yangi yaratish"""
     res = await session.execute(select(models.EventState).where(models.EventState.event_name == event_name))
-    ev = res.scalar_one_or_none()
+    ev = res.scalars().first()
     if not ev:
         ev = models.EventState(
             event_name=event_name,
@@ -70,78 +73,83 @@ async def _safe_send_or_edit_events(target, text: str, markup: InlineKeyboardMar
 
 async def show_events_hub(target, user_id: int, is_message: bool, last_report: str = ""):
     """Global hodisalar: Tun Qiroli (Oq Yuruvchilar), Vabo, Qaroqchilar va Temir Taxt"""
-    async with AsyncSessionLocal() as session:
-        user = await crud.get_user_with_relations(session, user_id)
-        if user:
-            await crud.check_and_reset_daily_limits(session, user)
+    try:
+        async with AsyncSessionLocal() as session:
+            user = await crud.get_user_with_relations(session, user_id)
+            if user:
+                await crud.check_and_reset_daily_limits(session, user)
 
-        kl_terr = await crud.get_territory_by_id(session, 8)  # King's Landing ID = 8
-        kl_owner = f"{kl_terr.owner_house.emoji} {kl_terr.owner_house.name}" if (kl_terr and kl_terr.owner_house) else "Targaryen"
+            kl_terr = await crud.get_territory_by_id(session, 8)  # King's Landing ID = 8
+            kl_house = await session.get(models.House, kl_terr.owner_house_id) if (kl_terr and kl_terr.owner_house_id) else None
+            kl_owner = f"{kl_house.emoji} {kl_house.name}" if kl_house else "Targaryen"
 
-        # Tun Qiroli holati (To'lqin / Wave tizimi)
-        ww_event = await get_or_create_event_state(
-            session, "white_walkers", {"hp": 1000000, "max_hp": 1000000, "wave": 1, "status": "active"}
-        )
-        ww_data = json.loads(ww_event.data_json or "{}")
-        wave = int(ww_data.get("wave", 1) or 1)
-        max_hp = int(ww_data.get("max_hp", 1000000) or 1000000)
-        hp = int(ww_data.get("hp", max_hp) or 0)
-        if hp <= 0 and ww_data.get("status") == "defeated":
-            wave += 1
-            max_hp = 1000000 + (wave - 1) * 250000
-            hp = max_hp
-            ww_data.update({"wave": wave, "max_hp": max_hp, "hp": hp, "status": "active"})
-            ww_event.data_json = json.dumps(ww_data)
-            await session.commit()
-
-        pct = max(0, min(100, int((hp / max(1, max_hp)) * 100)))
-        bar_len = 10
-        filled = int(bar_len * (pct / 100))
-        progress_bar = "█" * filled + "░" * (bar_len - filled)
-
-        ww_count = user.daily_ww_attack_count if user else 0
-        plague_count = getattr(user, "daily_plague_count", 0) if user else 0
-        bandit_count = getattr(user, "daily_bandit_count", 0) if user else 0
-
-        my_dmg = 0
-        has_adult_dragon = False
-        if user:
-            nk_res = await session.execute(
-                select(models.NightKingContribution).where(models.NightKingContribution.user_id == user.id)
+            # Tun Qiroli holati (To'lqin / Wave tizimi)
+            ww_event = await get_or_create_event_state(
+                session, "white_walkers", {"hp": 1000000, "max_hp": 1000000, "wave": 1, "status": "active"}
             )
-            nk_row = nk_res.scalar_one_or_none()
-            my_dmg = (nk_row.total_damage or 0) if nk_row else 0
-            dragons = await crud.get_user_dragons(session, user.id)
-            has_adult_dragon = any(d.stage == "adult" for d in dragons)
+            ww_data = json.loads(ww_event.data_json or "{}")
+            wave = int(ww_data.get("wave", 1) or 1)
+            max_hp = int(ww_data.get("max_hp", 1000000) or 1000000)
+            hp = int(ww_data.get("hp", max_hp) or 0)
+            if hp <= 0 and ww_data.get("status") == "defeated":
+                wave += 1
+                max_hp = 1000000 + (wave - 1) * 250000
+                hp = max_hp
+                ww_data.update({"wave": wave, "max_hp": max_hp, "hp": hp, "status": "active"})
+                ww_event.data_json = json.dumps(ww_data)
+                await session.commit()
 
-        report_block = f"\n━━━━━━━━━━━━━━━━━━━\n{last_report}\n" if last_report else ""
-        text = (
-            f"❄️ **OQ YURUVCHILAR — TUN QIROLI REYDI**\n\n"
-            f"👑 **Temir Taxt sohibi:** {escape_md(kl_owner)} *(King's Landing + 800 Prestige)*\n\n"
-            f"💀 **THE LONG NIGHT — {wave}-TO'LQIN (GLOBAL BOSS):**\n"
-            f"• Zombi Armiyasi: **{hp:,} / {max_hp:,}** ({pct}%)\n"
-            f"• Holat: `[{progress_bar}]`\n"
-            f"• Bugungi janglaringiz: **{ww_count}/3** ta | Jami zararingiz: **{my_dmg:,}** ⚡\n\n"
-            f"⚔️ **Jang Taktikalarini Tanlang:**\n"
-            f"• ⚔️ *Oddiy Hujum:* 50+ askar (-12 talafot) | +500🪙, +400🌾, +250⛓️\n"
-            f"• 🗡️ *Ajdar Shishasi:* -250🪙, -150⛓️ (-6 talafot) | 1.5x zarar (zirhni teshadi!)\n"
-            f"• 🐉 *Ajdar Olovi:* Voyaga yetgan ajdar (-500🌾, **0 talafot!**) | 2.0x ajdar zarari"
-            f"{report_block}"
-        )
+            pct = max(0, min(100, int((hp / max(1, max_hp)) * 100)))
+            bar_len = 10
+            filled = int(bar_len * (pct / 100))
+            progress_bar = "█" * filled + "░" * (bar_len - filled)
 
-        buttons = [
-            [InlineKeyboardButton(f"⚔️ Oddiy Hujum ({ww_count}/3)", callback_data="raid_nk:normal")],
-            [InlineKeyboardButton(f"🗡️ Ajdar Shishasi Zarbasi (-250🪙/-150⛓️)", callback_data="raid_nk:dragonglass")],
-        ]
-        if has_adult_dragon:
-            buttons.append([InlineKeyboardButton(f"🐉 Ajdar Olovi Zarbasi (-500🌾, 0 talafot)", callback_data="raid_nk:dragonfire")])
-        buttons.extend([
-            [InlineKeyboardButton("🏆 Tun Qiroli Ziyon Reytingi (Top 10)", callback_data="night_king_leaderboard")],
-            [InlineKeyboardButton(f"☣️ Mintaqaviy Vabo ({plague_count}/2)", callback_data="event_plague"),
-             InlineKeyboardButton(f"🥷 Qaroqchilar ({bandit_count}/3)", callback_data="event_bandits")],
-            [InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")],
-        ])
-        await _safe_send_or_edit_events(target, text, InlineKeyboardMarkup(buttons), is_message)
+            ww_count = user.daily_ww_attack_count if user else 0
+            plague_count = getattr(user, "daily_plague_count", 0) if user else 0
+            bandit_count = getattr(user, "daily_bandit_count", 0) if user else 0
+
+            my_dmg = 0
+            has_adult_dragon = False
+            if user:
+                nk_res = await session.execute(
+                    select(models.NightKingContribution).where(models.NightKingContribution.user_id == user.id)
+                )
+                my_dmg = sum((r.total_damage or 0) for r in nk_res.scalars().all())
+                dragons = await crud.get_user_dragons(session, user.id)
+                has_adult_dragon = any(d.stage == "adult" for d in dragons)
+
+            report_block = f"\n━━━━━━━━━━━━━━━━━━━\n{last_report}\n" if last_report else ""
+            text = (
+                f"❄️ **OQ YURUVCHILAR — TUN QIROLI REYDI**\n\n"
+                f"👑 **Temir Taxt sohibi:** {escape_md(kl_owner)} *(King's Landing + 800 Prestige)*\n\n"
+                f"💀 **THE LONG NIGHT — {wave}-TO'LQIN (GLOBAL BOSS):**\n"
+                f"• Zombi Armiyasi: **{hp:,} / {max_hp:,}** ({pct}%)\n"
+                f"• Holat: `[{progress_bar}]`\n"
+                f"• Bugungi janglaringiz: **{ww_count}/3** ta | Jami zararingiz: **{my_dmg:,}** ⚡\n\n"
+                f"⚔️ **Jang Taktikalarini Tanlang:**\n"
+                f"• ⚔️ *Oddiy Hujum:* 50+ askar (-12 talafot) | +500🪙, +400🌾, +250⛓️\n"
+                f"• 🗡️ *Ajdar Shishasi:* -250🪙, -150⛓️ (-6 talafot) | 1.5x zarar (zirhni teshadi!)\n"
+                f"• 🐉 *Ajdar Olovi:* Voyaga yetgan ajdar (-500🌾, **0 talafot!**) | 2.0x ajdar zarari"
+                f"{report_block}"
+            )
+
+            buttons = [
+                [InlineKeyboardButton(f"⚔️ Oddiy Hujum ({ww_count}/3)", callback_data="raid_nk:normal")],
+                [InlineKeyboardButton(f"🗡️ Ajdar Shishasi Zarbasi (-250🪙/-150⛓️)", callback_data="raid_nk:dragonglass")],
+            ]
+            if has_adult_dragon:
+                buttons.append([InlineKeyboardButton(f"🐉 Ajdar Olovi Zarbasi (-500🌾, 0 talafot)", callback_data="raid_nk:dragonfire")])
+            buttons.extend([
+                [InlineKeyboardButton("🏆 Tun Qiroli Ziyon Reytingi (Top 10)", callback_data="night_king_leaderboard")],
+                [InlineKeyboardButton(f"☣️ Mintaqaviy Vabo ({plague_count}/2)", callback_data="event_plague"),
+                 InlineKeyboardButton(f"🥷 Qaroqchilar ({bandit_count}/3)", callback_data="event_bandits")],
+                [InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")],
+            ])
+            await _safe_send_or_edit_events(target, text, InlineKeyboardMarkup(buttons), is_message)
+    except Exception as ev_err:
+        logger.error(f"show_events_hub error: {ev_err}", exc_info=True)
+        err_kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")]])
+        await _safe_send_or_edit_events(target, f"❌ Oq Yuruvchilar panelini ochishda xatolik: {ev_err}", err_kb, is_message)
 
 
 async def raid_night_king_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
