@@ -408,6 +408,23 @@ async def approve_donation_request_service(
             f"Saxiyligingiz uchun rahmat, Oliy hazratlari!"
         )
     await _notify_user_donation_result(target_tg_id, user_notif, bot=bot)
+
+    # Xonadon guruhiga tantanali tabrik (boshqalarni ham rag'batlantirish uchun)
+    try:
+        if bot is not None:
+            from core.notifier import notify_house_group
+            rec_tg = gift_recipient or target_tg_id
+            rec_u = await crud.get_user_any(session, rec_tg)
+            if rec_u and rec_u.house_id:
+                await notify_house_group(
+                    bot,
+                    rec_u.house_id,
+                    f"💎👑 <b>XONADON FAXRI: YANGI HOMIY!</b>\n"
+                    f"<b>{rec_u.full_name}</b> «<b>{details.get('tier_name')}</b>» maqomini faollashtirdi! 🎉",
+                    parse_mode="HTML",
+                )
+    except Exception as shout_err:
+        logger.warning(f"Donate house shoutout warning: {shout_err}")
     return True, msg, details
 
 

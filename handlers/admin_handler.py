@@ -4438,21 +4438,29 @@ async def _send_all_players_report(msg_obj, user_id: int):
         await msg_obj.reply_text("❌ Ruxsat yo'q!")
         return
     import io
+    from datetime import timedelta
     from sqlalchemy.orm import selectinload
     async with AsyncSessionLocal() as session:
         users = (
             await session.execute(
                 select(models.User)
+                .where(models.User.is_banned == False)
                 .options(selectinload(models.User.house))
                 .order_by(models.User.house_id.is_(None), models.User.house_id, models.User.id)
             )
         ).scalars().all()
 
-    lines = [f"JAMI O'YINCHILAR: {len(users)} ta\n" + ("=" * 50)]
+    lines = [f"JAMI FAOL (BLOKLANMAGAN) O'YINCHILAR: {len(users)} ta\n" + ("=" * 60)]
     for idx, u in enumerate(users, 1):
         uname = f"@{u.username}" if u.username else "username yo'q"
         hname = f"{u.house.emoji} {u.house.name}" if u.house else "Tanlanmagan"
-        lines.append(f"{idx}. {u.full_name} | {uname} | TG:{u.telegram_id} | Xonadon: {hname}")
+        if getattr(u, "last_active", None):
+            last_str = (u.last_active + timedelta(hours=5)).strftime("%Y-%m-%d %H:%M")
+        else:
+            last_str = "Noma'lum"
+        lines.append(
+            f"{idx}. {u.full_name} | {uname} | TG:{u.telegram_id} | Xonadon: {hname} | Oxirgi kirish: {last_str}"
+        )
 
     content = "\n".join(lines).encode("utf-8")
     bio = io.BytesIO(content)

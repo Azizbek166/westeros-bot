@@ -247,9 +247,9 @@ DONATE_TIERS = {
         "category": "vip_pass",
         "price_uzs": 10000,
         "price_label": "10,000 so'm",
-        "gold": 15000,
-        "food": 35000,
-        "iron": 15000,
+        "gold": 25000,
+        "food": 60000,
+        "iron": 25000,
         "infantry": 0,
         "archers": 0,
         "cavalry": 0,
@@ -261,19 +261,19 @@ DONATE_TIERS = {
         "prestige": 0,
         "wildfire": 0,
         "duration_days": 30,
-        "daily_bonus_gold": 1000,
-        "daily_bonus_food": 2500,
-        "daily_bonus_iron": 800,
+        "daily_bonus_gold": 1500,
+        "daily_bonus_food": 3500,
+        "daily_bonus_iron": 1200,
         "vip_tier": "noble",
         "avatar_frame": "frame_iron",
         "title": "Qirol Qo'riqchisi",
         "cosmetics": ["frame_iron", "title_kingsguard"],
         "studio_perks": ["photo", "status", "badge_noble"],
         "description": (
-            "• 🛡️ **30 kunlik Noble VIP:** Profil va bo'limlar (Ajdar, Qal'a, Armiya, Xonadon) fotosurati, Shaxsiy Shior, Noble nishoni\n"
+            "• 🛡️ **30 kunlik Noble VIP:** Profil va bo'limlar fotosurati, Shaxsiy Shior, Haftalik VIP Omad Sandig'i, Noble nishoni\n"
             "• 🖼️ **Umrbod kosmetika:** Temir Taxt ramkasi va Qirol Qo'riqchisi unvoni\n"
-            "• 🎁 **Darhol xazina:** +15,000 🪙 Oltin, +35,000 🌾 Bug'doy, +15,000 ⛓️ Temir\n"
-            "• 📅 **30 kunlik Kunlik VIP Sovg'a:** Har kuni +1,000 🪙, +2,500 🌾, +800 ⛓️\n"
+            "• 🎁 **Darhol xazina:** +25,000 🪙 Oltin, +60,000 🌾 Bug'doy, +25,000 ⛓️ Temir\n"
+            "• 📅 **30 kunlik Kunlik VIP Sovg'a:** Har kuni +1,500 🪙, +3,500 🌾, +1,200 ⛓️\n"
             "• ⚖️ *0 Pay-To-Win: askar, ajdaho, prestige yoki doimiy daromad bonusi yo'q*"
         ),
     },
@@ -387,9 +387,9 @@ DONATE_TIERS = {
         "category": "vip_pass",
         "price_uzs": 25000,
         "price_label": "25,000 so'm",
-        "gold": 35000,
-        "food": 80000,
-        "iron": 35000,
+        "gold": 55000,
+        "food": 130000,
+        "iron": 55000,
         "infantry": 0,
         "archers": 0,
         "cavalry": 0,
@@ -401,19 +401,19 @@ DONATE_TIERS = {
         "prestige": 0,
         "wildfire": 0,
         "duration_days": 30,
-        "daily_bonus_gold": 2000,
-        "daily_bonus_food": 5000,
-        "daily_bonus_iron": 1600,
+        "daily_bonus_gold": 3000,
+        "daily_bonus_food": 7500,
+        "daily_bonus_iron": 2400,
         "vip_tier": "knight",
         "avatar_frame": "frame_flame",
         "title": "Qirol Qo'riqchisi",
         "cosmetics": ["frame_iron", "title_kingsguard", "frame_flame", "effect_fire"],
         "studio_perks": ["photo", "status", "crest", "badge_noble", "theme_fire"],
         "description": (
-            "• 🗡️ **30 kunlik Ritsar VIP:** Noble imtiyozlari + Gerb Emoji + Olov profil temasi\n"
+            "• 🗡️ **30 kunlik Ritsar VIP:** Noble imtiyozlari + Gerb Emoji + Olov profil temasi + Haftalik VIP Sandiq\n"
             "• 🖼️ **Umrbod kosmetika:** Olov ramkasi, Olov effekti va oldingi kosmetikalar\n"
-            "• 🎁 **Darhol xazina:** +35,000 🪙 Oltin, +80,000 🌾 Bug'doy, +35,000 ⛓️ Temir\n"
-            "• 📅 **30 kunlik Kunlik VIP Sovg'a:** Har kuni +2,000 🪙, +5,000 🌾, +1,600 ⛓️\n"
+            "• 🎁 **Darhol xazina:** +55,000 🪙 Oltin, +130,000 🌾 Bug'doy, +55,000 ⛓️ Temir\n"
+            "• 📅 **30 kunlik Kunlik VIP Sovg'a:** Har kuni +3,000 🪙, +7,500 🌾, +2,400 ⛓️\n"
             "• ⚖️ *0 Pay-To-Win: askar, ajdaho, prestige yoki doimiy daromad bonusi yo'q*"
         ),
     },
@@ -453,43 +453,6 @@ DONATE_TIERS = {
         "category": "vip_pass",
         "price_uzs": 45000,
         "price_label": "45,000 so'm",
-        "gold": 60000,
-        "food": 140000,
-        "iron": 60000,
-        "infantry": 0,
-        "archers": 0,
-        "cavalry": 0,
-        "spearmen": 0,
-        "special_troops": 0,
-        "catapults": 0,
-        "siege_towers": 0,
-        "shield_hours": 0,
-        "prestige": 0,
-        "wildfire": 0,
-        "duration_days": 30,
-        "daily_bonus_gold": 3200,
-        "daily_bonus_food": 8000,
-        "daily_bonus_iron": 2500,
-        "vip_tier": "lord",
-        "avatar_frame": "frame_flame",
-        "title": "Qirol Qo'riqchisi",
-        "cosmetics": ["frame_iron", "title_kingsguard", "frame_flame", "effect_fire", "castle_ice", "effect_ice"],
-        "studio_perks": ["photo", "badge_noble", "theme_fire", "theme_ice", "video", "status", "audio", "crest"],
-        "description": (
-            "• 🏰 **30 kunlik Lord VIP:** Profil va bo'limlarga Video/GIF, fon musiqasi/gimn, Muz & Olov temalari\n"
-            "• 🎨 **Umrbod kosmetika:** Muz Qasri, Muz effekti va oldingi kosmetikalar\n"
-            "• 🎁 **Darhol xazina:** +60,000 🪙 Oltin, +140,000 🌾 Bug'doy, +60,000 ⛓️ Temir\n"
-            "• 📅 **30 kunlik Kunlik VIP Sovg'a:** Har kuni +3,200 🪙, +8,000 🌾, +2,500 ⛓️\n"
-            "• ⚖️ *0 Pay-To-Win: askar, ajdaho, prestige yoki doimiy daromad bonusi yo'q*"
-        ),
-    },
-    "dragonlord": {
-        "id": "dragonlord",
-        "name": "🐉 Valyriya Homiy (30 kun)",
-        "subtitle": "Valyriya temasi, Qal'a nomi, g'alaba xabari va doimiy nishon",
-        "category": "vip_pass",
-        "price_uzs": 70000,
-        "price_label": "70,000 so'm",
         "gold": 95000,
         "food": 220000,
         "iron": 95000,
@@ -504,34 +467,29 @@ DONATE_TIERS = {
         "prestige": 0,
         "wildfire": 0,
         "duration_days": 30,
-        "daily_bonus_gold": 4500,
-        "daily_bonus_food": 11500,
-        "daily_bonus_iron": 3600,
-        "vip_tier": "dragonlord",
+        "daily_bonus_gold": 5000,
+        "daily_bonus_food": 12000,
+        "daily_bonus_iron": 4000,
+        "vip_tier": "lord",
         "avatar_frame": "frame_flame",
-        "title": "Ajdar Chavandozi",
-        "cosmetics": [
-            "frame_iron", "title_kingsguard", "frame_flame", "effect_fire",
-            "castle_ice", "effect_ice", "dragon_crimson", "castle_valyrian", "title_dragonrider",
-        ],
-        "permanent_badges": ["valyrian_patron"],
-        "studio_perks": ["photo", "badge_noble", "theme_fire", "theme_ice", "theme_valyrian", "video", "status", "audio", "crest", "victory_message", "castle_name"],
+        "title": "Qirol Qo'riqchisi",
+        "cosmetics": ["frame_iron", "title_kingsguard", "frame_flame", "effect_fire", "castle_ice", "effect_ice"],
+        "studio_perks": ["photo", "badge_noble", "theme_fire", "theme_ice", "video", "status", "audio", "crest"],
         "description": (
-            "• 🐉 **30 kunlik Valyriya VIP:** Lord imtiyozlari + Valyriya temasi + Shaxsiy g'alaba xabari + Qal'a nomi\n"
-            "• 🏅 **Doimiy Nishon:** «Valyriya Homiysi» nishoni VIP tugagach ham qoladi\n"
-            "• 🖼️ **Umrbod kosmetika:** Qonli Ajdar terisi, Valiriya Qora Bazalt qasri, Ajdar Chavandozi unvoni\n"
+            "• 🏰 **30 kunlik Lord VIP:** Profil va bo'limlarga Video/GIF, fon musiqasi/gimn, Muz & Olov temalari, Haftalik VIP Sandiq\n"
+            "• 🎨 **Umrbod kosmetika:** Muz Qasri, Muz effekti va oldingi kosmetikalar\n"
             "• 🎁 **Darhol xazina:** +95,000 🪙 Oltin, +220,000 🌾 Bug'doy, +95,000 ⛓️ Temir\n"
-            "• 📅 **30 kunlik Kunlik VIP Sovg'a:** Har kuni +4,500 🪙, +11,500 🌾, +3,600 ⛓️\n"
+            "• 📅 **30 kunlik Kunlik VIP Sovg'a:** Har kuni +5,000 🪙, +12,000 🌾, +4,000 ⛓️\n"
             "• ⚖️ *0 Pay-To-Win: askar, ajdaho, prestige yoki doimiy daromad bonusi yo'q*"
         ),
     },
-    "sovereign": {
-        "id": "sovereign",
-        "name": "👑 Qirollik Homiy (30 kun)",
-        "subtitle": "Barcha bezaklar, 4 ta Qirollik Farmoni va 2 ta doimiy nishon",
+    "dragonlord": {
+        "id": "dragonlord",
+        "name": "🐉 Valyriya Homiy (30 kun)",
+        "subtitle": "Valyriya temasi, Qal'a nomi, g'alaba xabari va doimiy nishon",
         "category": "vip_pass",
-        "price_uzs": 100000,
-        "price_label": "100,000 so'm",
+        "price_uzs": 70000,
+        "price_label": "70,000 so'm",
         "gold": 150000,
         "food": 350000,
         "iron": 150000,
@@ -546,9 +504,51 @@ DONATE_TIERS = {
         "prestige": 0,
         "wildfire": 0,
         "duration_days": 30,
-        "daily_bonus_gold": 7000,
-        "daily_bonus_food": 17500,
-        "daily_bonus_iron": 5500,
+        "daily_bonus_gold": 7500,
+        "daily_bonus_food": 18000,
+        "daily_bonus_iron": 6000,
+        "vip_tier": "dragonlord",
+        "avatar_frame": "frame_flame",
+        "title": "Ajdar Chavandozi",
+        "cosmetics": [
+            "frame_iron", "title_kingsguard", "frame_flame", "effect_fire",
+            "castle_ice", "effect_ice", "dragon_crimson", "castle_valyrian", "title_dragonrider",
+        ],
+        "permanent_badges": ["valyrian_patron"],
+        "studio_perks": ["photo", "badge_noble", "theme_fire", "theme_ice", "theme_valyrian", "video", "status", "audio", "crest", "victory_message", "castle_name"],
+        "description": (
+            "• 🐉 **30 kunlik Valyriya VIP:** Lord imtiyozlari + Valyriya temasi + Shaxsiy g'alaba xabari + Qal'a nomi + Haftalik VIP Sandiq\n"
+            "• 🏅 **Doimiy Nishon:** «Valyriya Homiysi» nishoni VIP tugagach ham qoladi\n"
+            "• 🖼️ **Umrbod kosmetika:** Qonli Ajdar terisi, Valiriya Qora Bazalt qasri, Ajdar Chavandozi unvoni\n"
+            "• 🎁 **Darhol xazina:** +150,000 🪙 Oltin, +350,000 🌾 Bug'doy, +150,000 ⛓️ Temir\n"
+            "• 📅 **30 kunlik Kunlik VIP Sovg'a:** Har kuni +7,500 🪙, +18,000 🌾, +6,000 ⛓️\n"
+            "• ⚖️ *0 Pay-To-Win: askar, ajdaho, prestige yoki doimiy daromad bonusi yo'q*"
+        ),
+    },
+    "sovereign": {
+        "id": "sovereign",
+        "name": "👑 Qirollik Homiy (30 kun)",
+        "subtitle": "Barcha bezaklar, 4 ta Qirollik Farmoni va 2 ta doimiy nishon",
+        "category": "vip_pass",
+        "price_uzs": 100000,
+        "price_label": "100,000 so'm",
+        "gold": 250000,
+        "food": 550000,
+        "iron": 250000,
+        "infantry": 0,
+        "archers": 0,
+        "cavalry": 0,
+        "spearmen": 0,
+        "special_troops": 0,
+        "catapults": 0,
+        "siege_towers": 0,
+        "shield_hours": 0,
+        "prestige": 0,
+        "wildfire": 0,
+        "duration_days": 30,
+        "daily_bonus_gold": 12000,
+        "daily_bonus_food": 28000,
+        "daily_bonus_iron": 9000,
         "vip_tier": "sovereign",
         "avatar_frame": "frame_sovereign",
         "title": "Temir Taxt Egasi",
@@ -563,11 +563,11 @@ DONATE_TIERS = {
             "video", "status", "audio", "crest", "victory_message", "castle_name", "royal_decree",
         ],
         "description": (
-            "• 👑 **30 kunlik Qirollik VIP:** Barcha studiya & bo'lim mediasi, barcha 5 ta tema, Qal'a nomi, **4 ta Qirollik Farmoni**\n"
+            "• 👑 **30 kunlik Qirollik VIP:** Barcha studiya & bo'lim mediasi, barcha 5 ta tema, Qal'a nomi, **4 ta Qirollik Farmoni**, Haftalik VIP Sandiq\n"
             "• 🏅 **Doimiy Nishonlar:** «Valyriya Homiysi» va «Qirollik Homiysi» nishonlari VIP tugagach ham qoladi\n"
             "• 🖼️ **Barcha Umrbod Kosmetikalar:** Oltin Saroy, Oltin Ajdar, Sovereign ramkasi va Temir Taxt Egasi unvoni\n"
-            "• 🎁 **Darhol xazina:** +150,000 🪙 Oltin, +350,000 🌾 Bug'doy, +150,000 ⛓️ Temir\n"
-            "• 📅 **30 kunlik Kunlik VIP Sovg'a:** Har kuni +7,000 🪙, +17,500 🌾, +5,500 ⛓️\n"
+            "• 🎁 **Darhol xazina:** +250,000 🪙 Oltin, +550,000 🌾 Bug'doy, +250,000 ⛓️ Temir\n"
+            "• 📅 **30 kunlik Kunlik VIP Sovg'a:** Har kuni +12,000 🪙, +28,000 🌾, +9,000 ⛓️\n"
             "• ⚖️ *0 Pay-To-Win: askar, ajdaho, prestige yoki doimiy daromad bonusi yo'q*"
         ),
     },

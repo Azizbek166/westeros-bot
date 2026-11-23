@@ -581,6 +581,7 @@ async def show_vip_studio_menu(target, user_id: int, is_message: bool = False):
 
         # Qo'shimcha bezaklar (Tema, Gerb, Qal'a nomi, G'alaba xabari, Nishonlar)
         buttons.append([InlineKeyboardButton("⚡ VIP Tezkor Yig'im (Kunlik + O'lpon)", callback_data="vip_quick_collect")])
+        buttons.append([InlineKeyboardButton("🎁 VIP Haftalik Omad Sandig'i", callback_data="vip_weekly_chest")])
         buttons.append([InlineKeyboardButton("🎨 Qo'shimcha Bezaklar (Tema, Gerb, Qal'a)", callback_data="pfx_studio")])
 
         # Qirollik Farmoni (Sovereign)
@@ -1770,6 +1771,62 @@ async def vip_quick_collect_callback(update: Update, context: ContextTypes.DEFAU
     await query.answer(alert[:195], show_alert=True)
 
 
+async def vip_weekly_chest_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Faol VIP egalari uchun haftasiga 1 marta sirli Omad Sandig'i (0 Pay-To-Win: resurs + XP)"""
+    query = update.callback_query
+    user_id = query.from_user.id
+    import random
+    from services.profile_extras_service import get_active_vip_tier, VIP_TIER_ORDER
+    from core.leveling import check_user_level_up
+
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_by_telegram_id(session, user_id)
+        active_tier = get_active_vip_tier(user)
+        if not user or active_tier == "free":
+            await query.answer("❌ Faqat faol VIP Homiy egalari uchun!", show_alert=True)
+            return
+
+        week_key = crud.get_game_week_str()
+        existing = (
+            await session.execute(
+                select(models.MissionClaim).where(
+                    models.MissionClaim.user_id == user.id,
+                    models.MissionClaim.mission_code == "vip_weekly_chest",
+                    models.MissionClaim.period_key == week_key,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing:
+            await query.answer("⏳ Bu haftalik VIP Omad Sandig'ini allaqachon ochgansiz! Kelasi dushanba yana ochishingiz mumkin.", show_alert=True)
+            return
+
+        tier_mult = max(1, VIP_TIER_ORDER.get(active_tier, 1))
+        g_win = random.randint(4000, 7000) * tier_mult
+        f_win = random.randint(9000, 15000) * tier_mult
+        i_win = random.randint(3500, 6000) * tier_mult
+        xp_win = 150 * tier_mult
+
+        session.add(
+            models.MissionClaim(
+                user_id=user.id,
+                mission_code="vip_weekly_chest",
+                period_key=week_key,
+            )
+        )
+        user.gold = (user.gold or 0) + g_win
+        user.food = (user.food or 0) + f_win
+        user.iron = (user.iron or 0) + i_win
+        user.xp = (user.xp or 0) + xp_win
+        crud.track_user_gold_gain(user, g_win)
+        check_user_level_up(user)
+        await session.commit()
+
+    await query.answer(
+        f"🎁 VIP SANDIQ OCHILDI! +{g_win:,}🪙, +{f_win:,}🌾, +{i_win:,}⛓️, +{xp_win} XP!",
+        show_alert=True,
+    )
+
+
 def register_profile_handlers(app):
     # Buyruqlar (Guruh va Shaxsiy)
     app.add_handler(CommandHandler(["profile", "profil", "me"], profile_command))
@@ -1802,6 +1859,7 @@ def register_profile_handlers(app):
     app.add_handler(CallbackQueryHandler(vip_decree_prompt_callback, pattern="^vip_decree_prompt$"))
     app.add_handler(CallbackQueryHandler(vip_preview_callback, pattern="^vip_preview$"))
     app.add_handler(CallbackQueryHandler(vip_quick_collect_callback, pattern="^vip_quick_collect$"))
+    app.add_handler(CallbackQueryHandler(vip_weekly_chest_callback, pattern="^vip_weekly_chest$"))
 
     # Qurolxona va Kon callbacklari
     app.add_handler(CallbackQueryHandler(artifacts_menu_callback, pattern="^menu_artifacts$"))

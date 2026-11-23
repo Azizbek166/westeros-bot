@@ -52,7 +52,7 @@ class TestDonatePacks(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(t.get("duration_days", 0), 30)
             self.assertFalse(t.get("instant_dragon_heal", False))
             self.assertFalse(t.get("instant_egg_hatch_boost", False))
-            self.assertLessEqual(t["gold"], 150000)
+            self.assertLessEqual(t["gold"], 250000)
             self.assertGreater(t.get("daily_bonus_gold", 0), 0)
 
     async def test_02_legacy_packages_still_resolve(self):
