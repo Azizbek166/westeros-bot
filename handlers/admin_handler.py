@@ -4433,42 +4433,86 @@ async def admin_trim_troops_callback(update: Update, context: ContextTypes.DEFAU
         await query.edit_message_text(text.replace("*", "").replace("`", ""), parse_mode=None, reply_markup=InlineKeyboardMarkup(buttons))
 
 
+async def _send_chunked_html_list(msg_obj, header: str, entries: list[str], empty_text: str):
+    if not entries:
+        await msg_obj.reply_text(empty_text, parse_mode="HTML")
+        return
+
+    chunks = []
+    current = header
+    for entry in entries:
+        addition = f"\n{entry}"
+        if len(current) + len(addition) > 3800:
+            chunks.append(current)
+            current = f"{header} <i>(davomi)</i>\n{entry}"
+        else:
+            current += addition
+    if current:
+        chunks.append(current)
+
+    for chunk in chunks:
+        await msg_obj.reply_text(chunk, parse_mode="HTML")
+
+
+def _format_player_entry(idx: int, u, timedelta_cls) -> str:
+    import html
+
+    name = html.escape(u.full_name or "Noma'lum")
+    uname = f"@{html.escape(u.username)}" if u.username else "username yo'q"
+    hname = f"{u.house.emoji} {html.escape(u.house.name)}" if u.house else "Tanlanmagan"
+    if getattr(u, "last_active", None):
+        last_str = (u.last_active + timedelta_cls(hours=5)).strftime("%Y-%m-%d %H:%M")
+    else:
+        last_str = "Noma'lum"
+    return (
+        f"{idx}. <b>{name}</b> ({uname})\n"
+        f"   🆔 <code>{u.telegram_id}</code> | 🏰 {hname} | 🕒 {last_str}"
+    )
+
+
 async def _send_all_players_report(msg_obj, user_id: int):
     if not is_admin(user_id):
         await msg_obj.reply_text("❌ Ruxsat yo'q!")
         return
-    import io
     from datetime import timedelta
     from sqlalchemy.orm import selectinload
+
     async with AsyncSessionLocal() as session:
         users = (
             await session.execute(
                 select(models.User)
-                .where(models.User.is_banned == False)
                 .options(selectinload(models.User.house))
                 .order_by(models.User.house_id.is_(None), models.User.house_id, models.User.id)
             )
         ).scalars().all()
 
-    lines = [f"JAMI FAOL (BLOKLANMAGAN) O'YINCHILAR: {len(users)} ta\n" + ("=" * 60)]
-    for idx, u in enumerate(users, 1):
-        uname = f"@{u.username}" if u.username else "username yo'q"
-        hname = f"{u.house.emoji} {u.house.name}" if u.house else "Tanlanmagan"
-        if getattr(u, "last_active", None):
-            last_str = (u.last_active + timedelta(hours=5)).strftime("%Y-%m-%d %H:%M")
-        else:
-            last_str = "Noma'lum"
-        lines.append(
-            f"{idx}. {u.full_name} | {uname} | TG:{u.telegram_id} | Xonadon: {hname} | Oxirgi kirish: {last_str}"
-        )
+    active_users = [u for u in users if not getattr(u, "is_banned", False)]
+    banned_users = [u for u in users if getattr(u, "is_banned", False)]
 
-    content = "\n".join(lines).encode("utf-8")
-    bio = io.BytesIO(content)
-    bio.name = "barcha_oyinchilar.txt"
-    with_house = sum(1 for u in users if u.house_id)
-    await msg_obj.reply_document(
-        document=bio,
-        caption=f"📋 Barcha o'yinchilar ro'yxati: {len(users)} ta (Xonadon tanlagan: {with_house} ta)",
+    with_house = sum(1 for u in active_users if u.house_id)
+    active_header = (
+        f"✅ <b>FAOL O'YINCHILAR RO'YXATI: {len(active_users)} ta</b> "
+        f"(Xonadon tanlagan: {with_house} ta)\n"
+        + ("─" * 28)
+    )
+    active_entries = [_format_player_entry(idx, u, timedelta) for idx, u in enumerate(active_users, 1)]
+    await _send_chunked_html_list(
+        msg_obj,
+        active_header,
+        active_entries,
+        "✅ <b>FAOL O'YINCHILAR RO'YXATI:</b> 0 ta",
+    )
+
+    banned_header = (
+        f"🚫 <b>BLOKLANGAN O'YINCHILAR RO'YXATI: {len(banned_users)} ta</b>\n"
+        + ("─" * 28)
+    )
+    banned_entries = [_format_player_entry(idx, u, timedelta) for idx, u in enumerate(banned_users, 1)]
+    await _send_chunked_html_list(
+        msg_obj,
+        banned_header,
+        banned_entries,
+        "🚫 <b>BLOKLANGAN O'YINCHILAR RO'YXATI:</b> 0 ta (yo'q)",
     )
 
 
