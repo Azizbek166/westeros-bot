@@ -3425,10 +3425,9 @@ async def equip_dragon_artifact(session: AsyncSession, user_id: int, dragon_id: 
 
     max_pwr = get_max_dragon_power(dragon.level, dragon.stage, artifact_code)
     dragon.power = min(max_pwr, new_pwr)
-    user.prestige += 30
 
     await session.commit()
-    return True, f"✨ {dragon.name} ga {art_info['name']} taqildi! Ajdarning quvvati: {dragon.power:,}⚡ (+30 Prestige)"
+    return True, f"✨ {dragon.name} ga {art_info['name']} taqildi! Ajdarning quvvati: {dragon.power:,}⚡"
 
 
 def get_user_castle_tax_hours(user: models.User, territory: models.Territory, now: Optional[datetime] = None) -> Tuple[int, int]:
@@ -3919,10 +3918,32 @@ async def buy_artifact(session: AsyncSession, user_id: int, code: str) -> Tuple[
     session.add(new_art)
     await session.flush()
     user.equipped_artifact_id = new_art.id
-    user.prestige += 25
     user.xp += 300
+
+    # Faqat birinchi marta artefakt olganda (+25 Prestige) bir marta beriladi
+    first_tx_res = await session.execute(
+        select(models.Transaction.id).where(
+            models.Transaction.user_id == user.id,
+            models.Transaction.action_type == "first_artifact_prestige",
+        ).limit(1)
+    )
+    prestige_note = ""
+    if len(other_arts) == 0 and first_tx_res.scalar_one_or_none() is None:
+        user.prestige = (user.prestige or 0) + 25
+        track_user_prestige_gain(user, 25)
+        session.add(models.Transaction(
+            user_id=user.id,
+            amount_gold=0,
+            amount_food=0,
+            amount_iron=0,
+            action_type="first_artifact_prestige",
+            details=f"Birinchi artefakt: {art_info['name']} (+25 Prestige)",
+            created_at=datetime.utcnow(),
+        ))
+        prestige_note = " (+25 Prestige)"
+
     await session.commit()
-    return True, f"🏆 TABRIKLAYMIZ! Siz {art_info['name']} sohibigalandingiz! (+25 Prestige)"
+    return True, f"🏆 TABRIKLAYMIZ! Siz {art_info['name']} sohibiga aylandingiz!{prestige_note}"
 
 
 # ============================================================
