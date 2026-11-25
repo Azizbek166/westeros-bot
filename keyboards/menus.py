@@ -41,6 +41,7 @@ def legacy_main_menu_keyboard(user_id: int = None) -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton("📜 Vazifalar", callback_data="menu_quests"),
+            InlineKeyboardButton("🗺️ Kampaniya", callback_data="menu_campaigns"),
         ],
         [
             InlineKeyboardButton("🐉 Ajdarlar", callback_data="menu_dragons"),

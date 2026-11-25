@@ -34,6 +34,7 @@ from handlers.promo_handler import register_promo_handlers
 from handlers.mission_handler import register_mission_handlers
 from handlers.profile_extras_handler import register_profile_extras_handlers
 from handlers.naval_handler import register_naval_handlers
+from handlers.campaign_handler import register_campaign_handlers
 
 def register_all_handlers(app):
     """Barcha bot handlerlarini Application ga ro'yxatdan o'tkazish"""
@@ -73,6 +74,7 @@ def register_all_handlers(app):
     register_mission_handlers(app)
     register_profile_extras_handlers(app)
     register_naval_handlers(app)
+    register_campaign_handlers(app)
 
 
 

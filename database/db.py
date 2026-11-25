@@ -295,6 +295,21 @@ async def init_db():
                 "ALTER TABLE hall_of_fame ADD COLUMN IF NOT EXISTS snapshot_json TEXT DEFAULT '{}'",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_ai_requests_count INTEGER DEFAULT 0",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by_id INTEGER",
+                "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS unlock_mode VARCHAR(20) DEFAULT 'cooldown'",
+                "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS default_cooldown_hours INTEGER DEFAULT 24",
+                "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS default_daily_attempts INTEGER DEFAULT 3",
+                "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS default_choice_cooldown_minutes INTEGER DEFAULT 30",
+                "ALTER TABLE campaign_missions ADD COLUMN IF NOT EXISTS cooldown_hours_override INTEGER",
+                "ALTER TABLE campaign_missions ADD COLUMN IF NOT EXISTS calendar_unlock_at TIMESTAMP",
+                "ALTER TABLE campaign_missions ADD COLUMN IF NOT EXISTS daily_attempts_override INTEGER",
+                "ALTER TABLE campaign_missions ADD COLUMN IF NOT EXISTS choice_cooldown_minutes_override INTEGER",
+                "ALTER TABLE user_campaign_progress ADD COLUMN IF NOT EXISTS unlock_at TIMESTAMP",
+                "ALTER TABLE user_campaign_progress ADD COLUMN IF NOT EXISTS unlock_notified_for_order INTEGER DEFAULT 0",
+                "ALTER TABLE user_campaign_progress ADD COLUMN IF NOT EXISTS daily_wrong_attempts INTEGER DEFAULT 0",
+                "ALTER TABLE user_campaign_progress ADD COLUMN IF NOT EXISTS daily_attempts_date VARCHAR(10) DEFAULT ''",
+                "ALTER TABLE user_campaign_progress ADD COLUMN IF NOT EXISTS choice_cooldown_until TIMESTAMP",
+                "ALTER TABLE user_campaign_progress ADD COLUMN IF NOT EXISTS branch_choices_json TEXT DEFAULT '{}'",
+                "ALTER TABLE user_campaign_progress ADD COLUMN IF NOT EXISTS notify_enabled BOOLEAN DEFAULT TRUE",
             ]:
                 try:
                     await conn.execute(text(pg_alter))
@@ -801,5 +816,13 @@ async def init_db():
                 logger.warning(f"unpaid_stars_cleanup_v1 xatosi: {cl_err}")
 
         await session.commit()
+
+        # Namuna kampaniya ("The Mystery of the Missing Lord") — 5 missiya, har biri orasida 24 soat kutish
+        try:
+            from services.campaign_service import seed_sample_campaign
+            await seed_sample_campaign(session)
+        except Exception as camp_seed_err:
+            logger.warning(f"Sample campaign seed warning: {camp_seed_err}")
+
         logger.info("✅ 50 ta Xonadon va Westeros hududlari bazaga kiritildi.")
 

@@ -1301,6 +1301,89 @@ class NavalBattleReport(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+# ============================================================
+# CAMPAIGN MISSIONS (VAQT LIMITLI KAMPANIYA TIZIMI — 0 P2W)
+# ============================================================
+class Campaign(Base):
+    __tablename__ = "campaigns"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    slug = Column(String(80), unique=True, nullable=True, index=True)
+    title = Column(String(200), nullable=False)
+    description = Column(Text, default="")
+    status = Column(String(20), default="draft", index=True)  # draft | published | archived
+    unlock_mode = Column(String(20), default="cooldown")  # cooldown | calendar
+    default_cooldown_hours = Column(Integer, default=24)
+    default_daily_attempts = Column(Integer, default=3)
+    default_choice_cooldown_minutes = Column(Integer, default=30)
+    created_by = Column(BigInteger, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+    missions = relationship(
+        "CampaignMission",
+        back_populates="campaign",
+        cascade="all, delete-orphan",
+        order_by="CampaignMission.order_index",
+    )
+
+
+class CampaignMission(Base):
+    __tablename__ = "campaign_missions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id", ondelete="CASCADE"), nullable=False, index=True)
+    order_index = Column(Integer, nullable=False)  # 1-based
+    title = Column(String(200), nullable=False)
+    story_text = Column(Text, default="")
+    mission_type = Column(String(20), default="story")  # story | quiz | branch | riddle
+    options_json = Column(Text, default="[]")  # JSON list of {key, text, is_correct, outcome}
+    correct_answer = Column(String(255), nullable=True)
+    cooldown_hours_override = Column(Integer, nullable=True)  # None => campaign.default_cooldown_hours
+    calendar_unlock_at = Column(DateTime, nullable=True)  # UTC naive datetime (calendar mode)
+    daily_attempts_override = Column(Integer, nullable=True)  # None => campaign.default_daily_attempts
+    choice_cooldown_minutes_override = Column(Integer, nullable=True)  # None => campaign.default_choice_cooldown_minutes
+    reward_gold = Column(Integer, default=0)
+    reward_food = Column(Integer, default=0)
+    reward_iron = Column(Integer, default=0)
+    reward_xp = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    campaign = relationship("Campaign", back_populates="missions")
+
+    __table_args__ = (
+        UniqueConstraint("campaign_id", "order_index", name="uq_campaign_mission_order"),
+    )
+
+
+class UserCampaignProgress(Base):
+    __tablename__ = "user_campaign_progress"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    telegram_id = Column(BigInteger, nullable=False, index=True)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id", ondelete="CASCADE"), nullable=False, index=True)
+    current_mission_order = Column(Integer, default=1)
+    completed_missions_count = Column(Integer, default=0)
+    is_completed = Column(Boolean, default=False, index=True)
+    unlock_at = Column(DateTime, nullable=True, index=True)  # UTC naive datetime when current_mission_order unlocks
+    unlock_notified_for_order = Column(Integer, default=0)  # Prevents duplicate unlock notifications
+    daily_wrong_attempts = Column(Integer, default=0)
+    daily_attempts_date = Column(String(10), default="")  # YYYY-MM-DD in Asia/Tashkent
+    choice_cooldown_until = Column(DateTime, nullable=True)  # UTC naive datetime after wrong choice
+    branch_choices_json = Column(Text, default="{}")
+    notify_enabled = Column(Boolean, default=True)
+    started_at = Column(DateTime, default=datetime.utcnow)
+    last_completed_at = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "campaign_id", name="uq_user_campaign_progress"),
+        Index("ix_ucp_notify_scan", "is_completed", "notify_enabled", "unlock_at"),
+    )
+
+
+
 
 
 

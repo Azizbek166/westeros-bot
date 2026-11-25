@@ -395,6 +395,16 @@ async def global_error_handler(update: object, context: ContextTypes.DEFAULT_TYP
         logger.error(f"global_error_handler reporting error: {ge}")
 
 
+async def campaign_unlock_notify_job(context: ContextTypes.DEFAULT_TYPE):
+    """Ochilish vaqti yetgan kampaniya missiyalari uchun bildirishnomalarni yuboradi."""
+    try:
+        from services.campaign_service import process_campaign_unlock_notifications
+        async with AsyncSessionLocal() as session:
+            await process_campaign_unlock_notifications(session, bot=context.bot)
+    except Exception as e:
+        logger.warning(f"campaign_unlock_notify_job xatosi: {e}")
+
+
 # ============================================================
 # ASOSIY ISHGA TUSHIRISH (MAIN)
 # ============================================================
@@ -440,6 +450,11 @@ async def main_async():
         render_keepalive_job,
         interval=300,
         first=60,
+    )
+    app.job_queue.run_repeating(
+        campaign_unlock_notify_job,
+        interval=60,
+        first=20,
     )
     register_daily_events_jobs(app)
 

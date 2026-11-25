@@ -111,6 +111,7 @@ async def show_admin_dashboard(target, is_message: bool):
                 InlineKeyboardButton("💳 Karta Sozlamasi", callback_data="admin_card_settings"),
             ],
             [InlineKeyboardButton("🎟 Promo-kodlar Boshqaruvi", callback_data="admin_promos_menu")],
+            [InlineKeyboardButton("🗺️ Kampaniyalar (Pacing)", callback_data="admin_campaigns")],
             [InlineKeyboardButton("⚔️ O'yinchiga Askar Berish (Username)", callback_data="admin_give_troops_menu")],
             [InlineKeyboardButton("➖ O'yinchidan Askar Olish (Username)", callback_data="admin_take_troops_menu")],
             [InlineKeyboardButton("📜 O'yinchilar Harakatlari Jurnali (Logs)", callback_data="admin_activity_logs:0")],
