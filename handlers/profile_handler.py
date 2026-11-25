@@ -272,7 +272,7 @@ async def format_user_profile_card(user: models.User, session, is_group: bool = 
             text = f"{text}\n\n{footer_line}"
 
     photo_id = user.custom_photo_file_id if vip in ["noble", "knight", "lord", "dragonlord", "sovereign"] else None
-    video_id = user.custom_video_file_id if vip in ["lord", "dragonlord", "sovereign"] else None
+    video_id = user.custom_video_file_id if vip in ["knight", "lord", "dragonlord", "sovereign"] else None
     audio_id = user.custom_audio_file_id if vip in ["lord", "dragonlord", "sovereign"] else None
     audio_title = user.custom_audio_title if vip in ["lord", "dragonlord", "sovereign"] else None
 
@@ -434,7 +434,7 @@ async def show_profile(target, user_id: int, is_message: bool):
     buttons = []
     # VIP bo'lsa profil studiyasi tugmasi chiqadi
     from services.profile_extras_service import has_min_vip_tier
-    if has_min_vip_tier(user, "lord"):
+    if has_min_vip_tier(user, "noble"):
         buttons.append([InlineKeyboardButton("✨ VIP Profil Studiyasi", callback_data="menu_vip_custom")])
 
     buttons.append([InlineKeyboardButton("✏️ Ismni O'zgartirish", callback_data="profile_change_name")])
@@ -535,6 +535,7 @@ async def show_vip_studio_menu(target, user_id: int, is_message: bool = False):
             return
 
         tier_title = DONATE_TIERS.get(active_tier, {}).get("name", active_tier)
+        knight_req = DONATE_TIERS.get("knight", {}).get("name", "Ritsar Homiy")
         lord_req = DONATE_TIERS.get("lord", {}).get("name", "Lord Homiy")
 
         photo_status = "✅ O'rnatilgan" if user.custom_photo_file_id else "❌ O'rnatilmagan"
@@ -550,8 +551,8 @@ async def show_vip_studio_menu(target, user_id: int, is_message: bool = False):
             f"✨👑 **VIP PROFIL SOZLAMALARI STUDIYASI** 👑✨\n\n"
             f"Sizning faol VIP maqomingiz: **{tier_title}**\n\n"
             f"📸 **Profil fotosurati:** {photo_status}\n"
-            f"🎥 **Profil videosi / GIF ({lord_req}+):** {video_status}\n"
-            f"✍️ **Shaxsiy shior / status ({lord_req}+):** {status_status}\n"
+            f"🎥 **Profil videosi / GIF ({knight_req}+):** {video_status}\n"
+            f"✍️ **Shaxsiy shior / status:** {status_status}\n"
             f"🎵 **Fon musiqasi / gimn ({lord_req}+):** {audio_status}\n"
             f"{decree_line}\n"
             f"Quyidagi tugmalar orqali profilingizni bezating va sozlang:"
@@ -564,8 +565,8 @@ async def show_vip_studio_menu(target, user_id: int, is_message: bool = False):
         if user.custom_photo_file_id:
             buttons.append([InlineKeyboardButton("🗑️ Rasmni Olib Tashlash", callback_data="vip_remove_photo")])
 
-        # Video (Lord+)
-        if has_min_vip_tier(user, "lord"):
+        # Video (Knight+ — 25,000+ so'm)
+        if has_min_vip_tier(user, "knight"):
             buttons.append([InlineKeyboardButton("🎥 Profil Videosini O'rnatish / Yangilash", callback_data="vip_set_video")])
             if user.custom_video_file_id:
                 buttons.append([InlineKeyboardButton("🗑️ Videoni Olib Tashlash", callback_data="vip_remove_video")])
@@ -620,7 +621,7 @@ async def vip_set_video_callback(update: Update, context: ContextTypes.DEFAULT_T
     text = (
         "🎥 **PROFIL VIDEOSINI YUKLASH (25,000+ SO'M VIP)**\n\n"
         "Profil kartangizda fotosurat o'rniga jonli video yoki dumaloq video xabar namoyish etiladi!\n"
-        "Iltimos, profilingiz uchun istalgan **video, animatsiya (GIF) yoki video-xabar (krujok)** yuboring.\n\n"
+        "Iltimos, **MP4** formatidagi video, animatsiya (GIF) yoki video-xabar (maks. **50 MB**) yuboring.\n\n"
         "💡 _Bekor qilish uchun quyidagi tugmani bosing yoki /cancel deb yozing._"
     )
     buttons = [
@@ -653,7 +654,7 @@ async def vip_set_photo_callback(update: Update, context: ContextTypes.DEFAULT_T
 
     text = (
         "📸 **PROFIL FOTOSURATINI YUKLASH**\n\n"
-        "Hurmatli Lord! O'z profilingiz uchun fotosuratni (rasm shaklida) botga yuboring.\n"
+        "Hurmatli Lord! O'z profilingiz uchun **JPG, PNG yoki WEBP** formatidagi fotosuratni (maks. **10 MB**) botga yuboring.\n"
         "Yuborilgan fotosurat guruhda va botda profilingiz chaqirilganda porlab chiqadi!\n\n"
         "💡 _Bekor qilish uchun quyidagi tugmani bosing yoki /cancel deb yozing._"
     )
@@ -980,67 +981,70 @@ async def vip_input_receiver(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 await msg.reply_text(f"{res_msg}\n\nIltimos, boshqa ism yuboring yoki /cancel deb yozing.")
             return
 
-    # 1. Rasm kiritish
+    # 1. Rasm kiritish (Noble+)
     if u_data.get("awaiting_vip_photo"):
-        photo_file_id = None
-        if msg.photo:
-            photo_file_id = msg.photo[-1].file_id
-        elif msg.document and (msg.document.mime_type or "").startswith("image/"):
-            photo_file_id = msg.document.file_id
-
-        if photo_file_id:
-            async with AsyncSessionLocal() as session:
-                user = await crud.get_user_by_telegram_id(session, user_id)
-                if user:
-                    ok, res_msg = await crud.update_user_custom_photo(session, user.id, photo_file_id)
-            u_data.pop("awaiting_vip_photo", None)
-            kb = InlineKeyboardMarkup([
-                [InlineKeyboardButton("✨ VIP Studiyaga Qaytish", callback_data="menu_vip_custom")],
-                [InlineKeyboardButton("👤 Profilni Ko'rish", callback_data="menu_profile")],
-            ])
-            await msg.reply_text(f"🎉 **AJOYIB!**\n\n{res_msg}", reply_markup=kb, parse_mode="Markdown")
-            return
-        elif msg.text and msg.text.lower() in ["/cancel", "bekor"]:
+        if msg.text and msg.text.lower() in ["/cancel", "bekor"]:
             u_data.pop("awaiting_vip_photo", None)
             await msg.reply_text("❌ Rasm o'rnatish bekor qilindi.", reply_markup=back_to_main_keyboard())
             return
+
+        from services.profile_extras_service import validate_vip_photo_message, has_min_vip_tier
+        ok_media, photo_file_id, err_msg = validate_vip_photo_message(msg)
+        if err_msg:
+            await msg.reply_text(f"{err_msg}\n\nBekor qilish uchun /cancel deb yozing.")
+            return
+        if ok_media and photo_file_id:
+            async with AsyncSessionLocal() as session:
+                user = await crud.get_user_by_telegram_id(session, user_id)
+                if user and has_min_vip_tier(user, "noble"):
+                    ok, res_msg = await crud.update_user_custom_photo(session, user.id, photo_file_id)
+                else:
+                    ok, res_msg = False, "Foydalanuvchi topilmadi yoki faol VIP maqomingiz yo'q."
+            u_data.pop("awaiting_vip_photo", None)
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("✨ VIP Studiyaga Qaytish", callback_data="menu_vip_custom")],
+                [InlineKeyboardButton("👤 Profilni Ko'rish", callback_data="menu_profile")],
+            ])
+            prefix = "🎉 **AJOYIB!**" if ok else "⚠️ **XATOLIK!**"
+            await msg.reply_text(f"{prefix}\n\n{res_msg}", reply_markup=kb, parse_mode="Markdown")
+            return
         else:
-            await msg.reply_text("⚠️ Iltimos, fotosurat (rasm) yuboring yoki bekor qilish uchun /cancel deb yozing.")
+            await msg.reply_text(
+                "⚠️ Iltimos, JPG, PNG yoki WEBP formatidagi fotosurat (maks. 10 MB) yuboring yoki /cancel deb yozing."
+            )
             return
 
-    # 1b. Video kiritish (Lord, Valyriya, Sovereign - 25,000+ so'mlik VIP to'plamlar)
+    # 1b. Video kiritish (Ritsar, Lord, Valyriya, Sovereign - 25,000+ so'mlik VIP to'plamlar)
     if u_data.get("awaiting_vip_video"):
-        video_file_id = None
-        if msg.video:
-            video_file_id = msg.video.file_id
-        elif msg.video_note:
-            video_file_id = msg.video_note.file_id
-        elif msg.animation:
-            video_file_id = msg.animation.file_id
-        elif msg.document and (msg.document.mime_type or "").startswith("video/"):
-            video_file_id = msg.document.file_id
+        if msg.text and msg.text.lower() in ["/cancel", "bekor"]:
+            u_data.pop("awaiting_vip_video", None)
+            await msg.reply_text("❌ Video o'rnatish bekor qilindi.", reply_markup=back_to_main_keyboard())
+            return
 
-        if video_file_id:
+        from services.profile_extras_service import validate_vip_video_message, has_min_vip_tier
+        ok_media, video_file_id, err_msg = validate_vip_video_message(msg)
+        if err_msg:
+            await msg.reply_text(f"{err_msg}\n\nBekor qilish uchun /cancel deb yozing.")
+            return
+        if ok_media and video_file_id:
             async with AsyncSessionLocal() as session:
-                from services.profile_extras_service import has_min_vip_tier
                 user = await crud.get_user_by_telegram_id(session, user_id)
-                if user and has_min_vip_tier(user, "lord"):
+                if user and has_min_vip_tier(user, "knight"):
                     ok, res_msg = await crud.update_user_custom_video(session, user.id, video_file_id)
                 else:
-                    ok, res_msg = False, "Foydalanuvchi topilmadi yoki VIP darajangiz yetarli emas."
+                    ok, res_msg = False, "Foydalanuvchi topilmadi yoki VIP darajangiz yetarli emas (Ritsar Homiy+ kerak)."
             u_data.pop("awaiting_vip_video", None)
             kb = InlineKeyboardMarkup([
                 [InlineKeyboardButton("✨ VIP Studiyaga Qaytish", callback_data="menu_vip_custom")],
                 [InlineKeyboardButton("👤 Profilni Ko'rish", callback_data="menu_profile")],
             ])
-            await msg.reply_text(f"🎉 **AJOYIB!**\n\n{res_msg}", reply_markup=kb, parse_mode="Markdown")
-            return
-        elif msg.text and msg.text.lower() in ["/cancel", "bekor"]:
-            u_data.pop("awaiting_vip_video", None)
-            await msg.reply_text("❌ Video o'rnatish bekor qilindi.", reply_markup=back_to_main_keyboard())
+            prefix = "🎉 **AJOYIB!**" if ok else "⚠️ **XATOLIK!**"
+            await msg.reply_text(f"{prefix}\n\n{res_msg}", reply_markup=kb, parse_mode="Markdown")
             return
         else:
-            await msg.reply_text("⚠️ Iltimos, video yoki dumaloq video xabar (video note) yuboring yoki bekor qilish uchun /cancel deb yozing.")
+            await msg.reply_text(
+                "⚠️ Iltimos, MP4 formatidagi video, GIF yoki video-xabar (maks. 50 MB) yuboring yoki /cancel deb yozing."
+            )
             return
 
     # 2. Status / Shior kiritish

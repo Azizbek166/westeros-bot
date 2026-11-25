@@ -50,7 +50,7 @@ async def get_user_section_media(
     row = res.scalar_one_or_none()
     if not row or not row.file_id:
         return None
-    if row.media_type in ("video", "animation") and not has_min_vip_tier(user, "lord"):
+    if row.media_type in ("video", "animation") and not has_min_vip_tier(user, "knight"):
         return None
     return {"media_type": row.media_type, "file_id": row.file_id}
 
@@ -66,7 +66,7 @@ async def get_all_user_section_media(
     out: Dict[str, Dict[str, str]] = {}
     for row in res.scalars().all():
         if row.section_key in SECTION_MEDIA_CONFIG and row.file_id:
-            if row.media_type in ("video", "animation") and not has_min_vip_tier(user, "lord"):
+            if row.media_type in ("video", "animation") and not has_min_vip_tier(user, "knight"):
                 continue
             out[row.section_key] = {"media_type": row.media_type, "file_id": row.file_id}
     return out
@@ -93,8 +93,8 @@ async def set_user_section_media(
 
     if not has_min_vip_tier(user, "noble"):
         return False, "🔒 Bo'limlarga rasm qo'yish uchun kamida Noble Homiy VIP kerak!"
-    if media_type in ("video", "animation") and not has_min_vip_tier(user, "lord"):
-        return False, "🔒 Bo'limlarga video yoki GIF qo'yish uchun kamida Lord Homiy VIP kerak!"
+    if media_type in ("video", "animation") and not has_min_vip_tier(user, "knight"):
+        return False, "🔒 Bo'limlarga video yoki GIF qo'yish uchun kamida Ritsar Homiy VIP kerak!"
 
     res = await session.execute(
         select(models.UserSectionMedia).where(

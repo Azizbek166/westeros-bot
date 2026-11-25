@@ -73,6 +73,97 @@ PERMANENT_BADGES: Dict[str, str] = {
 
 _URL_OR_MENTION_RE = re.compile(r"(https?://|t\.me/|www\.|@[\w_]+)", re.IGNORECASE)
 
+MAX_VIP_PHOTO_BYTES = 10 * 1024 * 1024  # 10 MB (Telegram foto limiti)
+MAX_VIP_VIDEO_BYTES = 50 * 1024 * 1024  # 50 MB (Telegram bot video limiti)
+ALLOWED_IMAGE_MIMES = {"image/jpeg", "image/jpg", "image/png", "image/webp"}
+ALLOWED_IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp")
+ALLOWED_VIDEO_MIMES = {"video/mp4"}
+ALLOWED_VIDEO_EXTS = (".mp4",)
+
+
+def validate_vip_photo_message(msg) -> Tuple[bool, Optional[str], Optional[str]]:
+    """
+    Rasm fayl turi (jpg/png/webp) va hajmini (<= 10 MB) tekshiradi.
+    Qaytaradi: (ok, file_id, error_message)
+    """
+    if not msg:
+        return False, None, "❌ Xabar topilmadi."
+    if getattr(msg, "photo", None):
+        photo_obj = msg.photo[-1]
+        fsize = getattr(photo_obj, "file_size", None) or 0
+        if fsize > MAX_VIP_PHOTO_BYTES:
+            return False, None, "❌ Rasm hajmi juda katta! Maksimal ruxsat etilgan hajm: 10 MB."
+        return True, photo_obj.file_id, None
+
+    doc = getattr(msg, "document", None)
+    if doc:
+        mime = (getattr(doc, "mime_type", None) or "").lower().strip()
+        fname = (getattr(doc, "file_name", None) or "").lower().strip()
+        is_valid_type = (mime in ALLOWED_IMAGE_MIMES) or (
+            not mime and fname.endswith(ALLOWED_IMAGE_EXTS)
+        )
+        if not is_valid_type:
+            return (
+                False,
+                None,
+                "❌ Noto'g'ri rasm formati! Faqat JPG, PNG yoki WEBP formatidagi rasm yuboring.",
+            )
+        fsize = getattr(doc, "file_size", None) or 0
+        if fsize > MAX_VIP_PHOTO_BYTES:
+            return False, None, "❌ Rasm hajmi juda katta! Maksimal ruxsat etilgan hajm: 10 MB."
+        return True, doc.file_id, None
+
+    return False, None, None
+
+
+def validate_vip_video_message(msg) -> Tuple[bool, Optional[str], Optional[str]]:
+    """
+    Video fayl turi (mp4 / Telegram video-xabar / GIF) va hajmini (<= 50 MB) tekshiradi.
+    Qaytaradi: (ok, file_id, error_message)
+    """
+    if not msg:
+        return False, None, "❌ Xabar topilmadi."
+    if getattr(msg, "video", None):
+        v = msg.video
+        mime = (getattr(v, "mime_type", None) or "").lower().strip()
+        fname = (getattr(v, "file_name", None) or "").lower().strip()
+        if mime and mime not in ALLOWED_VIDEO_MIMES and not fname.endswith(ALLOWED_VIDEO_EXTS):
+            return False, None, "❌ Noto'g'ri video formati! Faqat MP4 formatidagi video yuboring."
+        fsize = getattr(v, "file_size", None) or 0
+        if fsize > MAX_VIP_VIDEO_BYTES:
+            return False, None, "❌ Video hajmi juda katta! Maksimal ruxsat etilgan hajm: 50 MB."
+        return True, v.file_id, None
+
+    if getattr(msg, "video_note", None):
+        vn = msg.video_note
+        fsize = getattr(vn, "file_size", None) or 0
+        if fsize > MAX_VIP_VIDEO_BYTES:
+            return False, None, "❌ Video-xabar hajmi juda katta! Maksimal ruxsat etilgan hajm: 50 MB."
+        return True, vn.file_id, None
+
+    if getattr(msg, "animation", None):
+        anim = msg.animation
+        fsize = getattr(anim, "file_size", None) or 0
+        if fsize > MAX_VIP_VIDEO_BYTES:
+            return False, None, "❌ Animatsiya hajmi juda katta! Maksimal ruxsat etilgan hajm: 50 MB."
+        return True, anim.file_id, None
+
+    doc = getattr(msg, "document", None)
+    if doc:
+        mime = (getattr(doc, "mime_type", None) or "").lower().strip()
+        fname = (getattr(doc, "file_name", None) or "").lower().strip()
+        is_valid_type = (mime in ALLOWED_VIDEO_MIMES) or (
+            (not mime or mime == "application/octet-stream") and fname.endswith(ALLOWED_VIDEO_EXTS)
+        )
+        if not is_valid_type:
+            return False, None, "❌ Noto'g'ri video formati! Faqat MP4 formatidagi video yuboring."
+        fsize = getattr(doc, "file_size", None) or 0
+        if fsize > MAX_VIP_VIDEO_BYTES:
+            return False, None, "❌ Video hajmi juda katta! Maksimal ruxsat etilgan hajm: 50 MB."
+        return True, doc.file_id, None
+
+    return False, None, None
+
 
 def get_active_vip_tier(user: Optional[models.User]) -> str:
     """Foydalanuvchining joriy faol VIP darajasini qaytaradi ('free' agar muddati tugagan yoki yo'q bo'lsa)."""

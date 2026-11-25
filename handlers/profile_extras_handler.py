@@ -272,7 +272,7 @@ async def pfx_sec_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
     lines = [
         "🖼️ *BO'LIMLAR MEDIASI (VIP)*",
-        "Har bir bo'limni ochganingizda ko'rinadigan shaxsiy rasm (Noble+) yoki video/GIF (Lord+) o'rnating:\n",
+        "Har bir bo'limni ochganingizda ko'rinadigan shaxsiy rasm (Noble+) yoki video/GIF (Ritsar+) o'rnating:\n",
     ]
     buttons = []
     for key, cfg in SECTION_MEDIA_CONFIG.items():
@@ -305,7 +305,7 @@ async def pfx_sec_pick_callback(update: Update, context: ContextTypes.DEFAULT_TY
     text = (
         f"🖼️ *{cfg['name'].upper()}*\n\n"
         f"{cfg['desc']}\n\n"
-        "📤 Endi menga **Rasm** (Noble+) yoki **Video / GIF** (Lord+) yuboring.\n"
+        "📤 Endi menga **Rasm** (JPG/PNG/WEBP, maks. 10 MB — Noble+) yoki **Video / GIF** (MP4, maks. 50 MB — Ritsar+) yuboring.\n"
         "_(Yoki pastdagi tugma orqali o'chirib tashlashingiz mumkin)_"
     )
     kb = InlineKeyboardMarkup([
@@ -332,25 +332,40 @@ async def pfx_sec_media_input_handler(update: Update, context: ContextTypes.DEFA
     sec_key = context.user_data.get("pfx_awaiting_sec_media")
     if not sec_key or not update.message:
         return
+    from services.profile_extras_service import validate_vip_photo_message, validate_vip_video_message
+
+    msg_obj = update.message
     media_type = None
     file_id = None
-    if update.message.photo:
-        media_type = "photo"
-        file_id = update.message.photo[-1].file_id
-    elif update.message.video:
-        media_type = "video"
-        file_id = update.message.video.file_id
-    elif update.message.animation:
-        media_type = "animation"
-        file_id = update.message.animation.file_id
-    elif update.message.document:
-        mime = (update.message.document.mime_type or "").lower()
-        if mime.startswith("image/"):
-            media_type = "photo"
-            file_id = update.message.document.file_id
-        elif mime.startswith("video/"):
-            media_type = "video"
-            file_id = update.message.document.file_id
+    err_msg = None
+
+    if msg_obj.photo:
+        ok_p, fid, err_msg = validate_vip_photo_message(msg_obj)
+        if ok_p and fid:
+            media_type, file_id = "photo", fid
+    elif msg_obj.animation:
+        ok_v, fid, err_msg = validate_vip_video_message(msg_obj)
+        if ok_v and fid:
+            media_type, file_id = "animation", fid
+    elif msg_obj.video or msg_obj.video_note:
+        ok_v, fid, err_msg = validate_vip_video_message(msg_obj)
+        if ok_v and fid:
+            media_type, file_id = "video", fid
+    elif msg_obj.document:
+        mime = (msg_obj.document.mime_type or "").lower()
+        fname = (msg_obj.document.file_name or "").lower()
+        if mime.startswith("image/") or fname.endswith((".jpg", ".jpeg", ".png", ".webp")):
+            ok_p, fid, err_msg = validate_vip_photo_message(msg_obj)
+            if ok_p and fid:
+                media_type, file_id = "photo", fid
+        else:
+            ok_v, fid, err_msg = validate_vip_video_message(msg_obj)
+            if ok_v and fid:
+                media_type, file_id = "video", fid
+
+    if err_msg:
+        await msg_obj.reply_text(err_msg)
+        return
     if not media_type or not file_id:
         return
 
