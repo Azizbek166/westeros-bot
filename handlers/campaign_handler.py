@@ -114,13 +114,26 @@ async def _render_campaigns_list(target, telegram_id: int):
 
 async def campaigns_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message:
-        await _render_campaigns_list(update.message, update.effective_user.id)
+        try:
+            await _render_campaigns_list(update.message, update.effective_user.id)
+        except Exception as e:
+            logger.exception(f"campaigns_command error: {e}")
+            await update.message.reply_text(f"❌ Kampaniya panelini ochishda xatolik:\n{e}")
 
 
 async def menu_campaigns_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await _render_campaigns_list(query, query.from_user.id)
+    try:
+        await _render_campaigns_list(query, query.from_user.id)
+    except Exception as e:
+        logger.exception(f"menu_campaigns_callback error: {e}")
+        await _safe_edit_or_reply(
+            query,
+            f"❌ Kampaniya panelini ochishda xatolik:\n{e}",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Asosiy Menyu", callback_data="menu_main")]]),
+            parse_mode=None,
+        )
 
 
 async def _render_campaign_view(target, telegram_id: int, campaign_id: int):
@@ -332,21 +345,30 @@ async def admin_campaigns_callback(update: Update, context: ContextTypes.DEFAULT
         await query.answer("❌ Ruxsat yo'q!", show_alert=True)
         return
     await query.answer()
-    async with AsyncSessionLocal() as session:
-        camps = await list_campaigns(session, include_drafts=True)
+    try:
+        async with AsyncSessionLocal() as session:
+            camps = await list_campaigns(session, include_drafts=True)
 
-    lines = ["⚙️ **ADMIN: KAMPANIYALAR BOSHQARUVI**\n"]
-    buttons = []
-    for c in camps:
-        st_icon = "🟢" if c.status == "published" else ("📝" if c.status == "draft" else "📦")
-        mode_icon = "📅" if c.unlock_mode == "calendar" else f"⏳{c.default_cooldown_hours}h"
-        dur = format_campaign_min_duration(c, c.missions or [])
-        lines.append(f"{st_icon} **#{c.id} {escape_md(c.title)}** | {mode_icon} | {dur}")
-        buttons.append([InlineKeyboardButton(f"{st_icon} #{c.id} {c.title}", callback_data=f"admin_camp_view:{c.id}")])
+        lines = ["⚙️ **ADMIN: KAMPANIYALAR BOSHQARUVI**\n"]
+        buttons = []
+        for c in camps:
+            st_icon = "🟢" if c.status == "published" else ("📝" if c.status == "draft" else "📦")
+            mode_icon = "📅" if c.unlock_mode == "calendar" else f"⏳{c.default_cooldown_hours}h"
+            dur = format_campaign_min_duration(c, c.missions or [])
+            lines.append(f"{st_icon} **#{c.id} {escape_md(c.title)}** | {mode_icon} | {dur}")
+            buttons.append([InlineKeyboardButton(f"{st_icon} #{c.id} {c.title}", callback_data=f"admin_camp_view:{c.id}")])
 
-    buttons.append([InlineKeyboardButton("➕ Yangi Kampaniya Yaratish (Wizard)", callback_data="admin_camp_new")])
-    buttons.append([InlineKeyboardButton("🔙 Admin Panel", callback_data="admin_panel")])
-    await _safe_edit_or_reply(query, "\n".join(lines), reply_markup=InlineKeyboardMarkup(buttons))
+        buttons.append([InlineKeyboardButton("➕ Yangi Kampaniya Yaratish (Wizard)", callback_data="admin_camp_new")])
+        buttons.append([InlineKeyboardButton("🔙 Admin Panel", callback_data="admin_panel")])
+        await _safe_edit_or_reply(query, "\n".join(lines), reply_markup=InlineKeyboardMarkup(buttons))
+    except Exception as e:
+        logger.exception(f"admin_campaigns_callback error: {e}")
+        await _safe_edit_or_reply(
+            query,
+            f"❌ Admin kampaniyalar panelini ochishda xatolik:\n{e}",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Admin Panel", callback_data="admin_panel")]]),
+            parse_mode=None,
+        )
 
 
 async def _render_admin_campaign_view(target, campaign_id: int):
@@ -498,13 +520,7 @@ async def admin_camp_set_callback(update: Update, context: ContextTypes.DEFAULT_
         await admin_camp_settings_callback(update, context)
 
 
-async def admin_camp_missions_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    if not is_admin(query.from_user.id):
-        await query.answer("❌ Ruxsat yo'q!", show_alert=True)
-        return
-    await query.answer()
-    camp_id = int((query.data or "").split(":")[1])
+async def _render_admin_camp_missions(target, camp_id: int):
     async with AsyncSessionLocal() as session:
         camp = await get_campaign_with_missions(session, camp_id)
     if not camp:
@@ -527,7 +543,17 @@ async def admin_camp_missions_callback(update: Update, context: ContextTypes.DEF
             InlineKeyboardButton(f"📅 Sana", callback_data=f"admin_m_cal_ask:{camp_id}:{m.id}"),
         ])
     buttons.append([InlineKeyboardButton("🔙 Orqaga", callback_data=f"admin_camp_view:{camp_id}")])
-    await _safe_edit_or_reply(query, "\n".join(lines), reply_markup=InlineKeyboardMarkup(buttons))
+    await _safe_edit_or_reply(target, "\n".join(lines), reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def admin_camp_missions_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if not is_admin(query.from_user.id):
+        await query.answer("❌ Ruxsat yo'q!", show_alert=True)
+        return
+    await query.answer()
+    camp_id = int((query.data or "").split(":")[1])
+    await _render_admin_camp_missions(query, camp_id)
 
 
 async def admin_m_set_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -547,9 +573,7 @@ async def admin_m_set_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         else:
             msg = "✅ Saqlandi."
     await query.answer(msg)
-    # Re-render missions list
-    query.data = f"admin_camp_missions:{camp_id}"
-    await admin_camp_missions_callback(update, context)
+    await _render_admin_camp_missions(query, camp_id)
 
 
 async def admin_m_cal_ask_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
