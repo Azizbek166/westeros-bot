@@ -1516,7 +1516,7 @@ async def iron_mine_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def buy_food_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/buyfood, /food, /oziq, /bozor buyruqlari"""
+    """/buyfood, /byfood, /food, /oziq buyruqlari"""
     user_id = update.effective_user.id
     if context.args and len(context.args) > 0:
         arg = context.args[0].strip()
@@ -1526,6 +1526,23 @@ async def buy_food_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text("❌ Avval /start bosing.")
                 return
             ok, msg = await crud.buy_food_with_gold(session, user.id, arg)
+            await update.message.reply_text(msg, parse_mode="Markdown")
+            return
+
+    await show_iron_mine_menu(update, user_id, is_message=True)
+
+
+async def buy_iron_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/buyiron, /byiron buyruqlari"""
+    user_id = update.effective_user.id
+    if context.args and len(context.args) > 0:
+        arg = context.args[0].strip()
+        async with AsyncSessionLocal() as session:
+            user = await crud.get_user_by_telegram_id(session, user_id)
+            if not user:
+                await update.message.reply_text("❌ Avval /start bosing.")
+                return
+            ok, msg = await crud.buy_iron_with_gold(session, user.id, arg)
             await update.message.reply_text(msg, parse_mode="Markdown")
             return
 
@@ -1840,7 +1857,8 @@ def register_profile_handlers(app):
     app.add_handler(CommandHandler(["mine", "iron", "kon", "tegirmon"], iron_mine_command))
     app.add_handler(CommandHandler(["artifacts", "artifact", "artefakt", "armory", "qurolxona"], artifacts_command))
     app.add_handler(CommandHandler(["studio", "vipstudio"], vip_studio_command))
-    app.add_handler(CommandHandler(["buyfood", "food", "oziq"], buy_food_command))
+    app.add_handler(CommandHandler(["buyfood", "byfood", "food", "oziq"], buy_food_command))
+    app.add_handler(CommandHandler(["buyiron", "byiron"], buy_iron_command))
     app.add_handler(CommandHandler(["sellfood", "don_sotish"], sell_food_command))
     app.add_handler(CommandHandler(["selliron", "temir_sotish"], sell_iron_command))
     app.add_handler(CommandHandler(["cleankeyboard", "tozalash", "removekeyboard"], clean_keyboard_command))

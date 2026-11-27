@@ -4975,23 +4975,44 @@ async def upgrade_iron_mine(session: AsyncSession, user_id: int) -> Tuple[bool, 
     return True, f"🎉 TABRIKLAYMIZ! Temir koni {next_lvl}-darajaga ko'tarildi! (+{next_lvl*50}⛓️ temir/soat ishlab chiqariladi)"
 
 
-async def buy_iron_with_gold(session: AsyncSession, user_id: int, pack_code: str) -> Tuple[bool, str]:
-    """Bozordan oltin evaziga tayyor temir xarid qilish"""
+async def buy_iron_with_gold(session: AsyncSession, user_id: int, pack_code_or_gold: Any) -> Tuple[bool, str]:
+    """Bozordan oltin evaziga tayyor temir xarid qilish (paket kodi yoki ixtiyoriy oltin miqdori)"""
     user = await get_user_any(session, user_id)
     if not user:
         return False, "Foydalanuvchi topilmadi."
 
-    pack = IRON_MARKET_PACKS.get(pack_code)
-    if not pack:
-        return False, "Noto'g'ri tovar tanlandi."
+    if isinstance(pack_code_or_gold, str) and pack_code_or_gold in IRON_MARKET_PACKS:
+        pack = IRON_MARKET_PACKS[pack_code_or_gold]
+        gold_cost = pack["gold"]
+        iron_amount = pack["iron"]
+    else:
+        try:
+            gold_cost = int(pack_code_or_gold)
+        except (ValueError, TypeError):
+            return False, "Noto'g'ri tovar yoki oltin miqdori tanlandi."
 
-    if user.gold < pack["gold"]:
-        return False, f"❌ Xarid uchun yetarli oltin yo'q! Kerak: {pack['gold']:,}🪙 (Sizda: {user.gold:,}🪙)"
+        if gold_cost < 50:
+            return False, "❌ Minimal xarid miqdori — 50🪙 oltin!"
 
-    user.gold -= pack["gold"]
-    user.iron += pack["iron"]
+        # Muvozanatli stavkalar (IRON_MARKET_PACKS bilan mos, arbitraj yo'q: < 1.0)
+        if gold_cost >= 5000:
+            multiplier = 0.84
+        elif gold_cost >= 2500:
+            multiplier = 0.76
+        elif gold_cost >= 1000:
+            multiplier = 0.70
+        else:
+            multiplier = 0.60
+
+        iron_amount = int(gold_cost * multiplier)
+
+    if (user.gold or 0) < gold_cost:
+        return False, f"❌ Xarid uchun yetarli oltin yo'q!\nKerak: {gold_cost:,}🪙 (Sizda: {user.gold:,}🪙)"
+
+    user.gold -= gold_cost
+    user.iron = (user.iron or 0) + iron_amount
     await session.commit()
-    return True, f"✅ Bitim muvaffaqiyatli! +{pack['iron']:,}⛓️ temir omboringizga yetkazildi."
+    return True, f"✅ Bitim muvaffaqiyatli! -{gold_cost:,}🪙 ➡️ +{iron_amount:,}⛓️ temir omboringizga yetkazildi."
 
 
 async def buy_food_with_gold(session: AsyncSession, user_id: int, pack_code_or_gold: Any) -> Tuple[bool, str]:
