@@ -31,6 +31,7 @@ class User(Base):
     house_id = Column(Integer, ForeignKey("houses.id"), nullable=True, index=True)
     rank = Column(String(50), default="member")  # king, commander, knight, captain, member
     title = Column(String(100), nullable=True)  # Faxriy / sharafli unvon (masalan: Shimol Najotkori, Qirol Qo'li)
+    active_title_id = Column(Integer, ForeignKey("titles.id", ondelete="SET NULL"), nullable=True)
     level = Column(Integer, default=1)
     xp = Column(Integer, default=0)
 
@@ -1387,6 +1388,37 @@ class UserCampaignProgress(Base):
     __table_args__ = (
         UniqueConstraint("user_id", "campaign_id", name="uq_user_campaign_progress"),
         Index("ix_ucp_notify_scan", "is_completed", "notify_enabled", "unlock_at"),
+    )
+
+
+# ============================================================
+# PLAYER TITLES (UNVONLAR KATALOGI VA O'YINCHI UNVONLARI)
+# ============================================================
+class Title(Base):
+    __tablename__ = "titles"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    code = Column(String(64), unique=True, nullable=False, index=True)
+    name = Column(String(100), nullable=False)
+    icon = Column(String(16), default="🏅")
+    description = Column(Text, default="")
+    rarity = Column(String(20), default="ODDIY")  # ODDIY | NOYOB | AFSONAVIY
+    stat_bonus_json = Column(Text, nullable=True)  # Optional JSON e.g. {"attack": 2} or None
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class UserTitle(Base):
+    __tablename__ = "user_titles"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    title_id = Column(Integer, ForeignKey("titles.id", ondelete="CASCADE"), nullable=False, index=True)
+    unlocked_at = Column(DateTime, default=datetime.utcnow)
+
+    title = relationship("Title", lazy="joined")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "title_id", name="uq_user_title"),
     )
 
 

@@ -821,8 +821,22 @@ async def submit_campaign_mission_action(
                 if crewards.get("item"):
                     grand_rewards_granted["item"] = str(crewards["item"])
                 if crewards.get("title"):
-                    user.title = str(crewards["title"])[:100]
-                    grand_rewards_granted["title"] = user.title
+                    from services.title_service import grant_title_to_user
+                    t_name = str(crewards["title"])[:100]
+                    user.title = t_name
+                    _, newly_unlocked, t_obj = await grant_title_to_user(
+                        session,
+                        user.id,
+                        title_name=t_name,
+                        description=f"«{campaign.title}» kampaniyasini yakunlaganlik uchun",
+                        rarity="AFSONAVIY",
+                        commit=False,
+                    )
+                    if t_obj and not getattr(user, "active_title_id", None):
+                        user.active_title_id = t_obj.id
+                    grand_rewards_granted["title"] = t_obj.name if t_obj else t_name
+                    grand_rewards_granted["title_icon"] = t_obj.icon if t_obj else "🏅"
+                    grand_rewards_granted["title_newly_unlocked"] = newly_unlocked
                 ach_code = crewards.get("achievement_code")
                 if ach_code:
                     ach_name = crewards.get("achievement_name") or f"{campaign.title} G'olibi"
@@ -888,7 +902,11 @@ async def submit_campaign_mission_action(
             if grand_rewards_granted.get("item"):
                 grand_lines.append(f"🗡️ Maxsus buyum: **«{grand_rewards_granted['item']}»**")
             if grand_rewards_granted.get("title"):
-                grand_lines.append(f"👑 Yangi Unvon: **«{grand_rewards_granted['title']}»**")
+                t_ico = grand_rewards_granted.get("title_icon", "🏅")
+                grand_lines.append(
+                    f"{t_ico} Yangi unvon ochildi: **«{grand_rewards_granted['title']}»**! "
+                    f"Uni «Unvonlarim» panelidan profilga taqishingiz mumkin."
+                )
             if grand_rewards_granted.get("achievement"):
                 grand_lines.append(f"🏅 Yutuq ochildi: **«{grand_rewards_granted['achievement']}»**")
             grand_block = ("\n\n🎁 **FINAL MUKOFOTLARI:**\n" + "\n".join(grand_lines)) if grand_lines else ""
@@ -1045,6 +1063,14 @@ async def create_campaign(
     session.add(camp)
     await session.commit()
     await session.refresh(camp)
+    if completion_rewards and completion_rewards.get("title"):
+        from services.title_service import get_or_create_title
+        await get_or_create_title(
+            session,
+            str(completion_rewards["title"]),
+            description=f"«{camp.title}» kampaniyasini yakunlaganlik uchun",
+            rarity="AFSONAVIY",
+        )
     return camp
 
 
@@ -1175,6 +1201,15 @@ async def update_campaign_info(
         camp.min_level = max(1, int(min_level))
     if completion_rewards is not None:
         camp.completion_rewards_json = json.dumps(completion_rewards, ensure_ascii=False)
+        if completion_rewards.get("title"):
+            from services.title_service import get_or_create_title
+            await get_or_create_title(
+                session,
+                str(completion_rewards["title"]),
+                description=f"«{camp.title}» kampaniyasini yakunlaganlik uchun",
+                rarity="AFSONAVIY",
+                commit=False,
+            )
     camp.updated_at = utc_now()
     await session.commit()
     await session.refresh(camp)

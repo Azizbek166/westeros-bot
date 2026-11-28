@@ -164,7 +164,9 @@ async def format_user_profile_card(user: models.User, session, is_group: bool = 
     net_food_str = f"+{net_food}" if net_food >= 0 else f"{net_food}"
 
     raw_name = hero.name if hero else (user.full_name or "Lord")
-    user_display_name = escape_md(raw_name)
+    from services.title_service import get_user_active_title, format_titled_player_name
+    active_title_obj = await get_user_active_title(session, user)
+    user_display_name = escape_md(format_titled_player_name(raw_name, active_title=active_title_obj))
     username_str = f" (@{escape_md(user.username)})" if user.username else ""
 
     # Ajdaho
@@ -209,8 +211,11 @@ async def format_user_profile_card(user: models.User, session, is_group: bool = 
         audio_label = None
         footer_line = ""
 
-    title_val = getattr(user, "title", None) or default_title
-    title_line = f"👑 Titul: «**{escape_md(title_val)}**»\n" if title_val else ""
+    if active_title_obj:
+        title_line = f"{active_title_obj.icon} Unvon: «**{escape_md(active_title_obj.name)}**»\n"
+    else:
+        title_val = getattr(user, "title", None) or default_title
+        title_line = f"👑 Titul: «**{escape_md(title_val)}**»\n" if title_val else ""
     status_line = f"📜 Shior: «*{escape_md(user.custom_status)}*»\n" if user.custom_status else ""
     audio_line = (
         f"{audio_label}: 🎶 *{escape_md(user.custom_audio_title or default_audio)}*\n"
@@ -437,6 +442,7 @@ async def show_profile(target, user_id: int, is_message: bool):
     if has_min_vip_tier(user, "noble"):
         buttons.append([InlineKeyboardButton("✨ VIP Profil Studiyasi", callback_data="menu_vip_custom")])
 
+    buttons.append([InlineKeyboardButton("🏅 Unvonlarim", callback_data="menu_titles")])
     buttons.append([InlineKeyboardButton("✏️ Ismni O'zgartirish", callback_data="profile_change_name")])
     buttons.append([InlineKeyboardButton("⛏️ Kon & 🌾 Tegirmon", callback_data="menu_iron_mine")])
     buttons.append([InlineKeyboardButton("🗡️ Afsonaviy Artefaktlar (Armory)", callback_data="menu_artifacts")])

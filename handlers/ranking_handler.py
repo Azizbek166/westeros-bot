@@ -28,6 +28,8 @@ def get_user_display_name(u: models.User) -> str:
     except Exception:
         pass
     uname = f" (@{u.username})" if getattr(u, "username", None) else ""
+    if getattr(u, "active_title_id", None) and getattr(u, "title", None):
+        return f"[{u.title}] {hero_name}{uname}"
     return f"{hero_name}{uname}"
 
 

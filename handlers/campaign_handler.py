@@ -461,6 +461,7 @@ async def _render_admin_campaigns_list(target):
         ])
 
     buttons.append([InlineKeyboardButton("➕ Yangi kampaniya yaratish", callback_data="admin_camp_new")])
+    buttons.append([InlineKeyboardButton("🏅 Unvonlar boshqaruvi", callback_data="admin_titles")])
     buttons.append([InlineKeyboardButton("🔙 Admin menyuga qaytish", callback_data="admin_panel")])
     await _safe_edit_or_reply(target, "\n".join(lines), reply_markup=InlineKeyboardMarkup(buttons))
 

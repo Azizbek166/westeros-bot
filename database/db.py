@@ -197,6 +197,7 @@ async def init_db():
                 "ALTER TABLE campaign_missions ADD COLUMN task_data_json TEXT DEFAULT '{}'",
                 "ALTER TABLE campaign_missions ADD COLUMN success_text TEXT DEFAULT ''",
                 "ALTER TABLE user_campaign_progress ADD COLUMN completion_reward_claimed BOOLEAN DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN active_title_id INTEGER",
             ]:
                 try:
                     await conn.execute(text(alter_stmt))
@@ -324,6 +325,7 @@ async def init_db():
                 "ALTER TABLE campaign_missions ADD COLUMN IF NOT EXISTS task_data_json TEXT DEFAULT '{}'",
                 "ALTER TABLE campaign_missions ADD COLUMN IF NOT EXISTS success_text TEXT DEFAULT ''",
                 "ALTER TABLE user_campaign_progress ADD COLUMN IF NOT EXISTS completion_reward_claimed BOOLEAN DEFAULT FALSE",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS active_title_id INTEGER",
             ]:
                 try:
                     await conn.execute(text(pg_alter))
@@ -830,6 +832,13 @@ async def init_db():
                 logger.warning(f"unpaid_stars_cleanup_v1 xatosi: {cl_err}")
 
         await session.commit()
+
+        # Standart va kampaniya unvonlarini bazaga idempotent tarzda kiritish
+        try:
+            from services.title_service import seed_default_titles
+            await seed_default_titles(session)
+        except Exception as title_seed_err:
+            logger.warning(f"Titles seed warning: {title_seed_err}")
 
         # Barcha standart kampaniyalar (1 original + 3 yangi o'zbekcha kampaniya — idempotent)
         try:
