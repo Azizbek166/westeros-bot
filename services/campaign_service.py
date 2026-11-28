@@ -245,6 +245,67 @@ def parse_mission_options(mission: models.CampaignMission) -> List[Dict[str, Any
         return []
 
 
+def parse_json_dict(raw: Optional[str]) -> Dict[str, Any]:
+    try:
+        data = json.loads(raw or "{}")
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def parse_completion_rewards(campaign: models.Campaign) -> Dict[str, Any]:
+    return parse_json_dict(getattr(campaign, "completion_rewards_json", "{}"))
+
+
+def parse_task_data(mission: models.CampaignMission) -> Dict[str, Any]:
+    return parse_json_dict(getattr(mission, "task_data_json", "{}"))
+
+
+def format_completion_rewards_preview(campaign: models.Campaign) -> str:
+    r = parse_completion_rewards(campaign)
+    parts = []
+    if r.get("gold"):
+        parts.append(f"{int(r['gold']):,} 🪙 Oltin")
+    if r.get("food"):
+        parts.append(f"{int(r['food']):,} 🌾 Bug'doy")
+    if r.get("iron"):
+        parts.append(f"{int(r['iron']):,} ⛓️ Temir")
+    if r.get("xp"):
+        parts.append(f"{int(r['xp']):,} ✨ XP")
+    if r.get("title"):
+        parts.append(f"👑 Unvon: «{r['title']}»")
+    if r.get("achievement_name"):
+        parts.append(f"🏅 Yutuq: «{r['achievement_name']}»")
+    return ", ".join(parts) if parts else "Har bosqich mukofotlari + shon-sharaf"
+
+
+async def compute_player_campaign_power(session: AsyncSession, user: models.User) -> int:
+    """O'yinchining mavjud RPG statistikasi (Daraja, Armiya, Ajdar) asosida kampaniya jang quvvatini hisoblaydi."""
+    lvl = max(1, int(getattr(user, "level", 1) or 1))
+    power = lvl * 150
+
+    army_res = await session.execute(select(models.Army).where(models.Army.user_id == user.id))
+    army = army_res.scalar_one_or_none()
+    if army:
+        army_power = (
+            (army.infantry or 0) * 2
+            + (army.archers or 0) * 3
+            + (army.cavalry or 0) * 4
+            + (army.spearmen or 0) * 3
+            + (army.special_troops or 0) * 6
+        )
+        power += min(army_power, 20000)
+
+    drg_res = await session.execute(
+        select(func.max(models.Dragon.power)).where(models.Dragon.user_id == user.id)
+    )
+    max_drg = drg_res.scalar() or 0
+    if max_drg > 0:
+        power += min(int(max_drg // 2), 5000)
+
+    return max(100, int(power))
+
+
 # ============================================================
 # QUERY & PLAYER PROGRESS SERVICES
 # ============================================================
@@ -268,6 +329,7 @@ async def get_campaign_with_missions(
         select(models.Campaign)
         .where(models.Campaign.id == campaign_id)
         .options(selectinload(models.Campaign.missions))
+        .execution_options(populate_existing=True)
     )
     return res.scalar_one_or_none()
 
@@ -407,6 +469,15 @@ async def submit_campaign_mission_action(
         if not campaign or campaign.status != "published":
             return {"ok": False, "code": "campaign_unavailable", "message": "❌ Ushbu kampaniya hozirda mavjud emas."}
 
+        min_lvl = max(1, int(getattr(campaign, "min_level", 1) or 1))
+        user_lvl = max(1, int(getattr(user, "level", 1) or 1))
+        if user_lvl < min_lvl:
+            return {
+                "ok": False,
+                "code": "level_too_low",
+                "message": f"🔒 Ushbu kampaniya uchun kamida **{min_lvl}-daraja** talab qilinadi (sizda: {user_lvl}-daraja).",
+            }
+
         missions = sorted(campaign.missions or [], key=lambda m: m.order_index)
         if not missions:
             return {"ok": False, "code": "no_missions", "message": "❌ Kampaniyada missiyalar yo'q."}
@@ -451,7 +522,7 @@ async def submit_campaign_mission_action(
         max_attempts = get_mission_daily_attempts(campaign, mission)
         mtype = (mission.mission_type or "story").lower()
 
-        if mtype in ("quiz", "riddle"):
+        if mtype in ("quiz", "narrative_choice", "riddle", "riddle_investigation", "combat", "combat_encounter"):
             if (prog.daily_wrong_attempts or 0) >= max_attempts:
                 mid_secs = seconds_until_tashkent_midnight(now_u)
                 return {
@@ -464,8 +535,8 @@ async def submit_campaign_mission_action(
                     ),
                 }
 
-        # 3. Variantli (quiz) missiyalarda qisqa kutish (masalan 30 daqiqa) tekshiruvi
-        if mtype == "quiz" and prog.choice_cooldown_until and prog.choice_cooldown_until > now_u:
+        # 3. Variantli (quiz / narrative_choice) missiyalarda qisqa kutish (masalan 30 daqiqa) tekshiruvi
+        if mtype in ("quiz", "narrative_choice") and prog.choice_cooldown_until and prog.choice_cooldown_until > now_u:
             cd_secs = max(1, int((prog.choice_cooldown_until - now_u).total_seconds()))
             return {
                 "ok": False,
@@ -479,8 +550,9 @@ async def submit_campaign_mission_action(
 
         # 4. Missiya turiga qarab tekshirish
         outcome_text = ""
+        task_data = parse_task_data(mission)
         if mtype == "story":
-            outcome_text = "✅ Hikoya bosqichi yakunlandi!"
+            outcome_text = mission.success_text or "✅ Hikoya bosqichi yakunlandi!"
         elif mtype == "branch":
             options = parse_mission_options(mission)
             chosen = next((o for o in options if str(o.get("key")) == str(action_value)), None)
@@ -498,8 +570,8 @@ async def submit_campaign_mission_action(
                 }
             branches[str(mission.order_index)] = str(chosen.get("key"))
             prog.branch_choices_json = json.dumps(branches, ensure_ascii=False)
-            outcome_text = chosen.get("outcome") or f"✅ Tanlovingiz qabul qilindi: {chosen.get('text', '')}"
-        elif mtype == "quiz":
+            outcome_text = chosen.get("outcome") or mission.success_text or f"✅ Tanlovingiz qabul qilindi: {chosen.get('text', '')}"
+        elif mtype in ("quiz", "narrative_choice"):
             options = parse_mission_options(mission)
             chosen = next((o for o in options if str(o.get("key")) == str(action_value)), None)
             if not chosen:
@@ -513,9 +585,17 @@ async def submit_campaign_mission_action(
                 cd_min = get_mission_choice_cooldown_minutes(campaign, mission)
                 if attempts_left > 0 and cd_min > 0:
                     prog.choice_cooldown_until = now_u + timedelta(minutes=cd_min)
+                penalty_gold = max(0, int(chosen.get("gold_penalty", 0) or 0))
+                penalty_note = ""
+                if penalty_gold > 0:
+                    deducted = min(int(user.gold or 0), penalty_gold)
+                    user.gold = max(0, int(user.gold or 0) - deducted)
+                    if deducted > 0:
+                        penalty_note = f"\n💸 Jarima: -{deducted:,} 🪙 Oltin."
                 prog.updated_at = now_u
                 await session.commit()
 
+                wrong_story = chosen.get("outcome") or "❌ Noto'g'ri javob!"
                 if attempts_left <= 0:
                     mid_secs = seconds_until_tashkent_midnight(now_u)
                     return {
@@ -524,7 +604,7 @@ async def submit_campaign_mission_action(
                         "attempts_left": 0,
                         "remaining_seconds": mid_secs,
                         "message": (
-                            f"❌ Noto'g'ri javob!\n"
+                            f"{wrong_story}{penalty_note}\n"
                             f"🚫 Urinishlar tugadi, ertaga qayta urinib ko'ring.\n"
                             f"⏳ Yangilanishigacha: {format_duration_uz(mid_secs)}."
                         ),
@@ -534,10 +614,10 @@ async def submit_campaign_mission_action(
                     "ok": False,
                     "code": "wrong_answer",
                     "attempts_left": attempts_left,
-                    "message": f"❌ Noto'g'ri tanlov! Qolgan bugungi urinishlar: {attempts_left}/{max_attempts}.{cd_note}",
+                    "message": f"{wrong_story}{penalty_note}\nQolgan bugungi urinishlar: {attempts_left}/{max_attempts}.{cd_note}",
                 }
-            outcome_text = chosen.get("outcome") or "✅ To'g'ri javob!"
-        elif mtype == "riddle":
+            outcome_text = chosen.get("outcome") or mission.success_text or "✅ To'g'ri javob!"
+        elif mtype in ("riddle", "riddle_investigation"):
             ans_raw = (action_value or "").strip().lower()
             if not ans_raw:
                 return {"ok": False, "code": "empty_answer", "message": "⚠️ Iltimos, javob matnini yuboring."}
@@ -571,9 +651,70 @@ async def submit_campaign_mission_action(
                     "attempts_left": attempts_left,
                     "message": f"❌ Noto'g'ri javob! Bugungi qolgan urinishlar: {attempts_left}/{max_attempts}.",
                 }
-            outcome_text = "✅ Jumboq to'g'ri topildi!"
+            outcome_text = mission.success_text or "✅ Jumboq to'g'ri topildi!"
+        elif mtype in ("combat", "combat_encounter"):
+            enemy_name = task_data.get("enemy_name") or "Qaroqchilar Boshlig'i"
+            enemy_hp = int(task_data.get("enemy_hp", 200) or 200)
+            enemy_atk = int(task_data.get("enemy_attack", 40) or 40)
+            enemy_power = int(task_data.get("enemy_power", enemy_hp + enemy_atk * 5) or (enemy_hp + enemy_atk * 5))
+            player_power = await compute_player_campaign_power(session, user)
+
+            if player_power < enemy_power:
+                prog.daily_wrong_attempts = (prog.daily_wrong_attempts or 0) + 1
+                attempts_left = max(0, max_attempts - prog.daily_wrong_attempts)
+                defeat_pen = max(0, int(task_data.get("defeat_gold_penalty", 0) or 0))
+                pen_note = ""
+                if defeat_pen > 0:
+                    deducted = min(int(user.gold or 0), defeat_pen)
+                    user.gold = max(0, int(user.gold or 0) - deducted)
+                    if deducted > 0:
+                        pen_note = f"\n💸 Chekinish talafoti: -{deducted:,} 🪙 Oltin."
+                prog.updated_at = now_u
+                await session.commit()
+
+                return {
+                    "ok": False,
+                    "code": "combat_defeat",
+                    "player_power": player_power,
+                    "enemy_power": enemy_power,
+                    "attempts_left": attempts_left,
+                    "message": (
+                        f"⚔️ **JANGDA MAG'LUBIYAT!**\n"
+                        f"Raqib: **{enemy_name}** (Quvvat: `{enemy_power:,}`)\n"
+                        f"Sizning quvvatingiz: `{player_power:,}`{pen_note}\n\n"
+                        f"💡 Qo'shiningizni yoki darajangizni kuchaytirib qayta urining! "
+                        f"(Bugungi qolgan urinishlar: {attempts_left}/{max_attempts})"
+                    ),
+                }
+            outcome_text = (
+                f"⚔️ **G'ALABA!** Siz **{enemy_name}** ustidan g'alaba qozondingiz "
+                f"(Quvvat: `{player_power:,}` vs `{enemy_power:,}`)!"
+            )
+            if mission.success_text:
+                outcome_text += f"\n\n{mission.success_text}"
+        elif mtype in ("tribute", "resource_tribute"):
+            req_gold = max(0, int(task_data.get("cost_gold", 0) or 0))
+            req_food = max(0, int(task_data.get("cost_food", 0) or 0))
+            req_iron = max(0, int(task_data.get("cost_iron", 0) or 0))
+            if (user.gold or 0) < req_gold or (user.food or 0) < req_food or (user.iron or 0) < req_iron:
+                need_parts = []
+                if req_gold:
+                    need_parts.append(f"{req_gold:,} 🪙 (sizda: {int(user.gold or 0):,})")
+                if req_food:
+                    need_parts.append(f"{req_food:,} 🌾 (sizda: {int(user.food or 0):,})")
+                if req_iron:
+                    need_parts.append(f"{req_iron:,} ⛓️ (sizda: {int(user.iron or 0):,})")
+                return {
+                    "ok": False,
+                    "code": "insufficient_resources",
+                    "message": f"❌ Ushbu bosqich uchun resurs yetarli emas!\nKerak: {', '.join(need_parts)}",
+                }
+            user.gold = int(user.gold or 0) - req_gold
+            user.food = int(user.food or 0) - req_food
+            user.iron = int(user.iron or 0) - req_iron
+            outcome_text = mission.success_text or "💰 To'lov qabul qilindi va muhim ma'lumot qo'lga kiritildi!"
         else:
-            outcome_text = "✅ Missiya bajarildi!"
+            outcome_text = mission.success_text or "✅ Missiya bajarildi!"
 
         # 5. Missiya muvaffaqiyatli yakunlandi — mukofot berish va keyingi missiya uchun unlock_at hisoblash
         if mission.reward_gold:
@@ -594,11 +735,61 @@ async def submit_campaign_mission_action(
         next_order = prog.current_mission_order + 1
         next_mission = next((m for m in missions if m.order_index == next_order), None)
 
+        grand_rewards_granted: Dict[str, Any] = {}
         next_unlock_at: Optional[datetime] = None
         if next_mission is None:
             prog.current_mission_order = next_order
             prog.is_completed = True
             prog.unlock_at = None
+
+            # Grand Finale completion rewards (faqat 1 marta beriladi — anti-duplicate guard!)
+            if not getattr(prog, "completion_reward_claimed", False):
+                prog.completion_reward_claimed = True
+                crewards = parse_completion_rewards(campaign)
+                if crewards.get("gold"):
+                    g = int(crewards["gold"])
+                    user.gold = (user.gold or 0) + g
+                    grand_rewards_granted["gold"] = g
+                if crewards.get("food"):
+                    f = int(crewards["food"])
+                    user.food = (user.food or 0) + f
+                    grand_rewards_granted["food"] = f
+                if crewards.get("iron"):
+                    ir = int(crewards["iron"])
+                    user.iron = (user.iron or 0) + ir
+                    grand_rewards_granted["iron"] = ir
+                if crewards.get("xp"):
+                    xp = int(crewards["xp"])
+                    user.xp = (user.xp or 0) + xp
+                    grand_rewards_granted["xp"] = xp
+                if crewards.get("title"):
+                    user.title = str(crewards["title"])[:100]
+                    grand_rewards_granted["title"] = user.title
+                ach_code = crewards.get("achievement_code")
+                if ach_code:
+                    ach_name = crewards.get("achievement_name") or f"{campaign.title} G'olibi"
+                    ex_ach = (
+                        await session.execute(
+                            select(models.UserAchievement).where(
+                                models.UserAchievement.user_id == user.id,
+                                models.UserAchievement.achievement_code == str(ach_code),
+                            )
+                        )
+                    ).scalar_one_or_none()
+                    if not ex_ach:
+                        session.add(
+                            models.UserAchievement(
+                                user_id=user.id,
+                                telegram_id=user.telegram_id,
+                                achievement_code=str(ach_code)[:50],
+                                title=str(ach_name)[:100],
+                                reward_gold=0,
+                                reward_iron=0,
+                                reward_food=0,
+                                reward_prestige=0,
+                            )
+                        )
+                        grand_rewards_granted["achievement"] = ach_name
         else:
             prog.current_mission_order = next_order
             if (campaign.unlock_mode or "cooldown") == "calendar":
@@ -627,7 +818,21 @@ async def submit_campaign_mission_action(
 
         next_info = ""
         if prog.is_completed:
-            next_info = "\n\n🏆 **TABRIKLAYMIZ!** Siz butun kampaniyani muvaffaqiyatli yakunladingiz!"
+            grand_lines = []
+            if grand_rewards_granted.get("gold"):
+                grand_lines.append(f"🪙 +{grand_rewards_granted['gold']:,} Oltin")
+            if grand_rewards_granted.get("food"):
+                grand_lines.append(f"🌾 +{grand_rewards_granted['food']:,} Bug'doy")
+            if grand_rewards_granted.get("iron"):
+                grand_lines.append(f"⛓️ +{grand_rewards_granted['iron']:,} Temir")
+            if grand_rewards_granted.get("xp"):
+                grand_lines.append(f"✨ +{grand_rewards_granted['xp']:,} XP")
+            if grand_rewards_granted.get("title"):
+                grand_lines.append(f"👑 Yangi Unvon: **«{grand_rewards_granted['title']}»**")
+            if grand_rewards_granted.get("achievement"):
+                grand_lines.append(f"🏅 Yutuq ochildi: **«{grand_rewards_granted['achievement']}»**")
+            grand_block = ("\n\n🎁 **FINAL MUKOFOTLARI:**\n" + "\n".join(grand_lines)) if grand_lines else ""
+            next_info = f"\n\n🏆 **TABRIKLAYMIZ!** Siz «**{campaign.title}**» kampaniyasini to'liq yakunladingiz!{grand_block}"
         elif next_unlock_at and next_unlock_at > now_u:
             wait_str = format_duration_uz(int((next_unlock_at - now_u).total_seconds()))
             next_info = (
@@ -639,13 +844,14 @@ async def submit_campaign_mission_action(
 
         full_msg = outcome_text
         if reward_str:
-            full_msg += f"\n🎁 Mukofot: {reward_str}"
+            full_msg += f"\n🎁 Bosqich mukofoti: {reward_str}"
         full_msg += next_info
 
         return {
             "ok": True,
             "code": "completed",
             "completed_campaign": bool(prog.is_completed),
+            "grand_rewards_granted": grand_rewards_granted,
             "next_mission_order": prog.current_mission_order,
             "next_unlock_at": next_unlock_at,
             "message": full_msg,
@@ -753,12 +959,20 @@ async def create_campaign(
     status: str = "draft",
     created_by: Optional[int] = None,
     slug: Optional[str] = None,
+    banner_image: Optional[str] = None,
+    min_level: int = 1,
+    order_index: int = 0,
+    completion_rewards: Optional[Dict[str, Any]] = None,
 ) -> models.Campaign:
     now_u = utc_now()
     camp = models.Campaign(
         slug=slug,
         title=title.strip(),
         description=description.strip(),
+        banner_image=banner_image,
+        min_level=max(1, int(min_level or 1)),
+        order_index=int(order_index or 0),
+        completion_rewards_json=json.dumps(completion_rewards or {}, ensure_ascii=False),
         status=status,
         unlock_mode=unlock_mode if unlock_mode in ("cooldown", "calendar") else "cooldown",
         default_cooldown_hours=max(0, int(default_cooldown_hours)),
@@ -774,6 +988,11 @@ async def create_campaign(
     return camp
 
 
+ALLOWED_MISSION_TYPES = {
+    "story", "quiz", "narrative_choice", "branch", "riddle", "riddle_investigation", "combat", "combat_encounter", "tribute", "resource_tribute"
+}
+
+
 async def add_campaign_mission(
     session: AsyncSession,
     campaign_id: int,
@@ -783,6 +1002,8 @@ async def add_campaign_mission(
     mission_type: str = "story",
     options: Optional[List[Dict[str, Any]]] = None,
     correct_answer: Optional[str] = None,
+    task_data: Optional[Dict[str, Any]] = None,
+    success_text: str = "",
     cooldown_hours_override: Optional[int] = None,
     calendar_unlock_at: Optional[datetime] = None,
     daily_attempts_override: Optional[int] = None,
@@ -792,13 +1013,16 @@ async def add_campaign_mission(
     reward_iron: int = 0,
     reward_xp: int = 0,
 ) -> models.CampaignMission:
+    mtype = (mission_type or "story").lower()
     m = models.CampaignMission(
         campaign_id=campaign_id,
         order_index=int(order_index),
         title=title.strip(),
         story_text=story_text.strip(),
-        mission_type=mission_type if mission_type in ("story", "quiz", "branch", "riddle") else "story",
+        mission_type=mtype if mtype in ALLOWED_MISSION_TYPES else "story",
         options_json=json.dumps(options or [], ensure_ascii=False),
+        task_data_json=json.dumps(task_data or {}, ensure_ascii=False),
+        success_text=(success_text or "").strip(),
         correct_answer=correct_answer,
         cooldown_hours_override=cooldown_hours_override,
         calendar_unlock_at=calendar_unlock_at,
@@ -814,6 +1038,32 @@ async def add_campaign_mission(
     await session.commit()
     await session.refresh(m)
     return m
+
+
+async def delete_campaign_mission(session: AsyncSession, mission_id: int) -> Tuple[bool, str]:
+    """Missiya bosqichini o'chiradi va qolgan bosqichlarni 1..N tartibda qayta raqamlaydi."""
+    res = await session.execute(select(models.CampaignMission).where(models.CampaignMission.id == mission_id))
+    target = res.scalar_one_or_none()
+    if not target:
+        return False, "❌ Missiya topilmadi."
+    camp_id = target.campaign_id
+    await session.delete(target)
+    await session.flush()
+
+    rem_res = await session.execute(
+        select(models.CampaignMission)
+        .where(models.CampaignMission.campaign_id == camp_id)
+        .order_by(models.CampaignMission.order_index.asc())
+    )
+    remaining = list(rem_res.scalars().all())
+    # Vaqtinchalik katta qiymatga o'tkazib, so'ng 1..N qilib yozamiz (UniqueConstraint to'qnashmasligi uchun)
+    for idx, m in enumerate(remaining, 1):
+        m.order_index = 10000 + idx
+    await session.flush()
+    for idx, m in enumerate(remaining, 1):
+        m.order_index = idx
+    await session.commit()
+    return True, "🗑️ Missiya o'chirildi va bosqichlar qayta tartiblandi."
 
 
 async def update_campaign_settings(
@@ -978,6 +1228,16 @@ async def seed_sample_campaign(session: AsyncSession) -> models.Campaign:
     5 ta missiya, har biri orasida 24 soat kutish (cooldown=24h, daily_attempts=3, choice_cooldown=30m).
     Idempotent: mavjud bo'lsa qayta yaratmaydi.
     """
+    sample_completion_rewards = {
+        "gold": 10000,
+        "food": 10000,
+        "iron": 5000,
+        "xp": 400,
+        "title": "Tergov Qo'li",
+        "achievement_code": "camp_missing_lord",
+        "achievement_name": "Yo'qolgan Lord Qutqaruvchisi",
+    }
+
     res = await session.execute(
         select(models.Campaign)
         .where(models.Campaign.slug == "mystery_missing_lord")
@@ -985,6 +1245,9 @@ async def seed_sample_campaign(session: AsyncSession) -> models.Campaign:
     )
     existing = res.scalar_one_or_none()
     if existing:
+        if not parse_completion_rewards(existing):
+            existing.completion_rewards_json = json.dumps(sample_completion_rewards, ensure_ascii=False)
+            await session.commit()
         return existing
 
     camp = await create_campaign(
@@ -995,6 +1258,8 @@ async def seed_sample_campaign(session: AsyncSession) -> models.Campaign:
             "Shimoliy qal'adan sirli ravishda g'oyib bo'lgan Lordning izini toping. "
             "5 bosqichli tergov kampaniyasi (har missiya orasida 24 soat kutish)."
         ),
+        min_level=1,
+        completion_rewards=sample_completion_rewards,
         unlock_mode="cooldown",
         default_cooldown_hours=24,
         default_daily_attempts=3,

@@ -1311,7 +1311,11 @@ class Campaign(Base):
     slug = Column(String(80), unique=True, nullable=True, index=True)
     title = Column(String(200), nullable=False)
     description = Column(Text, default="")
+    banner_image = Column(String(300), nullable=True)  # Optional Telegram file_id or URL
     status = Column(String(20), default="draft", index=True)  # draft | published | archived
+    min_level = Column(Integer, default=1)
+    order_index = Column(Integer, default=0)
+    completion_rewards_json = Column(Text, default="{}")  # {gold, food, iron, xp, title, achievement_code, achievement_name}
     unlock_mode = Column(String(20), default="cooldown")  # cooldown | calendar
     default_cooldown_hours = Column(Integer, default=24)
     default_daily_attempts = Column(Integer, default=3)
@@ -1336,8 +1340,10 @@ class CampaignMission(Base):
     order_index = Column(Integer, nullable=False)  # 1-based
     title = Column(String(200), nullable=False)
     story_text = Column(Text, default="")
-    mission_type = Column(String(20), default="story")  # story | quiz | branch | riddle
-    options_json = Column(Text, default="[]")  # JSON list of {key, text, is_correct, outcome}
+    mission_type = Column(String(30), default="story")  # story | quiz | narrative_choice | branch | riddle | combat | tribute
+    options_json = Column(Text, default="[]")  # JSON list of {key, text, is_correct, outcome, gold_penalty}
+    task_data_json = Column(Text, default="{}")  # JSON config for combat/tribute/riddle clues
+    success_text = Column(Text, default="")  # Atmospheric conclusion on stage clear
     correct_answer = Column(String(255), nullable=True)
     cooldown_hours_override = Column(Integer, nullable=True)  # None => campaign.default_cooldown_hours
     calendar_unlock_at = Column(DateTime, nullable=True)  # UTC naive datetime (calendar mode)
@@ -1366,6 +1372,7 @@ class UserCampaignProgress(Base):
     current_mission_order = Column(Integer, default=1)
     completed_missions_count = Column(Integer, default=0)
     is_completed = Column(Boolean, default=False, index=True)
+    completion_reward_claimed = Column(Boolean, default=False)
     unlock_at = Column(DateTime, nullable=True, index=True)  # UTC naive datetime when current_mission_order unlocks
     unlock_notified_for_order = Column(Integer, default=0)  # Prevents duplicate unlock notifications
     daily_wrong_attempts = Column(Integer, default=0)

@@ -17,8 +17,11 @@ from database import crud
 from database.db import AsyncSessionLocal
 from services.campaign_service import (
     add_campaign_mission,
+    compute_player_campaign_power,
     create_campaign,
+    delete_campaign_mission,
     format_campaign_min_duration,
+    format_completion_rewards_preview,
     format_duration_uz,
     format_tashkent_dt,
     get_campaign_player_state,
@@ -29,6 +32,7 @@ from services.campaign_service import (
     get_mission_daily_attempts,
     list_campaigns,
     parse_mission_options,
+    parse_task_data,
     parse_tashkent_dt,
     simulate_admin_test_step,
     submit_campaign_mission_action,
@@ -91,17 +95,25 @@ async def _render_campaigns_list(target, telegram_id: int):
                 st = await get_campaign_player_state(session, user, c.id)
                 total = st["total_missions"] if st else len(c.missions or [])
                 done = st["progress"].completed_missions_count if st else 0
+                min_lvl = max(1, int(getattr(c, "min_level", 1) or 1))
+                lvl_tag = f" [Lvl {min_lvl}+]" if min_lvl > 1 else ""
                 if st and st["progress"].is_completed:
-                    badge = "🏆 Yakunlangan"
+                    badge = "✅ Yakunlangan"
+                    btn_icon = "✅"
+                elif done == 0 and st and st["unlocked"]:
+                    badge = "🆕 Yangi"
+                    btn_icon = "🆕"
                 elif st and not st["unlocked"]:
                     rem = format_duration_uz(st["remaining_unlock_seconds"])
-                    badge = f"⏳ {rem}"
+                    badge = f"⏳ Jarayonda ({done}/{total} • {rem})"
+                    btn_icon = "⏳"
                 else:
-                    badge = "🔓 Ochiq"
-                lines.append(f"• **{escape_md(c.title)}** — `{done}/{total}` ({badge})")
+                    badge = f"⏳ Jarayonda ({done}/{total} • 🔓 Ochiq)"
+                    btn_icon = "▶️"
+                lines.append(f"• **{escape_md(c.title)}**{lvl_tag} — {badge}")
                 buttons.append([
                     InlineKeyboardButton(
-                        f"🗺️ {c.title} ({done}/{total})",
+                        f"{btn_icon} {c.title} ({done}/{total})",
                         callback_data=f"camp_view:{c.id}",
                     )
                 ])
@@ -165,14 +177,22 @@ async def _render_campaign_view(target, telegram_id: int, campaign_id: int):
         else:
             progress_line = f"📊 **Progress:** `{done}/{total}` missiya (bugun davom ettirish mumkin)"
 
+        min_lvl = max(1, int(getattr(camp, "min_level", 1) or 1))
+        user_lvl = max(1, int(getattr(user, "level", 1) or 1))
+        grand_preview = format_completion_rewards_preview(camp)
+
         lines = [
             f"🗺️ **{escape_md(camp.title)}**",
             f"_{escape_md(camp.description or '')}_\n",
             progress_line,
+            f"🎖️ **Daraja talabi:** `{min_lvl}+` (sizda: `{user_lvl}`)",
+            f"🏆 **Final mukofoti:** {grand_preview}",
         ]
 
         buttons = []
-        if prog.is_completed:
+        if user_lvl < min_lvl and not prog.is_completed:
+            lines.append(f"\n🔒 Ushbu kampaniyani o'ynash uchun kamida **{min_lvl}-daraja**ga yeting.")
+        elif prog.is_completed:
             lines.append("\n🎉 Siz ushbu kampaniyaning barcha missiyalarini yakunladingiz!")
         elif not cur_m:
             lines.append("\n⚠️ Keyingi missiya topilmadi.")
@@ -193,22 +213,24 @@ async def _render_campaign_view(target, telegram_id: int, campaign_id: int):
             lines.append(f"{cur_m.story_text}\n")
 
             mtype = (cur_m.mission_type or "story").lower()
-            if mtype in ("quiz", "riddle"):
+            tdata = parse_task_data(cur_m)
+            if mtype in ("quiz", "narrative_choice", "riddle", "riddle_investigation", "combat", "combat_encounter"):
                 lines.append(f"🎯 Bugungi urinishlar: **{st['attempts_left']}/{st['max_daily_attempts']}**")
                 if st["attempts_left"] <= 0:
                     mid_str = format_duration_uz(st["midnight_reset_seconds"])
                     lines.append(f"🚫 Urinishlar tugadi, ertaga qayta urinib ko'ring ({mid_str} qoldi).")
-            if mtype == "quiz" and st["choice_cooldown_seconds"] > 0:
+            if mtype in ("quiz", "narrative_choice") and st["choice_cooldown_seconds"] > 0:
                 lines.append(f"⏳ Qayta tanlash kutishi: **{format_duration_uz(st['choice_cooldown_seconds'])}**")
 
             if mtype == "story":
+                start_lbl = "⚔️ Kampaniyani Boshlash" if done == 0 else "▶️ Davom etish"
                 buttons.append([
                     InlineKeyboardButton(
-                        "▶️ Davom etish",
+                        start_lbl,
                         callback_data=f"camp_act:{camp.id}:{cur_m.order_index}:continue",
                     )
                 ])
-            elif mtype in ("quiz", "branch"):
+            elif mtype in ("quiz", "narrative_choice", "branch"):
                 for opt in parse_mission_options(cur_m):
                     buttons.append([
                         InlineKeyboardButton(
@@ -216,7 +238,44 @@ async def _render_campaign_view(target, telegram_id: int, campaign_id: int):
                             callback_data=f"camp_act:{camp.id}:{cur_m.order_index}:{opt.get('key')}",
                         )
                     ])
-            elif mtype == "riddle":
+            elif mtype in ("combat", "combat_encounter"):
+                enemy_name = tdata.get("enemy_name") or "Qaroqchilar Boshlig'i"
+                enemy_hp = int(tdata.get("enemy_hp", 200) or 200)
+                enemy_atk = int(tdata.get("enemy_attack", 40) or 40)
+                enemy_pwr = int(tdata.get("enemy_power", enemy_hp + enemy_atk * 5) or (enemy_hp + enemy_atk * 5))
+                p_pwr = await compute_player_campaign_power(session, user)
+                lines.append(f"👹 **Raqib:** {escape_md(enemy_name)} (Quvvat: `{enemy_pwr:,}`)")
+                lines.append(f"⚔️ **Sizning quvvatingiz:** `{p_pwr:,}`")
+                buttons.append([
+                    InlineKeyboardButton(
+                        f"🗡️ Jang Qilish ({enemy_name})",
+                        callback_data=f"camp_act:{camp.id}:{cur_m.order_index}:fight",
+                    )
+                ])
+            elif mtype in ("tribute", "resource_tribute"):
+                cost_parts = []
+                if tdata.get("cost_gold"):
+                    cost_parts.append(f"{int(tdata['cost_gold']):,}🪙")
+                if tdata.get("cost_food"):
+                    cost_parts.append(f"{int(tdata['cost_food']):,}🌾")
+                if tdata.get("cost_iron"):
+                    cost_parts.append(f"{int(tdata['cost_iron']):,}⛓️")
+                cost_label = ", ".join(cost_parts) or "Resurs"
+                btn_txt = tdata.get("button_text") or f"💰 To'lash / Pora Berish ({cost_label})"
+                buttons.append([
+                    InlineKeyboardButton(
+                        btn_txt,
+                        callback_data=f"camp_act:{camp.id}:{cur_m.order_index}:pay",
+                    )
+                ])
+            elif mtype in ("riddle", "riddle_investigation"):
+                if tdata.get("clue_text"):
+                    buttons.append([
+                        InlineKeyboardButton(
+                            "🔍 Dalilni Tekshirish",
+                            callback_data=f"camp_clue:{camp.id}:{cur_m.order_index}",
+                        )
+                    ])
                 buttons.append([
                     InlineKeyboardButton(
                         "✍️ Javob Yozish",
@@ -541,9 +600,97 @@ async def _render_admin_camp_missions(target, camp_id: int):
             InlineKeyboardButton(f"⏳ {m.order_index}-m: 72h", callback_data=f"admin_m_set:{camp_id}:{m.id}:cd:72"),
             InlineKeyboardButton(f"♻️ Standart", callback_data=f"admin_m_set:{camp_id}:{m.id}:cd:default"),
             InlineKeyboardButton(f"📅 Sana", callback_data=f"admin_m_cal_ask:{camp_id}:{m.id}"),
+            InlineKeyboardButton(f"🗑️", callback_data=f"admin_m_del:{camp_id}:{m.id}"),
         ])
+    buttons.append([InlineKeyboardButton("➕ Yangi Bosqich Qo'shish", callback_data=f"admin_m_add:{camp_id}")])
     buttons.append([InlineKeyboardButton("🔙 Orqaga", callback_data=f"admin_camp_view:{camp_id}")])
     await _safe_edit_or_reply(target, "\n".join(lines), reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def admin_m_del_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if not is_admin(query.from_user.id):
+        await query.answer("❌ Ruxsat yo'q!", show_alert=True)
+        return
+    parts = (query.data or "").split(":")
+    camp_id, mission_id = int(parts[1]), int(parts[2])
+    async with AsyncSessionLocal() as session:
+        _, msg = await delete_campaign_mission(session, mission_id)
+    await query.answer(msg, show_alert=True)
+    await _render_admin_camp_missions(query, camp_id)
+
+
+async def admin_m_add_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if not is_admin(query.from_user.id):
+        await query.answer("❌ Ruxsat yo'q!", show_alert=True)
+        return
+    await query.answer()
+    parts = (query.data or "").split(":")
+    camp_id = int(parts[1])
+    if len(parts) == 2:
+        kb = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("📖 Hikoya (story)", callback_data=f"admin_m_add:{camp_id}:story"),
+                InlineKeyboardButton("⚔️ Jang (combat)", callback_data=f"admin_m_add:{camp_id}:combat"),
+            ],
+            [
+                InlineKeyboardButton("💰 Pora/Resurs (tribute)", callback_data=f"admin_m_add:{camp_id}:tribute"),
+                InlineKeyboardButton("🔍 Jumboq (riddle)", callback_data=f"admin_m_add:{camp_id}:riddle"),
+            ],
+            [InlineKeyboardButton("🔙 Orqaga", callback_data=f"admin_camp_missions:{camp_id}")],
+        ])
+        await _safe_edit_or_reply(
+            query,
+            "➕ **YANGI BOSQICH QO'SHISH**\n\nBosqich turini (`task_type`) tanlang:",
+            reply_markup=kb,
+        )
+        return
+
+    mtype = parts[2]
+    context.user_data["admin_camp_add_mission"] = {"campaign_id": camp_id, "mission_type": mtype}
+    hint_map = {
+        "story": "`Sarlavha | Hikoya matni | Yakuniy matn`",
+        "combat": "`Sarlavha | Hikoya matni | Raqib nomi | Raqib quvvati (masalan 500)`",
+        "tribute": "`Sarlavha | Hikoya matni | Kerakli oltin (masalan 500)`",
+        "riddle": "`Sarlavha | Jumboq matni | To'g'ri javob (| bilan bir nechta)`",
+    }
+    await _safe_edit_or_reply(
+        query,
+        f"➕ **YANGI BOSQICH (`{mtype}`)**\n\nQuyidagi formatda bitta xabar yuboring:\n{hint_map.get(mtype, '`Sarlavha | Matn`')}\n\nBekor qilish: `/cancel`.",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Orqaga", callback_data=f"admin_camp_missions:{camp_id}")]]),
+    )
+
+
+async def camp_clue_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    parts = (query.data or "").split(":")
+    try:
+        camp_id, order = int(parts[1]), int(parts[2])
+    except Exception:
+        await query.answer("🔍 Dalil topilmadi.", show_alert=True)
+        return
+    async with AsyncSessionLocal() as session:
+        camp = await get_campaign_with_missions(session, camp_id)
+        m = next((x for x in (camp.missions or []) if x.order_index == order), None) if camp else None
+    clue = parse_task_data(m).get("clue_text") if m else None
+    await query.answer(str(clue or "Qo'shimcha dalil yo'q.")[:195], show_alert=True)
+
+
+async def admin_campaigns_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not is_admin(update.effective_user.id):
+        return
+    async with AsyncSessionLocal() as session:
+        camps = await list_campaigns(session, include_drafts=True)
+    lines = ["⚙️ **ADMIN: KAMPANIYALAR BOSHQARUVI**\n"]
+    buttons = []
+    for c in camps:
+        st_icon = "🟢" if c.status == "published" else ("📝" if c.status == "draft" else "📦")
+        dur = format_campaign_min_duration(c, c.missions or [])
+        lines.append(f"{st_icon} **#{c.id} {escape_md(c.title)}** | {dur}")
+        buttons.append([InlineKeyboardButton(f"{st_icon} #{c.id} {c.title}", callback_data=f"admin_camp_view:{c.id}")])
+    buttons.append([InlineKeyboardButton("➕ Yangi Kampaniya Yaratish (Wizard)", callback_data="admin_camp_new")])
+    await _safe_edit_or_reply(update.message, "\n".join(lines), reply_markup=InlineKeyboardMarkup(buttons))
 
 
 async def admin_camp_missions_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -807,6 +954,65 @@ async def campaign_text_input_handler(update: Update, context: ContextTypes.DEFA
         )
         return
 
+    # 2b. Admin yangi bosqich qo'shish (Stage Builder)
+    add_m_ctx = u_data.get("admin_camp_add_mission")
+    if add_m_ctx and is_admin(user_id):
+        if text.lower() in ("/cancel", "bekor"):
+            u_data.pop("admin_camp_add_mission", None)
+            await update.message.reply_text("❌ Bosqich qo'shish bekor qilindi.")
+            return
+        parts = [p.strip() for p in text.split("|")]
+        if len(parts) < 2:
+            await update.message.reply_text("❌ Kamida `Sarlavha | Hikoya matni` formatida yuboring!", parse_mode="Markdown")
+            return
+        camp_id = add_m_ctx["campaign_id"]
+        mtype = add_m_ctx["mission_type"]
+        title_str, story_str = parts[0][:180], parts[1]
+        task_data = {}
+        correct_ans = None
+        success_txt = ""
+        if mtype == "story" and len(parts) >= 3:
+            success_txt = parts[2]
+        elif mtype == "combat":
+            enemy_name = parts[2] if len(parts) >= 3 else "Qaroqchilar Boshlig'i"
+            try:
+                enemy_pwr = int(parts[3]) if len(parts) >= 4 else 500
+            except ValueError:
+                enemy_pwr = 500
+            task_data = {"enemy_name": enemy_name, "enemy_power": max(50, enemy_pwr)}
+        elif mtype == "tribute":
+            try:
+                cost_g = int(parts[2]) if len(parts) >= 3 else 500
+            except ValueError:
+                cost_g = 500
+            task_data = {"cost_gold": max(1, cost_g)}
+        elif mtype == "riddle":
+            correct_ans = "|".join(parts[2:]) if len(parts) >= 3 else "westeros"
+
+        async with AsyncSessionLocal() as session:
+            camp = await get_campaign_with_missions(session, camp_id)
+            next_idx = max((m.order_index for m in (camp.missions or [])), default=0) + 1 if camp else 1
+            await add_campaign_mission(
+                session=session,
+                campaign_id=camp_id,
+                order_index=next_idx,
+                title=title_str,
+                story_text=story_str,
+                mission_type=mtype,
+                correct_answer=correct_ans,
+                task_data=task_data,
+                success_text=success_txt,
+                reward_gold=1000,
+                reward_xp=50,
+            )
+        u_data.pop("admin_camp_add_mission", None)
+        await update.message.reply_text(
+            f"✅ **{next_idx}-bosqich qo'shildi:** {escape_md(title_str)} (`{mtype}`)",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📜 Missiyalar", callback_data=f"admin_camp_missions:{camp_id}")]]),
+        )
+        return
+
     # 3. Admin kampaniya wizardi (title -> description)
     wiz = u_data.get("admin_camp_wizard")
     if wiz and is_admin(user_id):
@@ -837,12 +1043,14 @@ async def campaign_text_input_handler(update: Update, context: ContextTypes.DEFA
 
 def register_campaign_handlers(app: Application):
     app.add_handler(CommandHandler(["campaign", "campaigns"], campaigns_command))
+    app.add_handler(CommandHandler(["admin_campaigns"], admin_campaigns_command))
     app.add_handler(CallbackQueryHandler(menu_campaigns_callback, pattern="^menu_campaigns$"))
     app.add_handler(CallbackQueryHandler(camp_view_callback, pattern="^camp_view:[0-9]+$"))
     app.add_handler(CallbackQueryHandler(camp_locked_info_callback, pattern="^camp_locked_info:[0-9]+:[0-9]+$"))
     app.add_handler(CallbackQueryHandler(camp_notify_toggle_callback, pattern="^camp_notify_toggle:[0-9]+$"))
     app.add_handler(CallbackQueryHandler(camp_act_callback, pattern="^camp_act:[0-9]+:[0-9]+:.+$"))
     app.add_handler(CallbackQueryHandler(camp_riddle_ask_callback, pattern="^camp_riddle_ask:[0-9]+:[0-9]+$"))
+    app.add_handler(CallbackQueryHandler(camp_clue_callback, pattern="^camp_clue:[0-9]+:[0-9]+$"))
 
     # Admin handlers
     app.add_handler(CallbackQueryHandler(admin_campaigns_callback, pattern="^admin_campaigns$"))
@@ -852,6 +1060,8 @@ def register_campaign_handlers(app: Application):
     app.add_handler(CallbackQueryHandler(admin_camp_set_callback, pattern="^admin_camp_set:[0-9]+:[a-z]+:.+$"))
     app.add_handler(CallbackQueryHandler(admin_camp_missions_callback, pattern="^admin_camp_missions:[0-9]+$"))
     app.add_handler(CallbackQueryHandler(admin_m_set_callback, pattern="^admin_m_set:[0-9]+:[0-9]+:[a-z]+:.+$"))
+    app.add_handler(CallbackQueryHandler(admin_m_del_callback, pattern="^admin_m_del:[0-9]+:[0-9]+$"))
+    app.add_handler(CallbackQueryHandler(admin_m_add_callback, pattern="^admin_m_add:[0-9]+(:[a-z]+)?$"))
     app.add_handler(CallbackQueryHandler(admin_m_cal_ask_callback, pattern="^admin_m_cal_ask:[0-9]+:[0-9]+$"))
     app.add_handler(CallbackQueryHandler(admin_camp_test_callback, pattern="^admin_camp_test:[0-9]+:[0-9]+(:.*)?$"))
     app.add_handler(CallbackQueryHandler(admin_camp_new_callback, pattern="^admin_camp_new$"))

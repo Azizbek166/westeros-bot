@@ -190,6 +190,13 @@ async def init_db():
                 "ALTER TABLE hall_of_fame ADD COLUMN top_guild_name VARCHAR(100)",
                 "ALTER TABLE hall_of_fame ADD COLUMN snapshot_json TEXT DEFAULT '{}'",
                 "ALTER TABLE users ADD COLUMN daily_ai_requests_count INTEGER DEFAULT 0",
+                "ALTER TABLE campaigns ADD COLUMN banner_image VARCHAR(300)",
+                "ALTER TABLE campaigns ADD COLUMN min_level INTEGER DEFAULT 1",
+                "ALTER TABLE campaigns ADD COLUMN order_index INTEGER DEFAULT 0",
+                "ALTER TABLE campaigns ADD COLUMN completion_rewards_json TEXT DEFAULT '{}'",
+                "ALTER TABLE campaign_missions ADD COLUMN task_data_json TEXT DEFAULT '{}'",
+                "ALTER TABLE campaign_missions ADD COLUMN success_text TEXT DEFAULT ''",
+                "ALTER TABLE user_campaign_progress ADD COLUMN completion_reward_claimed BOOLEAN DEFAULT 0",
             ]:
                 try:
                     await conn.execute(text(alter_stmt))
@@ -310,6 +317,13 @@ async def init_db():
                 "ALTER TABLE user_campaign_progress ADD COLUMN IF NOT EXISTS choice_cooldown_until TIMESTAMP",
                 "ALTER TABLE user_campaign_progress ADD COLUMN IF NOT EXISTS branch_choices_json TEXT DEFAULT '{}'",
                 "ALTER TABLE user_campaign_progress ADD COLUMN IF NOT EXISTS notify_enabled BOOLEAN DEFAULT TRUE",
+                "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS banner_image VARCHAR(300)",
+                "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS min_level INTEGER DEFAULT 1",
+                "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS order_index INTEGER DEFAULT 0",
+                "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS completion_rewards_json TEXT DEFAULT '{}'",
+                "ALTER TABLE campaign_missions ADD COLUMN IF NOT EXISTS task_data_json TEXT DEFAULT '{}'",
+                "ALTER TABLE campaign_missions ADD COLUMN IF NOT EXISTS success_text TEXT DEFAULT ''",
+                "ALTER TABLE user_campaign_progress ADD COLUMN IF NOT EXISTS completion_reward_claimed BOOLEAN DEFAULT FALSE",
             ]:
                 try:
                     await conn.execute(text(pg_alter))
