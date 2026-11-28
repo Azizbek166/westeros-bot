@@ -280,7 +280,9 @@ class TestCampaignPacing(unittest.IsolatedAsyncioTestCase):
             st_done = await get_campaign_player_state(session, user, cal_camp.id, now_utc=d2)
             self.assertTrue(st_done["progress"].is_completed)
 
-            # Cleanup temporary test campaign
+            # Cleanup temporary test campaign and children
+            await session.execute(delete(models.UserCampaignProgress).where(models.UserCampaignProgress.campaign_id == cal_camp.id))
+            await session.execute(delete(models.CampaignMission).where(models.CampaignMission.campaign_id == cal_camp.id))
             await session.execute(delete(models.Campaign).where(models.Campaign.id == cal_camp.id))
             await session.commit()
 

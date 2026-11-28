@@ -1126,6 +1126,61 @@ async def delete_campaign_mission(session: AsyncSession, mission_id: int) -> Tup
     return True, "🗑️ Missiya o'chirildi va bosqichlar qayta tartiblandi."
 
 
+async def get_campaign_player_counts(session: AsyncSession) -> Dict[int, int]:
+    """Har bir kampaniyada qatnashayotgan (boshlagan) unikal o'yinchilar soni."""
+    res = await session.execute(
+        select(models.UserCampaignProgress.campaign_id, func.count(models.UserCampaignProgress.id))
+        .group_by(models.UserCampaignProgress.campaign_id)
+    )
+    return {int(row[0]): int(row[1]) for row in res.all()}
+
+
+async def delete_campaign(session: AsyncSession, campaign_id: int) -> Tuple[bool, str]:
+    """Kampaniyani barcha bosqichlari va progress yozuvlari bilan birga xavfsiz o'chiradi."""
+    from sqlalchemy import delete as sa_delete
+    camp = await get_campaign_with_missions(session, campaign_id)
+    if not camp:
+        return False, "❌ Kampaniya topilmadi."
+    title = camp.title
+    await session.execute(
+        sa_delete(models.UserCampaignProgress).where(models.UserCampaignProgress.campaign_id == campaign_id)
+    )
+    await session.execute(
+        sa_delete(models.CampaignMission).where(models.CampaignMission.campaign_id == campaign_id)
+    )
+    await session.execute(
+        sa_delete(models.Campaign).where(models.Campaign.id == campaign_id)
+    )
+    await session.commit()
+    return True, f"🗑️ «{title}» kampaniyasi muvaffaqiyatli o'chirildi."
+
+
+async def update_campaign_info(
+    session: AsyncSession,
+    campaign_id: int,
+    *,
+    title: Optional[str] = None,
+    description: Optional[str] = None,
+    min_level: Optional[int] = None,
+    completion_rewards: Optional[Dict[str, Any]] = None,
+) -> Tuple[bool, str, Optional[models.Campaign]]:
+    camp = await get_campaign_with_missions(session, campaign_id)
+    if not camp:
+        return False, "❌ Kampaniya topilmadi.", None
+    if title is not None and title.strip():
+        camp.title = title.strip()[:180]
+    if description is not None:
+        camp.description = description.strip()[:800]
+    if min_level is not None:
+        camp.min_level = max(1, int(min_level))
+    if completion_rewards is not None:
+        camp.completion_rewards_json = json.dumps(completion_rewards, ensure_ascii=False)
+    camp.updated_at = utc_now()
+    await session.commit()
+    await session.refresh(camp)
+    return True, "✅ Kampaniya ma'lumotlari yangilandi.", camp
+
+
 async def update_campaign_settings(
     session: AsyncSession,
     campaign_id: int,
@@ -1139,10 +1194,14 @@ async def update_campaign_settings(
     """
     Nashr qilingan kampaniya sozlamalarini xavfsiz yangilaydi:
     allaqachon o'tilgan progressga tegmaydi, yangi o'yinchilar va hali ochilmagan missiyalarga qo'llanadi.
+    0 bosqichli kampaniyani faollashtirishga (published) ruxsat bermaydi.
     """
     camp = await get_campaign_with_missions(session, campaign_id)
     if not camp:
         return False, "❌ Kampaniya topilmadi.", None
+
+    if status == "published" and len(camp.missions or []) == 0:
+        return False, "❌ Kamida 1 ta bosqich qo'shmasdan kampaniyani faollashtirib bo'lmaydi!", camp
 
     if status in ("draft", "published", "archived"):
         camp.status = status
@@ -1159,6 +1218,44 @@ async def update_campaign_settings(
     await session.commit()
     await session.refresh(camp)
     return True, "✅ Kampaniya sozlamalari yangilandi (mavjud progress saqlandi).", camp
+
+
+async def update_mission_details(
+    session: AsyncSession,
+    mission_id: int,
+    *,
+    title: Optional[str] = None,
+    story_text: Optional[str] = None,
+    success_text: Optional[str] = None,
+    task_data: Optional[Dict[str, Any]] = None,
+    options: Optional[List[Dict[str, Any]]] = None,
+    correct_answer: Any = ...,
+    reward_gold: Optional[int] = None,
+    reward_xp: Optional[int] = None,
+) -> Tuple[bool, str, Optional[models.CampaignMission]]:
+    res = await session.execute(select(models.CampaignMission).where(models.CampaignMission.id == mission_id))
+    m = res.scalar_one_or_none()
+    if not m:
+        return False, "❌ Bosqich topilmadi.", None
+    if title is not None and title.strip():
+        m.title = title.strip()[:180]
+    if story_text is not None:
+        m.story_text = story_text.strip()
+    if success_text is not None:
+        m.success_text = success_text.strip()
+    if task_data is not None:
+        m.task_data_json = json.dumps(task_data, ensure_ascii=False)
+    if options is not None:
+        m.options_json = json.dumps(options, ensure_ascii=False)
+    if correct_answer is not ...:
+        m.correct_answer = correct_answer
+    if reward_gold is not None:
+        m.reward_gold = max(0, int(reward_gold))
+    if reward_xp is not None:
+        m.reward_xp = max(0, int(reward_xp))
+    await session.commit()
+    await session.refresh(m)
+    return True, "✅ Bosqich ma'lumotlari yangilandi.", m
 
 
 async def update_mission_settings(
@@ -1192,7 +1289,7 @@ async def get_campaign_stats(
     campaign_id: int,
     now_utc: Optional[datetime] = None,
 ) -> Optional[Dict[str, Any]]:
-    """Admin uchun statistika: minimal davomiylik, jami o'yinchilar va har missiyada kutayotganlar soni."""
+    """Admin uchun real-vaqt analitika: jami, jarayonda (bosqichma-bosqich), yakunlaganlar % va oxirgi 5 g'olib."""
     now_u = now_utc or utc_now()
     camp = await get_campaign_with_missions(session, campaign_id)
     if not camp:
@@ -1206,31 +1303,60 @@ async def get_campaign_stats(
 
     waiting_by_mission: Dict[int, int] = {m.order_index: 0 for m in missions}
     active_by_mission: Dict[int, int] = {m.order_index: 0 for m in missions}
-    completed_count = 0
+    in_progress_by_mission: Dict[int, int] = {m.order_index: 0 for m in missions}
+    completed_progs: List[models.UserCampaignProgress] = []
 
     mission_map = {m.order_index: m for m in missions}
     for p in progs:
         if p.is_completed:
-            completed_count += 1
+            completed_progs.append(p)
             continue
         m = mission_map.get(p.current_mission_order)
         if not m:
             continue
+        in_progress_by_mission[m.order_index] = in_progress_by_mission.get(m.order_index, 0) + 1
         unlocked, _, _ = is_mission_unlocked(camp, m, p, now_u)
         if unlocked:
             active_by_mission[m.order_index] = active_by_mission.get(m.order_index, 0) + 1
         else:
             waiting_by_mission[m.order_index] = waiting_by_mission.get(m.order_index, 0) + 1
 
+    total_players = len(progs)
+    completed_count = len(completed_progs)
+    in_progress_count = total_players - completed_count
+    completion_rate_pct = round((completed_count / total_players) * 100.0, 1) if total_players > 0 else 0.0
+
+    # Oxirgi 5 ta yakunlagan o'yinchi
+    completed_progs.sort(key=lambda x: x.last_completed_at or x.updated_at or datetime.min, reverse=True)
+    top5 = completed_progs[:5]
+    recent_completers: List[Dict[str, Any]] = []
+    if top5:
+        u_ids = [p.user_id for p in top5]
+        u_res = await session.execute(select(models.User).where(models.User.id.in_(u_ids)))
+        u_map = {u.id: u for u in u_res.scalars().all()}
+        for p in top5:
+            u = u_map.get(p.user_id)
+            recent_completers.append({
+                "user_id": p.user_id,
+                "telegram_id": p.telegram_id,
+                "full_name": (u.full_name if u and u.full_name else f"Lord #{p.telegram_id}"),
+                "username": (u.username if u else None),
+                "completed_at": p.last_completed_at or p.updated_at,
+            })
+
     return {
         "campaign": camp,
         "missions": missions,
-        "total_players": len(progs),
+        "total_players": total_players,
+        "in_progress_players": in_progress_count,
         "completed_players": completed_count,
+        "completion_rate_pct": completion_rate_pct,
         "min_duration_hours": calculate_campaign_min_duration_hours(camp, missions),
         "min_duration_label": format_campaign_min_duration(camp, missions),
         "waiting_by_mission": waiting_by_mission,
         "active_by_mission": active_by_mission,
+        "in_progress_by_mission": in_progress_by_mission,
+        "recent_completers": recent_completers,
     }
 
 

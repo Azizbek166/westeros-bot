@@ -19,11 +19,13 @@ from services.campaign_service import (
     add_campaign_mission,
     compute_player_campaign_power,
     create_campaign,
+    delete_campaign,
     delete_campaign_mission,
     format_campaign_min_duration,
     format_completion_rewards_preview,
     format_duration_uz,
     format_tashkent_dt,
+    get_campaign_player_counts,
     get_campaign_player_state,
     get_campaign_stats,
     get_campaign_with_missions,
@@ -31,13 +33,16 @@ from services.campaign_service import (
     get_mission_cooldown_hours,
     get_mission_daily_attempts,
     list_campaigns,
+    parse_completion_rewards,
     parse_mission_options,
     parse_task_data,
     parse_tashkent_dt,
     simulate_admin_test_step,
     submit_campaign_mission_action,
     toggle_campaign_notifications,
+    update_campaign_info,
     update_campaign_settings,
+    update_mission_details,
     update_mission_settings,
 )
 
@@ -405,8 +410,60 @@ async def camp_riddle_ask_callback(update: Update, context: ContextTypes.DEFAULT
 
 
 # ============================================================
-# ADMIN QISMI (LIST, WIZARD, SETTINGS, STATS, TEST MODE)
+# ADMIN QISMI (LIST, WIZARD, EDIT, STAGE BUILDER, STATS, TEST)
 # ============================================================
+
+ADMIN_FSM_KEYS = (
+    "admin_camp_wizard",
+    "admin_camp_edit",
+    "admin_camp_add_mission",
+    "admin_m_edit",
+    "admin_camp_cal_input",
+)
+
+
+def _clear_admin_campaign_fsm(user_data: dict):
+    for k in ADMIN_FSM_KEYS:
+        user_data.pop(k, None)
+
+
+def _cancel_kb(back_cb: str = "admin_campaigns") -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("❌ Bekor qilish", callback_data=f"admin_camp_cancel:{back_cb}")]
+    ])
+
+
+def _is_skip_val(text: str) -> bool:
+    return (text or "").strip().lower() in ("0", "yo'q", "yoq", "no", "-", "none")
+
+
+async def _render_admin_campaigns_list(target):
+    async with AsyncSessionLocal() as session:
+        camps = await list_campaigns(session, include_drafts=True)
+        counts = await get_campaign_player_counts(session)
+
+    lines = ["📜 **KAMPANIYALAR BOSHQARUVI (ADMIN)**\n"]
+    buttons = []
+    if not camps:
+        lines.append("Hozircha kampaniyalar yaratilmagan.")
+    for c in camps:
+        is_pub = c.status == "published"
+        st_icon = "🟢" if is_pub else "🔴"
+        st_lbl = "Faol" if is_pub else "Qoralama"
+        m_cnt = len(c.missions or [])
+        p_cnt = counts.get(c.id, 0)
+        lines.append(f"{st_icon} **{escape_md(c.title)}** ({m_cnt} bosqich | {p_cnt} o'yinchi) — _{st_lbl}_")
+        buttons.append([
+            InlineKeyboardButton(
+                f"{st_icon} {c.title} ({m_cnt} bosqich | {p_cnt} o'yinchi)",
+                callback_data=f"admin_camp_view:{c.id}",
+            )
+        ])
+
+    buttons.append([InlineKeyboardButton("➕ Yangi kampaniya yaratish", callback_data="admin_camp_new")])
+    buttons.append([InlineKeyboardButton("🔙 Admin menyuga qaytish", callback_data="admin_panel")])
+    await _safe_edit_or_reply(target, "\n".join(lines), reply_markup=InlineKeyboardMarkup(buttons))
+
 
 async def admin_campaigns_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -414,30 +471,33 @@ async def admin_campaigns_callback(update: Update, context: ContextTypes.DEFAULT
         await query.answer("❌ Ruxsat yo'q!", show_alert=True)
         return
     await query.answer()
+    _clear_admin_campaign_fsm(context.user_data)
     try:
-        async with AsyncSessionLocal() as session:
-            camps = await list_campaigns(session, include_drafts=True)
-
-        lines = ["⚙️ **ADMIN: KAMPANIYALAR BOSHQARUVI**\n"]
-        buttons = []
-        for c in camps:
-            st_icon = "🟢" if c.status == "published" else ("📝" if c.status == "draft" else "📦")
-            mode_icon = "📅" if c.unlock_mode == "calendar" else f"⏳{c.default_cooldown_hours}h"
-            dur = format_campaign_min_duration(c, c.missions or [])
-            lines.append(f"{st_icon} **#{c.id} {escape_md(c.title)}** | {mode_icon} | {dur}")
-            buttons.append([InlineKeyboardButton(f"{st_icon} #{c.id} {c.title}", callback_data=f"admin_camp_view:{c.id}")])
-
-        buttons.append([InlineKeyboardButton("➕ Yangi Kampaniya Yaratish (Wizard)", callback_data="admin_camp_new")])
-        buttons.append([InlineKeyboardButton("🔙 Admin Panel", callback_data="admin_panel")])
-        await _safe_edit_or_reply(query, "\n".join(lines), reply_markup=InlineKeyboardMarkup(buttons))
+        await _render_admin_campaigns_list(query)
     except Exception as e:
         logger.exception(f"admin_campaigns_callback error: {e}")
         await _safe_edit_or_reply(
             query,
             f"❌ Admin kampaniyalar panelini ochishda xatolik:\n{e}",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Admin Panel", callback_data="admin_panel")]]),
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Admin menyuga qaytish", callback_data="admin_panel")]]),
             parse_mode=None,
         )
+
+
+async def admin_camp_cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if not is_admin(query.from_user.id):
+        await query.answer("❌ Ruxsat yo'q!", show_alert=True)
+        return
+    _clear_admin_campaign_fsm(context.user_data)
+    await query.answer("❌ Jarayon bekor qilindi.")
+    back_cb = (query.data or "").split(":", 1)[1] if ":" in (query.data or "") else "admin_campaigns"
+    if back_cb.startswith("admin_camp_view:"):
+        await _render_admin_campaign_view(query, int(back_cb.split(":")[1]))
+    elif back_cb.startswith("admin_camp_missions:"):
+        await _render_admin_camp_missions(query, int(back_cb.split(":")[1]))
+    else:
+        await _render_admin_campaigns_list(query)
 
 
 async def _render_admin_campaign_view(target, campaign_id: int):
@@ -448,28 +508,41 @@ async def _render_admin_campaign_view(target, campaign_id: int):
             return
         missions = sorted(camp.missions or [], key=lambda m: m.order_index)
         dur = format_campaign_min_duration(camp, missions)
+        rewards_preview = format_completion_rewards_preview(camp)
 
+    st_str = "🟢 Faol (Published)" if camp.status == "published" else "🔴 Qoralama (Draft)"
     text = (
-        f"⚙️ **KAMPANIYA #{camp.id}: {escape_md(camp.title)}**\n\n"
-        f"• Holat: `{camp.status}`\n"
-        f"• Ochilish rejimi: `{camp.unlock_mode}`\n"
-        f"• Standart kutish: `{camp.default_cooldown_hours} soat`\n"
-        f"• Kunlik urinishlar limiti: `{camp.default_daily_attempts} ta/kun` (Toshkent 00:00 reset)\n"
-        f"• Noto'g'ri tanlov kutishi: `{camp.default_choice_cooldown_minutes} daqiqa`\n"
+        f"📜 **KAMPANIYA #{camp.id}: {escape_md(camp.title)}**\n"
+        f"_{escape_md(camp.description or '')}_\n\n"
+        f"• Holat: **{st_str}**\n"
+        f"• Bosqichlar soni: `{len(missions)} ta`\n"
+        f"• Minimal daraja: `{camp.min_level or 1}-daraja`\n"
+        f"• Yakuniy mukofotlar: {rewards_preview}\n"
+        f"• Ochilish rejimi: `{camp.unlock_mode}` | Kutish: `{camp.default_cooldown_hours} soat`\n"
+        f"• Kunlik urinish: `{camp.default_daily_attempts}` | Tanlov kutishi: `{camp.default_choice_cooldown_minutes} daq`\n"
         f"• ⏱️ **Minimal davomiylik:** {dur}\n"
     )
     pub_btn = (
-        InlineKeyboardButton("📝 Draftga o'tkazish", callback_data=f"admin_camp_set:{camp.id}:status:draft")
+        InlineKeyboardButton("🔴 To'xtatish (Draft)", callback_data=f"admin_camp_set:{camp.id}:status:draft")
         if camp.status == "published"
-        else InlineKeyboardButton("🟢 Nashr qilish (Publish)", callback_data=f"admin_camp_set:{camp.id}:status:published")
+        else InlineKeyboardButton("🟢 Faollashtirish (Publish)", callback_data=f"admin_camp_set:{camp.id}:status:published")
     )
     buttons = [
-        [InlineKeyboardButton("📊 Statistika (Kutayotganlar)", callback_data=f"admin_camp_stats:{camp.id}")],
-        [InlineKeyboardButton("🧪 Admin Sinov Rejimi (Tez sinash)", callback_data=f"admin_camp_test:{camp.id}:1")],
-        [InlineKeyboardButton("⚙️ Vaqt va Limit Sozlamalari", callback_data=f"admin_camp_settings:{camp.id}")],
-        [InlineKeyboardButton("📜 Missiyalar & Alohida Vaqtlar", callback_data=f"admin_camp_missions:{camp.id}")],
         [pub_btn],
-        [InlineKeyboardButton("🔙 Kampaniyalar", callback_data="admin_campaigns")],
+        [
+            InlineKeyboardButton("📋 Bosqichlar ro'yxati", callback_data=f"admin_camp_missions:{camp.id}"),
+            InlineKeyboardButton("➕ Bosqich qo'shish", callback_data=f"admin_m_add:{camp.id}"),
+        ],
+        [
+            InlineKeyboardButton("✏️ Ma'lumotlarni tahrirlash", callback_data=f"admin_camp_edit:{camp.id}"),
+            InlineKeyboardButton("📊 Statistika", callback_data=f"admin_camp_stats:{camp.id}"),
+        ],
+        [
+            InlineKeyboardButton("⚙️ Vaqt va limitlar", callback_data=f"admin_camp_settings:{camp.id}"),
+            InlineKeyboardButton("🧪 Sinov rejimi", callback_data=f"admin_camp_test:{camp.id}:1"),
+        ],
+        [InlineKeyboardButton("🗑 Kampaniyani o'chirish", callback_data=f"admin_camp_del_ask:{camp.id}")],
+        [InlineKeyboardButton("🔙 Kampaniyalar ro'yxati", callback_data="admin_campaigns")],
     ]
     await _safe_edit_or_reply(target, text, reply_markup=InlineKeyboardMarkup(buttons))
 
@@ -480,8 +553,85 @@ async def admin_camp_view_callback(update: Update, context: ContextTypes.DEFAULT
         await query.answer("❌ Ruxsat yo'q!", show_alert=True)
         return
     await query.answer()
+    _clear_admin_campaign_fsm(context.user_data)
     camp_id = int((query.data or "").split(":")[1])
     await _render_admin_campaign_view(query, camp_id)
+
+
+async def admin_camp_edit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if not is_admin(query.from_user.id):
+        await query.answer("❌ Ruxsat yo'q!", show_alert=True)
+        return
+    await query.answer()
+    parts = (query.data or "").split(":")
+    camp_id = int(parts[1])
+    if len(parts) == 2:
+        kb = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("📝 Sarlavhani o'zgartirish", callback_data=f"admin_camp_edit:{camp_id}:title"),
+                InlineKeyboardButton("📖 Tavsifni o'zgartirish", callback_data=f"admin_camp_edit:{camp_id}:description"),
+            ],
+            [
+                InlineKeyboardButton("🎖️ Minimal daraja", callback_data=f"admin_camp_edit:{camp_id}:min_level"),
+                InlineKeyboardButton("🏆 Yakuniy mukofot (Oltin)", callback_data=f"admin_camp_edit:{camp_id}:reward_gold"),
+            ],
+            [
+                InlineKeyboardButton("👑 Yakuniy Unvon", callback_data=f"admin_camp_edit:{camp_id}:reward_title"),
+                InlineKeyboardButton("🗡️ Yakuniy Buyum", callback_data=f"admin_camp_edit:{camp_id}:reward_item"),
+            ],
+            [InlineKeyboardButton("🔙 Orqaga", callback_data=f"admin_camp_view:{camp_id}")],
+        ])
+        await _safe_edit_or_reply(query, "✏️ **KAMPANIYA MA'LUMOTLARINI TAHRIRLASH**\n\nNimani o'zgartirmoqchisiz?", reply_markup=kb)
+        return
+
+    field = parts[2]
+    _clear_admin_campaign_fsm(context.user_data)
+    context.user_data["admin_camp_edit"] = {"campaign_id": camp_id, "field": field}
+    prompts = {
+        "title": "📝 Yangi kampaniya sarlavhasini yuboring:",
+        "description": "📖 Yangi kampaniya tavsifini yuboring:",
+        "min_level": "🎖️ Minimal darajani butun son ko'rinishida yuboring (masalan: `5`):",
+        "reward_gold": "🪙 Yakuniy oltin mukofotini kiriting (masalan: `1500`):",
+        "reward_title": "👑 Eksklyuziv unvon nomini kiriting (olib tashlash uchun `0` yozing):",
+        "reward_item": "🗡️ Yakuniy buyum nomini kiriting (olib tashlash uchun `0` yozing):",
+    }
+    await _safe_edit_or_reply(query, prompts.get(field, "Yangi qiymatni yuboring:"), reply_markup=_cancel_kb(f"admin_camp_view:{camp_id}"))
+
+
+async def admin_camp_del_ask_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if not is_admin(query.from_user.id):
+        await query.answer("❌ Ruxsat yo'q!", show_alert=True)
+        return
+    await query.answer()
+    camp_id = int((query.data or "").split(":")[1])
+    async with AsyncSessionLocal() as session:
+        camp = await get_campaign_with_missions(session, camp_id)
+    if not camp:
+        await _safe_edit_or_reply(query, "❌ Kampaniya topilmadi.")
+        return
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("⚠️ Ha, o'chirilsin", callback_data=f"admin_camp_del_do:{camp_id}")],
+        [InlineKeyboardButton("❌ Bekor qilish", callback_data=f"admin_camp_view:{camp_id}")],
+    ])
+    await _safe_edit_or_reply(
+        query,
+        f"⚠️ **DIQQAT! KAMPANIYANI O'CHIRISH**\n\n«**{escape_md(camp.title)}**» kampaniyasi, uning barcha bosqichlari va o'yinchi progressi butunlay o'chiriladi. Tasdiqlaysizmi?",
+        reply_markup=kb,
+    )
+
+
+async def admin_camp_del_do_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if not is_admin(query.from_user.id):
+        await query.answer("❌ Ruxsat yo'q!", show_alert=True)
+        return
+    camp_id = int((query.data or "").split(":")[1])
+    async with AsyncSessionLocal() as session:
+        _, msg = await delete_campaign(session, camp_id)
+    await query.answer(msg, show_alert=True)
+    await _render_admin_campaigns_list(query)
 
 
 async def admin_camp_stats_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -500,15 +650,26 @@ async def admin_camp_stats_callback(update: Update, context: ContextTypes.DEFAUL
     camp = st["campaign"]
     lines = [
         f"📊 **KAMPANIYA STATISTIKASI: {escape_md(camp.title)}**\n",
-        f"• ⏱️ Minimal davomiylik: **{st['min_duration_label']}**",
-        f"• 👥 Jami boshlagan o'yinchilar: **{st['total_players']} ta**",
-        f"• 🏆 To'liq yakunlaganlar: **{st['completed_players']} ta**\n",
-        "⏳ **Har missiyada kutish holatida turganlar:**",
+        f"• 👥 **Jami boshlaganlar:** `{st['total_players']} kishi`",
+        f"• ⏳ **Jarayonda:** `{st['in_progress_players']} kishi`",
+        f"• 🏆 **Yakunlaganlar:** `{st['completed_players']} kishi` (`{st['completion_rate_pct']}%`)",
+        f"• ⏱️ **Minimal davomiylik:** {st['min_duration_label']}\n",
+        "📌 **Bosqichlar bo'yicha taqsimot:**",
     ]
     for m in st["missions"]:
+        in_p = st["in_progress_by_mission"].get(m.order_index, 0)
         w = st["waiting_by_mission"].get(m.order_index, 0)
-        a = st["active_by_mission"].get(m.order_index, 0)
-        lines.append(f"• {m.order_index}-missiya ({escape_md(m.title)}): ⏳ Kutmoqda: **{w}** | 🔓 Ochiq: **{a}**")
+        lines.append(f"• {m.order_index}-bosqichda ({escape_md(m.title)}): **{in_p} kishi** (⏳ kutmoqda: {w})")
+
+    lines.append("\n🏅 **Oxirgi 5 ta yakunlagan o'yinchi:**")
+    recent = st.get("recent_completers") or []
+    if not recent:
+        lines.append("_Hozircha yakunlagan o'yinchilar yo'q._")
+    else:
+        for idx, r in enumerate(recent, 1):
+            uname = f" (@{escape_md(r['username'])})" if r.get("username") else ""
+            ts = format_tashkent_dt(r.get("completed_at"))
+            lines.append(f"{idx}. **{escape_md(r['full_name'])}**{uname} — `{ts}`")
 
     kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Orqaga", callback_data=f"admin_camp_view:{camp_id}")]])
     await _safe_edit_or_reply(query, "\n".join(lines), reply_markup=kb)
@@ -582,7 +743,7 @@ async def admin_camp_set_callback(update: Update, context: ContextTypes.DEFAULT_
 
     async with AsyncSessionLocal() as session:
         ok, msg, _ = await update_campaign_settings(session, camp_id, **kwargs)
-    await query.answer(msg, show_alert=False)
+    await query.answer(msg, show_alert=not ok)
     if field == "status":
         await _render_admin_campaign_view(query, camp_id)
     else:
@@ -595,26 +756,92 @@ async def _render_admin_camp_missions(target, camp_id: int):
     if not camp:
         return
     missions = sorted(camp.missions or [], key=lambda m: m.order_index)
-    lines = [f"📜 **MISSIYALAR: {escape_md(camp.title)}**\n"]
+    lines = [f"📋 **BOSQICHLAR RO'YXATI: {escape_md(camp.title)}**\n"]
     buttons = []
+    if not missions:
+        lines.append("_Hozircha bosqichlar yo'q. Faollashtirish uchun kamida 1 ta bosqich qo'shing._")
     for m in missions:
         cd = get_mission_cooldown_hours(camp, m)
-        att = get_mission_daily_attempts(camp, m)
-        ccd = get_mission_choice_cooldown_minutes(camp, m)
         cal = format_tashkent_dt(m.calendar_unlock_at) if m.calendar_unlock_at else "—"
         lines.append(
-            f"• **{m.order_index}. {escape_md(m.title)}** (`{m.mission_type}`) | "
-            f"⏳ {cd}h | 🎯 {att}/kun | ⏱️ {ccd}m | 📅 {cal}"
+            f"• **{m.order_index}-bosqich:** {escape_md(m.title)} (`{m.mission_type}`) | ⏳ {cd}h | 📅 {cal}"
         )
         buttons.append([
-            InlineKeyboardButton(f"⏳ {m.order_index}-m: 72h", callback_data=f"admin_m_set:{camp_id}:{m.id}:cd:72"),
-            InlineKeyboardButton(f"♻️ Standart", callback_data=f"admin_m_set:{camp_id}:{m.id}:cd:default"),
-            InlineKeyboardButton(f"📅 Sana", callback_data=f"admin_m_cal_ask:{camp_id}:{m.id}"),
-            InlineKeyboardButton(f"🗑️", callback_data=f"admin_m_del:{camp_id}:{m.id}"),
+            InlineKeyboardButton(
+                f"✏️ {m.order_index}-bosqich: {m.title} ({m.mission_type})",
+                callback_data=f"admin_m_view:{camp_id}:{m.id}",
+            ),
+            InlineKeyboardButton("🗑️", callback_data=f"admin_m_del:{camp_id}:{m.id}"),
         ])
-    buttons.append([InlineKeyboardButton("➕ Yangi Bosqich Qo'shish", callback_data=f"admin_m_add:{camp_id}")])
-    buttons.append([InlineKeyboardButton("🔙 Orqaga", callback_data=f"admin_camp_view:{camp_id}")])
+    buttons.append([InlineKeyboardButton("➕ Bosqich qo'shish", callback_data=f"admin_m_add:{camp_id}")])
+    buttons.append([InlineKeyboardButton("🔙 Kampaniyaga qaytish", callback_data=f"admin_camp_view:{camp_id}")])
     await _safe_edit_or_reply(target, "\n".join(lines), reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def _render_admin_mission_detail(target, camp_id: int, mission_id: int):
+    async with AsyncSessionLocal() as session:
+        camp = await get_campaign_with_missions(session, camp_id)
+        m = next((x for x in (camp.missions or []) if x.id == mission_id), None) if camp else None
+    if not camp or not m:
+        await _safe_edit_or_reply(target, "❌ Bosqich topilmadi.")
+        return
+    cd = get_mission_cooldown_hours(camp, m)
+    cal = format_tashkent_dt(m.calendar_unlock_at) if m.calendar_unlock_at else "Belgilanmagan"
+    text = (
+        f"📜 **{m.order_index}-BOSQICH: {escape_md(m.title)}**\n"
+        f"• Turi (`task_type`): `{m.mission_type}`\n"
+        f"• Mukofot: `+{m.reward_gold}🪙`, `+{m.reward_xp} XP`\n"
+        f"• Kutish vaqti: `{cd} soat` | Kalendar: `{cal}`\n\n"
+        f"📖 **Hikoya:**\n{escape_md(m.story_text[:400])}\n\n"
+        f"✅ **Yakuniy matn:**\n{escape_md((m.success_text or '—')[:250])}"
+    )
+    kb = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("📖 Hikoyani tahrirlash", callback_data=f"admin_m_edit:{camp_id}:{m.id}:story_text"),
+            InlineKeyboardButton("✅ Yakuniy matn", callback_data=f"admin_m_edit:{camp_id}:{m.id}:success_text"),
+        ],
+        [
+            InlineKeyboardButton("🎁 Mukofot (Oltin/XP)", callback_data=f"admin_m_edit:{camp_id}:{m.id}:step_rewards"),
+            InlineKeyboardButton("⚙️ Task data", callback_data=f"admin_m_edit:{camp_id}:{m.id}:task_data"),
+        ],
+        [
+            InlineKeyboardButton("⏳ Kutish: 72h", callback_data=f"admin_m_set:{camp_id}:{m.id}:cd:72"),
+            InlineKeyboardButton("♻️ Standart", callback_data=f"admin_m_set:{camp_id}:{m.id}:cd:default"),
+            InlineKeyboardButton("📅 Kalendar sana", callback_data=f"admin_m_cal_ask:{camp_id}:{m.id}"),
+        ],
+        [InlineKeyboardButton("🗑️ Bosqichni o'chirish", callback_data=f"admin_m_del:{camp_id}:{m.id}")],
+        [InlineKeyboardButton("🔙 Bosqichlar ro'yxati", callback_data=f"admin_camp_missions:{camp_id}")],
+    ])
+    await _safe_edit_or_reply(target, text, reply_markup=kb)
+
+
+async def admin_m_view_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if not is_admin(query.from_user.id):
+        await query.answer("❌ Ruxsat yo'q!", show_alert=True)
+        return
+    await query.answer()
+    parts = (query.data or "").split(":")
+    await _render_admin_mission_detail(query, int(parts[1]), int(parts[2]))
+
+
+async def admin_m_edit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if not is_admin(query.from_user.id):
+        await query.answer("❌ Ruxsat yo'q!", show_alert=True)
+        return
+    await query.answer()
+    parts = (query.data or "").split(":")
+    camp_id, mission_id, field = int(parts[1]), int(parts[2]), parts[3]
+    _clear_admin_campaign_fsm(context.user_data)
+    context.user_data["admin_m_edit"] = {"campaign_id": camp_id, "mission_id": mission_id, "field": field}
+    prompts = {
+        "story_text": "📖 Bosqich uchun yangi hikoya matnini (`story_text`) yuboring:",
+        "success_text": "✅ Bosqich yakunlanganda chiqadigan matnni (`success_text`) yuboring:",
+        "step_rewards": "🎁 Bosqich mukofotini `Oltin XP` ko'rinishida yuboring (masalan: `200 120`):",
+        "task_data": "⚙️ Yangi `task_data` ni JSON yoki oddiy qiymat ko'rinishida yuboring (masalan: `{\"cost_gold\": 150}` yoki `{\"enemy_name\": \"Qotil\", \"enemy_hp\": 200, \"enemy_attack\": 30, \"enemy_defense\": 10}`):",
+    }
+    await _safe_edit_or_reply(query, prompts.get(field, "Yangi qiymatni yuboring:"), reply_markup=_cancel_kb(f"admin_camp_missions:{camp_id}"))
 
 
 async def admin_m_del_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -641,34 +868,33 @@ async def admin_m_add_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     if len(parts) == 2:
         kb = InlineKeyboardMarkup([
             [
-                InlineKeyboardButton("📖 Hikoya (story)", callback_data=f"admin_m_add:{camp_id}:story"),
-                InlineKeyboardButton("⚔️ Jang (combat)", callback_data=f"admin_m_add:{camp_id}:combat"),
+                InlineKeyboardButton("🎭 Tanlov (Narrative Choice)", callback_data=f"admin_m_add:{camp_id}:narrative_choice"),
+                InlineKeyboardButton("⚔️ Jang (Combat Encounter)", callback_data=f"admin_m_add:{camp_id}:combat_encounter"),
             ],
             [
-                InlineKeyboardButton("💰 Pora/Resurs (tribute)", callback_data=f"admin_m_add:{camp_id}:tribute"),
-                InlineKeyboardButton("🔍 Jumboq (riddle)", callback_data=f"admin_m_add:{camp_id}:riddle"),
+                InlineKeyboardButton("🧩 Jumboq (Riddle)", callback_data=f"admin_m_add:{camp_id}:riddle_investigation"),
+                InlineKeyboardButton("💰 Resurs / Pora (Tribute)", callback_data=f"admin_m_add:{camp_id}:resource_tribute"),
             ],
-            [InlineKeyboardButton("🔙 Orqaga", callback_data=f"admin_camp_missions:{camp_id}")],
+            [InlineKeyboardButton("❌ Bekor qilish", callback_data=f"admin_camp_cancel:admin_camp_missions:{camp_id}")],
         ])
         await _safe_edit_or_reply(
             query,
-            "➕ **YANGI BOSQICH QO'SHISH**\n\nBosqich turini (`task_type`) tanlang:",
+            "➕ **YANGI BOSQICH QO'SHISH (1/5)**\n\nBosqich turini (`task_type`) tanlang:",
             reply_markup=kb,
         )
         return
 
     mtype = parts[2]
-    context.user_data["admin_camp_add_mission"] = {"campaign_id": camp_id, "mission_type": mtype}
-    hint_map = {
-        "story": "`Sarlavha | Hikoya matni | Yakuniy matn`",
-        "combat": "`Sarlavha | Hikoya matni | Raqib nomi | Raqib quvvati (masalan 500)`",
-        "tribute": "`Sarlavha | Hikoya matni | Kerakli oltin (masalan 500)`",
-        "riddle": "`Sarlavha | Jumboq matni | To'g'ri javob (| bilan bir nechta)`",
+    _clear_admin_campaign_fsm(context.user_data)
+    context.user_data["admin_camp_add_mission"] = {
+        "campaign_id": camp_id,
+        "mission_type": mtype,
+        "step": "title",
     }
     await _safe_edit_or_reply(
         query,
-        f"➕ **YANGI BOSQICH (`{mtype}`)**\n\nQuyidagi formatda bitta xabar yuboring:\n{hint_map.get(mtype, '`Sarlavha | Matn`')}\n\nBekor qilish: `/cancel`.",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Orqaga", callback_data=f"admin_camp_missions:{camp_id}")]]),
+        f"➕ **YANGI BOSQICH (`{mtype}`) — 2/5**\n\nBosqich sarlavhasini yuboring:",
+        reply_markup=_cancel_kb(f"admin_camp_missions:{camp_id}"),
     )
 
 
@@ -690,17 +916,8 @@ async def camp_clue_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def admin_campaigns_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not is_admin(update.effective_user.id):
         return
-    async with AsyncSessionLocal() as session:
-        camps = await list_campaigns(session, include_drafts=True)
-    lines = ["⚙️ **ADMIN: KAMPANIYALAR BOSHQARUVI**\n"]
-    buttons = []
-    for c in camps:
-        st_icon = "🟢" if c.status == "published" else ("📝" if c.status == "draft" else "📦")
-        dur = format_campaign_min_duration(c, c.missions or [])
-        lines.append(f"{st_icon} **#{c.id} {escape_md(c.title)}** | {dur}")
-        buttons.append([InlineKeyboardButton(f"{st_icon} #{c.id} {c.title}", callback_data=f"admin_camp_view:{c.id}")])
-    buttons.append([InlineKeyboardButton("➕ Yangi Kampaniya Yaratish (Wizard)", callback_data="admin_camp_new")])
-    await _safe_edit_or_reply(update.message, "\n".join(lines), reply_markup=InlineKeyboardMarkup(buttons))
+    _clear_admin_campaign_fsm(context.user_data)
+    await _render_admin_campaigns_list(update.message)
 
 
 async def admin_camp_missions_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -822,7 +1039,7 @@ async def admin_camp_test_callback(update: Update, context: ContextTypes.DEFAULT
 
 
 # ============================================================
-# ADMIN KAMPANIYA YARATISH WIZARDI
+# ADMIN KAMPANIYA YARATISH WIZARDI (FSM)
 # ============================================================
 
 async def admin_camp_new_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -831,11 +1048,12 @@ async def admin_camp_new_callback(update: Update, context: ContextTypes.DEFAULT_
         await query.answer("❌ Ruxsat yo'q!", show_alert=True)
         return
     await query.answer()
-    context.user_data["admin_camp_wizard"] = {"step": "title"}
+    _clear_admin_campaign_fsm(context.user_data)
+    context.user_data["admin_camp_wizard"] = {"step": "title", "rewards": {}}
     await _safe_edit_or_reply(
         query,
-        "🧙‍♂️ **YANGI KAMPANIYA WIZARDI (1/4)**\n\nKampaniya nomini yozib yuboring (bekor qilish: `/cancel`):",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Bekor qilish", callback_data="admin_campaigns")]]),
+        "🧙‍♂️ **YANGI KAMPANIYA YARATISH (1/7: Sarlavha)**\n\nKampaniya sarlavhasini yozib yuboring:",
+        reply_markup=_cancel_kb("admin_campaigns"),
     )
 
 
@@ -856,14 +1074,14 @@ async def admin_camp_wiz_choice_callback(update: Update, context: ContextTypes.D
         wiz["step"] = "cooldown"
         await _safe_edit_or_reply(
             query,
-            "🧙‍♂️ **WIZARD (3/4): MISSIYALAR ORASIDAGI KUTISH VAQTI**\n\nStandart kutish vaqtini tanlang:",
+            "🧙‍♂️ **YANGI KAMPANIYA (7/7: Kutish vaqti)**\n\nMissiyalar orasidagi standart kutish vaqtini tanlang:",
             reply_markup=InlineKeyboardMarkup([
                 [
                     InlineKeyboardButton("⏳ 12 soat", callback_data="admin_cwiz:cd:12"),
                     InlineKeyboardButton("⏳ 24 soat (Standart)", callback_data="admin_cwiz:cd:24"),
                     InlineKeyboardButton("⏳ 48 soat", callback_data="admin_cwiz:cd:48"),
                 ],
-                [InlineKeyboardButton("🔙 Bekor qilish", callback_data="admin_campaigns")],
+                [InlineKeyboardButton("❌ Bekor qilish", callback_data="admin_camp_cancel:admin_campaigns")],
             ]),
         )
     elif key == "cd":
@@ -871,19 +1089,20 @@ async def admin_camp_wiz_choice_callback(update: Update, context: ContextTypes.D
         wiz["step"] = "confirm"
         cd_h = wiz["default_cooldown_hours"]
         sample_10_days = (10 * cd_h) // 24
+        rew = wiz.get("rewards") or {}
         await _safe_edit_or_reply(
             query,
-            f"🧙‍♂️ **WIZARD (4/4): TASDIQLASH**\n\n"
-            f"• Nomi: **{escape_md(wiz['title'])}**\n"
+            f"🧙‍♂️ **YANGI KAMPANIYA: TASDIQLASH**\n\n"
+            f"• Sarlavha: **{escape_md(wiz['title'])}**\n"
             f"• Tavsif: _{escape_md(wiz.get('description', ''))}_\n"
-            f"• Rejim: `{wiz.get('unlock_mode', 'cooldown')}`\n"
-            f"• Standart kutish: `{cd_h} soat`\n"
-            f"• Kunlik urinishlar: `3 ta/kun`\n"
-            f"• ⏱️ **Minimal davomiylik namunasi:** 10 missiya × {cd_h} soat = **kamida {sample_10_days} kun**\n\n"
-            f"Kampaniyani yaratishni tasdiqlaysizmi?",
+            f"• Minimal daraja: `{wiz.get('min_level', 1)}-daraja`\n"
+            f"• Yakuniy mukofot: `{rew.get('gold', 0):,}🪙` | Buyum: `{rew.get('item') or '—'}` | Unvon: `{rew.get('title') or '—'}` | Yutuq: `{rew.get('achievement_name') or '—'}`\n"
+            f"• Rejim: `{wiz.get('unlock_mode', 'cooldown')}` | Kutish: `{cd_h} soat`\n"
+            f"• ⏱️ **Minimal davomiylik namunasi:** 10 bosqich × {cd_h} soat = **kamida {sample_10_days} kun**\n\n"
+            f"Kampaniya **🔴 Qoralama (Draft)** holatida yaratiladi. Tasdiqlaysizmi?",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("✅ Yaratish (Draft)", callback_data="admin_cwiz:save:1")],
-                [InlineKeyboardButton("❌ Bekor qilish", callback_data="admin_campaigns")],
+                [InlineKeyboardButton("✅ Yaratish (Qoralama)", callback_data="admin_cwiz:save:1")],
+                [InlineKeyboardButton("❌ Bekor qilish", callback_data="admin_camp_cancel:admin_campaigns")],
             ]),
         )
     elif key == "save":
@@ -892,6 +1111,8 @@ async def admin_camp_wiz_choice_callback(update: Update, context: ContextTypes.D
                 session=session,
                 title=wiz["title"],
                 description=wiz.get("description", ""),
+                min_level=wiz.get("min_level", 1),
+                completion_rewards=wiz.get("rewards") or {},
                 unlock_mode=wiz.get("unlock_mode", "cooldown"),
                 default_cooldown_hours=wiz.get("default_cooldown_hours", 24),
                 default_daily_attempts=3,
@@ -899,12 +1120,12 @@ async def admin_camp_wiz_choice_callback(update: Update, context: ContextTypes.D
                 status="draft",
                 created_by=query.from_user.id,
             )
-        context.user_data.pop("admin_camp_wizard", None)
+        _clear_admin_campaign_fsm(context.user_data)
         await _render_admin_campaign_view(query, camp.id)
 
 
 # ============================================================
-# MATNLI KIRISHLAR (RIDDLE JAVOBI, WIZARD, KALENDAR SANASI)
+# MATNLI KIRISHLAR (RIDDLE, ADMIN WIZARD, EDIT, STAGE BUILDER)
 # ============================================================
 
 async def campaign_text_input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -941,111 +1162,335 @@ async def campaign_text_input_handler(update: Update, context: ContextTypes.DEFA
         await _safe_edit_or_reply(update.message, res["message"], reply_markup=kb)
         return
 
+    if not is_admin(user_id):
+        return
+
+    # Universal /cancel for admin FSMs
+    if text.lower() in ("/cancel", "bekor") and any(u_data.get(k) for k in ADMIN_FSM_KEYS):
+        _clear_admin_campaign_fsm(u_data)
+        await update.message.reply_text(
+            "❌ Jarayon bekor qilindi.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📜 Kampaniyalar boshqaruvi", callback_data="admin_campaigns")]]),
+        )
+        return
+
     # 2. Admin kalendar sanasi kiritish
     cal_ctx = u_data.get("admin_camp_cal_input")
-    if cal_ctx and is_admin(user_id):
-        if text.lower() in ("/cancel", "bekor"):
-            u_data.pop("admin_camp_cal_input", None)
-            await update.message.reply_text("❌ Bekor qilindi.")
-            return
+    if cal_ctx:
         if text.lower() == "none":
             dt_utc = None
         else:
             dt_utc = parse_tashkent_dt(text)
             if dt_utc is None:
-                await update.message.reply_text("❌ Format xato! Masalan: `2026-12-01 10:00`", parse_mode="Markdown")
+                await update.message.reply_text("❌ Sana formati noto'g'ri! Masalan: `2026-12-01 10:00`", parse_mode="Markdown")
                 return
         async with AsyncSessionLocal() as session:
             _, msg, _ = await update_mission_settings(session, cal_ctx["mission_id"], calendar_unlock_at=dt_utc)
-        u_data.pop("admin_camp_cal_input", None)
+        _clear_admin_campaign_fsm(u_data)
         await update.message.reply_text(
             f"{msg}\n📅 Yangi sana: {format_tashkent_dt(dt_utc)}",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📜 Missiyalar", callback_data=f"admin_camp_missions:{cal_ctx['campaign_id']}")]]),
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📋 Bosqichlar ro'yxati", callback_data=f"admin_camp_missions:{cal_ctx['campaign_id']}")]]),
         )
         return
 
-    # 2b. Admin yangi bosqich qo'shish (Stage Builder)
-    add_m_ctx = u_data.get("admin_camp_add_mission")
-    if add_m_ctx and is_admin(user_id):
-        if text.lower() in ("/cancel", "bekor"):
-            u_data.pop("admin_camp_add_mission", None)
-            await update.message.reply_text("❌ Bosqich qo'shish bekor qilindi.")
-            return
-        parts = [p.strip() for p in text.split("|")]
-        if len(parts) < 2:
-            await update.message.reply_text("❌ Kamida `Sarlavha | Hikoya matni` formatida yuboring!", parse_mode="Markdown")
-            return
-        camp_id = add_m_ctx["campaign_id"]
-        mtype = add_m_ctx["mission_type"]
-        title_str, story_str = parts[0][:180], parts[1]
-        task_data = {}
-        correct_ans = None
-        success_txt = ""
-        if mtype == "story" and len(parts) >= 3:
-            success_txt = parts[2]
-        elif mtype == "combat":
-            enemy_name = parts[2] if len(parts) >= 3 else "Qaroqchilar Boshlig'i"
-            try:
-                enemy_pwr = int(parts[3]) if len(parts) >= 4 else 500
-            except ValueError:
-                enemy_pwr = 500
-            task_data = {"enemy_name": enemy_name, "enemy_power": max(50, enemy_pwr)}
-        elif mtype == "tribute":
-            try:
-                cost_g = int(parts[2]) if len(parts) >= 3 else 500
-            except ValueError:
-                cost_g = 500
-            task_data = {"cost_gold": max(1, cost_g)}
-        elif mtype == "riddle":
-            correct_ans = "|".join(parts[2:]) if len(parts) >= 3 else "westeros"
-
+    # 2a. Admin kampaniya ma'lumotlarini tahrirlash
+    edit_c = u_data.get("admin_camp_edit")
+    if edit_c:
+        camp_id, field = edit_c["campaign_id"], edit_c["field"]
         async with AsyncSessionLocal() as session:
             camp = await get_campaign_with_missions(session, camp_id)
-            next_idx = max((m.order_index for m in (camp.missions or [])), default=0) + 1 if camp else 1
-            await add_campaign_mission(
-                session=session,
-                campaign_id=camp_id,
-                order_index=next_idx,
-                title=title_str,
-                story_text=story_str,
-                mission_type=mtype,
-                correct_answer=correct_ans,
-                task_data=task_data,
-                success_text=success_txt,
-                reward_gold=1000,
-                reward_xp=50,
-            )
-        u_data.pop("admin_camp_add_mission", None)
-        await update.message.reply_text(
-            f"✅ **{next_idx}-bosqich qo'shildi:** {escape_md(title_str)} (`{mtype}`)",
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📜 Missiyalar", callback_data=f"admin_camp_missions:{camp_id}")]]),
-        )
+            if not camp:
+                _clear_admin_campaign_fsm(u_data)
+                await update.message.reply_text("❌ Kampaniya topilmadi.")
+                return
+            if field == "title":
+                await update_campaign_info(session, camp_id, title=text)
+            elif field == "description":
+                await update_campaign_info(session, camp_id, description=text)
+            elif field == "min_level":
+                try:
+                    lvl = int(text)
+                    if lvl < 1:
+                        raise ValueError
+                except ValueError:
+                    await update.message.reply_text("❌ Noto'g'ri son! Minimal daraja 1 dan katta butun son bo'lishi kerak (masalan: `5`).", parse_mode="Markdown")
+                    return
+                await update_campaign_info(session, camp_id, min_level=lvl)
+            elif field in ("reward_gold", "reward_title", "reward_item"):
+                rew = parse_completion_rewards(camp)
+                if field == "reward_gold":
+                    try:
+                        g = int(text)
+                        if g < 0:
+                            raise ValueError
+                    except ValueError:
+                        await update.message.reply_text("❌ Noto'g'ri son! Oltin miqdorini butun son ko'rinishida kiriting (masalan: `1500`).", parse_mode="Markdown")
+                        return
+                    rew["gold"] = g
+                elif field == "reward_title":
+                    if _is_skip_val(text):
+                        rew.pop("title", None)
+                    else:
+                        rew["title"] = text[:100]
+                elif field == "reward_item":
+                    if _is_skip_val(text):
+                        rew.pop("item", None)
+                    else:
+                        rew["item"] = text[:120]
+                await update_campaign_info(session, camp_id, completion_rewards=rew)
+        _clear_admin_campaign_fsm(u_data)
+        await _render_admin_campaign_view(update.message, camp_id)
         return
 
-    # 3. Admin kampaniya wizardi (title -> description)
-    wiz = u_data.get("admin_camp_wizard")
-    if wiz and is_admin(user_id):
-        if text.lower() in ("/cancel", "bekor"):
-            u_data.pop("admin_camp_wizard", None)
-            await update.message.reply_text("❌ Wizard bekor qilindi.")
+    # 2b. Admin bosqichni tahrirlash
+    edit_m = u_data.get("admin_m_edit")
+    if edit_m:
+        camp_id, mission_id, field = edit_m["campaign_id"], edit_m["mission_id"], edit_m["field"]
+        async with AsyncSessionLocal() as session:
+            if field == "story_text":
+                await update_mission_details(session, mission_id, story_text=text)
+            elif field == "success_text":
+                await update_mission_details(session, mission_id, success_text=text)
+            elif field == "step_rewards":
+                parts = text.split()
+                try:
+                    g = int(parts[0])
+                    xp = int(parts[1]) if len(parts) > 1 else 0
+                    if g < 0 or xp < 0:
+                        raise ValueError
+                except (ValueError, IndexError):
+                    await update.message.reply_text("❌ Noto'g'ri format! Masalan: `200 120` (Oltin XP).", parse_mode="Markdown")
+                    return
+                await update_mission_details(session, mission_id, reward_gold=g, reward_xp=xp)
+            elif field == "task_data":
+                import json as _json
+                try:
+                    parsed = _json.loads(text)
+                    if not isinstance(parsed, dict):
+                        raise ValueError
+                except Exception:
+                    await update.message.reply_text("❌ Noto'g'ri JSON! Masalan: `{\"cost_gold\": 150}`", parse_mode="Markdown")
+                    return
+                await update_mission_details(session, mission_id, task_data=parsed)
+        _clear_admin_campaign_fsm(u_data)
+        await _render_admin_mission_detail(update.message, camp_id, mission_id)
+        return
+
+    # 2c. Admin ko'p bosqichli Stage Builder (➕ Bosqich qo'shish)
+    add_m = u_data.get("admin_camp_add_mission")
+    if add_m:
+        camp_id = add_m["campaign_id"]
+        mtype = add_m["mission_type"]
+        step = add_m.get("step", "title")
+        cancel_kb = _cancel_kb(f"admin_camp_missions:{camp_id}")
+
+        if step == "title":
+            add_m["title"] = text[:180]
+            add_m["step"] = "story_text"
+            await update.message.reply_text(
+                "➕ **YANGI BOSQICH (3/5: Hikoya matni)**\n\nO'yinchiga ko'rinadigan hikoya (`story_text`) matnini yuboring:",
+                parse_mode="Markdown",
+                reply_markup=cancel_kb,
+            )
             return
-        if wiz.get("step") == "title":
+        if step == "story_text":
+            add_m["story_text"] = text
+            add_m["step"] = "task_data"
+            prompts = {
+                "narrative_choice": "🎭 **Tanlov variantlarini kiriting:**\n`To'g'ri variant | Noto'g'ri variant 1 | Noto'g'ri variant 2`",
+                "combat_encounter": "⚔️ **Raqib ma'lumotlarini kiriting:**\n`Raqib nomi | HP | Hujum | Himoya` (masalan: `Yollanma Qotil | 180 | 28 | 10`)",
+                "riddle_investigation": "🧩 **Jumboq javob va variantlarini kiriting:**\n`To'g'ri javob | Noto'g'ri 1 | Noto'g'ri 2`",
+                "resource_tribute": "💰 **Kerakli oltin miqdorini kiriting** (butun son, masalan: `150`):",
+            }
+            await update.message.reply_text(
+                f"➕ **YANGI BOSQICH (4/5: Vazifa sozlamasi)**\n\n{prompts.get(mtype, 'Vazifa qiymatini yuboring:')}",
+                parse_mode="Markdown",
+                reply_markup=cancel_kb,
+            )
+            return
+        if step == "task_data":
+            if mtype == "combat_encounter":
+                parts = [p.strip() for p in text.split("|")]
+                if len(parts) < 3:
+                    await update.message.reply_text("❌ Format xato! Masalan: `Yollanma Qotil | 180 | 28 | 10`", parse_mode="Markdown")
+                    return
+                try:
+                    hp = int(parts[1])
+                    atk = int(parts[2])
+                    dfn = int(parts[3]) if len(parts) >= 4 else 10
+                    if hp <= 0 or atk <= 0 or dfn < 0:
+                        raise ValueError
+                except ValueError:
+                    await update.message.reply_text("❌ HP, Hujum va Himoya musbat butun son bo'lishi kerak!", parse_mode="Markdown")
+                    return
+                add_m["task_data"] = {
+                    "enemy_name": parts[0],
+                    "enemy_hp": hp,
+                    "enemy_attack": atk,
+                    "enemy_defense": dfn,
+                    "enemy_power": hp + atk * 5,
+                }
+            elif mtype == "resource_tribute":
+                try:
+                    cost_g = int(text)
+                    if cost_g <= 0:
+                        raise ValueError
+                except ValueError:
+                    await update.message.reply_text("❌ Oltin miqdori musbat butun son bo'lishi kerak (masalan: `150`).", parse_mode="Markdown")
+                    return
+                add_m["task_data"] = {"cost_gold": cost_g}
+            elif mtype in ("narrative_choice", "riddle_investigation"):
+                parts = [p.strip() for p in text.split("|") if p.strip()]
+                if len(parts) < 2:
+                    await update.message.reply_text("❌ Kamida 2 ta variantni `|` bilan ajratib yozing: `To'g'ri | Noto'g'ri 1 | Noto'g'ri 2`", parse_mode="Markdown")
+                    return
+                opts = [{"key": "opt_0", "text": parts[0], "is_correct": True}]
+                for idx, wrong in enumerate(parts[1:], 1):
+                    opts.append({"key": f"opt_{idx}", "text": wrong, "is_correct": False})
+                add_m["options"] = opts
+                add_m["correct_answer"] = "opt_0"
+            add_m["step"] = "success_text"
+            await update.message.reply_text(
+                "➕ **YANGI BOSQICH (4.5/5: Yakuniy matn)**\n\nBosqich muvaffaqiyatli o'tilganda chiqadigan matnni (`success_text`) yuboring:",
+                parse_mode="Markdown",
+                reply_markup=cancel_kb,
+            )
+            return
+        if step == "success_text":
+            add_m["success_text"] = text
+            add_m["step"] = "step_rewards"
+            await update.message.reply_text(
+                "➕ **YANGI BOSQICH (5/5: Bosqich mukofoti)**\n\nOltin va XP miqdorini bo'shliq bilan kiriting (masalan: `150 100` yoki `0 50`):",
+                parse_mode="Markdown",
+                reply_markup=cancel_kb,
+            )
+            return
+        if step == "step_rewards":
+            parts = text.split()
+            try:
+                r_gold = int(parts[0])
+                r_xp = int(parts[1]) if len(parts) > 1 else 0
+                if r_gold < 0 or r_xp < 0:
+                    raise ValueError
+            except (ValueError, IndexError):
+                await update.message.reply_text("❌ Noto'g'ri son! Oltin va XP ni butun son ko'rinishida yuboring (masalan: `150 100`).", parse_mode="Markdown")
+                return
+            async with AsyncSessionLocal() as session:
+                camp = await get_campaign_with_missions(session, camp_id)
+                next_idx = max((m.order_index for m in (camp.missions or [])), default=0) + 1 if camp else 1
+                await add_campaign_mission(
+                    session=session,
+                    campaign_id=camp_id,
+                    order_index=next_idx,
+                    title=add_m["title"],
+                    story_text=add_m["story_text"],
+                    mission_type=mtype,
+                    options=add_m.get("options"),
+                    correct_answer=add_m.get("correct_answer"),
+                    task_data=add_m.get("task_data"),
+                    success_text=add_m.get("success_text", ""),
+                    reward_gold=r_gold,
+                    reward_xp=r_xp,
+                )
+            _clear_admin_campaign_fsm(u_data)
+            await update.message.reply_text(
+                f"✅ **{next_idx}-bosqich qo'shildi:** {escape_md(add_m['title'])} (`{mtype}` | +{r_gold}🪙, +{r_xp} XP)",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📋 Bosqichlar ro'yxati", callback_data=f"admin_camp_missions:{camp_id}")]]),
+            )
+            return
+
+    # 3. Admin kampaniya yaratish wizardi (FSM)
+    wiz = u_data.get("admin_camp_wizard")
+    if wiz:
+        step = wiz.get("step")
+        cancel_kb = _cancel_kb("admin_campaigns")
+        if step == "title":
             wiz["title"] = text[:180]
             wiz["step"] = "description"
-            await update.message.reply_text("🧙‍♂️ **WIZARD (2/4)**\n\nKampaniya tavsifini yozib yuboring:", parse_mode="Markdown")
+            await update.message.reply_text(
+                "🧙‍♂️ **YANGI KAMPANIYA (2/7: Tavsif)**\n\nO'yinchilarga ko'rinadigan kampaniya tavsifini yuboring:",
+                parse_mode="Markdown",
+                reply_markup=cancel_kb,
+            )
             return
-        if wiz.get("step") == "description":
-            wiz["description"] = text[:600]
+        if step == "description":
+            wiz["description"] = text[:700]
+            wiz["step"] = "min_level"
+            await update.message.reply_text(
+                "🧙‍♂️ **YANGI KAMPANIYA (3/7: Minimal daraja)**\n\nMinimal o'yinchi darajasini kiriting (masalan: `1`, `5`, `10`):",
+                parse_mode="Markdown",
+                reply_markup=cancel_kb,
+            )
+            return
+        if step == "min_level":
+            try:
+                lvl = int(text)
+                if lvl < 1:
+                    raise ValueError
+            except ValueError:
+                await update.message.reply_text("❌ Noto'g'ri son! Minimal daraja 1 yoki undan katta butun son bo'lishi kerak.", parse_mode="Markdown", reply_markup=cancel_kb)
+                return
+            wiz["min_level"] = lvl
+            wiz["step"] = "reward_gold"
+            await update.message.reply_text(
+                "🧙‍♂️ **YANGI KAMPANIYA (4/7: Yakuniy oltin mukofoti)**\n\nKampaniya yakunida beriladigan oltin miqdorini kiriting (masalan: `1500`):",
+                parse_mode="Markdown",
+                reply_markup=cancel_kb,
+            )
+            return
+        if step == "reward_gold":
+            try:
+                g = int(text)
+                if g < 0:
+                    raise ValueError
+            except ValueError:
+                await update.message.reply_text("❌ Noto'g'ri son! Oltin miqdorini butun son ko'rinishida kiriting (masalan: `1500`).", parse_mode="Markdown", reply_markup=cancel_kb)
+                return
+            wiz.setdefault("rewards", {})["gold"] = g
+            wiz["step"] = "reward_item"
+            await update.message.reply_text(
+                "🧙‍♂️ **YANGI KAMPANIYA (5/7: Yakuniy buyum)**\n\nMukofot buyumi nomini kiriting (o'tkazib yuborish uchun `0` yoki `Yo'q` yozing):",
+                parse_mode="Markdown",
+                reply_markup=cancel_kb,
+            )
+            return
+        if step == "reward_item":
+            if not _is_skip_val(text):
+                wiz.setdefault("rewards", {})["item"] = text[:120]
+            wiz["step"] = "reward_title"
+            await update.message.reply_text(
+                "🧙‍♂️ **YANGI KAMPANIYA (6/7: Eksklyuziv Unvon)**\n\nUnvon (Title) nomini kiriting (o'tkazib yuborish uchun `0` yoki `Yo'q` yozing):",
+                parse_mode="Markdown",
+                reply_markup=cancel_kb,
+            )
+            return
+        if step == "reward_title":
+            if not _is_skip_val(text):
+                wiz.setdefault("rewards", {})["title"] = text[:100]
+            wiz["step"] = "reward_ach"
+            await update.message.reply_text(
+                "🧙‍♂️ **YANGI KAMPANIYA (6.5/7: Yutuq / Achievement)**\n\nYutuq nomini kiriting (o'tkazib yuborish uchun `0` yoki `Yo'q` yozing):",
+                parse_mode="Markdown",
+                reply_markup=cancel_kb,
+            )
+            return
+        if step == "reward_ach":
+            if not _is_skip_val(text):
+                import re as _re
+                slug_code = "camp_" + _re.sub(r"[^a-z0-9]+", "_", text.lower()).strip("_")[:36]
+                wiz.setdefault("rewards", {})["achievement_name"] = text[:100]
+                wiz.setdefault("rewards", {})["achievement_code"] = slug_code
             wiz["step"] = "mode"
             await update.message.reply_text(
-                "🧙‍♂️ **WIZARD (2.5/4): OCHILISH REJIMINI TANLANG**\n\n"
-                "• **Kutish rejimi (Cooldown):** har missiyadan keyin belgilangan soat kutish\n"
-                "• **Kalendar rejimi (Calendar):** har missiya aniq sana va vaqtda ochiladi",
+                "🧙‍♂️ **YANGI KAMPANIYA: OCHILISH REJIMI**\n\n"
+                "• **Kutish rejimi (Cooldown):** har bosqichdan keyin belgilangan soat kutish\n"
+                "• **Kalendar rejimi (Calendar):** har bosqich aniq sana va vaqtda ochiladi",
                 parse_mode="Markdown",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("⏳ Kutish rejimi (Cooldown)", callback_data="admin_cwiz:mode:cooldown")],
                     [InlineKeyboardButton("📅 Kalendar rejimi (Calendar)", callback_data="admin_cwiz:mode:calendar")],
+                    [InlineKeyboardButton("❌ Bekor qilish", callback_data="admin_camp_cancel:admin_campaigns")],
                 ]),
             )
             return
@@ -1064,14 +1509,20 @@ def register_campaign_handlers(app: Application):
 
     # Admin handlers
     app.add_handler(CallbackQueryHandler(admin_campaigns_callback, pattern="^admin_campaigns$"))
+    app.add_handler(CallbackQueryHandler(admin_camp_cancel_callback, pattern="^admin_camp_cancel(:.*)?$"))
     app.add_handler(CallbackQueryHandler(admin_camp_view_callback, pattern="^admin_camp_view:[0-9]+$"))
+    app.add_handler(CallbackQueryHandler(admin_camp_edit_callback, pattern="^admin_camp_edit:[0-9]+(:[a-z_]+)?$"))
+    app.add_handler(CallbackQueryHandler(admin_camp_del_ask_callback, pattern="^admin_camp_del_ask:[0-9]+$"))
+    app.add_handler(CallbackQueryHandler(admin_camp_del_do_callback, pattern="^admin_camp_del_do:[0-9]+$"))
     app.add_handler(CallbackQueryHandler(admin_camp_stats_callback, pattern="^admin_camp_stats:[0-9]+$"))
     app.add_handler(CallbackQueryHandler(admin_camp_settings_callback, pattern="^admin_camp_settings:[0-9]+$"))
     app.add_handler(CallbackQueryHandler(admin_camp_set_callback, pattern="^admin_camp_set:[0-9]+:[a-z]+:.+$"))
     app.add_handler(CallbackQueryHandler(admin_camp_missions_callback, pattern="^admin_camp_missions:[0-9]+$"))
+    app.add_handler(CallbackQueryHandler(admin_m_view_callback, pattern="^admin_m_view:[0-9]+:[0-9]+$"))
+    app.add_handler(CallbackQueryHandler(admin_m_edit_callback, pattern="^admin_m_edit:[0-9]+:[0-9]+:[a-z_]+$"))
     app.add_handler(CallbackQueryHandler(admin_m_set_callback, pattern="^admin_m_set:[0-9]+:[0-9]+:[a-z]+:.+$"))
     app.add_handler(CallbackQueryHandler(admin_m_del_callback, pattern="^admin_m_del:[0-9]+:[0-9]+$"))
-    app.add_handler(CallbackQueryHandler(admin_m_add_callback, pattern="^admin_m_add:[0-9]+(:[a-z]+)?$"))
+    app.add_handler(CallbackQueryHandler(admin_m_add_callback, pattern="^admin_m_add:[0-9]+(:[a-z_]+)?$"))
     app.add_handler(CallbackQueryHandler(admin_m_cal_ask_callback, pattern="^admin_m_cal_ask:[0-9]+:[0-9]+$"))
     app.add_handler(CallbackQueryHandler(admin_camp_test_callback, pattern="^admin_camp_test:[0-9]+:[0-9]+(:.*)?$"))
     app.add_handler(CallbackQueryHandler(admin_camp_new_callback, pattern="^admin_camp_new$"))
