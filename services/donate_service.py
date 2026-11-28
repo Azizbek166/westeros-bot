@@ -598,9 +598,8 @@ async def get_donate_hub_data(session: AsyncSession, identifier: int) -> Optiona
     if not user:
         return None
 
-    # Check and migrate legacy VIP if present
-    if user.vip_tier and user.vip_tier in ("lord", "knight", "dragonlord", "sovereign"):
-        await apply_legacy_vip_compensation(session, user)
+    # Faol 5 ta rasmiy Homiy darajalari (noble, knight, lord, dragonlord, sovereign) saqlab qolinadi;
+    # eski legacy tierlarni bexosdan noble ga tushirib yubormaslik kerak.
 
     now = datetime.utcnow()
     if user.vip_until and user.vip_until <= now:

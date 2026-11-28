@@ -757,11 +757,11 @@ async def init_db():
                 h.special_troop_name = f"{h.name} Gvardiyasi"
 
         # Ajdarlar quvvatini to'g'irlash: Darajasini pasaytirmagan holda har bir ajdarning
-        # quvvatini o'z darajasidagi ruxsat etilgan maksimal me'yorga keltirish (normalizatsiya)
+        # quvvatini o'z turi, darajasi va artefaktiga mos maksimal me'yorga keltirish (normalizatsiya)
         from database import crud
         dragons_res = await session.execute(select(models.Dragon))
         for drg in dragons_res.scalars().all():
-            max_p = crud.get_max_dragon_power(drg.level, drg.stage, drg.artifact_code)
+            max_p = crud.get_max_dragon_power(drg.level, drg.stage, drg.artifact_code, drg.name, drg.grade)
             if (drg.power or 0) > max_p:
                 logger.info(f"🐉 Ajdar #{drg.id} ({drg.name}, Daraja {drg.level}) quvvati normallashtirildi: {drg.power:,} -> {max_p:,}")
                 drg.power = max_p
@@ -830,6 +830,37 @@ async def init_db():
                 logger.info("🧹 To'lovsiz (eski versiyada) olingan VIP, Starter Pack va Season Pass holatlari tozalandi.")
             except Exception as cl_err:
                 logger.warning(f"unpaid_stars_cleanup_v1 xatosi: {cl_err}")
+
+        # Bir martalik migratsiya:
+        # 1) Eski 12,300 (Arrax cap) xatosidan zarar ko'rgan ajdarlar quvvatini tiklash
+        # 2) Avvalgi 25,000 so'mlik (knight) va yuqori pack egalarining VIP imtiyozlarini faollashtirish
+        fix_flag_res = await session.execute(
+            select(models.EventState).where(models.EventState.event_name == "dragon_power_and_knight_perks_fix_v1")
+        )
+        if not fix_flag_res.scalar_one_or_none():
+            try:
+                from scripts.migrate_dragon_power_and_knight_perks import (
+                    restore_dragons_power,
+                    restore_25k_knight_pack_perks,
+                )
+                drg_mig = await restore_dragons_power(session)
+                knt_mig = await restore_25k_knight_pack_perks(session)
+                session.add(models.EventState(
+                    event_name="dragon_power_and_knight_perks_fix_v1",
+                    data_json=json.dumps({
+                        "migrated_at": datetime.utcnow().isoformat(),
+                        "dragons_restored": drg_mig["restored"],
+                        "dragons_clamped": drg_mig["clamped"],
+                        "knight_buyers_updated": knt_mig["updated_count"],
+                    }),
+                    is_active=True,
+                ))
+                logger.info(
+                    f"🛠️ Migratsiya bajarildi: {drg_mig['restored']} ta ajdar quvvati tiklandi, "
+                    f"{knt_mig['updated_count']} ta 25,000+ pack egasi imtiyozlari yangilandi."
+                )
+            except Exception as mig_err:
+                logger.warning(f"dragon_power_and_knight_perks_fix_v1 xatosi: {mig_err}")
 
         await session.commit()
 

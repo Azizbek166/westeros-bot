@@ -245,8 +245,8 @@ async def get_profile_extras_view(session: AsyncSession, user: models.User) -> D
     return {
         "active_tier": active_tier,
         "theme": theme_info,
-        "crest": row.crest if (is_vip_active and has_min_vip_tier(user, "lord")) else None,
-        "castle_name": row.castle_name if (is_vip_active and has_min_vip_tier(user, "sovereign")) else None,
+        "crest": row.crest if (is_vip_active and has_min_vip_tier(user, "knight")) else None,
+        "castle_name": row.castle_name if (is_vip_active and has_min_vip_tier(user, "dragonlord")) else None,
         "victory_message": row.victory_message if (is_vip_active and has_min_vip_tier(user, "dragonlord")) else None,
         "badges": badge_labels,
     }

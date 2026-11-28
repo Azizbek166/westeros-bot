@@ -329,6 +329,8 @@ async def show_dragon_art_shop(query, user_id: int, dragon_id: int):
             else:
                 buttons.append([InlineKeyboardButton(btn_txt, callback_data=f"dragon_buy_art:{dragon.id}:{code}")])
 
+        if dragon.artifact_code:
+            buttons.append([InlineKeyboardButton("🔓 Artefaktni Yechish", callback_data=f"dragon_unequip_art:{dragon.id}")])
         buttons.append([InlineKeyboardButton("🔙 Ajdarlarga Qaytish", callback_data="menu_dragons")])
         await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
 
@@ -364,6 +366,24 @@ async def dragon_buy_art_callback(update: Update, context: ContextTypes.DEFAULT_
 async def dragon_art_already_equipped_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer("✅ Ushbu artefakt allaqachon bu ajdarga taqilgan!", show_alert=True)
+
+
+async def dragon_unequip_art_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ajdardan taqilgan artefaktni yechish"""
+    query = update.callback_query
+    parts = query.data.split(":")
+    dragon_id = int(parts[1])
+    user_id = query.from_user.id
+
+    async with AsyncSessionLocal() as session:
+        user = await crud.get_user_with_relations(session, user_id)
+        if not user:
+            await query.answer("Foydalanuvchi topilmadi.", show_alert=True)
+            return
+        ok, msg = await crud.unequip_dragon_artifact(session, user.id, dragon_id)
+
+    await query.answer(msg, show_alert=True)
+    await show_dragon_art_shop(query, user_id, dragon_id)
 
 
 async def dragon_max_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -507,6 +527,7 @@ def register_dragon_handlers(app):
     app.add_handler(CallbackQueryHandler(dragon_lay_egg_callback, pattern="^dragon_lay_egg_"))
     app.add_handler(CallbackQueryHandler(dragon_art_shop_callback, pattern="^dragon_art_shop_"))
     app.add_handler(CallbackQueryHandler(dragon_buy_art_callback, pattern="^dragon_buy_art:"))
+    app.add_handler(CallbackQueryHandler(dragon_unequip_art_callback, pattern="^dragon_unequip_art:"))
     app.add_handler(CallbackQueryHandler(dragon_art_already_equipped_callback, pattern="^dragon_art_already_equipped$"))
     app.add_handler(CallbackQueryHandler(dragon_max_callback, pattern="^dragon_max_"))
     app.add_handler(CallbackQueryHandler(dragon_release_ask_callback, pattern="^dragon_release_ask_"))

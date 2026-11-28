@@ -3380,6 +3380,45 @@ async def dragon_lay_egg(session: AsyncSession, user_id: int, dragon_id: int) ->
     return True, f"🥚 AJOYIB MO'JIZA! {dragon.name} yangi ajdar tuxumini qo'ydi! Endi sizda 2 ta ajdar bo'ladi! (+50 Prestige)"
 
 
+def recalculate_dragon_power(dragon: models.Dragon, old_artifact_code: Optional[str] = None) -> int:
+    """
+    Ajdarning bazaviy kuchi (turi, darajasi, bosqichi va parvarish/mashq yutuqlari)
+    ustiga taqilgan artefakt bonusini to'g'ri qayta hisoblaydi.
+    Artefakt taqilganda, almashtirilganda yoki yechilganda quvvat noto'g'ri pasayib ketmaydi.
+    """
+    from data.artifacts_data import ARTIFACTS_DATA
+
+    lvl = max(1, dragon.level or 1)
+    stage = getattr(dragon, "stage", "adult") or "adult"
+    name = getattr(dragon, "name", None)
+    grade = getattr(dragon, "grade", "C") or "C"
+
+    species_base = get_base_dragon_power_for_level(lvl, stage, name=name, grade=grade)
+    max_no_art = get_max_dragon_power(lvl, stage, None, name=name, grade=grade)
+    max_with_art = get_max_dragon_power(lvl, stage, dragon.artifact_code, name=name, grade=grade)
+
+    old_bonus = 0.0
+    if old_artifact_code and old_artifact_code in ARTIFACTS_DATA:
+        old_bonus = float(ARTIFACTS_DATA[old_artifact_code].get("dragon_bonus", 0.0) or 0.0)
+
+    curr_pwr = dragon.power or species_base
+    if old_bonus > 0:
+        base_pwr = int(round(curr_pwr / (1.0 + old_bonus)))
+    else:
+        base_pwr = curr_pwr
+
+    # Bazaviy quvvat hech qachon turning o'z darajasidagi minimal bazaviy quvvatidan pastga tushmaydi
+    base_pwr = max(species_base, min(max_no_art, base_pwr))
+
+    new_bonus = 0.0
+    if dragon.artifact_code and dragon.artifact_code in ARTIFACTS_DATA:
+        new_bonus = float(ARTIFACTS_DATA[dragon.artifact_code].get("dragon_bonus", 0.0) or 0.0)
+
+    new_pwr = int(round(base_pwr * (1.0 + new_bonus)))
+    dragon.power = min(max_with_art, new_pwr)
+    return dragon.power
+
+
 async def equip_dragon_artifact(session: AsyncSession, user_id: int, dragon_id: int, artifact_code: str) -> Tuple[bool, str]:
     """Ajdarga maxsus artefakt sotib olib taqish"""
     user = await get_user_any(session, user_id)
@@ -3407,27 +3446,35 @@ async def equip_dragon_artifact(session: AsyncSession, user_id: int, dragon_id: 
     user.gold -= p_gold
     user.iron -= p_iron
 
-    # Agar oldin boshqa artefakt taqilgan bo'lsa, uning bonusini hisobdan chiqarish
     old_art_code = dragon.artifact_code
-    old_bonus = 0.0
-    if old_art_code and old_art_code in ARTIFACTS_DATA:
-        old_bonus = ARTIFACTS_DATA[old_art_code].get("dragon_bonus", 0.0)
-
-    curr_pwr = dragon.power or get_base_dragon_power_for_level(dragon.level, dragon.stage)
-    if old_bonus > 0:
-        base_pwr = int(curr_pwr / (1.0 + old_bonus))
-    else:
-        base_pwr = curr_pwr
-
     dragon.artifact_code = artifact_code
-    new_bonus = art_info.get("dragon_bonus", 0.35)
-    new_pwr = int(base_pwr * (1.0 + new_bonus))
-
-    max_pwr = get_max_dragon_power(dragon.level, dragon.stage, artifact_code)
-    dragon.power = min(max_pwr, new_pwr)
+    recalculate_dragon_power(dragon, old_artifact_code=old_art_code)
 
     await session.commit()
     return True, f"✨ {dragon.name} ga {art_info['name']} taqildi! Ajdarning quvvati: {dragon.power:,}⚡"
+
+
+async def unequip_dragon_artifact(session: AsyncSession, user_id: int, dragon_id: int) -> Tuple[bool, str]:
+    """Ajdardan taqilgan artefaktni yechish va quvvatni to'g'ri qayta hisoblash"""
+    user = await get_user_any(session, user_id)
+    if not user:
+        return False, "Foydalanuvchi topilmadi."
+
+    dragon = await session.get(models.Dragon, dragon_id)
+    if not dragon or dragon.user_id != user.id:
+        return False, "Ajdar topilmadi."
+
+    if not dragon.artifact_code:
+        return False, "❌ Bu ajdarga hech qanday artefakt taqilmagan."
+
+    from data.artifacts_data import ARTIFACTS_DATA
+    old_art_code = dragon.artifact_code
+    old_name = ARTIFACTS_DATA.get(old_art_code, {}).get("name", old_art_code)
+    dragon.artifact_code = None
+    recalculate_dragon_power(dragon, old_artifact_code=old_art_code)
+
+    await session.commit()
+    return True, f"🔓 {dragon.name} dan {old_name} yechildi! Ajdarning bazaviy quvvati: {dragon.power:,}⚡"
 
 
 def get_user_castle_tax_hours(user: models.User, territory: models.Territory, now: Optional[datetime] = None) -> Tuple[int, int]:
@@ -4688,7 +4735,7 @@ async def claim_daily_bonus(session: AsyncSession, user_id: int) -> Tuple[bool, 
         dragons = await get_user_dragons(session, user.id)
         if dragons:
             best_dragon = max(dragons, key=lambda d: d.power)
-            max_p = get_max_dragon_power(best_dragon.level, best_dragon.stage, best_dragon.artifact_code)
+            max_p = get_max_dragon_power(best_dragon.level, best_dragon.stage, best_dragon.artifact_code, best_dragon.name, best_dragon.grade)
             best_dragon.power = min(max_p, (best_dragon.power or 0) + reward["dragon_power"])
             best_dragon.hunger = min(100, (best_dragon.hunger or 50) + 40)
             dragon_msg = f"\n🐉 Ajdaringiz ({best_dragon.name}) to'yintirildi: +{reward['dragon_power']} quvvat!"
@@ -4858,7 +4905,7 @@ async def claim_daily_quest_reward(session: AsyncSession, user_id: int, quest_ke
         dragons = await get_user_dragons(session, user.id)
         if dragons:
             best_dragon = max(dragons, key=lambda d: d.power)
-            max_p = get_max_dragon_power(best_dragon.level, best_dragon.stage, best_dragon.artifact_code)
+            max_p = get_max_dragon_power(best_dragon.level, best_dragon.stage, best_dragon.artifact_code, best_dragon.name, best_dragon.grade)
             best_dragon.power = min(max_p, (best_dragon.power or 0) + quest_info["dragon_power"])
             best_dragon.hunger = min(100, (best_dragon.hunger or 50) + 30)
             dp_msg = f"\n🐉 Ajdaringiz ({best_dragon.name}) quvvati: +{quest_info['dragon_power']}!"
@@ -9120,14 +9167,14 @@ async def apply_donate_rewards(session: AsyncSession, telegram_id: int, tier_id:
 # ============================================================
 
 async def update_user_custom_photo(session: AsyncSession, user_id: int, file_id: Optional[str]) -> Tuple[bool, str]:
-    """Lord profil rasmini o'rnatish yoki olib tashlash (Lord, Valyriya, Sovereign uchun)"""
-    user = await session.get(models.User, user_id)
+    """Lord profil rasmini o'rnatish yoki olib tashlash (Noble, Ritsar, Lord, Valyriya, Sovereign uchun)"""
+    from services.profile_extras_service import has_min_vip_tier
+    user = await get_user_any(session, user_id, load_relations=False)
     if not user:
         return False, "O'yinchi topilmadi."
 
-    allowed = ["noble", "lord", "dragonlord", "sovereign"]
-    if user.vip_tier not in allowed:
-        return False, "❌ Profilga fotosurat qo'yish uchun «👑 Noble VIP» yoki maxsus VIP talab qilinadi."
+    if file_id is not None and not has_min_vip_tier(user, "noble"):
+        return False, "❌ Profilga fotosurat qo'yish uchun kamida «🛡️ Noble Homiy» (9,000+ so'm) faol VIP talab qilinadi."
 
     user.custom_photo_file_id = file_id
     await session.commit()
@@ -9138,18 +9185,20 @@ async def update_user_custom_photo(session: AsyncSession, user_id: int, file_id:
 
 
 async def update_user_custom_status(session: AsyncSession, user_id: int, status_text: Optional[str]) -> Tuple[bool, str]:
-    """Profil shiori / statusini o'rnatish (Valyriya va Sovereign uchun)"""
-    user = await session.get(models.User, user_id)
+    """Profil shiori / statusini o'rnatish (Noble, Ritsar, Lord, Valyriya, Sovereign uchun)"""
+    from services.profile_extras_service import has_min_vip_tier, sanitize_profile_text
+    user = await get_user_any(session, user_id, load_relations=False)
     if not user:
         return False, "O'yinchi topilmadi."
 
-    allowed = ["noble", "lord", "dragonlord", "sovereign"]
-    if user.vip_tier not in allowed:
-        return False, "❌ Shaxsiy status/shior qo'yish uchun «👑 Noble VIP» yoki maxsus VIP talab qilinadi."
+    if status_text is not None and not has_min_vip_tier(user, "noble"):
+        return False, "❌ Shaxsiy status/shior qo'yish uchun kamida «🛡️ Noble Homiy» (9,000+ so'm) faol VIP talab qilinadi."
 
-    if status_text:
-        clean_text = status_text.strip()[:100]
-        user.custom_status = clean_text
+    if status_text is not None:
+        ok_txt, cleaned_or_err = sanitize_profile_text(status_text, max_len=100)
+        if not ok_txt:
+            return False, cleaned_or_err
+        user.custom_status = cleaned_or_err
     else:
         user.custom_status = None
 
@@ -9161,14 +9210,14 @@ async def update_user_custom_status(session: AsyncSession, user_id: int, status_
 
 
 async def update_user_custom_audio(session: AsyncSession, user_id: int, file_id: Optional[str], audio_title: Optional[str] = None) -> Tuple[bool, str]:
-    """Profil fon musiqasi / gimnini o'rnatish (VIP foydalanuvchilar uchun)"""
-    user = await session.get(models.User, user_id)
+    """Profil fon musiqasi / gimnini o'rnatish (Lord, Valyriya, Sovereign uchun)"""
+    from services.profile_extras_service import has_min_vip_tier
+    user = await get_user_any(session, user_id, load_relations=False)
     if not user:
         return False, "O'yinchi topilmadi."
 
-    allowed = ["noble", "lord", "dragonlord", "sovereign"]
-    if user.vip_tier not in allowed:
-        return False, "❌ Shaxsiy musiqa biriktirish uchun «👑 Noble VIP» yoki maxsus VIP talab qilinadi."
+    if (file_id is not None or audio_title is not None) and not has_min_vip_tier(user, "lord"):
+        return False, "❌ Shaxsiy musiqa biriktirish uchun kamida «🏰 Lord Homiy» (40,000+ so'm) faol VIP talab qilinadi."
 
     user.custom_audio_file_id = file_id
     if audio_title or file_id:
@@ -9184,21 +9233,21 @@ async def update_user_custom_audio(session: AsyncSession, user_id: int, file_id:
 
 
 async def update_user_custom_video(session: AsyncSession, user_id: int, file_id: Optional[str]) -> Tuple[bool, str]:
-    """25,000+ so'mlik VIP foydalanuvchilar (Lord, Valyriya, Sovereign) profiliga video o'rnatish"""
-    user = await session.get(models.User, user_id)
+    """25,000+ so'mlik VIP foydalanuvchilar (Ritsar, Lord, Valyriya, Sovereign) profiliga video/GIF o'rnatish"""
+    from services.profile_extras_service import has_min_vip_tier
+    user = await get_user_any(session, user_id, load_relations=False)
     if not user:
         return False, "O'yinchi topilmadi."
 
-    allowed = ["noble", "lord", "dragonlord", "sovereign"]
-    if user.vip_tier not in allowed:
-        return False, "❌ Profilga video joylash uchun «👑 Noble VIP» yoki maxsus VIP talab qilinadi."
+    if file_id is not None and not has_min_vip_tier(user, "knight"):
+        return False, "❌ Profilga video yoki GIF joylash uchun kamida «🗡️ Ritsar Homiy» (25,000+ so'm) faol VIP talab qilinadi."
 
     user.custom_video_file_id = file_id
     await session.commit()
     if file_id:
-        return True, "✅ Profil videosi muvaffaqiyatli o'rnatildi! Endi profilingiz barcha lordlarga ushbu video bilan ko'rinadi."
+        return True, "✅ Profil videosi/GIF muvaffaqiyatli o'rnatildi! Endi profilingiz barcha lordlarga ushbu media bilan ko'rinadi."
     else:
-        return True, "🗑️ Profil videosi olib tashlandi."
+        return True, "🗑️ Profil videosi/GIF olib tashlandi."
 
 
 async def use_royal_decree(session: AsyncSession, user_id: int) -> Tuple[bool, str]:

@@ -2789,9 +2789,15 @@ async def admin_dragon_set_art_callback(update: Update, context: ContextTypes.DE
     async with AsyncSessionLocal() as session:
         dragon = await session.get(models.Dragon, drg_id)
         if dragon:
+            old_code = dragon.artifact_code
             dragon.artifact_code = None if code == "none" else code
+            crud.recalculate_dragon_power(dragon, old_artifact_code=old_code)
             await session.commit()
-            msg = "Artefakt olib tashlandi!" if code == "none" else f"Artefakt {code} o'rnatildi!"
+            msg = (
+                f"Artefakt olib tashlandi! (Quvvat: {dragon.power:,})"
+                if code == "none"
+                else f"Artefakt {code} o'rnatildi! (Quvvat: {dragon.power:,})"
+            )
 
     try:
         await query.answer(f"✅ {msg}", show_alert=True)
