@@ -276,12 +276,22 @@ async def _render_campaign_view(target, telegram_id: int, campaign_id: int):
                             callback_data=f"camp_clue:{camp.id}:{cur_m.order_index}",
                         )
                     ])
-                buttons.append([
-                    InlineKeyboardButton(
-                        "✍️ Javob Yozish",
-                        callback_data=f"camp_riddle_ask:{camp.id}:{cur_m.order_index}",
-                    )
-                ])
+                r_opts = parse_mission_options(cur_m)
+                if r_opts:
+                    for opt in r_opts:
+                        buttons.append([
+                            InlineKeyboardButton(
+                                str(opt.get("text", opt.get("key"))),
+                                callback_data=f"camp_act:{camp.id}:{cur_m.order_index}:{opt.get('key')}",
+                            )
+                        ])
+                else:
+                    buttons.append([
+                        InlineKeyboardButton(
+                            "✍️ Javob Yozish",
+                            callback_data=f"camp_riddle_ask:{camp.id}:{cur_m.order_index}",
+                        )
+                    ])
 
         notify_label = "🔔 Bildirishnoma: YOQIQ" if prog.notify_enabled else "🔕 Bildirishnoma: O'CHIQ"
         buttons.append([InlineKeyboardButton(notify_label, callback_data=f"camp_notify_toggle:{camp.id}")])

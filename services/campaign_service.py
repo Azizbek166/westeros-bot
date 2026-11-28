@@ -272,6 +272,8 @@ def format_completion_rewards_preview(campaign: models.Campaign) -> str:
         parts.append(f"{int(r['iron']):,} ⛓️ Temir")
     if r.get("xp"):
         parts.append(f"{int(r['xp']):,} ✨ XP")
+    if r.get("item"):
+        parts.append(f"🗡️ Buyum: «{r['item']}»")
     if r.get("title"):
         parts.append(f"👑 Unvon: «{r['title']}»")
     if r.get("achievement_name"):
@@ -314,7 +316,11 @@ async def list_campaigns(
     session: AsyncSession,
     include_drafts: bool = False,
 ) -> List[models.Campaign]:
-    stmt = select(models.Campaign).options(selectinload(models.Campaign.missions)).order_by(models.Campaign.id.asc())
+    stmt = (
+        select(models.Campaign)
+        .options(selectinload(models.Campaign.missions))
+        .order_by(models.Campaign.order_index.asc(), models.Campaign.id.asc())
+    )
     if not include_drafts:
         stmt = stmt.where(models.Campaign.status == "published")
     res = await session.execute(stmt)
@@ -550,6 +556,7 @@ async def submit_campaign_mission_action(
 
         # 4. Missiya turiga qarab tekshirish
         outcome_text = ""
+        completion_gold_delta = 0
         task_data = parse_task_data(mission)
         if mtype == "story":
             outcome_text = mission.success_text or "✅ Hikoya bosqichi yakunlandi!"
@@ -569,8 +576,18 @@ async def submit_campaign_mission_action(
                     "message": "⚠️ Bu hikoya tanlovi yakuniy va allaqachon qabul qilingan.",
                 }
             branches[str(mission.order_index)] = str(chosen.get("key"))
+            if chosen.get("is_dark"):
+                branches[f"{mission.order_index}_alignment"] = "dark"
             prog.branch_choices_json = json.dumps(branches, ensure_ascii=False)
+            if chosen.get("bonus_gold"):
+                user.gold = (user.gold or 0) + int(chosen["bonus_gold"])
+            if chosen.get("bonus_prestige"):
+                user.prestige = (user.prestige or 0) + int(chosen["bonus_prestige"])
+            if chosen.get("completion_gold_delta"):
+                completion_gold_delta = int(chosen["completion_gold_delta"])
             outcome_text = chosen.get("outcome") or mission.success_text or f"✅ Tanlovingiz qabul qilindi: {chosen.get('text', '')}"
+            if mission.success_text and chosen.get("outcome") and mission.success_text != chosen.get("outcome"):
+                outcome_text += f"\n\n{mission.success_text}"
         elif mtype in ("quiz", "narrative_choice"):
             options = parse_mission_options(mission)
             chosen = next((o for o in options if str(o.get("key")) == str(action_value)), None)
@@ -618,40 +635,78 @@ async def submit_campaign_mission_action(
                 }
             outcome_text = chosen.get("outcome") or mission.success_text or "✅ To'g'ri javob!"
         elif mtype in ("riddle", "riddle_investigation"):
-            ans_raw = (action_value or "").strip().lower()
-            if not ans_raw:
-                return {"ok": False, "code": "empty_answer", "message": "⚠️ Iltimos, javob matnini yuboring."}
-            valid_answers = [
-                a.strip().lower()
-                for a in (mission.correct_answer or "").split("|")
-                if a.strip()
-            ]
-            if ans_raw not in valid_answers:
-                prog.daily_wrong_attempts = (prog.daily_wrong_attempts or 0) + 1
-                attempts_left = max(0, max_attempts - prog.daily_wrong_attempts)
-                prog.updated_at = now_u
-                await session.commit()
-
-                if attempts_left <= 0:
-                    mid_secs = seconds_until_tashkent_midnight(now_u)
+            options = parse_mission_options(mission)
+            if options:
+                chosen = next((o for o in options if str(o.get("key")) == str(action_value)), None)
+                if not chosen:
+                    return {"ok": False, "code": "invalid_option", "message": "❌ Noto'g'ri variant tanlandi."}
+                is_correct = bool(chosen.get("is_correct")) or (
+                    mission.correct_answer is not None and str(chosen.get("key")) == str(mission.correct_answer)
+                )
+                if not is_correct:
+                    prog.daily_wrong_attempts = (prog.daily_wrong_attempts or 0) + 1
+                    attempts_left = max(0, max_attempts - prog.daily_wrong_attempts)
+                    cd_min = get_mission_choice_cooldown_minutes(campaign, mission)
+                    if attempts_left > 0 and cd_min > 0:
+                        prog.choice_cooldown_until = now_u + timedelta(minutes=cd_min)
+                    prog.updated_at = now_u
+                    await session.commit()
+                    if attempts_left <= 0:
+                        mid_secs = seconds_until_tashkent_midnight(now_u)
+                        return {
+                            "ok": False,
+                            "code": "wrong_and_limit_reached",
+                            "attempts_left": 0,
+                            "remaining_seconds": mid_secs,
+                            "message": (
+                                f"❌ Noto'g'ri javob!\n"
+                                f"🚫 Urinishlar tugadi, ertaga qayta urinib ko'ring.\n"
+                                f"⏳ Yangilanishigacha: {format_duration_uz(mid_secs)}."
+                            ),
+                        }
+                    cd_note = f"\n⏳ Keyingi urinish: {cd_min} daqiqadan keyin." if cd_min > 0 else ""
                     return {
                         "ok": False,
-                        "code": "wrong_and_limit_reached",
-                        "attempts_left": 0,
-                        "remaining_seconds": mid_secs,
-                        "message": (
-                            f"❌ Noto'g'ri javob!\n"
-                            f"🚫 Urinishlar tugadi, ertaga qayta urinib ko'ring.\n"
-                            f"⏳ Yangilanishigacha: {format_duration_uz(mid_secs)}."
-                        ),
+                        "code": "wrong_answer",
+                        "attempts_left": attempts_left,
+                        "message": f"❌ Noto'g'ri javob! Bugungi qolgan urinishlar: {attempts_left}/{max_attempts}.{cd_note}",
                     }
-                return {
-                    "ok": False,
-                    "code": "wrong_answer",
-                    "attempts_left": attempts_left,
-                    "message": f"❌ Noto'g'ri javob! Bugungi qolgan urinishlar: {attempts_left}/{max_attempts}.",
-                }
-            outcome_text = mission.success_text or "✅ Jumboq to'g'ri topildi!"
+                outcome_text = chosen.get("outcome") or mission.success_text or "✅ Jumboq to'g'ri topildi!"
+            else:
+                ans_raw = (action_value or "").strip().lower()
+                if not ans_raw:
+                    return {"ok": False, "code": "empty_answer", "message": "⚠️ Iltimos, javob matnini yuboring."}
+                valid_answers = [
+                    a.strip().lower()
+                    for a in (mission.correct_answer or "").split("|")
+                    if a.strip()
+                ]
+                if ans_raw not in valid_answers:
+                    prog.daily_wrong_attempts = (prog.daily_wrong_attempts or 0) + 1
+                    attempts_left = max(0, max_attempts - prog.daily_wrong_attempts)
+                    prog.updated_at = now_u
+                    await session.commit()
+
+                    if attempts_left <= 0:
+                        mid_secs = seconds_until_tashkent_midnight(now_u)
+                        return {
+                            "ok": False,
+                            "code": "wrong_and_limit_reached",
+                            "attempts_left": 0,
+                            "remaining_seconds": mid_secs,
+                            "message": (
+                                f"❌ Noto'g'ri javob!\n"
+                                f"🚫 Urinishlar tugadi, ertaga qayta urinib ko'ring.\n"
+                                f"⏳ Yangilanishigacha: {format_duration_uz(mid_secs)}."
+                            ),
+                        }
+                    return {
+                        "ok": False,
+                        "code": "wrong_answer",
+                        "attempts_left": attempts_left,
+                        "message": f"❌ Noto'g'ri javob! Bugungi qolgan urinishlar: {attempts_left}/{max_attempts}.",
+                    }
+                outcome_text = mission.success_text or "✅ Jumboq to'g'ri topildi!"
         elif mtype in ("combat", "combat_encounter"):
             enemy_name = task_data.get("enemy_name") or "Qaroqchilar Boshlig'i"
             enemy_hp = int(task_data.get("enemy_hp", 200) or 200)
@@ -747,9 +802,10 @@ async def submit_campaign_mission_action(
                 prog.completion_reward_claimed = True
                 crewards = parse_completion_rewards(campaign)
                 if crewards.get("gold"):
-                    g = int(crewards["gold"])
-                    user.gold = (user.gold or 0) + g
-                    grand_rewards_granted["gold"] = g
+                    g = max(0, int(crewards["gold"]) + completion_gold_delta)
+                    if g > 0:
+                        user.gold = (user.gold or 0) + g
+                        grand_rewards_granted["gold"] = g
                 if crewards.get("food"):
                     f = int(crewards["food"])
                     user.food = (user.food or 0) + f
@@ -762,6 +818,8 @@ async def submit_campaign_mission_action(
                     xp = int(crewards["xp"])
                     user.xp = (user.xp or 0) + xp
                     grand_rewards_granted["xp"] = xp
+                if crewards.get("item"):
+                    grand_rewards_granted["item"] = str(crewards["item"])
                 if crewards.get("title"):
                     user.title = str(crewards["title"])[:100]
                     grand_rewards_granted["title"] = user.title
@@ -827,6 +885,8 @@ async def submit_campaign_mission_action(
                 grand_lines.append(f"⛓️ +{grand_rewards_granted['iron']:,} Temir")
             if grand_rewards_granted.get("xp"):
                 grand_lines.append(f"✨ +{grand_rewards_granted['xp']:,} XP")
+            if grand_rewards_granted.get("item"):
+                grand_lines.append(f"🗡️ Maxsus buyum: **«{grand_rewards_granted['item']}»**")
             if grand_rewards_granted.get("title"):
                 grand_lines.append(f"👑 Yangi Unvon: **«{grand_rewards_granted['title']}»**")
             if grand_rewards_granted.get("achievement"):
@@ -1356,3 +1416,357 @@ async def seed_sample_campaign(session: AsyncSession) -> models.Campaign:
         await add_campaign_mission(session=session, campaign_id=camp.id, **mdata)
 
     return await get_campaign_with_missions(session, camp.id)
+
+
+async def seed_story_campaigns(session: AsyncSession) -> List[models.Campaign]:
+    """
+    3 ta yangi o'zbekcha hikoyaviy kampaniyani bazaga idempotent tarzda kiritadi:
+      1. Qonli Ziyofat Soyasi (min_level=5, order_index=2)
+      2. Devor Ortida Qolgan Qarg‘a (min_level=10, order_index=3)
+      3. Valiriya Oltini Karvoni (min_level=3, order_index=4)
+    """
+    from sqlalchemy import or_
+
+    catalog = [
+        {
+            "slug": "shadow_of_the_red_feast",
+            "title": "Qonli Ziyofat Soyasi",
+            "description": (
+                "Qirol portidagi yirik savdo gildiyasi rahbari ziyofat paytida noma'lum zahardan vafot etdi. "
+                "Poytaxtda qonli urush boshlanmasidan avval haqiqiy qotilni toping."
+            ),
+            "min_level": 5,
+            "order_index": 2,
+            "completion_rewards": {
+                "gold": 1000,
+                "item": "Zaharli Xanjar (Poisoned Dagger)",
+                "title": "Shivirlar Ustasi",
+                "achievement_code": "camp_red_feast",
+                "achievement_name": "Qirol Porti Izquvari",
+            },
+            "missions": [
+                {
+                    "order_index": 1,
+                    "title": "Ziyofat dasturxoni",
+                    "story_text": (
+                        "Ziyofat zalida hamma narsa joyida turibdi, faqat lordning kumush qadahi ag'darilgan. "
+                        "Xizmatkorning aytishicha, lord taomdan oldin faqat uchta narsaga qo'l tekizgan: "
+                        "qizil sharob, qovurilgan bedana va tuzlangan zaytun. Qadah tubida binafsharang iz qolgan. "
+                        "Zahar nimada bo'lgan?"
+                    ),
+                    "mission_type": "riddle_investigation",
+                    "options": [
+                        {"key": "wine", "text": "🍷 Qizil sharob", "is_correct": True},
+                        {"key": "quail", "text": "🍗 Qovurilgan bedana", "is_correct": False},
+                        {"key": "olive", "text": "🫒 Tuzlangan zaytun", "is_correct": False},
+                    ],
+                    "correct_answer": "wine",
+                    "task_data": {"clue_text": "Binafsharang cho'kma faqat suyuqlik tubida — kumush qadahda qolgan."},
+                    "success_text": "To'g'ri! Binafsharang cho'kma — bu mashhur «Lis Ko'z Yoshi» zaharining izi. U faqat sharobda eriydi.",
+                    "reward_gold": 100,
+                    "reward_xp": 50,
+                },
+                {
+                    "order_index": 2,
+                    "title": "Flea Bottom soyalari",
+                    "story_text": (
+                        "Poytaxtning eng qorong'i ko'chalarida yashovchi keksa alkimyogar bu zaharni kecha kim sotib olganini biladi, "
+                        "lekin u tilini yechish uchun **150 oltin** talab qilmoqda."
+                    ),
+                    "mission_type": "resource_tribute",
+                    "task_data": {"cost_gold": 150, "button_text": "💰 Alkimyogarga 150🪙 berish"},
+                    "success_text": (
+                        "Alkimyogar tangalarni sanab, shivirlaydi: "
+                        "«Xaridor yuzini yashirgan edi, lekin uning uzugida uch boshli ilon muhri bor edi. U hozir eski port omborida.»"
+                    ),
+                    "reward_gold": 0,
+                    "reward_xp": 80,
+                },
+                {
+                    "order_index": 3,
+                    "title": "Qora niqobli qotil",
+                    "story_text": (
+                        "Eski omborga kirishingiz bilan qorong'ulikdan yollanma qotil sakrab chiqadi. "
+                        "Uning qo'lida zaharlangan xanjar yaltiraydi!"
+                    ),
+                    "mission_type": "combat_encounter",
+                    "task_data": {
+                        "enemy_name": "Yollanma Qotil",
+                        "enemy_hp": 180,
+                        "enemy_attack": 28,
+                        "enemy_defense": 10,
+                        "enemy_power": 320,
+                        "defeat_gold_penalty": 50,
+                    },
+                    "success_text": "Qotil yerga quladi. Uning cho'ntagidan marhum lordning ukasi imzolagan buyruq xati topildi!",
+                    "reward_gold": 200,
+                    "reward_xp": 120,
+                },
+                {
+                    "order_index": 4,
+                    "title": "Kengashdagi fosh etish",
+                    "story_text": (
+                        "Dalillar qo'lingizda. Marhum lordning ukasi sizga sukut saqlash va xatni yo'q qilish evaziga "
+                        "qo'shimcha 500 oltin taklif qilmoqda. Qanday yo'l tutasiz?"
+                    ),
+                    "mission_type": "branch",
+                    "options": [
+                        {
+                            "key": "council",
+                            "text": "⚖️ Xatni Qirol Kengashiga topshirish",
+                            "bonus_prestige": 25,
+                            "outcome": "⚖️ Siz adolat yo'lini tanladingiz! Qirol Kengashi sizga +25 ⭐ shon-sharaf berdi.",
+                        },
+                        {
+                            "key": "bribe",
+                            "text": "💰 Pora olib, xatni yoqib yuborish (+500🪙)",
+                            "bonus_gold": 500,
+                            "is_dark": True,
+                            "outcome": "🕶️ Siz +500 🪙 porani olib, xatni olovga tashladingiz. Qorong'i sir tarixga muhrlandi.",
+                        },
+                    ],
+                    "success_text": "Sizning qaroringiz Qirol portidagi kuchlar muvozanatini abadiy o'zgartirdi. Kampaniya yakunlandi!",
+                    "reward_gold": 150,
+                    "reward_xp": 150,
+                },
+            ],
+        },
+        {
+            "slug": "crow_beyond_the_wall",
+            "title": "Devor Ortida Qolgan Qarg‘a",
+            "description": (
+                "Tungi Soqchilarning eng tajribali izquvari Devor ortidagi Qarg'alar O'rmonida bedarak yo'qoldi. "
+                "Qor bo'ronlari va yovvoyilar orasidan o'tib, uning taqdirini aniqlang."
+            ),
+            "min_level": 10,
+            "order_index": 3,
+            "completion_rewards": {
+                "gold": 1500,
+                "item": "Obsidian Qilich (Dragonglass Blade)",
+                "title": "Devor Qo‘riqchisi",
+                "achievement_code": "camp_beyond_wall",
+                "achievement_name": "Muz Yurak",
+            },
+            "missions": [
+                {
+                    "order_index": 1,
+                    "title": "Muzlagan izlar",
+                    "story_text": (
+                        "Qora Qal'adan shimolga yurganingizda kuchli qor bo'roni boshlandi. "
+                        "Oldinda ikki yo'l bor: muzlagan daryo ustidan qisqa yo'l yoki qalin o'rmon orqali uzoq yo'l."
+                    ),
+                    "mission_type": "branch",
+                    "options": [
+                        {
+                            "key": "forest",
+                            "text": "🌲 Qalin o'rmon orqali yurish (xavfsiz)",
+                            "outcome": "🌲 Qalin o'rmon sizni shamoldan asradi va xavfsiz o'tib oldingiz.",
+                        },
+                        {
+                            "key": "river",
+                            "text": "🧊 Muzlagan daryodan o'tish (qisqa, xavfli)",
+                            "outcome": "🧊 Muz yorildi! Muzdek suvdan chiqishda 30 HP / quvvat yo'qotdingiz, lekin oldinga o'tdingiz.",
+                        },
+                    ],
+                    "success_text": "Sovuq suyak-suyagingizdan o'tsa-da, izquvar qoldirgan qizil mato belgisini topdingiz.",
+                    "reward_gold": 150,
+                    "reward_xp": 100,
+                },
+                {
+                    "order_index": 2,
+                    "title": "Suyakdorlar qabilasi",
+                    "story_text": "Qadimiy tosh qabrga kiraverishda suyaklardan zirh kiygan yovvoyi jangchilar yo'lingizni to'sdi!",
+                    "mission_type": "combat_encounter",
+                    "task_data": {
+                        "enemy_name": "Suyakdorlar Sardori",
+                        "enemy_hp": 320,
+                        "enemy_attack": 45,
+                        "enemy_defense": 20,
+                        "enemy_power": 545,
+                        "defeat_gold_penalty": 80,
+                    },
+                    "success_text": "Yovvoyilar chekinishdi. Qabr eshigi oldida izquvarning singan kamoni yotardi.",
+                    "reward_gold": 250,
+                    "reward_xp": 180,
+                },
+                {
+                    "order_index": 3,
+                    "title": "Valiriya bitiklari",
+                    "story_text": (
+                        "Qabr ichidagi ulkan tosh darvozada qadimiy yozuv bor:\n"
+                        "«Meni boqsang — yashayman, suv bersang — o'laman. Qorong'ulikni quvaman, lekin kulga aylanaman. Men nimaman?»"
+                    ),
+                    "mission_type": "riddle_investigation",
+                    "options": [
+                        {"key": "fire", "text": "🔥 Olov", "is_correct": True},
+                        {"key": "wind", "text": "💨 Shamol", "is_correct": False},
+                        {"key": "sword", "text": "⚔️ Qilich", "is_correct": False},
+                    ],
+                    "correct_answer": "fire",
+                    "task_data": {"clue_text": "Suvdan qo'rqadigan va qorong'ulikni quvadigan yagona unsur..."},
+                    "success_text": "Mash'alani tosh kosaga yaqinlashtirishingiz bilan olov alangalanib, ulkan darvoza ochildi!",
+                    "reward_gold": 200,
+                    "reward_xp": 150,
+                },
+                {
+                    "order_index": 4,
+                    "title": "Uyg'ongan dahshat",
+                    "story_text": (
+                        "Qabr markazida ko'zlari moviy rangda yonayotgan qadimiy tirilgan jangchi (Wight) "
+                        "va uning yonida halok bo'lgan izquvarning maktubi turibdi!"
+                    ),
+                    "mission_type": "combat_encounter",
+                    "task_data": {
+                        "enemy_name": "Qadimiy Muz Jangchisi",
+                        "enemy_hp": 450,
+                        "enemy_attack": 55,
+                        "enemy_defense": 25,
+                        "enemy_power": 725,
+                        "defeat_gold_penalty": 100,
+                    },
+                    "success_text": "Dushman kulga aylandi. Siz izquvarning maktubini olib, Qora Qal'aga muhim xabar bilan qaytdingiz!",
+                    "reward_gold": 300,
+                    "reward_xp": 250,
+                },
+            ],
+        },
+        {
+            "slug": "valyrian_gold_caravan",
+            "title": "Valiriya Oltini Karvoni",
+            "description": (
+                "Braavos Temir Bankiga tegishli maxfiy oltin karvoni Dothraki dashtlari chekkasida g'oyib bo'ldi. "
+                "Yukni qaytaring va Bankning ishonchini qozoning."
+            ),
+            "min_level": 3,
+            "order_index": 4,
+            "completion_rewards": {
+                "gold": 2000,
+                "item": "Braavos Rapirasi",
+                "title": "Temir Bank Hamkori",
+                "achievement_code": "camp_valyrian_caravan",
+                "achievement_name": "Oltin Izquvar",
+            },
+            "missions": [
+                {
+                    "order_index": 1,
+                    "title": "Yonib kul bo'lgan aravalar",
+                    "story_text": (
+                        "Karvon qoldiqlarini tekshirayotib, arava g'ildiraklari ichkaridan sindirilganini va "
+                        "soqchilarning qilichlari qinidan chiqarilmaganini ko'rdingiz. Bu nimani anglatadi?"
+                    ),
+                    "mission_type": "riddle_investigation",
+                    "options": [
+                        {"key": "staged", "text": "🕵️ Soqchilarning o'zi oltinni o'g'irlab, hujumni sahnalashtirgan", "is_correct": True},
+                        {"key": "dragon", "text": "🐉 Ajdarho hujum qilgan", "is_correct": False},
+                        {"key": "dothraki", "text": "🐎 Dothraki qabilasi bosqin qilgan", "is_correct": False},
+                    ],
+                    "correct_answer": "staged",
+                    "task_data": {"clue_text": "Hech qanday jang izi yo'q — qilichlar qinida qolgan!"},
+                    "success_text": "Ajoyib kuzatuvchanlik! Xoin soqchilarning ot izlari janubdagi bandargoh tomon ketgan.",
+                    "reward_gold": 80,
+                    "reward_xp": 40,
+                },
+                {
+                    "order_index": 2,
+                    "title": "Korsarlar bandargohi",
+                    "story_text": (
+                        "Bandargohdagi mayxonada bir ko'zli dengizchi xoinlar qaysi kemaga chiqqanini biladi, "
+                        "lekin avval **100 oltin** evaziga ziyofat talab qilmoqda."
+                    ),
+                    "mission_type": "resource_tribute",
+                    "task_data": {"cost_gold": 100, "button_text": "💰 Dengizchiga 100🪙 to'lash"},
+                    "success_text": "Dengizchi kulib, barmog'i bilan ko'rfazdagi «Qora Yelkan» kemasini ko'rsatdi.",
+                    "reward_gold": 0,
+                    "reward_xp": 60,
+                },
+                {
+                    "order_index": 3,
+                    "title": "Kema bortidagi to'qnashuv",
+                    "story_text": "Kema langar ko'tarishidan oldin bortga sakrab chiqdingiz. Xoin soqchilar sardori qilichini yalang'ochladi!",
+                    "mission_type": "combat_encounter",
+                    "task_data": {
+                        "enemy_name": "Xoin Sardor",
+                        "enemy_hp": 140,
+                        "enemy_attack": 22,
+                        "enemy_defense": 8,
+                        "enemy_power": 250,
+                        "defeat_gold_penalty": 40,
+                    },
+                    "success_text": "Sardor taslim bo'ldi! Kema tryumidan Temir Bank muhrlangan sandiqlari topildi.",
+                    "reward_gold": 150,
+                    "reward_xp": 100,
+                },
+                {
+                    "order_index": 4,
+                    "title": "Temir Bank hukmi",
+                    "story_text": (
+                        "Sandiqlar to'la qadimiy Valiriya oltini. Temir Bank vakili portda kutib turibdi. "
+                        "Qanday qaror qilasiz?"
+                    ),
+                    "mission_type": "branch",
+                    "options": [
+                        {
+                            "key": "honest",
+                            "text": "🏦 Barcha sandiqlarni to'liq topshirish",
+                            "outcome": "🏦 Temir Bank halolligingizni yuqori baholadi va to'liq mukofotni topshirdi!",
+                        },
+                        {
+                            "key": "hide_gold",
+                            "text": "💰 Bir qop oltinni yashirib qolish (+1000🪙, final -500🪙)",
+                            "bonus_gold": 1000,
+                            "completion_gold_delta": -500,
+                            "is_dark": True,
+                            "outcome": "🕶️ Siz bir qop (+1,000🪙) oltinni yashirib qoldingiz; Bank esa kamomad tufayli yakuniy mukofotdan 500🪙 ushlab qoldi.",
+                        },
+                    ],
+                    "success_text": "Temir Bank o'z haqini oldi. Sizning nomingiz Essos bo'ylab mashhur bo'ldi!",
+                    "reward_gold": 100,
+                    "reward_xp": 100,
+                },
+            ],
+        },
+    ]
+
+    seeded: List[models.Campaign] = []
+    for item in catalog:
+        res = await session.execute(
+            select(models.Campaign)
+            .where(
+                or_(
+                    models.Campaign.slug == item["slug"],
+                    models.Campaign.title == item["title"],
+                )
+            )
+            .options(selectinload(models.Campaign.missions))
+        )
+        existing = res.scalar_one_or_none()
+        if existing:
+            seeded.append(existing)
+            continue
+
+        camp = await create_campaign(
+            session=session,
+            slug=item["slug"],
+            title=item["title"],
+            description=item["description"],
+            min_level=item["min_level"],
+            order_index=item["order_index"],
+            completion_rewards=item["completion_rewards"],
+            unlock_mode="cooldown",
+            default_cooldown_hours=24,
+            default_daily_attempts=3,
+            default_choice_cooldown_minutes=30,
+            status="published",
+        )
+        for mdata in item["missions"]:
+            await add_campaign_mission(session=session, campaign_id=camp.id, **mdata)
+        seeded.append(await get_campaign_with_missions(session, camp.id))
+
+    return seeded
+
+
+async def seed_all_campaigns(session: AsyncSession) -> List[models.Campaign]:
+    """Barcha standart kampaniyalarni (1 ta original + 3 ta yangi o'zbekcha) idempotent tarzda seed qiladi."""
+    first = await seed_sample_campaign(session)
+    others = await seed_story_campaigns(session)
+    return [first] + others

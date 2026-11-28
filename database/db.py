@@ -831,12 +831,12 @@ async def init_db():
 
         await session.commit()
 
-        # Namuna kampaniya ("The Mystery of the Missing Lord") — 5 missiya, har biri orasida 24 soat kutish
+        # Barcha standart kampaniyalar (1 original + 3 yangi o'zbekcha kampaniya — idempotent)
         try:
-            from services.campaign_service import seed_sample_campaign
-            await seed_sample_campaign(session)
+            from services.campaign_service import seed_all_campaigns
+            await seed_all_campaigns(session)
         except Exception as camp_seed_err:
-            logger.warning(f"Sample campaign seed warning: {camp_seed_err}")
+            logger.warning(f"Campaigns seed warning: {camp_seed_err}")
 
         logger.info("✅ 50 ta Xonadon va Westeros hududlari bazaga kiritildi.")
 
